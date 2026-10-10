@@ -12,6 +12,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+PLUGINS = os.path.join(ROOT, "plugins")
 sys.path.insert(0, HERE)
 import midi_io  # noqa: E402
 import patches as PT  # noqa: E402
@@ -19,9 +20,9 @@ import plugout as P  # noqa: E402
 import plugout_tool as T  # noqa: E402
 
 DATS = {
-    "JUNO-60": os.path.join(ROOT, "JUNO-60", "Script", "Code8_1.Dat"),
-    "JX-3P": os.path.join(ROOT, "JX-3P", "Script", "Code8_1.Dat"),
-    "SH-101": os.path.join(ROOT, "SH-101", "Script", "Code8_1.Dat"),
+    "JUNO-60": os.path.join(PLUGINS, "JUNO-60", "Script", "Code8_1.Dat"),
+    "JX-3P": os.path.join(PLUGINS, "JX-3P", "Script", "Code8_1.Dat"),
+    "SH-101": os.path.join(PLUGINS, "SH-101", "Script", "Code8_1.Dat"),
 }
 
 
@@ -249,13 +250,13 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(all(m[2] == 0x11 for m in dev.sent))
 
 
-@unittest.skipUnless(os.path.exists(os.path.join(ROOT, "SH-101", "Patch")), "plugin files missing")
+@unittest.skipUnless(os.path.exists(os.path.join(PLUGINS, "SH-101", "Patch")), "plugin files missing")
 class PatchTests(unittest.TestCase):
     def test_banks(self):
         for model in DATS:
-            layout = PT.ScriptLayout(os.path.join(ROOT, model, "Script", "Script.xml"))
+            layout = PT.ScriptLayout(os.path.join(PLUGINS, model, "Script", "Script.xml"))
             self.assertEqual([layout.size(t) for t in PT.PATCH_TYPES], [640, 3975, 15580])
-            bank = PT.load_bank(PT.default_bank(os.path.join(ROOT, model)), layout)
+            bank = PT.load_bank(PT.default_bank(os.path.join(PLUGINS, model)), layout)
             self.assertEqual(len(bank), 64)
             for p in bank:
                 for t in PT.PATCH_TYPES:
@@ -263,12 +264,12 @@ class PatchTests(unittest.TestCase):
                     self.assertTrue(all(b < 0x80 for b in p.data[t]))
 
     def test_sh101_defaults(self):
-        layout = PT.ScriptLayout(os.path.join(ROOT, "SH-101", "Script", "Script.xml"))
-        bank = PT.load_bank(PT.default_bank(os.path.join(ROOT, "SH-101")), layout)
+        layout = PT.ScriptLayout(os.path.join(PLUGINS, "SH-101", "Script", "Script.xml"))
+        bank = PT.load_bank(PT.default_bank(os.path.join(PLUGINS, "SH-101")), layout)
         self.assertEqual(bank[0].name, "LD the real 101")
         self.assertEqual(bank[0].data["patch2"], layout.default("patch2"))
         # JUNO-60 "LFO RATE H" default 1058115986 = 0x3F119192, as 8 nibbles
-        juno = PT.ScriptLayout(os.path.join(ROOT, "JUNO-60", "Script", "Script.xml"))
+        juno = PT.ScriptLayout(os.path.join(PLUGINS, "JUNO-60", "Script", "Script.xml"))
         self.assertEqual(juno.default("patch2")[:8].hex(" "), "03 0f 01 01 09 01 09 02")
 
     def test_addresses(self):
@@ -282,8 +283,8 @@ class PatchTests(unittest.TestCase):
 
     def test_messages_and_session(self):
         model = "JUNO-60"
-        layout = PT.ScriptLayout(os.path.join(ROOT, model, "Script", "Script.xml"))
-        bank = PT.load_bank(PT.default_bank(os.path.join(ROOT, model)), layout)
+        layout = PT.ScriptLayout(os.path.join(PLUGINS, model, "Script", "Script.xml"))
+        bank = PT.load_bank(PT.default_bank(os.path.join(PLUGINS, model)), layout)
         msgs = PT.patch_messages(layout, bank, slot=2, count=64, device_type=2,
                                  already_installed=False)
         self.assertEqual(len(msgs), 2 + 64 * (14 + 17 + 66))

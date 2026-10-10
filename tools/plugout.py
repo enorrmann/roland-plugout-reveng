@@ -140,7 +140,11 @@ class Container:
 
 def load(path: str) -> Container:
     with open(path, "rb") as fh:
-        plain = decode(fh.read())
+        return load_bytes(fh.read(), path)
+
+
+def load_bytes(data: bytes, path: str = "<memory>") -> Container:
+    plain = decode(data)
     if (struct.unpack_from("<I", plain, 0)[0] != HEADER_SIZE
             or plain[4:4 + len(TYPE_NAME)] != TYPE_NAME):
         raise ValueError(f"{path}: not a PLUGOUT_SYS_INF container")

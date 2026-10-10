@@ -103,9 +103,14 @@ transfer must wait for the flow-control replies every 32 messages, which is what
 | `tools/plugout.py` | container format, Roland SysEx, protocol constants |
 | `tools/patches.py` | `Script.xml` structures, `Patch/*.bin` banks, patch addresses |
 | `tools/midi_io.py` | MIDI ports (ALSA raw MIDI via ctypes, python-rtmidi) |
+| `tools/plugout_build.py` | CLI to unpack, modify and rebuild `Code*.Dat` ([`CUSTOM_PLUGOUTS.md`](CUSTOM_PLUGOUTS.md)) |
+| `tools/plugout_image.py` | flash image, region header, SYNINFO, relocation, container builder |
+| `tools/lzss.py` | LZSS codec of the firmware regions |
 | `tools/test_plugout.py` | tests against a simulated SYSTEM-8: `python3 -m unittest discover -s tools` |
+| `tools/test_plugout_build.py` | rebuild / relocation tests against the shipped files |
 | `PROTOCOL.md` | protocol extracted from the plugins, with code addresses |
-| `SYSTEM8_UP.BIN` | official SYSTEM-8 updater (not used here) |
+| `CUSTOM_PLUGOUTS.md` | firmware format, slots, relocation, OS interface; building custom PLUG-OUTs |
+| `firmware/SYSTEM8_UP.BIN` | official SYSTEM-8 updater (analysed in `CUSTOM_PLUGOUTS.md` §5) |
 
 ## Limitations
 

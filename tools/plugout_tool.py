@@ -266,6 +266,8 @@ def patch_plan(args, device_type: int, count: int, already: bool) -> tuple[str, 
 def cmd_install(args) -> int:
     if args.no_patches and args.patches_only:
         raise SystemExit("--no-patches and --patches-only exclude each other")
+    if args.slot < 1:
+        raise SystemExit("slot 0 is the synth itself; PLUG-OUT slots start at 1")
     gap, wire = args.gap_ms / 1000.0, args.wire_pacing
     if args.dry_run:
         dtype = 2 if args.device_type is None else args.device_type
