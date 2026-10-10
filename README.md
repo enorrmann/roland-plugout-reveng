@@ -28,9 +28,19 @@ python3 tools/plugout_tool.py info
 #    (Code8_<slot>.Dat is picked from the slot; bank = first file in Patch/)
 python3 tools/plugout_tool.py install JUNO-60 --slot 1
 
-# resend only the patches (another bank)
-python3 tools/plugout_tool.py install JUNO-60 --slot 1 --patches-only --bank "JUNO-60/Patch/2 Preset.bin"
+# list the patches of the plugin's banks
+python3 tools/plugout_tool.py banks plugins/JUNO-60
+
+# resend only the patches: pick ranges (1-based) from one or more banks;
+# they fill the slot's patches in order (bank 1-1, 1-2, ... 8-8)
+python3 tools/plugout_tool.py install plugins/JUNO-60 --slot 1 --patches-only \
+    --bank "2 Preset.bin:1-32" --bank "3 Preset.bin:1-32"
 ```
+
+The slot holds 64 patches (`info` shows the number). A selection longer than
+that is cut with a warning; a shorter one writes only those patches, leaving
+the rest of the slot unwritten (as the plugin does with a short bank). Banks
+saved by the plugin with more than 64 patches are read too.
 
 Example `info` output (real SYSTEM-8):
 
@@ -66,7 +76,7 @@ device during the transfer.
 | `--dat PATH` | send a specific `Code*.Dat` |
 | `--dry-run` | show what would be sent, without MIDI |
 | `--skip-check` | do not query the device first (assumes SYSTEM-8; `--device-type` for others) |
-| `--bank PATH` | patch bank to send (default: first file in `<plugin>/Patch`) |
+| `--bank FILE[:RANGES]` | patches to send, e.g. `"2 Preset.bin:1-8,17-24"`; repeatable (default: first file in `<plugin>/Patch`) |
 | `--no-patches` / `--patches-only` | firmware only / patches only |
 | `--gap-ms 10 --wire-pacing` | pause between messages like the plugin (default: none) |
 | `-v` | print every message sent and received |

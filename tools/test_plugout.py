@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import unittest
@@ -298,6 +299,33 @@ class PatchTests(unittest.TestCase):
         s, _ = session(dev)
         s.send_patches(msgs)
         self.assertEqual(dev.patch_writes, msgs)
+
+    def test_bank_selection(self):
+        self.assertEqual(PT.parse_ranges("1-3, 10", 64), [0, 1, 2, 9])
+        with self.assertRaises(ValueError):
+            PT.parse_ranges("60-65", 64)
+        plugin = os.path.join(PLUGINS, "JX-3P")
+        layout = PT.ScriptLayout(os.path.join(plugin, "Script", "Script.xml"))
+        picked = PT.select_patches(["2 Preset.bin:2-3", "1 Preset.bin:1"], plugin, layout)
+        self.assertEqual([p.name for _, _, p in picked],
+                         ["PD Vintage Warm", "BS Doctor Bass", "String 1 [Str1]"])
+
+    def test_install_patch_plan(self):
+        plugin = os.path.join(PLUGINS, "JX-3P")
+
+        def plan(*banks):
+            args = argparse.Namespace(
+                plugin=plugin, bank=list(banks) or None, slot=1, device_id=P.DEFAULT_DEVICE_ID)
+            return T.patch_plan(args, 2, 64, False)
+
+        text, msgs = plan()
+        self.assertEqual(len(msgs), 2 + 64 * (14 + 17 + 66))
+        text, msgs = plan("1 Preset.bin", "2 Preset.bin")          # 128 -> 64
+        self.assertIn("WARNING", text)
+        self.assertEqual(len(msgs), 2 + 64 * (14 + 17 + 66))
+        text, msgs = plan("2 Preset.bin:1-8")
+        self.assertIn("not written", text)
+        self.assertEqual(len(msgs), 2 + 8 * (14 + 17 + 66))
 
 
 if __name__ == "__main__":

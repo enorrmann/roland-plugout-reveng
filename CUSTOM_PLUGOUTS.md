@@ -14,7 +14,7 @@ code that runs on the synth. Tools: `tools/plugout_build.py` (CLI),
 | Authentication | none found: the only integrity checks are byte sums (region header, END message) |
 | Name / model id / version | editable (container header + SYNINFO) |
 | Code | ARM Thumb-2 with VFP; OS services through a fixed table at `0x0113FC00` (partially mapped, §7) |
-| On hardware | **a modified image has not been installed on a real SYSTEM-8 yet** |
+| On hardware (SYSTEM-8, OS 1.32, slot 3) | rebuilt JX-3P (identical) ✔ · version changed to 1.02 ✔ · name changed to `JX-3P CUSTOM` ✔ · effect label in region 0 (`JX-3P CH` → `CUSTOM CH`) ✔ · **engine code patch: EFFECT TONE inverted for OD/DS/FZ** ✔ |
 
 ## 1. Layers
 
@@ -190,6 +190,31 @@ Compression is pure Python: ~6 s for region 0, ~1 s for region 1.
   Used by all three engines and by `p0s`, so it is a stable interface.
 * No absolute OS addresses (`0x600xxxxx`) appear in the engines.
 
+### JX-3P engine notes (region 1, slot 1 addresses)
+
+* C++ with RTTI: class names come from the typeinfo next to each vtable
+  (`CDSPJx3pEfxOd/Ds/Fz/Ch/Cr/Ph`, `CDSPJx3pEfxCmn`, `CDSPJx3pOscVoice`,
+  `CPrmDSPJx3pSys8` with 336 parameter methods, ...).
+* The ARM code does not render audio: parameter methods turn a 0–255 value
+  into a float and send it to a DSP parameter id. Getter `0x60A12688(obj,
+  curve, value)` = `curve_table[curve][clamp(value)]` (256 floats per curve);
+  sender `0x60A0B41E(_, r1, id, r3, s0)` ignores `r0` and calls the OS table
+  (`0x0113FCB0`).
+* Effects: `EfxCmn` holds the type-independent parameters (EFFECT LEVEL is
+  curve `0x1C`). OD/DS/FZ share methods; their TONE is `0x60A0AC54`
+  (curve `0x10`, −1…+1, sent to DSP id `[this+0x14]`).
+* Oscillator waveform (`OscVoice` methods 8/9): both DCOs send `value − 3`
+  (table at `0x60A44DBC`); "PULSE" vs "NOISE" for positions 3–5 is decided in
+  the DSP program, which is not in the PLUG-OUT.
+* Region 0 `0x11AB84..`: value-label lists (`<u32 2><u32 0x14><u32 list id>
+  <u32 count>…` followed by `<u32 3><u32 0x1C><char[20]>` labels).
+
+Verified patch (EFFECT TONE inverted; 16 bytes at `0x60A0AC62`, slot 1):
+`mov r3,r5 · ldr r2,[r4,#0x14] · ldr r1,[r4,#4] · vneg.f32 s0,s0 ·
+bl 0x60A0B41E · pop {r4,r5,r6,pc}` — the original tail call
+(`pop.w` + `b.w`) becomes `bl` + `pop`, and the dead `mov r0,r4` is dropped,
+which frees room for the new instruction without moving anything else.
+
 ### Writing new code
 
 What works today, without the full ABI:
@@ -212,13 +237,14 @@ must contain. Next steps:
 * load `elf` exports of the three PLUG-OUTs and `p0m`/`p0s` in Ghidra, label
   the import stubs, and compare call sites across engines;
 * decode `App1_Main` (the OS) to see who fills `0x0113FC00`;
-* first hardware test: an unmodified rebuild (`pack` output equals Roland's
-  file), then an identity change only, then code.
+* hardware tests so far: unmodified rebuild, version, name, a region 0 label,
+  an engine code patch (all OK). Open: a free model id, code caves.
 
 ### Risks
 
-* Not yet tried on hardware. A broken engine may crash the synth when the slot
-  is selected; the official updater rewrites slots 0–3.
+* Identity, data and small in-place code changes work on hardware. A broken
+  engine may crash the synth when the slot is selected; the official updater
+  rewrites slots 0–3.
 * Model id: the device and the plugin use it (with the name) to decide whether
   a slot already holds this PLUG-OUT. Whether the OS also keys other behaviour
   (panel, patch format) on it is unknown; the safest first test keeps the

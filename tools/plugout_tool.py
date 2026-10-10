@@ -253,14 +253,66 @@ def resolve_container(args, device_type: int) -> P.Container:
     return P.load(P.container_path(args.plugin, device_type, args.slot))
 
 
+def device_patch(i: int) -> str:
+    """0-based patch index -> the synth's bank-number label (8 patches per bank)."""
+    return f"{i // 8 + 1}-{i % 8 + 1}"
+
+
 def patch_plan(args, device_type: int, count: int, already: bool) -> tuple[str, list[bytes]]:
+    """Messages for the patches picked with --bank (default: the first bank file).
+
+    The selection fills the slot's patches in order. Patches past the slot's
+    capacity are dropped; if fewer are picked, only those are written (the
+    plugin does the same with a short bank).
+    """
     if not args.plugin:
         raise SystemExit("the patch bank needs the plugin folder (or use --no-patches)")
     layout = PT.ScriptLayout(os.path.join(args.plugin, "Script", "Script.xml"))
-    bank = args.bank or PT.default_bank(args.plugin)
-    msgs = PT.patch_messages(layout, PT.load_bank(bank, layout), args.slot, count,
+    specs = args.bank or [PT.default_bank(args.plugin)]
+    picked = PT.select_patches(specs, args.plugin, layout)
+    if not picked:
+        raise SystemExit("no patches selected")
+    lines = []
+    if len(picked) > count:
+        dropped = picked[count:]
+        lines.append(f"WARNING: {len(picked)} patches selected, the slot holds {count}: "
+                     f"dropping {len(dropped)} (from {dropped[0][2].name!r} on); "
+                     "pick ranges with --bank FILE:1-64")
+        picked = picked[:count]
+    # one line per run of consecutive patches from the same bank
+    runs = []
+    for dev, (path, i, _) in enumerate(picked):
+        if runs and runs[-1][0] == path and runs[-1][2] + 1 == i:
+            runs[-1][2] = i
+            runs[-1][4] = dev
+        else:
+            runs.append([path, i, i, dev, dev])
+    for path, a, b, da, db in runs:
+        lines.append(f"  {os.path.basename(path)} {a + 1}-{b + 1} -> patches "
+                     f"{device_patch(da)}..{device_patch(db)}")
+    if len(picked) < count:
+        lines.append(f"  patches {device_patch(len(picked))}..{device_patch(count - 1)} "
+                     "are not written")
+    msgs = PT.patch_messages(layout, [p for _, _, p in picked], args.slot, count,
                              device_type, already, args.device_id)
-    return bank, msgs
+    return "\n".join(lines), msgs
+
+
+def cmd_banks(args) -> int:
+    """List the patches of the plugin's banks (or of --bank selections)."""
+    layout = PT.ScriptLayout(os.path.join(args.plugin, "Script", "Script.xml"))
+    specs = args.bank
+    if not specs:
+        d = os.path.join(args.plugin, "Patch")
+        specs = sorted(os.path.join(d, f) for f in os.listdir(d) if f.lower().endswith(".bin"))
+    for spec in specs:
+        path, ranges = PT.resolve_bank(spec, args.plugin)
+        bank = PT.load_bank(path, layout)
+        idx = PT.parse_ranges(ranges, len(bank)) if ranges else range(len(bank))
+        print(f"{path}: {len(bank)} patches")
+        for i in idx:
+            print(f"  {i + 1:3d}  {bank[i].name}")
+    return 0
 
 
 def cmd_install(args) -> int:
@@ -279,8 +331,10 @@ def cmd_install(args) -> int:
             print(f"firmware: {len(fw)} messages, {sum(map(len, fw))} bytes, slot {args.slot}"
                   + (f", {pauses:.0f} s of pauses" if pauses else ""))
         if not args.no_patches:
-            bank, msgs = patch_plan(args, dtype, 64, False)
-            print(f"patches : {bank}: {len(msgs)} messages, {sum(map(len, msgs))} bytes")
+            plan, msgs = patch_plan(args, dtype, 64, False)
+            print(f"patches : {len(msgs)} messages, {sum(map(len, msgs))} bytes "
+                  "(64 patches assumed without the device)")
+            print(plan)
         return 0
 
     s, port = open_session(args)
@@ -323,9 +377,9 @@ def cmd_install(args) -> int:
         if args.patches_only and state not in (None, P.SLOT_SAME, P.SLOT_OTHER_VERSION):
             raise SystemExit(f"slot {args.slot} does not hold {c.model}: install the firmware first")
 
-        bank, pmsgs = (None, [])
+        plan, pmsgs = ("", [])
         if not args.no_patches:
-            bank, pmsgs = patch_plan(args, dtype, info["patches"], state == P.SLOT_SAME)
+            plan, pmsgs = patch_plan(args, dtype, info["patches"], state == P.SLOT_SAME)
         if not do_firmware and not pmsgs:
             print("nothing to do")
             return 0
@@ -334,8 +388,9 @@ def cmd_install(args) -> int:
         if do_firmware:
             print(f"firmware: {c.model} {version_str(c.version)} -> slot {args.slot}")
         if pmsgs:
-            print(f"patches : {os.path.basename(bank)} ({info['patches']} patches, "
-                  f"{len(pmsgs)} messages) -> slot {args.slot}")
+            print(f"patches : {len(pmsgs)} messages -> slot {args.slot} "
+                  f"(holds {info['patches']} patches)")
+            print(plan)
         print("do not disconnect or power off the device during the transfer")
         if not args.yes and input("type 'yes' to start: ").strip().lower() != "yes":
             print("aborted")
@@ -393,10 +448,17 @@ def main(argv=None) -> int:
     p.add_argument("--force", action="store_true", help="install even if the plugin would refuse")
     p.add_argument("-y", "--yes", action="store_true", help="do not ask for confirmation")
     p.add_argument("--dry-run", action="store_true", help="show what would be sent, no MIDI")
-    p.add_argument("--bank", help="patch bank to send (default: the first file in <plugin>/Patch)")
+    p.add_argument("--bank", action="append", metavar="FILE[:RANGES]",
+                   help="patches to send, e.g. '2 Preset.bin:1-32' (1-based); repeat to "
+                        "combine banks, filled in order (default: the first file in <plugin>/Patch)")
     p.add_argument("--no-patches", action="store_true", help="send only the firmware")
     p.add_argument("--patches-only", action="store_true", help="send only the patch bank")
     p.set_defaults(func=cmd_install)
+
+    p = sub.add_parser("banks", help="list the patches in a plugin's banks")
+    p.add_argument("plugin", help="plugin folder")
+    p.add_argument("--bank", action="append", metavar="FILE[:RANGES]")
+    p.set_defaults(func=cmd_banks)
 
     p = sub.add_parser("inspect", help="decode a Code*.Dat")
     p.add_argument("dat")

@@ -120,11 +120,13 @@ class Patch:
 
 
 def load_bank(path: str, layout: ScriptLayout) -> list[Patch]:
-    """Read a KoaBankFile: 16-byte magic, model tag, 64 records.
+    """Read a KoaBankFile: 16-byte magic, model tag ("PG-JX3P"), records.
 
     Record = name[16] + header + leaf memory. Version 3 (JUNO-60, JX-3P) has a
     12-byte header and patch+patch2+patch3; version 2 (SH-101) a 27-byte header
-    and only "patch" (the others take the Script.xml defaults).
+    and only "patch" (the others take the Script.xml defaults). The shipped
+    banks hold 64 records; libraries saved by the plugin may hold more, so the
+    count is taken from the file size.
     """
     with open(path, "rb") as fh:
         d = fh.read()
@@ -136,9 +138,10 @@ def load_bank(path: str, layout: ScriptLayout) -> list[Patch]:
     else:
         raise ValueError(f"{path}: unsupported bank {magic!r}")
     rec = 16 + header + sum(layout.size(t) for t in types)
-    count = 64
-    tag = len(d) - 16 - count * rec
-    if not 0 < tag <= 16 or not d[16:16 + tag].startswith(b"PG-"):
+    if not d[16:19] == b"PG-":
+        raise ValueError(f"{path}: no PG- model tag")
+    count, tag = divmod(len(d) - 16, rec)
+    if not 0 < tag <= 16 or count < 1:
         raise ValueError(f"{path}: record size {rec} does not match Script.xml")
     patches = []
     for i in range(count):
@@ -152,6 +155,45 @@ def load_bank(path: str, layout: ScriptLayout) -> list[Patch]:
                 data[t] = layout.default(t)
         patches.append(Patch(r[:16].decode("ascii", "replace").rstrip(), data))
     return patches
+
+
+def parse_ranges(text: str, count: int) -> list[int]:
+    """'1-8,17,33-40' (1-based, inclusive) -> 0-based indices, in that order."""
+    out = []
+    for part in text.split(","):
+        a, _, b = part.strip().partition("-")
+        lo, hi = int(a), int(b) if b else int(a)
+        if not 1 <= lo <= hi <= count:
+            raise ValueError(f"patch range {part.strip()!r} is outside 1-{count}")
+        out += range(lo - 1, hi)
+    return out
+
+
+def resolve_bank(spec: str, plugin_dir: str | None) -> tuple[str, str | None]:
+    """'FILE[:RANGES]' -> (path, ranges). FILE may be a name inside <plugin>/Patch."""
+    path, ranges = spec, None
+    m = re.match(r"^(.*):([0-9,\s-]+)$", spec)
+    if m:
+        path, ranges = m.group(1), m.group(2)
+    if not os.path.exists(path) and plugin_dir:
+        alt = os.path.join(plugin_dir, "Patch", path)
+        if os.path.exists(alt):
+            path = alt
+    if not os.path.exists(path):
+        raise ValueError(f"bank not found: {path}")
+    return path, ranges
+
+
+def select_patches(specs: list[str], plugin_dir: str | None,
+                   layout: ScriptLayout) -> list[tuple[str, int, Patch]]:
+    """Patches picked from one or more banks, in order: (bank path, index, patch)."""
+    out = []
+    for spec in specs:
+        path, ranges = resolve_bank(spec, plugin_dir)
+        bank = load_bank(path, layout)
+        idx = parse_ranges(ranges, len(bank)) if ranges else range(len(bank))
+        out += [(path, i, bank[i]) for i in idx]
+    return out
 
 
 def patch_address(slot: int, patch: int, struct: int) -> int:
