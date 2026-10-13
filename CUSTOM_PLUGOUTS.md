@@ -14,7 +14,7 @@ code that runs on the synth. Tools: `tools/plugout_build.py` (CLI),
 | Authentication | none found: the only integrity checks are byte sums (region header, END message) |
 | Name / model id / version | editable (container header + SYNINFO) |
 | Code | ARM Thumb-2 with VFP; OS services through a fixed table at `0x0113FC00` (partially mapped, §7) |
-| On hardware (SYSTEM-8, OS 1.32, slot 3) | rebuilt JX-3P (identical) ✔ · version changed to 1.02 ✔ · name changed to `JX-3P CUSTOM` ✔ · effect label in region 0 (`JX-3P CH` → `CUSTOM CH`) ✔ · **engine code patch: EFFECT TONE inverted for OD/DS/FZ** ✔ |
+| On hardware (SYSTEM-8, OS 1.32, slot 3) | rebuilt JX-3P (identical) ✔ · version changed to 1.02 ✔ · name changed to `JX-3P CUSTOM` ✔ · effect label in region 0 (`JX-3P CH` → `CUSTOM CH`) ✔ · **engine code patch: EFFECT TONE inverted for OD/DS/FZ** ✔ · **init hook reads OS RAM at `0x60000000` into the name** ✔ (§"Reading OS memory") |
 
 ## 1. Layers
 
@@ -239,6 +239,42 @@ must contain. Next steps:
 * decode `App1_Main` (the OS) to see who fills `0x0113FC00`;
 * hardware tests so far: unmodified rebuild, version, name, a region 0 label,
   an engine code patch (all OK). Open: a free model id, code caves.
+
+### Reading OS memory at run time: `JX-3P-MEM` (verified on hardware)
+
+`examples/mem_name/` (`hook.s`, `build.sh`). Region 0's SYNINFO init pointer
+(`+0x24`) is redirected to a 76-byte hook at image offset `0x100` (zero area).
+At init it writes 7 bytes read from `SRC` as 14 hex characters over the name
+(`image + 0x10`), then jumps to the original init (`0x11823C`). The code is
+PC-relative, so the same bytes work in every slot; only the init pointer is
+relocated (and already is: `0x61C00101` in slot 3).
+
+* Default `SRC=0x60000000` (start of the OS image). `SRC=0x0113FCB0 ./build.sh`
+  reads an entry of the OS service table instead (known readable by plugouts).
+* Install `plugins/JX-3P-MEM` in slot 3. The slot name becomes 14 hex digits
+  instead of `JX-3P MEM`.
+* Things this tests: (1) a plugout can read OS RAM at `0x6000_0000`;
+  (2) region 0 is writable RAM; (3) the OS reads the name after init. If the
+  name stays `JX-3P MEM`, (2) or (3) failed; a crash / freeze on slot select
+  means a data abort (the official updater restores slots). Chaining several
+  builds with different `SRC` reads 7 more bytes each time — the route the OS
+  dump was blocked on in BASE_FIRMWARE.md.
+
+**Result (SYSTEM-8, OS 1.32, slot 3, 2026-10-13):** with `SRC=0x60000000` the
+slot name showed `B04801684FF6FF` — the first 7 bytes at `0x60000000`, in
+memory order. All three propositions hold. The bytes decode as Thumb-2, so
+`App1_Main` is present in RAM in plaintext even though it ships encrypted in
+the updater:
+
+```
+B0 48        ldr  r0, [pc, #0x2c0]
+01 68        ldr  r1, [r0]
+4F F6 FF ..  movw r…, #…          (7th byte begins a 32-bit movw)
+```
+
+7 bytes per install is slow for a 2.8 MB image; a faster channel (a
+parameterised `SRC`, or writing the bytes somewhere the host already reads
+back) is the obvious next step.
 
 ### Risks
 

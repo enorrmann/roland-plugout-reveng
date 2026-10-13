@@ -11,8 +11,8 @@ toolchain built around it: `tools/sys8fw.py`. Companion to
 |---|---|
 | Updater container (tar), headers, sums | fully known; **rebuild is byte-identical** (`sys8fw verify`) |
 | Slot-0 model + engine (`p0m`, `p0s`) and the 3 factory PLUG-OUTs (`pl1m`, `pl1s`, `pl2m`) | decoded, patchable, repackable; symbols/ELF export |
-| `App1_Main` (the OS, 2.9 MB) | **encrypted, key not in the updater** — not decoded; carried through untouched |
-| Recreate the OS from source | **blocked**: needs the plaintext (and the cipher key to re-encrypt) |
+| `App1_Main` (the OS, 2.9 MB) | **encrypted in the updater, key not in the file** — but **plaintext in device RAM at `0x60000000`, now shown readable from a plugout** (§5.1) |
+| Recreate the OS from source | still blocked on re-encryption (cipher key), but the plaintext is now obtainable from hardware; a full read-back path is the remaining step |
 
 ## 1. `SYSTEM8_UP.BIN`
 
@@ -166,9 +166,17 @@ unknown; the OS file is the part the bootloader certainly checks.
    OS image is mapped at `0x60000000`. A PLUG-OUT that copies
    `0x60000000…0x602CDA70` somewhere the host can read back (patch memory via
    RQ1, or an OS service that emits MIDI) yields the decrypted OS and, with
-   it, known plaintext for the cipher. Needs: an exfiltration path (the
+   it, known plaintext for the cipher. Needs: a read-back path (the
    service table at `0x0113FC00` is the place to look: `CAssign*` shows
    how the OS exposes it) and a hardware session.
+
+   **Proven on hardware (2026-10-13, `JX-3P-MEM`, `CUSTOM_PLUGOUTS.md`):** a
+   plugout init hook read bytes at `0x60000000` and wrote them (as hex) over
+   its own name, which the host displays. The first 7 bytes read back as
+   `B04801684FF6FF`, valid Thumb-2 — confirming `App1_Main` is present in RAM
+   in plaintext and is readable from a plugout. The name field only carries
+   7 bytes per install, so the remaining work is a wider read-back path to
+   pull the full 2.8 MB image rather than proving access.
 2. **Bootloader key**: the same dump approach applied to the boot ROM/flash
    region (address unknown; found by probing) would reveal the algorithm
    and key, enabling re-encryption of a rebuilt `App1_Main`.
