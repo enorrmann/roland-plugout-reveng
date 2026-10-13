@@ -362,12 +362,72 @@ def find_presets(plain: bytes) -> list[str]:
     return names
 
 
+def _report_os(args, ent: dict) -> tuple:
+    """Report for the encrypted OS member: clear header/trailer + payload statistics."""
+    import collections
+    import math
+    data = open(os.path.join(args.dir, ent["file"]), "rb").read()
+    o = parse_os(data)
+    pay = data[0x60:0x60 + o["payload_size"]]
+    blocks = [pay[k:k + 8] for k in range(0, len(pay) - 7, 8)]
+    cnt = collections.Counter(blocks)
+    n = len(pay)
+    ent_bits = -sum(v / n * math.log2(v / n) for v in collections.Counter(pay).values())
+    top = cnt.most_common(5)
+    first = {b: next(k * 8 for k, x in enumerate(blocks) if x == b) for b, _ in top}
+    last = {}
+    for k, x in enumerate(blocks):
+        if x in first:
+            last[x] = k * 8
+    h = data[:0x60]
+    md = [f"# {ent['stem']} (App1_Main, the OS) - NOT DECODED", "",
+          "Encrypted payload; only the clear header and trailer can be read. No classes, vtables, "
+          "presets or labels can be extracted until the payload is decrypted (BASE_FIRMWARE.md section 2).", "",
+          "## Clear header (0x60 bytes)", "",
+          "| offset | value | note |", "|---|---|---|",
+          f"| 0x00 | `{o['name']}` | image name |",
+          f"| 0x10 | `{o['date']}` | build date |",
+          f"| 0x20 | `{o['tool']}` | tool/version tag |",
+          f"| 0x28 | `{o['load']:#010x}` | load address |",
+          f"| 0x30 | `{o['field_30']:#010x}` | then 3 x `FFFFFFFF` |",
+          f"| 0x40 | `{o['field_40']:#010x}` | |",
+          f"| 0x44 | `{o['payload_size']:#x}` | payload size |",
+          f"| 0x48 | `{o['field_48']:#010x}` | |",
+          f"| 0x50 | `{o['check_50']:#010x}` | probable plaintext check value |",
+          f"| 0x54 | `{o['field_54']:#010x}` | |", "",
+          "Raw header:", "", "```", h.hex(" ", 4), "```", "",
+          "## Clear trailer (0x40 bytes)", "",
+          f"`{o['trailer']}`", "", f"Text: `{o['trailer_text']}`", "",
+          "## Payload statistics", "",
+          f"* file {o['file_size']} bytes = 0x60 + {o['payload_size']:#x} payload + 0x40 trailer",
+          f"* payload SHA-256 `{o['payload_sha256']}`",
+          f"* byte entropy {ent_bits:.3f} bits/byte; 8-byte blocks: {len(blocks)} total, "
+          f"{len(cnt)} distinct",
+          "* most repeated 8-byte ciphertext blocks (identical plaintext under ECB):", "",
+          "| block (hex) | count | first offset | last offset |", "|---|---|---|---|"]
+    for b_, c_ in top:
+        md.append(f"| `{b_.hex()}` | {c_} | `{first[b_] + 0x60:#x}` | `{last[b_] + 0x60:#x}` |")
+    md += ["", "(offsets are file offsets)", "",
+           "## Cipher conclusions", "",
+           "* 64-bit block cipher in ECB mode (equal plaintext blocks give equal ciphertext; 8-byte "
+           "halves repeat independently of their 16-byte neighbours).",
+           "* Full diffusion; no XOR/rotate/linear structure; not the plug-out chained XOR.",
+           "* Keys derived from header, trailer and product strings failed for Blowfish, CAST5, "
+           "DES/3DES, IDEA, TEA and XTEA. The key is in the device bootloader."]
+    tag = ent["stem"]
+    open(os.path.join(args.out, f"{tag}.md"), "w").write("\n".join(md) + "\n")
+    return (tag, f"{o['name']} (encrypted OS) built {o['date']}", None, o["load"], 0, 0, 0)
+
+
 def cmd_report(args) -> int:
     man = load_project(args.dir)
     os.makedirs(args.out, exist_ok=True)
     allsyms = {}
     index = []
     for ent in man["members"]:
+        if ent["kind"] == "os":
+            index.append(_report_os(args, ent))
+            continue
         if ent["kind"] != "plugout":
             continue
         for i, r in enumerate(ent["regions"]):
@@ -419,7 +479,9 @@ def cmd_report(args) -> int:
     with open(os.path.join(args.out, "index.md"), "w") as fh:
         fh.write("| image | identity | base | classes | virtual methods | presets | label lists |\n|---|---|---|---|---|---|---|\n")
         for t, ident, b, nc, nm, npz, nl in index:
-            fh.write(f"| [{t}]({t}.md) | {ident} | `{b:#x}` | {nc} | {nm} | {npz} | {nl} |\n")
+            fh.write(f"| [{t}]({t}.md) | {ident} | `{b:#x}` | {nc} | {nm} | {npz} | {nl} |\n"
+                     if b is not None else
+                     f"| [{t}]({t}.md) | {ident} | `{nc:#x}` load | not decoded | - | - | - |\n")
     say(f"wrote report for {len(index)} images into {args.out}")
     return 0
 

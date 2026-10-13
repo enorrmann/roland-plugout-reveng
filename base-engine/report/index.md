@@ -1,5 +1,6 @@
 | image | identity | base | classes | virtual methods | presets | label lists |
 |---|---|---|---|---|---|---|
+| [p1y01_m0c0a_up](p1y01_m0c0a_up.md) | App1_Main (encrypted OS) built 2022/04/28 09:41 | `0x60000000` load | not decoded | - | - | - |
 | [p1y01_p0m.region0](p1y01_p0m.region0.md) | SYSTEM-8 id 0x0005 v1.20 | `0x61600000` | 1 | 17 | 64 | 9 |
 | [p1y01_p0s.region0](p1y01_p0s.region0.md) | SYSTEM-8 id 0x000a v0.01 | `0x60800000` | 97 | 2159 | 0 | 0 |
 | [p1y01_pl1m.region0](p1y01_pl1m.region0.md) | JUPITER-8 id 0x0006 v1.06 | `0x61800000` | 1 | 17 | 64 | 9 |

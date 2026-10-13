@@ -21,8 +21,9 @@ the next known function). Certainty: **[H]** read directly from the data,
 | `up/p1y01_pl2m.region0.bin` / `.region1.bin` | JX-3P model / engine (slot 3) | 1 159 484 / 275 508 B |
 | `elf-asm/*.elf` | one ELF per image (load as ARM LE Thumb-2) with class/vtable/method symbols | 0.3–1.2 MB each |
 | `elf-asm/*.S` | `objdump -d` listing of each ELF (Thumb, all bytes treated as code) | 1.7–10 MB each |
-| `report/index.md` | table of the 8 images | |
+| `report/index.md` | table of the 9 members (8 images + the encrypted OS) | |
 | `report/<image>.md` | classes, bases, virtual methods with address/size, presets, label lists | 8 files |
+| `report/p1y01_m0c0a_up.md` | the encrypted OS: clear header/trailer, payload statistics, cipher conclusions (marked *not decoded*) | |
 | `report/symbols.json` | machine-readable class → vtable → methods | 108 KB |
 
 Reproduce:
