@@ -177,6 +177,12 @@ unknown; the OS file is the part the bootloader certainly checks.
    in plaintext and is readable from a plugout. The name field only carries
    7 bytes per install, so the remaining work is a wider read-back path to
    pull the full 2.8 MB image rather than proving access.
+   **Update (2026-10-13):** the patch memory is at `0x60445957` in RAM, one
+   nibble per byte, and RQ1 reads it back (up to 128 bytes per request, 64
+   patches x 3 structs). The OS rewrites it after the PLUG-OUT init, so the
+   write must come from a later hook (engine parameter sender). Once a write
+   survives, the 2.8 MB image can be read at ~128 B per RQ1 instead of 7 B per
+   install. Timings of the slot-name channel are in `CUSTOM_PLUGOUTS.md`.
 2. **Bootloader key**: the same dump approach applied to the boot ROM/flash
    region (address unknown; found by probing) would reveal the algorithm
    and key, enabling re-encryption of a rebuilt `App1_Main`.

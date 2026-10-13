@@ -145,6 +145,15 @@ If the slot already holds the same version, the plugin skips the firmware and
 sends only the patches (after confirmation). With another version it asks
 before sending them.
 
+### Reading patch memory (RQ1, verified 2026-10-13)
+
+The plugin never reads patches, but the device answers the standard read
+request: `F0 41 <dev> 00 00 7E 11 <addr:4> <size:4> <sum> F7` (size as 4 x 7-bit
+bytes) is answered by a `DT1` (`12`) at the same address with `size` data
+bytes (nibble-encoded leaves, e.g. `NAME0`: 2 nibbles per character).
+`tools/patch_read.py --slot 3 --patches 0-63` lists the 64 names. Up to 128
+bytes per request answered; a 70-byte request returned 64 (not understood).
+
 ### Patch memory (`Script/Script.xml`)
 
 | Struct | Type | Leaves | Bytes |

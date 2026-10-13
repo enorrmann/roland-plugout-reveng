@@ -276,6 +276,95 @@ B0 48        ldr  r0, [pc, #0x2c0]
 parameterised `SRC`, or writing the bytes somewhere the host already reads
 back) is the obvious next step.
 
+#### Findings of 2026-10-13 (SYSTEM-8, OS 1.32, slot 3)
+
+**Slot-name channel, timed** (`examples/mem_name/dump_loop.py`, 70 bytes at
+`0x60000000`, 10 installs, no errors). Per 7 bytes: build 7.4 s (35 %),
+install 12.1 s (56 %), read-back 2.0 s (9 %, of which 2.0 s is the fixed wait
+of the script). Floor ≈ 12 s per 7 bytes (0.58 B/s); the whole 2.8 MB OS image
+would take weeks, so this channel is for small areas. Using the 3 slots only
+saves the `info` part (one `info` returns all slots), not the installs.
+Slots 1 and 2 hold factory PLUG-OUTs and would be overwritten.
+
+The first 70 bytes of the OS (`examples/preset_fill/os70_name_method.bin`):
+
+```
+B0 48 01 68 4F F6 FF 02 01 EA 02 01 AE 4A 41 EA 02 01 01 60 4F F0 10 00
+80 F3 11 88 00 F0 C0 F8 AA 48 4F F4 00 61 01 60 A9 48 AA 49 AA 4A 00 F0
+C8 F8 AA 48 AA 49 AB 4A 00 F0 C3 F8 AA 48 AB 49 AB 4A 00 F0 FC F8
+```
+
+Thumb-2 start-up code: `ldr r0,[pc]; ldr r1,[r0]; movw r2,#0xFFFF; …;
+msr cpsr/…` (`80 F3 11 88` = `msr basepri/cpsr, r0`) followed by `bl`s to
+init helpers; i.e. the reset path of `App1_Main`.
+
+**Reading patches from the device: RQ1 works** (`tools/patch_read.py`). The
+plugin only ever writes the patch bank (DT1), but the SYSTEM-8 answers the
+standard Roland read `RQ1 (0x11)` = address + 4 x 7-bit size with a `DT1`
+at the same address. `NAME0` of patch `p` in slot `s` is at
+`patch_address(s, p, 0) + 0x80` (128 bytes, 2 nibbles per character). All 64
+names of slot 3 read back and match `plugins/JX-3P/Patch/1 Preset.bin` (63/64
+byte exact; #38 differs only in the quote character of my printing). So any
+leaf of `usrX/usr2X/usr3X` can be read from the device. Note: a request of
+size 70 at NAME0 returned 64 bytes and the follow-up at +64 got no reply
+(unexplained); 128 returns 128.
+
+**Where the preset lives in RAM** (`examples/preset_fill/`: `scanfill.c`,
+`entry.s`, `build.sh`, `make_plugout.sh`, `run_test.py`). An init hook in
+region 0 scans `0x602CE000..0x60800000` (past the OS image, below the slot-0
+engine; both known mapped) for `"String 1"`, the first preset of the JX-3P
+bank, as ASCII or as one nibble per byte, and reports `addr[4] count[2]
+form[1]` as 14 hex digits in the slot name. The needle is stored XOR `0xA5`
+and loaded from immediates, so the image never holds it in plain and has no
+slot-relative pointer (the 288-byte hook relocates with only the init
+pointer).
+
+| Result | |
+|---|---|
+| first match | `0x60445957` |
+| matches | 1 |
+| form | 2: **one nibble per byte**, identical to the RQ1 wire form (`05 03 07 04 …`) |
+| writable at init | yes: with `REPORT=1` the 7 bytes read back right after the fill were `B04801684FF6FF` |
+| persists | **no**: afterwards RQ1 of NAME0 still returns the original name, and a second install finds the original text at the same address again (count 1) |
+
+So the patch memory the host reads is a RAM image at `0x60445957` (the
+address looks stable across installs), and the OS reloads / re-initialises it
+after the PLUG-OUT's `init` has run (at install end or at slot activation).
+Writes done *at init* are therefore lost. Comparison with the name channel
+therefore could not be completed through RQ1: read-back 4/70 bytes only match
+by chance (the original name), the 70 OS bytes never reach the host this way.
+Next step: do the same write from a hook that runs *later* — the engine's
+parameter sender hook (`examples/mem_name/press.s`, runs on the first knob
+move) with `DEST = 0x60445957` — then RQ1 NAME0. Mode 1 of `scanfill.c`
+(each byte as two nibbles, 140 bytes) is there for that: it survives the 7-bit
+SysEx data and decodes exactly. Raw bytes `>= 0x80` may be masked by the
+device.
+
+#### Stepping through memory with the panel: `JX-3P-MEM-STEP` (built, not yet tested on hardware)
+
+`examples/mem_name/press.s` + `engine_build.sh` + `make_plugout.sh`. The
+init hook above is kept; additionally the entry of the DSP parameter sender
+(`0x60A0B41E`, reached by every knob / button / switch of the panel) is
+replaced by a `B.W` to a 112-byte hook in the region 1 cave (`0x60A07000`, slot
+1). Each call increments a counter stored in the cave, reads 7 bytes at
+`SRC + 7·counter`, writes them as 14 hex digits over the name in region 0
+(`image + 0x10`, found PC-relative) and runs the 3 displaced instructions
+(`ldr r0,[pc,#0x50]`, `push {r3,lr}`, `ldr r0,[r0]`) before continuing at
+`0x60A0B424`. Arguments, `s0` and flags the sender needs are preserved.
+
+```bash
+examples/mem_name/make_plugout.sh                  # SRC=0x60000000
+examples/mem_name/make_plugout.sh 0x0113FC00       # other start address
+python3 tools/plugout_tool.py install plugins/JX-3P-MEM-STEP --slot 3 --dry-run
+python3 tools/plugout_tool.py install plugins/JX-3P-MEM-STEP --slot 3
+```
+
+Notes: the first press shows `SRC+7`; the name at slot selection is `SRC`. It
+advances on any parameter change (it may also fire on non-panel parameter
+traffic, e.g. notes), and whether the OS re-reads the name after init is the
+open question this build tests — if the display does not change, the next step
+is a different sink (a parameter label or the patch name).
+
 ### Risks
 
 * Identity, data and small in-place code changes work on hardware. A broken
