@@ -7,7 +7,10 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sys8fw as F  # noqa: E402
 
-UP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "firmware", "SYSTEM8_UP.BIN")
+_FW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "firmware")
+UP = next((p for p in (os.path.join(_FW, "sys8_sys_v132", "SYSTEM8_UP.BIN"),
+                        os.path.join(_FW, "SYSTEM8_UP.BIN")) if os.path.exists(p)),
+          os.path.join(_FW, "SYSTEM8_UP.BIN"))
 
 
 @unittest.skipUnless(os.path.exists(UP), "firmware/SYSTEM8_UP.BIN not present")
