@@ -1,0 +1,32 @@
+{
+ "plugins/JX-3P/Script/Code8_1.Dat": {
+  "start_msg": "f0411000007e12701000000000f7",
+  "end_msg": "f0411000007e1270100001060203066ef7",
+  "first_data_len": 599,
+  "first_data_head": "f0411000007e12703000090053595354454d2d00383a506c",
+  "filler_msg": "f0411000007e12703001090155f7",
+  "checksums_ok": true,
+  "stride": "0x260",
+  "count": 4096
+ },
+ "plugins/JUNO-60/Script/Code8_3.Dat": {
+  "start_msg": "f0411000007e12701000000000f7",
+  "end_msg": "f0411000007e12701000010a07020a62f7",
+  "first_data_len": 599,
+  "first_data_head": "f0411000007e12703000090053595354454d2d00383a506c",
+  "filler_msg": "f0411000007e12703001090155f7",
+  "checksums_ok": true,
+  "stride": "0x260",
+  "count": 4096
+ },
+ "plugins/SH-101/Script/Code1.Dat": {
+  "start_msg": "f0411000007e12701000000000f7",
+  "end_msg": "f0411000007e1270100001020609016df7",
+  "first_data_len": 599,
+  "first_data_head": "f0411000007e12703000090053595354454d2d00313a506c",
+  "filler_msg": "f0411000007e12703001090155f7",
+  "checksums_ok": true,
+  "stride": "0x260",
+  "count": 2048
+ }
+}
