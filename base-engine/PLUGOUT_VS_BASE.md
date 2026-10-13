@@ -133,9 +133,11 @@ shape among PLUG-OUTs).
 
 ## 5. Interpretation and limits
 
-* The architecture is **ARM control layer + fixed DSP "synth kit"**. The DSP
-  exposes oscillators with several variants, filter models, effects; the
-  base engine and each PLUG-OUT are two different control layers on that kit.
+* The architecture is **ARM control layer + DSP**. The DSP exposes
+  oscillators with several variants, filter models, effects; the base engine
+  and each PLUG-OUT are different control layers on it. Whether the DSP side is
+  one fixed "kit" shared by all PLUG-OUTs is **not established**: §7 shows
+  that equivalent functions use different ids in different engines.
 * Id spaces: JX-3P oscillators use ids 32–75 on units 2/3; the base FM
   variants use ids 368–377 and 496–503 on the same units. The JX-3P engine
   does not use the FM block. Whether every id a PLUG-OUT sends exists in the
@@ -147,9 +149,85 @@ shape among PLUG-OUTs).
   models, waveform floats). It cannot introduce a new audio algorithm
   without access to the DSP program.
 
-## 6. Reproduce
+## 7. Is "SAW" the same waveform in every engine? **[H]** (selection) / **[I]** (identity)
+
+Measured by emulating each engine's oscillator setters with trapped OS calls
+(unit 2 = oscillator 1, unit 3 = oscillator 2):
+
+| Engine | How SAW is requested |
+|---|---|
+| JX-3P | one scalar, 6 positions `SAW, SQR, PULSE×4`; SAW = `-3.0` (ids 38/39) |
+| JUPITER-8 | 4 channel parameters (ids 48–51), one-hot with sign: SAW = ch 48 `1.0`; TRI/SIN share ch 50 (+1/−1), SQR/NOISE share ch 51 (+1/−1) |
+| JUNO-106 | same 4-channel pattern on ids 47–50 |
+| JUNO-60 | same pattern on ids 35–38 |
+| SYSTEM-100 | 4-channel pattern: setter at `0x60A092AE` copies a 5-row × 4-float table to the stack, selects the row by the value and sends the 4 floats to 4 ids |
+| base SYSTEM-8 | scalar `-3…2`, plus the 4 × 6 variant rows (§2) |
+
+The selection mechanism is common (unit 2/3, ids ≥ 32, the same value
+curves), but the **ids differ per engine for the same function** (the same
+curve goes to id 37 in JUNO-60 and id 39 in JUNO-106; JUNO-106 skips ids 33
+and 34 that JUPITER-8 uses). Nothing in the engine images shows what waveform
+the DSP generates for a given request, so "same saw" can be neither proven nor
+refuted from the control code. The decisive test is on hardware: the same
+(unit, id, value) from two engines.
+
+## 8. SYSTEM-100 and SH-101: flat engines **[H]**
+
+The SYSTEM-100 and SH-101 engines (SYSTEM-1 PLUG-OUTs, also shipped for
+SYSTEM-8) are built differently from JUNO-60 / JX-3P / JUPITER-4:
+
+| Engine | Classes (RTTI) | Reachable code | VFP ops | Non-stub methods in the parameter class |
+|---|---|---|---|---|
+| SYSTEM-100 | 2 (`CPrmDSPSystem100`, `CInterface`) | 14.7 k insns | 962 | 142 of 451 |
+| SH-101 | 2 | 12.7 k | 727 | 114 of 422 |
+| JUNO-60 | 22 | 17.6 k | 995 | 83 of 358 |
+| JX-3P | 21 | 17.6 k | 603 | 86 of 334 |
+| JUPITER-4 | 21 | 17.8 k | 1006 | 81 of 354 |
+
+* No voice classes: the parameter class holds 8 static unit descriptors
+  (`{unit, …, ids}` at `0x60A3FD34…`) and calls free functions that send
+  values through the OS table. It is still a real program (value curves,
+  tables, loops), not a bare table.
+* The parameter class registers **186 ids** (SH-101: 172); **84** of them have
+  a dedicated handler (SH-101: 54). Ids `1829–1844` exist only in SYSTEM-100
+  (14 real handlers, 2 no-ops); `1844` is a 4-channel one-hot selector, the
+  rest send single curve values.
+
+### What the SYSTEM-100 adds, measured on the plug-in's own `Script.xml`
+
+The patch parameter store is the same for every PLUG-OUT (114 + 522 + 3524
+values). What differs is how many slots a PLUG-OUT names and uses:
+
+| Plug-out | Voice-section fields (LFO…EXTEND) | Extra fields (jack/S&H/LFO-2…) | Total |
+|---|---|---|---|
+| SYSTEM-100 | 61 | 40 | **101** |
+| SH-101 | 45 | 25 | 70 |
+| JX-3P | 44 | 15 | 59 |
+| JUNO-60 | 38 | 16 | 54 |
+| JUPITER-4 | 39 | 14 | 53 |
+
+The same slot can mean different things per plug-out (NAME2 slot 7 is
+`S&H MODE` in SYSTEM-100, `LFO CV GAIN` in SH-101).
+
+### The patch matrix **[H]** (data) / **[I]** (engine link)
+
+`Script.xml` defines `matrixIn` (15 inputs: LFO-1/2 EXT CV, S&H, GLIDE,
+VCO-1 EXT CV, VCO-2 SYNC, RING MOD, MIXER EXT, VCF/VCA ADSR gate and ADSR, VCF
+LFO, PHASER LFO/MANUAL) and `matrixOut` (14 sources: KYBD CV, LFO-1, LFO-2,
+S&H, S&H CLK, VCO-1/2 and their syncs, RING MOD, NOISE, MIXER, VCF ADSR, VCA
+ADSR). Each input is stored as a 0…14 selector (0 = open) in the patch, and
+`defaultOut` gives the normalled routing
+`0,0,0,0,8,7,6,10,0,2,13,0,14,0,0`. The 15 selectors correspond to the 15
+matrix-input fields that SH-101 leaves unused (`(LFO CV IN)` …). That the 14
+extra ids of §8 are the engine side of this matrix is a hypothesis: the
+handlers were observed to send values, not to resolve a routing graph.
+
+
+## 9. Reproduce
 
 ```bash
 python3 tools/sys8fw.py report base-engine/up --out base-engine/report
 # emulation helpers: tools/engine_emu.py, tools/engine_analysis.py
+# engine region of a plug-in: plugout_image.raw_regions(flash_blocks(plugout.load("plugins/SYSTEM-100/Script/Code8_1.Dat")))[1] -> Region.from_raw(...).plain
+# flat engines (SYSTEM-100, SH-101): python3 tools/engine_params.py ENGINE.region1.bin CPrmDSPSystem100
 ```
