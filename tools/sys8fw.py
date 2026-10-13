@@ -315,8 +315,113 @@ def find_classes(plain: bytes, base: int) -> list[dict]:
                         j += 1
                     else:
                         break
-                classes.append({"name": cname, "typeinfo": ti, "vtable": vt + 8, "methods": methods})
+                base_ti = words[ti_idx + 1] if ti_idx + 1 < len(words) else 0
+                classes.append({"name": cname, "typeinfo": ti, "vtable": vt + 8, "methods": methods,
+                                "base_typeinfo": base_ti})
+    by_ti = {c["typeinfo"]: c["name"] for c in classes}
+    for c in classes:
+        c["base"] = by_ti.get(c.pop("base_typeinfo"))
     return sorted(classes, key=lambda c: c["vtable"])
+
+
+def find_labels(plain: bytes) -> list[dict]:
+    """Value-label lists of a model region.
+
+    Header (5 words) <2><0x14><list id><count><0>, then `count` entries of
+    7 words: <3><0x1C><char[20]>.
+    """
+    w = struct.unpack_from(f"<{len(plain) // 4}I", plain)
+    out, i = [], 0
+    while i < len(w) - 12:
+        if w[i] == 2 and w[i + 1] == 0x14 and w[i + 4] == 0 and 0 < w[i + 3] < 256:
+            j, ents = i + 5, []
+            while j + 7 <= len(w) and w[j] == 3 and w[j + 1] == 0x1C:
+                raw = plain[(j + 2) * 4:(j + 2) * 4 + 20].split(b"\0")[0]
+                ents.append(raw.decode("latin1"))
+                j += 7
+            if ents:
+                out.append({"offset": i * 4, "id": w[i + 2], "declared": w[i + 3], "labels": ents})
+                i = j
+                continue
+        i += 1
+    return out
+
+
+def find_presets(plain: bytes) -> list[str]:
+    """Factory preset names: 16 chars at +0x100 of each 0x200 record from 0x8000,
+    each 4-byte group stored reversed."""
+    names = []
+    for k in range(256):
+        o = 0x8000 + k * 0x200 + 0x100
+        if o + 16 > len(plain):
+            break
+        raw = b"".join(plain[o + g:o + g + 4][::-1] for g in range(0, 16, 4))
+        if not all(32 <= c < 127 for c in raw) or not raw.strip(b" -"):
+            break
+        names.append(raw.decode().rstrip())
+    return names
+
+
+def cmd_report(args) -> int:
+    man = load_project(args.dir)
+    os.makedirs(args.out, exist_ok=True)
+    allsyms = {}
+    index = []
+    for ent in man["members"]:
+        if ent["kind"] != "plugout":
+            continue
+        for i, r in enumerate(ent["regions"]):
+            plain = open(os.path.join(args.dir, r["file"]), "rb").read()
+            sinfo = I.SynInfo.parse(plain)
+            base = image_base(plain, i)
+            tag = r["file"][:-4]
+            ident = (f"{sinfo.name} id {sinfo.model_id:#06x} v{sinfo.version >> 8:X}."
+                     f"{sinfo.version & 0xFF:02X}" if sinfo else "?")
+            kinds = []
+            cls = find_classes(plain, base) if sinfo and base else []
+            lab = find_labels(plain)
+            pre = find_presets(plain)
+            allsyms[r["file"]] = {"base": base, "classes": cls}
+            # function start addresses for approximate sizes
+            starts = sorted({m & ~1 for c in cls for m in c["methods"]} | {sinfo.init & ~1} if sinfo else set())
+            def size_of(m):
+                a = m & ~1
+                k = starts.index(a) if a in starts else -1
+                nxt = starts[k + 1] if 0 <= k + 1 < len(starts) else base + len(plain)
+                return nxt - a
+            md = [f"# {tag}", "", f"* image `{r['file']}`, {len(plain)} bytes, base `{base:#x}`",
+                  f"* identity: {ident}; init `{sinfo.init:#x}`" if sinfo else "",
+                  f"* classes: {len(cls)}, virtual methods: {sum(len(c['methods']) for c in cls)}", ""]
+            if cls:
+                md += ["## Classes", "", "| vtable | class | base | virtual methods | first method |",
+                       "|---|---|---|---|---|"]
+                for c in cls:
+                    md.append(f"| `{c['vtable']:#x}` | `{c['name']}` | `{c['base'] or ''}` | "
+                              f"{len(c['methods'])} | `{c['methods'][0]:#x}` |" if c["methods"] else
+                              f"| `{c['vtable']:#x}` | `{c['name']}` | `{c['base'] or ''}` | 0 | |")
+                md += ["", "## Virtual methods (address, upper-bound size)", ""]
+                for c in cls:
+                    md += [f"### `{c['name']}` @ `{c['vtable']:#x}`", ""]
+                    md.append(", ".join(f"v{k} `{m:#x}` ({size_of(m)} B)" for k, m in enumerate(c["methods"])))
+                    md.append("")
+            if pre:
+                md += [f"## Factory presets ({len(pre)})", ""] + [f"{k + 1:2d}. {n}" for k, n in enumerate(pre)] + [""]
+            if lab:
+                md += [f"## Value-label lists ({len(lab)})", ""]
+                for L in lab:
+                    md.append(f"* offset `{L['offset']:#x}` id {L['id']} ({len(L['labels'])} labels): "
+                              + ", ".join(f"`{x}`" for x in L["labels"]))
+                md.append("")
+            open(os.path.join(args.out, f"{tag}.md"), "w").write("\n".join(md))
+            index.append((tag, ident, base, len(cls), sum(len(c["methods"]) for c in cls), len(pre), len(lab)))
+    with open(os.path.join(args.out, "symbols.json"), "w") as fh:
+        json.dump({k: {"base": v["base"], "classes": v["classes"]} for k, v in allsyms.items()}, fh, indent=1)
+    with open(os.path.join(args.out, "index.md"), "w") as fh:
+        fh.write("| image | identity | base | classes | virtual methods | presets | label lists |\n|---|---|---|---|---|---|---|\n")
+        for t, ident, b, nc, nm, npz, nl in index:
+            fh.write(f"| [{t}]({t}.md) | {ident} | `{b:#x}` | {nc} | {nm} | {npz} | {nl} |\n")
+    say(f"wrote report for {len(index)} images into {args.out}")
+    return 0
 
 
 def cmd_symbols(args) -> int:
@@ -334,7 +439,7 @@ def cmd_symbols(args) -> int:
             key = r["file"]
             out[key] = {"base": base, "classes": [
                 {"name": c["name"], "vtable": c["vtable"], "typeinfo": c["typeinfo"],
-                 "methods": c["methods"]} for c in cls]}
+                 "base": c["base"], "methods": c["methods"]} for c in cls]}
             say(f"{key}: base {base:#x}, {len(cls)} classes, "
                 f"{sum(len(c['methods']) for c in cls)} virtual methods")
             if args.elf_dir:
@@ -413,6 +518,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("verify"); p.add_argument("up"); p.set_defaults(func=cmd_verify)
     p = sub.add_parser("symbols"); p.add_argument("dir"); p.add_argument("--elf-dir")
     p.add_argument("--json"); p.set_defaults(func=cmd_symbols)
+    p = sub.add_parser("report", help="per-image class/preset/label tables (markdown + JSON)")
+    p.add_argument("dir"); p.add_argument("--out", required=True); p.set_defaults(func=cmd_report)
     p = sub.add_parser("patch", help="write bytes into an unpacked image at a run address")
     p.add_argument("dir"); p.add_argument("--image", required=True, help="file name, e.g. p1y01_p0s.region0.bin")
     p.add_argument("--at", type=lambda x: int(x, 0)); p.add_argument("--offset", type=lambda x: int(x, 0))

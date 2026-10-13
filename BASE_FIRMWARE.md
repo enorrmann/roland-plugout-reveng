@@ -107,9 +107,11 @@ methods**.
   jack outputs `…JkOutMst/JkOutSlv`.
 * **Filter and oscillator variants** that the factory PLUG-OUTs select:
   `VcfVari{00,01,Jp8,Ju106,Sys1,Fbof,Fmt2,Fmt3}`,
-  `VcoVari00..03`, `LfoVari00..02`. Each has an `s`-prefixed and a
-  `_`-prefixed sibling with the same method count (parameter-struct / alias
-  classes; purpose not confirmed).
+  `VcoVari00..03`, `LfoVari00..02`. Each block class has an `s`-prefixed
+  *derived* class (RTTI base pointer) with the same method count: the base
+  starts with a `bx lr` stub and aliases the derived functions, so `s…` holds
+  the implementation. `_`-prefixed classes also exist (role not confirmed).
+  Details: [`base-engine/BASE_ENGINE.md`](base-engine/BASE_ENGINE.md).
 * Parameter classes: `CPrmDSPSystem8` (480 methods) and
   `CPrmDSPPlugoutSlave` (481 methods) in `p0s`; `CPrmDSPJp8` (382),
   `CPrmDSPJu106` (352), `CPrmDSPJx3p` (330) in the factory engines.
