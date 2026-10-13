@@ -116,6 +116,8 @@ transfer must wait for the flow-control replies every 32 messages, which is what
 | `tools/plugout_build.py` | CLI to unpack, modify and rebuild `Code*.Dat` ([`CUSTOM_PLUGOUTS.md`](CUSTOM_PLUGOUTS.md)) |
 | `tools/plugout_image.py` | flash image, region header, SYNINFO, relocation, container builder |
 | `tools/lzss.py` | LZSS codec of the firmware regions |
+| `tools/sys8fw.py` | unpack / patch / rebuild `SYSTEM8_UP.BIN` (base firmware), RTTI symbols, ELF ([`BASE_FIRMWARE.md`](BASE_FIRMWARE.md)) |
+| `tools/test_sys8fw.py` | tests for `sys8fw.py` against the shipped updater |
 | `tools/test_plugout.py` | tests against a simulated SYSTEM-8: `python3 -m unittest discover -s tools` |
 | `tools/test_plugout_build.py` | rebuild / relocation tests against the shipped files |
 | `PROTOCOL.md` | protocol extracted from the plugins, with code addresses |
