@@ -58,6 +58,19 @@ void scan_main(u8 *name)
     for (const volatile u8 *p = (const volatile u8 *)LO;
          p < (const volatile u8 *)HI; p++) {
         u32 f = 0;
+#ifdef NEEDLE32              /* native little endian 32-bit word, form 3 */
+        if (p[0] == (u8)NEEDLE32) {
+            f = 3;
+            for (j = 1; j < 4; j++)
+                if (p[j] != (u8)(NEEDLE32 >> (8 * j))) { f = 0; break; }
+        }
+#elif defined(NEEDLE8)              /* 8-nibble value (e.g. VCF CUTOFF FREQ H), form 2 */
+        if (p[0] == (u8)(NEEDLE8 >> 28)) {
+            f = 2;
+            for (j = 1; j < 8; j++)
+                if (p[j] != ((NEEDLE8 >> (28 - 4 * j)) & 15)) { f = 0; break; }
+        }
+#else
         if (p[0] == n[0]) {
             f = 1;
             for (i = 1; i < 8; i++)
@@ -69,6 +82,7 @@ void scan_main(u8 *name)
                 if (p[j] != want) { f = 0; break; }
             }
         }
+#endif
         if (f) {
             if (!count) { first = (u32)p; form = f; }
             count++;

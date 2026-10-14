@@ -1,18 +1,23 @@
 #!/bin/sh
-# Build the JX-3P-MEM-STEP PLUG-OUT: a stock JX-3P with two hooks.
+# Build the JX-3P-MEM-STEP PLUG-OUT: a stock JX-3P with a hook in the engine.
 #
-#   region 0 (model)   SYNINFO init  -> hook.s   : at init, name := hex of 7 bytes at SRC
-#   region 1 (engine)  param sender  -> press.s  : every panel parameter change
-#                                                  advances the address by 7 and
-#                                                  rewrites the name
+#   region 1 (engine)  param sender  -> press.s : every panel parameter change
+#       copies a 60-byte chunk of OS memory (+ its 4-byte address) into the
+#       RAM image of NAME0 of preset 1, slot 3 (0x60445957, one nibble per
+#       byte). The host reads it with RQ1 (examples/mem_name/step_read.py).
+#       The PLUG-OUT name is NOT touched: it stays "MEM STEP".
+#   region 0 (model)   only with INIT=1: SYNINFO init -> hook.s, which writes
+#       7 bytes of SRC as hex over the plugout name at install time.
 #
-# Usage:   examples/mem_name/make_plugout.sh [SRC] [OUT_DIR]
+# Usage:   [INIT=1] [NAME="MEM STEP"] [DEST=0x60445957] examples/mem_name/make_plugout.sh [SRC] [OUT_DIR]
 #   SRC      first address to read (default 0x60000000, start of the OS image)
 #   OUT_DIR  plugin folder to create (default plugins/JX-3P-MEM-STEP)
+#   NAME     PLUG-OUT name, <= 15 ASCII chars (default "MEM STEP")
+#   DEST     RAM image of NAME0 of preset 1 (slot 3 only: not slot relative)
 #
 # Needs: arm-none-eabi-as/ld/objcopy, python3. Then install in slot 3:
-#   python3 tools/plugout_tool.py install plugins/JX-3P-MEM-STEP --slot 3 --dry-run
-#   python3 tools/plugout_tool.py install plugins/JX-3P-MEM-STEP --slot 3
+#   python3 tools/plugout_tool.py install plugins/JX-3P-MEM-STEP --slot 3 --no-patches
+#   python3 examples/mem_name/step_read.py --slot 3 -o os_step.bin
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -31,11 +36,15 @@ $B unpack "$ROOT/plugins/JX-3P/Script/Code8_1.Dat" "$WORK/p" \
     --relocs-from "$ROOT/plugins/JX-3P/Script/Code8_2.Dat" >/dev/null
 
 echo "== 3. identity"
-$B set-id "$WORK/p" --name "JX-3P MEM STEP"
+$B set-id "$WORK/p" --name "${NAME:-MEM STEP}"
 
+if [ -n "$INIT" ]; then
 echo "== 4. region 0: init hook in the zero area, SYNINFO init -> hook"
 $B patch "$WORK/p" --region 0 --at 0x61800100 --file "$HERE/hook.bin"
 $B patch "$WORK/p" --region 0 --at 0x61800024 --hex 01018061 --reloc 0x61800024
+else
+echo "== 4. region 0 untouched (INIT not set): the name stays readable"
+fi
 
 echo "== 5. region 1: press hook in the cave, sender entry -> B.W press"
 $B patch "$WORK/p" --region 1 --at 0x60a07000 --file "$HERE/press.bin"

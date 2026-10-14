@@ -15,7 +15,7 @@ trap 'rm -rf "$WORK"' EXIT
 "$HERE/build.sh"
 $B unpack "$ROOT/plugins/JX-3P/Script/Code8_1.Dat" "$WORK/p" \
     --relocs-from "$ROOT/plugins/JX-3P/Script/Code8_2.Dat" >/dev/null
-$B set-id "$WORK/p" --name "JX-3P FILL" --version 1.06
+$B set-id "$WORK/p" --name "${NAME:-JX-3P FILL}" --version 1.06
 # the hook goes into the zero area at image + 0x100 (slot 1 address 0x61800100)
 python3 - "$WORK/p/region0.bin" "$HERE/hook.bin" <<'PY'
 import sys

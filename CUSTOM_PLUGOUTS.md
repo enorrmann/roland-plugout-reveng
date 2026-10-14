@@ -340,6 +340,66 @@ move) with `DEST = 0x60445957` — then RQ1 NAME0. Mode 1 of `scanfill.c`
 SysEx data and decodes exactly. Raw bytes `>= 0x80` may be masked by the
 device.
 
+#### Names of all three slots: `JX-3P-MEM-ALL` (verified on hardware)
+
+`examples/mem_names/` (`hook.s`, `make_plugout.sh`, `dump_loop.py`). The init
+hook (84 bytes at image offset `0x100`) writes 8 bytes of OS memory as 16 hex
+digits over each slot name, absolute: slot 1 (`0x61800010`) = `SRC..+7`, slot 2
+(`0x61A00010`) = `SRC+8..+15`, slot 3 (`0x61C00010`) = `SRC+16..+23`; 24 bytes per
+install. 16 chars fill the 16-byte name field (no NUL; the id follows).
+`dump_loop.py` reuses the fast build of `examples/mem_name/dump_loop.py` and
+reads the three names back with the device info query (24 bytes per install,
+stops if a name is not 16 hex digits). Untested assumptions: slots 1/2 are
+mapped at their region 0 base when slot 3 initialises, and the OS reports the
+name from that RAM copy. A freeze on install would mean a data abort there.
+
+```bash
+examples/mem_names/make_plugout.sh
+python3 tools/plugout_tool.py install plugins/JX-3P-MEM-ALL --slot 3 --no-patches
+python3 examples/mem_names/dump_loop.py --slot 3 --count 240 -o os_names.bin
+```
+
+**Result (SYSTEM-8, OS 1.32, 2026-10-14):** works on hardware. The install and
+`examples/mem_names/dump_loop.py` run, the three slot names change, and the
+dump is identical to the one produced by the old `examples/mem_name/dump_loop.py`
+(7 bytes per install). So slots 1/2 are mapped at their region 0 base while
+slot 3 initialises, the OS reports the names from that RAM, and 16 characters
+without NUL are read back correctly. 24 bytes per install instead of 7.
+
+Still unmeasured: throughput (seconds per install and per byte). The TONE
+register route (`examples/cave_tone/make_mem.sh`, CUTH `0x60452C4F`) remains
+unconfirmed.
+
+**Install timing (SYSTEM-8, slot 3, 2026-10-14, `mem_names/dump_loop.py`,
+3 iterations, identical each time):** build 0.2 s, START + first record < 0.1 s,
+651 data records 2.3 s (3.6 ms each), 3445 filler records 3.8 s (1.11 ms each),
+END message and reply 6.1 s, name read-back 2.0 s (the `--read-wait` sleep) =
+15 s per iteration, 24 bytes per iteration (1.6 B/s). Install alone is 12.2 s,
+of which only 19 % depends on the payload. Consequences:
+
+* A mini PLUG-OUT can save at most the 2.3 s of data records (about 15 % of an
+  iteration); the 3.8 s of filler and the 6.1 s END are fixed costs of the
+  4096-record container. Not worth the hang risk of
+  [[minimal-plugout-hangs]] (memory note); dropped.
+* The whole 2.8 MB OS at 24 B / 15 s would be ~20 days: this channel is for
+  targeted areas. Next candidates: a host-written address (install once, change
+  `SRC` by MIDI and re-trigger the hook), or the TONE-register route.
+* Cheap tuning: `--read-wait 0.5` (the info answer is usually ready sooner).
+
+**Early END (no filler after the last data record), 2026-10-14:** `dump_loop.py
+--skip-filler tail` sends records 0..2412 (everything up to the end of region
+1, 2413 of 4096) and then END. Repeated cleanly (the first attempt overlapped
+with another dump loop on the same device and is void): START and all records
+are accepted, the END reply is `0x03` and arrives immediately (0.0 s, against
+6.1 s of processing for a full container), and the init did NOT run: after the
+call the three names are still the ones of the previous install, not the bytes
+at `SRC`. So the device validates the record count at END and discards the
+transfer; the filler cannot be left out. `--skip-filler all` was not tried (the
+data records carry no index, so it would also move region 1 from block 2048 to
+286). The 3.8 s of filler and 6.1 s of END are fixed. Use `--skip-filler` only
+for this experiment: with an END error the names read back are stale, not data.
+Never run two loops on the same device: the names are shared state.
+
 #### Stepping through memory with the panel: `JX-3P-MEM-STEP` (built, not yet tested on hardware)
 
 `examples/mem_name/press.s` + `engine_build.sh` + `make_plugout.sh`. The
@@ -364,6 +424,46 @@ advances on any parameter change (it may also fire on non-panel parameter
 traffic, e.g. notes), and whether the OS re-reads the name after init is the
 open question this build tests — if the display does not change, the next step
 is a different sink (a parameter label or the patch name).
+
+#### Update 2026-10-13: tools and negative results
+
+* **Faster build**: `dump_loop.py` no longer recompresses the image each
+  iteration (LZSS in Python was 7 of 7.4 s). The hook's `SRC` is encoded once
+  as a unique sentinel (stored as 4 literal bytes); each build patches those
+  bytes and the region byte sum. Build 7.4 s → 0.2 s; output verified
+  byte-identical to the slow path. Floor stays ~12 s install + 2 s read-back
+  per 7 bytes.
+* **Minimal PLUG-OUTs hang the device** (`examples/mem_name/make_min.py`):
+  region 0 of 180 B with a stub descriptor, with and without a stub engine
+  (`MIN`, `MIN-E`), and region 0 zero-padded to its stock size with the stock
+  SYNINFO pointer (`MIN-P`) all froze the SYSTEM-8 at "receiving plg3"
+  (power cycle needed). Cause is the descriptor returned by region 0's init
+  (stock init returns a table with real callbacks at `+4`, `+8`, `+0x18`);
+  size and SYNINFO pointer are not it. Keep the stock image and patch it.
+  The container always carries 4096 records; filler records are cheap on the
+  wire, so a smaller image only saves payload, not messages.
+* **Name channel capacity** (not implemented): the slot info answer carries
+  the name as 16 characters of two nibbles each, so up to 16 raw bytes could be
+  read instead of 14 hex digits (7 bytes), plus the 2-byte version.
+  Untested: whether the OS truncates at NUL, passes bytes >= 0x80, and whether
+  version is taken from the runtime image. Do not use the model id (the OS may
+  key behaviour on it).
+* **`JX-3P-MEM-STEP` reworked** (`press.s`, `step_read.py`): the engine hook
+  no longer writes the PLUG-OUT name (the slot always showed `MEM STEP`); on
+  every panel parameter change it writes 128 nibble bytes into the RAM image of
+  `NAME0` of preset 1 (`0x60445957`, slot 3 only), which `RQ1` reads back:
+  4 bytes big endian address + 60 bytes of OS memory (`SRC + 60 * counter`).
+  `NAME0` is a 128-byte leaf of which a name uses 32, so the write stays inside
+  the leaf. The counter lives in region 0 (`name + 0x70`, zero area, known
+  writable) instead of the engine image; the region 0 init hook is only
+  installed with `INIT=1`. Host side: `python3 examples/mem_name/step_read.py
+  --slot 3 -o os_step.bin`. Verified only on the built slot 3 file (relocated
+  pointers aside, only the 108-byte hook at `0x60E07000` and the `b.w` at the
+  sender entry differ from stock). **Not yet run on hardware**; open points:
+  whether the hook runs on selecting the slot, whether the OS restores NAME0
+  after the write (as it did after init), whether `DEST` is the same cell
+  without sending the patch bank (`--no-patches`), and whether MIDI-driven
+  parameter changes also reach the sender (that would remove the manual knob).
 
 ### Risks
 

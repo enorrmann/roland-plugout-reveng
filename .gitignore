@@ -1,3 +1,5 @@
 plugins
 firmware
 tools/__pycache__
+dumps
+**/*.bin

@@ -20,7 +20,7 @@ bytes already in it. Ctrl-C finishes the current iteration, then stops.
     python3 examples/mem_name/dump_loop.py --slot 3 --count 70 -o /tmp/os.bin
     python3 examples/mem_name/dump_loop.py --slot 3 --count 70 --dry-run
 
-Cost: ~8 s to build + the transfer + the info query per 7 bytes. A 2.8 MB OS
+Cost: ~1 s to build (after a one-off ~8 s) + the transfer + the info query per 7 bytes. A 2.8 MB OS
 image is ~400 000 iterations: use --start/--count for the areas you need.
 """
 from __future__ import annotations
@@ -29,15 +29,20 @@ import argparse
 import os
 import re
 import signal
+import struct
 import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import replace
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
+import lzss                    # noqa: E402
 import plugout as P            # noqa: E402
+import plugout_build as B      # noqa: E402
+import plugout_image as I      # noqa: E402
 import plugout_tool as T       # noqa: E402
 
 BUILD = [sys.executable, os.path.join(ROOT, "tools", "plugout_build.py")]
@@ -78,7 +83,103 @@ def prepare_project(work: str) -> str:
     return proj
 
 
+SENTINEL = 0xA1B2C3D4          # not a modified immediate: forced into the literal pool
+
+
+class FastBuild:
+    """Builds Code8_<slot>.Dat for any SRC without recompressing.
+
+    The LZSS encoder (pure Python) takes ~7 s. Only the 4-byte literal SRC of
+    the hook changes between iterations, and a unique sentinel value is never
+    matched by a back-reference, so it is stored as 4 literal bytes in the
+    compressed stream. The stream is encoded once with the sentinel; each
+    iteration patches those 4 bytes (+ the byte sum in the region header).
+    """
+
+    def __init__(self, proj_dir: str, work: str, slot: int):
+        run(BUILD + ["patch", proj_dir, "--region", "0", "--at", f"{BASE + CAVE_OFF:#x}",
+                     "--file", assemble(SENTINEL, work)])
+        proj = B.Project.load(proj_dir)
+        self.slot, self.meta = slot, proj.meta
+        self.name, self.mid = proj.meta["name"], proj.meta["model_id"]
+        self.version = B.version_arg(proj.meta["version"])
+        images = proj.images_for_slot(slot)
+        plain0 = I.stamp_identity(images[0], self.name, self.mid, self.version)
+        self.hdrs = []
+        for rm in proj.meta["regions"]:
+            self.hdrs.append(I.RegionHeader(
+                magic=rm["magic"].encode("latin-1"), stamp=rm["stamp"].encode("latin-1"),
+                tool=rm["tool"].encode("latin-1"), load=int(rm["load"], 0),
+                entry=int(rm["entry"], 0)))
+        self.raw1 = I.Region(self.hdrs[1], images[1]).to_raw()
+        self.comp0 = lzss.encode(plain0)
+        self.ulen0 = len(plain0)
+        pat = struct.pack("<I", SENTINEL)
+        at = plain0.find(pat)
+        if at < 0 or plain0.find(pat, at + 1) >= 0:
+            raise SystemExit("fast build: sentinel not unique in region 0")
+        self.offs = self._literal_offsets(at, 4)
+        if self.offs is None:
+            raise SystemExit("fast build: SRC literal is not stored as literals")
+        check = self.compressed0(0x60000000)
+        want = bytearray(plain0)
+        want[at:at + 4] = struct.pack("<I", 0x60000000)
+        if lzss.decode(check, self.ulen0) != bytes(want):
+            raise SystemExit("fast build: self-check failed")
+
+    def _literal_offsets(self, at: int, n: int):
+        """Compressed-stream offsets of output bytes at..at+n-1, if all literals."""
+        src, i, out, found = self.comp0, 0, 0, {}
+        while i < len(src) and len(found) < n:
+            flags = src[i]
+            i += 1
+            for bit in range(8):
+                if i >= len(src):
+                    break
+                if flags >> bit & 1:
+                    if at <= out < at + n:
+                        found[out - at] = i
+                    i += 1
+                    out += 1
+                else:
+                    ln = (src[i + 1] & 0x0F) + lzss.THRESHOLD + 1
+                    if out < at + n and out + ln > at:
+                        return None
+                    i += 2
+                    out += ln
+        return [found[k] for k in range(n)] if len(found) == n else None
+
+    def compressed0(self, src: int) -> bytes:
+        comp = bytearray(self.comp0)
+        for o, b in zip(self.offs, struct.pack("<I", src)):
+            comp[o] = b
+        return bytes(comp)
+
+    def build(self, src: int) -> bytes:
+        comp = self.compressed0(src)
+        h = replace(self.hdrs[0], clen=len(comp), csum=sum(comp) & 0xFFFFFFFF, ulen=self.ulen0)
+        raw0 = h.pack() + comp
+        raw0 += b"\xff" * (-len(raw0) % I.BLOCK_SIZE)
+        blocks = I.blocks_from_regions([raw0, self.raw1], self.meta["records"])
+        return I.build_container(self.name, self.mid, self.version, blocks)
+
+
+_fast: FastBuild | None = None
+
+
 def build_dat(proj: str, work: str, src: int, slot: int) -> str:
+    """Code8_<slot>.Dat reading `src` (fast path; see FastBuild)."""
+    global _fast
+    dat = os.path.join(work, f"Code8_{slot}.Dat")
+    if _fast is None:
+        print("compressing the base image once ...", flush=True)
+        _fast = FastBuild(proj, work, slot)
+    with open(dat, "wb") as fh:
+        fh.write(_fast.build(src))
+    return dat
+
+
+def build_dat_slow(proj: str, work: str, src: int, slot: int) -> str:
     hook = assemble(src, work)
     run(BUILD + ["patch", proj, "--region", "0", "--at", f"{BASE + CAVE_OFF:#x}",
                  "--file", hook])
@@ -157,6 +258,12 @@ def main() -> int:
                   f"in {iters} installs of slot {args.slot}")
             return 0
 
+        # compress the base image and build the first file BEFORE touching MIDI:
+        # the one-off compression takes ~8 s, long enough for the device to
+        # time out an open session
+        print("building the first file ...", flush=True)
+        build_dat(proj, work, args.start + done, args.slot)
+
         s, port = T.open_session(args)
         try:
             info = s.device_info()
@@ -190,7 +297,16 @@ def main() -> int:
                 dat = build_dat(proj, work, src, args.slot)
                 c = P.load(dat)
                 t_b = time.time()
-                s.install(c, args.slot, progress=None)
+                t_s = time.time()
+                seen = []
+
+                def first_record(i, total, t_s=t_s, seen=seen):
+                    if not seen:
+                        seen.append(1)
+                        print(f"    START acknowledged after {time.time() - t_s:.1f} s, "
+                              f"sending {total} records ...", flush=True)
+                print(f"    file ready ({t_b - t_a:.1f} s build); sending START ...", flush=True)
+                s.install(c, args.slot, progress=first_record)
                 t_c = time.time()
                 name = read_back(s, args.slot, c.model_id, args.read_tries, args.read_wait)
                 t_d = time.time()

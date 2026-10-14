@@ -1,0 +1,15 @@
+pat='F0 41' step=1 0x60000000..0x602cda70 skip=0: count=763 0x600009b2 0x60000b84 0x60000be2 0x60000bec 0x60000c2e
+pat='F0 41 10 00 00' step=1 0x60000000..0x602cda70 skip=0: count=1 0x602c4d1d
+pat='F0 41 ?? 00 00' step=1 0x60000000..0x602cda70 skip=0: count=2 0x602ad784 0x602c4d1d
+pat='F0 41 7F' step=1 0x60000000..0x602cda70 skip=0: count=0 
+pat='00 00 7E 12' step=1 0x60000000..0x602cda70 skip=0: count=1 0x602c4d20
+pat='F0 7E 7F 06 01' step=1 0x60000000..0x602cda70 skip=0: count=0 
+pat='F0 7E ?? 06 02 41' step=1 0x60000000..0x602cda70 skip=0: count=1 0x60005acc
+pat='CC 5A 00 60' step=1 0x60000000..0x602cda70 skip=0: count=0 
+pat='C8 5A 00 60' step=1 0x60000000..0x602cda70 skip=0: count=0 
+pat='84 D7 2A 60' step=1 0x60000000..0x602cda70 skip=0: count=0 
+pat='?? 5A 00 60' step=1 0x60000000..0x602cda70 skip=0: count=18 0x60005c50 0x601182c0 0x601182c4 0x601182c8 0x601182cc
+pat='?? 5A 00 60' step=1 0x60000000..0x602cda70 skip=5: count=18 0x601182d0 0x601182d4 0x601182d8 0x601182dc 0x601182e0
+pat='?? 5A 00 60' step=1 0x60000000..0x602cda70 skip=10: count=18 0x601182e4 0x601182e8 0x601182ec 0x601182f0 0x601182f4
+pat='?? 5A 00 60' step=1 0x60000000..0x602cda70 skip=15: count=18 0x6027fec4 0x6027fee0 0x6027fefc
+pat='5C 34 00 60' step=4 0x60000000..0x602cda70 skip=0: count=0 
