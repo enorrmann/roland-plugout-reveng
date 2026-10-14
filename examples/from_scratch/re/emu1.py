@@ -4,6 +4,7 @@ from unicorn import arm_const as A
 TRAP=0x0F000000; STACK=0x20100000; OST=0x0113FC00
 class Emu1:
     """Engine (region 1) emulator: OS table 0x0113FC00 entries trapped."""
+    PREC = 6          # decimals kept of s0 in the log (None = full float32)
     def __init__(self, img, base=0x60a00000, slave=0, getval=None, bss=0x40000):
         uc=self.uc=U.Uc(U.UC_ARCH_ARM, U.UC_MODE_THUMB|U.UC_MODE_MCLASS)
         span=(len(img)+bss+0xfff)&~0xfff
@@ -25,7 +26,8 @@ class Emu1:
         off=(addr-TRAP)//4
         sp=uc.reg_read(A.UC_ARM_REG_SP)
         st=struct.unpack('<I',uc.mem_read(sp,4))[0]
-        e=(off,self.r(0),self.r(1),self.r(2),self.r(3),round(self.s(0),6),st)
+        s0=self.s(0)
+        e=(off,self.r(0),self.r(1),self.r(2),self.r(3),s0 if self.PREC is None else round(s0,self.PREC),st)
         self.log.append(e)
         if off==0xf0: uc.reg_write(A.UC_ARM_REG_R0,self.slave)
         elif off==0x00: uc.reg_write(A.UC_ARM_REG_R0,self.getval(self.r(0),self.r(1),self.r(2)) & 0xffffffff)

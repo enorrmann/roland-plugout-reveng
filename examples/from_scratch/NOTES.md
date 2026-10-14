@@ -145,11 +145,25 @@ recibir onda/tipo de efecto; nuestro engine nunca lo llamaba. Ahora `vt+0x0C` ha
 | Código del engine (región 1) | `engine/engine.c` | propio |
 | Metadatos del contenedor (`plugout.json`) | `engine/build.sh` | **propios** (antes: `unpack` del JX-3P) |
 | `Script.xml` + `Patch/` en `plugins/C-SAW` | plantilla JX-3P | **eliminados**: sin Script.xml `plugout_tool.py install` manda sólo el firmware; los 64 INIT están en la región 0 (`MODEL=jx` los sigue copiando) |
-| Microcódigo DSP (6 programas principales + SAW, ~41 KB) | copiado del JX-3P al compilar | **pendiente**: requiere el ISA del DSP (assembler propio) |
-| Tablas del engine (estado inicial 242+173 valores por slave, 30 ids con 78 curvas / 770 salidas, rampas de mute, curva de velocidad, secuencia `+0xC0`/`+0x70`, orden de registro) | `gen_tables.py` **ejecuta el engine del JX-3P** en emu1 | **pendiente**: reemplazar por un modelo propio parámetro -> DSP (coincide con el paso "Panel") |
-| Patch por defecto con el que se generan esas tablas | defaults de `Script.xml` del JX-3P (`re/jxpatch.py`) | pendiente, junto con lo anterior (pasar a `model/params.INIT`) |
+| Microcódigo DSP (6 principales, SAW/SQR/NOISE, 6 efectos; 48 KB) | copiado del JX-3P al compilar, **estático** (`engine/programs.py`, offsets + SHA-256, sin ejecutar nada) | **pendiente**: requiere el ISA del DSP (assembler propio); el programa vacío y los bloques de datos ya son nuestros |
+| Tablas del engine (estado, curvas, rampas, velocidad, registro, cambios de programa) | antes: `gen_tables.py` ejecutaba el engine del JX-3P | **propio** (2026-10-14): modelo `engine/model_spec.py` + intérprete en `engine.c`; sin probar en hardware |
+| Patch por defecto de esas tablas | `Script.xml` del JX-3P | ya no hace falta: el engine lee los valores reales con `+0x00 get` |
 
 Orden propuesto: (1) modelo propio de parámetros en el engine: fórmulas por id (recta / tabla) escritas por nosotros
 a partir de lo medido, y el estado inicial calculado con ellas desde `INIT`; `gen_tables.py` queda sólo para copiar
 microcódigo y como referencia de test. (2) ISA del DSP (`re/dspmc.py`, `dsp_wdiff.py`): sin eso el microcódigo no se
 puede reemplazar.
+
+## Modelo de parámetros propio (2026-10-14) — `engine/model_spec.py` (detalle en `engine/README.md`)
+* Medido como caja negra (JX-3P en emu1, sólo referencia): barridos 0..255 por id (`re/measure.py`, a precisión
+  float32 completa: `Emu1.PREC = None`), dependencias cruzadas (`re/deps.py`: 29 ids cuya escritura depende de
+  otros), sondas y barridos en contexto (`re/probe.py`, `sweepfit.py`, `spec_blocks.py`), nodos (`re/knotfit.py`).
+* Semántica: cada salida pertenece al parámetro que la dispara; varias fuentes escriben el mismo id DSP y gana la
+  última (p. ej. cutoff `P4:0x20` <- 0x6EA, 0x2DB, 0x7E4). Al refrescar: orden del JX-3P.
+* Hallazgos: ids de parte 0x2DB-0x2E0 = ajuste en % que lleva el valor del patch hacia 255 (`floor(p+(255-p)q/100)`);
+  0x3EF multiplica la velocidad del LFO; Circuit Mod (0x744) = dispersión por voz de tiempos de envolvente, detune
+  y filtro; UNISON añade offsets de detune por voz; 0x22C/0x519/0x544/0x56E = estados de ruteo de parte (5, por
+  slave); el JX-3P cachea un flag de sens en su handler de 0x22C (el modelo sigue los valores actuales).
+* Tests: `engine/test_model.py` (modelo vs JX-3P: 0 diferencias en cambios con tolerancia 3 %, 0 en refresco;
+  error máximo 2 %) y `engine/test_emu.py` (engine compilado vs JX-3P: registro, estado de arranque, cambios de
+  los 72 parámetros, swaps de onda/efecto, mute/unmute, notas: todo igual). **Sin probar en hardware.**

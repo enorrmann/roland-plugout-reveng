@@ -2,9 +2,10 @@
 # Build the from-scratch engine into a plugin folder.
 #   examples/from_scratch/engine/build.sh [plugins/JX-3P] [out-plugin-dir]
 # Both regions are ours: region 0 from ../model (C), region 1 from engine.c.
-# MODEL=jx keeps the stock JX-3P region 0 (for comparisons). The JX-3P plugin
-# folder supplies the DSP microcode (copied at build time) and the host-side
-# files (Script.xml, Patch/) of the plugin folder.
+# The JX-3P plugin folder only supplies the DSP microcode, copied by
+# programs.py (static, SHA-256 checked); the parameter model is ours
+# (model_spec.py -> gen_model.py). MODEL=jx: stock JX-3P region 0 and its
+# Script.xml / Patch/ (for comparisons).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
@@ -14,7 +15,12 @@ B=$HERE/build
 mkdir -p "$B"
 MODEL=${MODEL:-c}
 [ "$MODEL" = jx ] || "$HERE/../model/build.sh"
-python3 "$HERE/gen_tables.py" "$SRC_PLUGIN" "$B"
+python3 "$HERE/programs.py" "$SRC_PLUGIN" "$B"
+python3 "$HERE/gen_model.py" "$B"
+if [ "$MODEL" = jx ] && [ ! -f "$B/proj/region0.bin" ]; then
+    python3 "$ROOT/tools/plugout_build.py" unpack "$SRC_PLUGIN/Script/Code8_1.Dat" "$B/proj" \
+        --relocs-from "$SRC_PLUGIN/Script/Code8_2.Dat"
+fi
 CFLAGS="-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -Os -ffreestanding \
  -fno-builtin -nostdlib -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$B"
 arm-none-eabi-gcc $CFLAGS -c "$HERE/engine.c" -o "$B/engine.o"

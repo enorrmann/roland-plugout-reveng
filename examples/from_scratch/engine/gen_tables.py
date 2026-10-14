@@ -1,4 +1,8 @@
-"""Generate tables.h for the C engine from the user's own JX-3P PLUG-OUT.
+"""REFERENCE ONLY (not part of the build since 2026-10-14; the engine uses model_spec.py and
+programs.py). Generates the old tables.h by running the JX-3P engine in emu1; re/ tools and
+hybrid.sh still use its helpers.
+
+Generate tables.h for the C engine from the user's own JX-3P PLUG-OUT.
 
 usage: python3 gen_tables.py plugins/JX-3P outdir
 

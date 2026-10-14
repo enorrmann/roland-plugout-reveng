@@ -1,25 +1,24 @@
 /*
  * From-scratch PLUG-OUT engine (region 1, runs on the slave BMCs).
  *
- * Our own ARM code; the only foreign data are the DSP programs (microcode),
- * taken by gen_tables.py from the user's JX-3P: the main program of each of the
- * six DSPs and the SAW program in both oscillator slots. The engine registers
- * them, sends the start-up state and turns notes into DSP parameter writes.
+ * Our own ARM code. The only foreign data are the DSP programs (microcode),
+ * copied by programs.py from the user's JX-3P at build time. The engine
+ * registers them, keeps the current parameter values and turns them into DSP
+ * parameter writes with our parameter model (model_spec.py, compiled by
+ * gen_model.py into byte code that eval_expr() interprets), swaps the
+ * oscillator / effect programs when the waveforms or the effect type change,
+ * and turns notes into pitch / gate writes.
  * Interface: CUSTOM_PLUGOUTS.md "DSP microcode in the engine",
  * examples/from_scratch/NOTES.md.
  */
 #include <stdint.h>
 
 typedef struct { uint32_t addr, n1, n2; const void *src; } dspdesc_t;
-typedef struct { uint8_t off, isdesc; uint16_t v; } regcall_t;
-typedef struct { uint8_t unit; uint16_t id; float v; } pset_t;
-typedef struct { uint8_t unit; uint16_t id; uint8_t ramp, flag; uint32_t sp; float v; } rampset_t;
-typedef struct { uint8_t type; uint16_t a, b, c, d; uint32_t e, f, g, h; float v; } swapop_t;
-typedef struct { uint8_t grp; uint16_t id; uint16_t first, n; } ext_t;        /* id outside the patch */
-typedef struct { uint8_t bank, dsp; uint16_t id; uint16_t curve; } extout_t; /* one DSP write */
-typedef struct { float a, b; int16_t tab; } curve_t;                         /* a*v+b, or curve_tab[tab][v] */
+typedef struct { uint16_t src, when, nwhen, expr, nexpr, t0; uint8_t nt; } mout_t;
+typedef struct { uint8_t bank, dsp, ramp, flag; uint16_t id; } mtgt_t;
 
-#include "tables.h"
+#include "programs.h"
+#include "model.h"
 
 #define N(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -29,93 +28,210 @@ typedef void (*reg_fn)(const void *);                                   /* +0x28
 typedef void (*ramp_fn)(int dsp, int id, int ramp, int flag, int sp, float v); /* +0xA0 */
 typedef void (*set_fn)(int dsp, int id, float v);                       /* +0xA4 */
 typedef void (*bank_fn)(int dsp, const uint32_t *id, float v);          /* +0xB0 */
-typedef void (*glob_fn)(float v);                                       /* +0xBC */
 typedef int (*slave_fn)(void);                                          /* +0xF0 */
 typedef int (*get_fn)(int part, int grp, int id);                       /* +0x00 */
-typedef void (*sync_fn)(void);                                          /* +0xC0: wait for DSP frame sync */
+typedef void (*sync_fn)(int a, int b, int c, int d);                    /* +0xC0: wait for the DSP frame */
 typedef void (*swap_fn)(int dsp, const void *prog, const void *data, void *ctx, void *ctx2,
                         uint32_t slot, uint32_t task, uint32_t x0, uint32_t x1);  /* +0x70 */
 
-static void p_ramp(const rampset_t *r) { ((ramp_fn)OS(0xA0))(r->unit, r->id, r->ramp, r->flag, r->sp, r->v); }
+static void p_ramp(int dsp, int id, int ramp, int flag, int sp, float v) { ((ramp_fn)OS(0xA0))(dsp, id, ramp, flag, sp, v); }
 static void p_set(int dsp, int id, float v) { ((set_fn)OS(0xA4))(dsp, id, v); }
 static void p_bank(int dsp, uint32_t id, float v) { ((bank_fn)OS(0xB0))(dsp, &id, v); }
 static int slave_index(void) { return ((slave_fn)OS(0xF0))() ? 1 : 0; }
+static int os_get(int grp, int id) { return ((get_fn)OS(0x00))(0, grp, id); }
 
-/* ---- engine object --------------------------------------------------------- */
+/* ---- programs ----------------------------------------------------------------- */
+
+/* an empty slot program (execution order: two no-ops, end) and the zero data blocks */
+static const uint32_t mc_empty[4] = { 0x0a02ff70, 0x0a02ff70, 0x0b0200f8, 0x00010000 };
+static const uint32_t zero_data[8];
+
+#define PROG(a, name) { a, MC_##name##_BYTES, MC_##name##_BYTES, mc_##name }
+#define EMPTY(a) { a, 0xe, 0xe, mc_empty }
+#define DATA(a, n) { a, n, n, zero_data }
+enum { SLOT_MAIN = 0x0100, SLOT_DCO1 = 0x6000, SLOT_DCO2 = 0xB000, SLOT_FX = 0xB000, SLOT_X = 0x8000 };
+
+static const dspdesc_t main_prog[6] = {
+    PROG(0x0100, MAIN0), PROG(0x0100, MAIN1), PROG(0x0100, MAIN2),
+    PROG(0x0100, MAIN3), PROG(0x0100, MAIN4), PROG(0x0100, MAIN5),
+};
+static const dspdesc_t empty_x = EMPTY(SLOT_X), empty_6 = EMPTY(SLOT_DCO1);
+/* DCO1 waveform 0 SAW, 1 SQR, 2.. PULSE (= SAW program + flag); DCO2 0 SAW, 1 SQR, 2 PULSE, 3.. NOISE */
+static const dspdesc_t dco1_prog[3] = { PROG(SLOT_DCO1, DCO1_SAW), PROG(SLOT_DCO1, DCO1_SQR), PROG(SLOT_DCO1, DCO1_SAW) };
+static const dspdesc_t dco2_prog[4] = { PROG(SLOT_DCO2, DCO2_SAW), PROG(SLOT_DCO2, DCO2_SQR),
+                                        PROG(SLOT_DCO2, DCO2_SAW), PROG(SLOT_DCO2, DCO2_NOISE) };
+/* effect types 0 OD, 1 DS, 2 CHORUS, 3 FUZZ, 4 CRUSHER, 5 PHASER */
+static const dspdesc_t fx_prog[6] = { PROG(SLOT_FX, FX_OD), PROG(SLOT_FX, FX_DS), PROG(SLOT_FX, FX_CH),
+                                      PROG(SLOT_FX, FX_FZ), PROG(SLOT_FX, FX_CR), PROG(SLOT_FX, FX_PH) };
+static const dspdesc_t data_0 = DATA(0x0000, 8), data_8 = DATA(0x0008, 8), data_8l = DATA(0x0008, 0x20),
+                       data_dco1 = DATA(0x0008, 8), data_dco2 = DATA(0x0010, 8), data_fx = DATA(0x16e8, 8);
+
+/* ---- engine object -------------------------------------------------------------- */
 
 typedef struct engine {
     const void *const *vt;
     int slave, first;              /* slave 0: voices 0-3, slave 1: voices 4-7 */
     uint8_t note[4], on[4];
+    int32_t val[NPARAM];           /* current parameter values */
 } engine_t;
 
-/* ids outside the patch (part level, controllers, on/off switches, ...): the
-   emulator could only record their responses with value 0, so the engine reads
-   the real value (OS +0x00) and maps it through the learned curves */
-static float curve_eval(const curve_t *c, int v)
+static engine_t engine;
+
+static int pidx(int id)            /* parameter index of an id, -1 if not in the model */
 {
-    if (c->tab < 0) return c->a * (float)v + c->b;
-    if (v < 0) v = 0;
-    if (v > 255) v = 255;
-    return curve_tab[c->tab][v];
+    int lo = 0, hi = NPARAM - 1;
+    while (lo <= hi) {
+        int m = (lo + hi) >> 1;
+        if (param_id[m] == id) return m;
+        if (param_id[m] < id) lo = m + 1; else hi = m - 1;
+    }
+    return -1;
 }
 
-static void apply_ext(const ext_t *x, int v)
+static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+/* ---- the model's byte code (ops as in expr.py) -------------------------------------- */
+
+enum { OP_CONST, OP_PARAM, OP_SLAVE, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX, OP_GE, OP_LT,
+       OP_SEL, OP_EXP2, OP_PICK, OP_KNOTS, OP_ABS, OP_FLOOR, OP_INTERP };
+
+static float floorf_(float x)
 {
-    for (unsigned j = 0; j < x->n; j++) {
-        const extout_t *o = &extout[x->first + j];
-        float y = curve_eval(&curves[o->curve], v);
-        if (y != y) continue;                  /* not written by the JX-3P for this value */
-        if (o->bank) p_bank(o->dsp, o->id, y);
-        else p_set(o->dsp, o->id, y);
+    float t = (float)(int32_t)x;
+    return t > x ? t - 1.0f : t;
+}
+
+static float exp2f_(float x)       /* 2^x: integer part in the exponent, e^(f ln 2) for |f| <= 0.5 */
+{
+    if (x < -126.0f) return 0.0f;
+    if (x > 127.0f) x = 127.0f;
+    float n = floorf_(x + 0.5f);
+    float f = (x - n) * 0.69314718f, t = 1.0f, s = 1.0f;
+    for (int k = 1; k <= 7; k++) { t *= f / (float)k; s += t; }
+    union { float f; uint32_t u; } e = { .u = (uint32_t)((int32_t)n + 127) << 23 };
+    return s * e.f;
+}
+
+static float eval_expr(const engine_t *e, unsigned off, unsigned n)
+{
+    float st[24];
+    int sp = 0;
+    for (unsigned i = off; i < off + n; ) {
+        unsigned op = mcode[i++];
+        switch (op) {
+        case OP_CONST: st[sp++] = mconst[mcode[i++]]; break;
+        case OP_PARAM: st[sp++] = (float)e->val[mcode[i++]]; break;
+        case OP_SLAVE: st[sp++] = (float)e->slave; break;
+        case OP_EXP2: st[sp - 1] = exp2f_(st[sp - 1]); break;
+        case OP_ABS: if (st[sp - 1] < 0) st[sp - 1] = -st[sp - 1]; break;
+        case OP_FLOOR: st[sp - 1] = floorf_(st[sp - 1]); break;
+        case OP_SEL: sp -= 2; st[sp - 1] = st[sp - 1] != 0.0f ? st[sp] : st[sp + 1]; break;
+        case OP_PICK: {
+            int k = mcode[i++];
+            int j = clampi((int)st[sp - k - 1], 0, k - 1);
+            st[sp - k - 1] = st[sp - k + j];
+            sp -= k;
+            break;
+        }
+        case OP_INTERP: {
+            const float *xs = &mconst[mcode[i]], *ys = xs + mcode[i + 1];
+            int k = mcode[i + 1];
+            float x = st[sp - 1];
+            i += 2;
+            if (x <= xs[0]) { st[sp - 1] = ys[0]; break; }
+            if (x >= xs[k - 1]) { st[sp - 1] = ys[k - 1]; break; }
+            int j = 0;
+            while (x >= xs[j + 1]) j++;
+            st[sp - 1] = ys[j] + (ys[j + 1] - ys[j]) * ((x - xs[j]) / (xs[j + 1] - xs[j]));
+            break;
+        }
+        case OP_KNOTS: i += 4; break;        /* not used by the model */
+        default: {
+            float b = st[--sp], a = st[sp - 1], r;
+            switch (op) {
+            case OP_ADD: r = a + b; break;
+            case OP_SUB: r = a - b; break;
+            case OP_MUL: r = a * b; break;
+            case OP_DIV: r = a / b; break;
+            case OP_MIN: r = a < b ? a : b; break;
+            case OP_MAX: r = a > b ? a : b; break;
+            case OP_GE: r = a >= b ? 1.0f : 0.0f; break;
+            default: r = a < b ? 1.0f : 0.0f; break;
+            }
+            st[sp - 1] = r;
+        }
+        }
+    }
+    return st[0];
+}
+
+/* the outputs of one source; immediate = start-up / refresh (+0xA4, no ramps) */
+static void run_outputs(engine_t *e, unsigned first, unsigned count, int immediate)
+{
+    for (unsigned o = first; o < first + count; o++) {
+        const mout_t *m = &mout[o];
+        if (m->nwhen && eval_expr(e, m->when, m->nwhen) == 0.0f)
+            continue;
+        float v = eval_expr(e, m->expr, m->nexpr);
+        for (unsigned t = m->t0; t < m->t0 + m->nt; t++) {
+            const mtgt_t *g = &mtgt[t];
+            if (g->bank) p_bank(g->dsp, g->id, v);
+            else if (immediate || g->ramp == 0xFF) p_set(g->dsp, g->id, v);
+            else p_ramp(g->dsp, g->id, g->ramp, g->flag, 0, v);
+        }
     }
 }
 
-static const ext_t *ext_table(engine_t *e, unsigned *n)
+static void run_source(engine_t *e, int i, int immediate)
 {
-    *n = e->slave ? N(ext1) : N(ext0);
-    return e->slave ? ext1 : ext0;
+    run_outputs(e, src_first[i], src_count[i], immediate);
 }
 
-static void send_ext(engine_t *e)
-{
-    unsigned n;
-    const ext_t *x = ext_table(e, &n);
-    for (unsigned i = 0; i < n; i++)
-        apply_ext(&x[i], ((get_fn)OS(0x00))(0, x[i].grp, x[i].id));
-}
+/* ---- program swaps (as the JX-3P does when the waveforms / effect type change) ----------- */
 
-/* start the slot programs (DCO1/DCO2 on DSP2/3, effect on DSP4): +0x70 loads the
-   program into its slot and enables the slot's task bit, as the JX-3P does when
-   the waveform / effect parameters arrive */
 static uint32_t swap_ctx[8] = { 0, 0, 0xFFFFFFFFu };
 
-static void start_slots(void)
+static void swap(int dsp, const dspdesc_t *prog, const dspdesc_t *data, uint32_t slot, uint32_t task,
+                 uint32_t x0, uint32_t x1)
 {
-    for (unsigned i = 0; i < N(swap_ops); i++) {
-        const swapop_t *o = &swap_ops[i];
-        if (o->type == 0)
-            ((ramp_fn)OS(0xA0))(o->a, o->b, o->c, o->d, o->e, o->v);
-        else if (o->type == 1)
-            ((sync_fn)OS(0xC0))();
-        else
-            ((swap_fn)OS(0x70))(o->a, &descs[o->b], &descs[o->c], swap_ctx, swap_ctx,
-                                o->e, o->f, o->g, o->h);
+    ((swap_fn)OS(0x70))(dsp, prog, data, swap_ctx, swap_ctx, slot, task, x0, x1);
+}
+
+static void dco_levels(int id, float v, int ramp)     /* level of DCO1 (0x32) or DCO2 (0x33), 4 voices */
+{
+    for (int d = 2; d <= 3; d++)
+        for (int k = 0; k < 2; k++) {
+            int last = !ramp && d == 3 && k == 1;     /* the last mute ramp waits (flag 1) */
+            p_ramp(d, id + 0x16 * k, ramp, last, last, v);
+        }
+}
+
+static void swap_dco(engine_t *e, int which)
+{
+    int id = which == 1 ? 0x32 : 0x33;
+    const dspdesc_t *p = which == 1 ? &dco1_prog[clampi(e->val[P_DCO1_WAVE], 0, 2)]
+                                    : &dco2_prog[clampi(e->val[P_DCO2_WAVE], 0, 3)];
+    dco_levels(id, 0.0f, 0);
+    ((sync_fn)OS(0xC0))(3, 0, 0, 1);
+    for (int d = 2; d <= 3; d++)
+        swap(d, p, which == 1 ? &data_dco1 : &data_dco2, which == 1 ? SLOT_DCO1 : SLOT_DCO2,
+             which == 1 ? 2 : 3, 0, 0);
+    dco_levels(id, 1.0f, 3);
+}
+
+static void swap_fx(engine_t *e)
+{
+    p_ramp(4, 0x4a, 3, 1, 1, 0.0f);
+    ((sync_fn)OS(0xC0))(4, 0, 3, 1);
+    swap(4, &fx_prog[clampi(e->val[P_FX_TYPE], 0, 5)], &data_fx, SLOT_FX, 3, 0x1F0, 0x80);
+    p_ramp(4, 0x4a, 3, 0, 0, 1.0f);
+    if (e->val[P_FX_TYPE] == 0) {                     /* OVERDRIVE: its two level ids */
+        p_ramp(4, 0x1f3, 15, 0, 0, 1.0f);
+        p_ramp(4, 0x1f2, 15, 0, 0, 1.0f);
     }
 }
 
-static void send_state(engine_t *e)
-{
-    const pset_t *a = e->slave ? state_a1 : state_a0;
-    const pset_t *b = e->slave ? state_b1 : state_b0;
-    unsigned na = e->slave ? N(state_a1) : N(state_a0);
-    unsigned nb = e->slave ? N(state_b1) : N(state_b0);
-    for (unsigned i = 0; i < na; i++) p_set(a[i].unit, a[i].id, a[i].v);
-    for (unsigned i = 0; i < nb; i++) p_bank(b[i].unit, b[i].id, b[i].v);
-    for (unsigned i = 0; i < N(state_bc0); i++)
-        ((glob_fn)OS(0xBC))(e->slave ? state_bc1[i] : state_bc0[i]);
-    send_ext(e);
-}
+/* ---- voices ------------------------------------------------------------------------- */
 
 static void active_flags(engine_t *e)
 {
@@ -134,7 +250,7 @@ static void note_pitch(engine_t *e, int lv, int note)
 static void note_gate(engine_t *e, int lv, int vel)
 {
     int u = lv >> 1, k = lv & 1, d = 4 + u, s = 0xf * k - u;   /* DSP5 ids are one lower */
-    if (vel > 127) vel = 127;
+    vel = clampi(vel, 0, 127);
     if (vel > 0) {
         p_bank(d, 0x2a + s, 1.0f);
         p_bank(d, 0x29 + s, vel_curve[vel]);
@@ -148,11 +264,24 @@ static void note_gate(engine_t *e, int lv, int vel)
     active_flags(e);
 }
 
-static void last_voice(engine_t *e, int lv)
+/* ---- state ---------------------------------------------------------------------------- */
+
+static void read_params(engine_t *e)
 {
-    for (int j = 0; j < 8; j++) {              /* same order as the JX-3P: from 0x3e + first */
-        int i = (j + e->first) & 7;
-        p_bank(5, 0x3e + i, i == lv ? 1.0f : 0.0f);
+    for (int i = 0; i < NPARAM; i++)
+        e->val[i] = os_get(param_group[i], param_id[i]);
+}
+
+/* full refresh: every output with the current values, in the JX-3P's order (last write wins) */
+static void send_state(engine_t *e)
+{
+    read_params(e);
+    run_outputs(e, CONST_FIRST, CONST_COUNT, 1);
+    for (unsigned j = 0; j < N(refresh_order); j++)
+        run_source(e, refresh_order[j], 1);
+    for (int lv = 0; lv < 4; lv++) {
+        note_pitch(e, lv, os_get(2, 0x429 + e->first + lv));
+        note_gate(e, lv, os_get(2, 0x43A + e->first + lv));
     }
 }
 
@@ -161,22 +290,63 @@ static int  e_nop(void) { return 0; }
 static void e_init(engine_t *e) { e->slave = slave_index(); e->first = 4 * e->slave; }
 static void e_load(engine_t *e)                                         /* vt+0x08 */
 {
+    /* slots, then programs, then data, DSP by DSP (OS +0x28 / +0x40 / +0x58 + 4 * dsp) */
+    int w1 = clampi(os_get(4, 0x6d4), 0, 2), w2 = clampi(os_get(4, 0x6d9), 0, 3);
+    int fx = clampi(os_get(4, 0x748), 0, 5);
+    static const uint16_t slots[6][3] = {
+        { SLOT_MAIN, SLOT_X }, { SLOT_MAIN, SLOT_X }, { SLOT_MAIN, SLOT_DCO1, SLOT_DCO2 },
+        { SLOT_MAIN, SLOT_DCO1, SLOT_DCO2 }, { SLOT_MAIN, 0x6000, SLOT_FX }, { SLOT_MAIN, 0x6000 },
+    };
+    static const uint8_t nslot[6] = { 2, 2, 3, 3, 3, 2 };
     (void)e;
-    for (unsigned i = 0; i < N(regcalls); i++) {
-        const regcall_t *r = &regcalls[i];
-        ((reg_fn)OS(r->off))(r->isdesc ? (const void *)&descs[r->v] : (const void *)(uintptr_t)r->v);
+    for (int d = 0; d < 6; d++)
+        for (int s = 0; s < nslot[d]; s++)
+            ((reg_fn)OS(0x28 + 4 * d))((const void *)(uintptr_t)slots[d][s]);
+    for (int d = 0; d < 6; d++) {
+        const dspdesc_t *p[3] = { &main_prog[d], d < 2 ? &empty_x : &empty_6, 0 };
+        if (d == 2 || d == 3) { p[1] = &dco1_prog[w1]; p[2] = &dco2_prog[w2]; }
+        if (d == 4) p[2] = &fx_prog[fx];
+        for (int s = 0; s < nslot[d]; s++)
+            ((reg_fn)OS(0x40 + 4 * d))(p[s]);
+    }
+    for (int d = 0; d < 6; d++) {
+        const dspdesc_t *p[3] = { &data_0, d >= 4 ? &data_8l : &data_8, 0 };
+        if (d == 2 || d == 3) { p[1] = &data_dco1; p[2] = &data_dco2; }
+        if (d == 4) p[2] = &data_fx;
+        for (int s = 0; s < nslot[d]; s++)
+            ((reg_fn)OS(0x58 + 4 * d))(p[s]);
     }
 }
-static void e_start(engine_t *e) { send_state(e); start_slots(); }       /* vt+0x0C */
+static void e_start(engine_t *e)                                         /* vt+0x0C */
+{
+    send_state(e);
+    /* slot programs only run once +0x70 has enabled their task bit */
+    swap_dco(e, 1);
+    swap_dco(e, 2);
+    swap_fx(e);
+}
 static void e_mute(engine_t *e)                                          /* vt+0x10 */
 {
     (void)e;
-    for (unsigned i = 0; i < N(osc_mute); i++) p_ramp(&osc_mute[i]);
+    for (int d = 2; d <= 3; d++)
+        for (int k = 0; k < 2; k++) { p_ramp(d, 0x32 + 0x16 * k, 0, 0, 0, 0.0f); }
+    for (int d = 2; d <= 3; d++)
+        for (int k = 0; k < 2; k++) { p_ramp(d, 0x33 + 0x16 * k, 0, 0, 0, 0.0f); }
+    p_ramp(4, 0x4a, 3, 0, 0, 0.0f);
 }
 static void e_unmute(engine_t *e)                                        /* vt+0x18 */
 {
-    (void)e;
-    for (unsigned i = 0; i < N(osc_unmute); i++) p_ramp(&osc_unmute[i]);
+    for (int d = 2; d <= 3; d++)
+        for (int k = 0; k < 2; k++) { p_ramp(d, 0x32 + 0x16 * k, 3, 0, 0, 1.0f); }
+    for (int d = 2; d <= 3; d++)
+        for (int k = 0; k < 2; k++) { p_ramp(d, 0x33 + 0x16 * k, 3, 0, 0, 1.0f); }
+    p_ramp(4, 0x4a, 3, 0, 0, 1.0f);
+    switch (clampi(e->val[P_FX_TYPE], 0, 5)) {          /* the effect program's own level */
+    case 0: p_ramp(4, 0x1f3, 15, 0, 0, 1.0f); p_ramp(4, 0x1f2, 15, 0, 0, 1.0f); break;
+    case 1: case 3: p_ramp(4, 0x1f2, 3, 0, 0, 1.0f); break;
+    case 2: case 4: p_ramp(4, 0x1f0, 3, 0, 0, 1.0f); break;
+    default: p_ramp(4, 0x1f7, 3, 0, 0, 1.0f); break;
+    }
 }
 static void e_refresh(engine_t *e, int all) { if (all) send_state(e); }  /* vt+0x24 */
 static void e_param(engine_t *e, int id, int zero, int value)            /* vt+0x30 */
@@ -186,18 +356,22 @@ static void e_param(engine_t *e, int id, int zero, int value)            /* vt+0
     if (id >= 0x429 && id < 0x429 + 8) {
         v = id - 0x429 - e->first;
         if (v >= 0 && v < 4) note_pitch(e, v, value);
-    } else if (id >= 0x43A && id < 0x43A + 8) {
+        return;
+    }
+    if (id >= 0x43A && id < 0x43A + 8) {
         v = id - 0x43A - e->first;
         if (v >= 0 && v < 4) note_gate(e, v, value);
-    } else if (id == 0x45C) {
-        v = value - e->first;
-        if (v >= 0 && v < 4) last_voice(e, v);
-    } else {
-        unsigned n;
-        const ext_t *x = ext_table(e, &n);
-        for (unsigned i = 0; i < n; i++)
-            if (x[i].id == id) apply_ext(&x[i], value);
+        else active_flags(e);                         /* a voice of the other slave */
+        return;
     }
+    int i = pidx(id);
+    if (i < 0)
+        return;
+    e->val[i] = value;
+    if (i == P_DCO1_WAVE) swap_dco(e, 1);
+    else if (i == P_DCO2_WAVE) swap_dco(e, 2);
+    else if (i == P_FX_TYPE) swap_fx(e);
+    run_source(e, i, 0);
 }
 
 static const void *const engine_vt[28] = {

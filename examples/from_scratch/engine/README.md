@@ -1,53 +1,88 @@
 # C-SAW: from-scratch engine (region 1) in C
 
-Our own ARM code for the slave BMCs. Foreign data: only the DSP programs
-(microcode), copied at build time from the user's JX-3P PLUG-OUT — the main
-program of each of the six DSPs and the **SAW** program in both oscillator
-slots. Nothing of Roland's is stored in the repository (`build/` is generated).
+Our own ARM code for the slave BMCs, with our own parameter model. The only
+foreign data are the DSP programs (microcode): `programs.py` cuts them out of
+the user's JX-3P PLUG-OUT at build time (static copy at fixed offsets, SHA-256
+checked, nothing executed): the main program of each of the six DSPs, the
+oscillator programs (SAW/PULSE, SQR, NOISE) and the six effect programs.
+Nothing of Roland's is stored in the repository (`build/` is generated).
 
-Region 0 (the model on the master: parameter list, slot memory, note
-assigner) is ours too since 2026-10-14: `examples/from_scratch/model/`, built
-by `build.sh` (`MODEL=jx` uses the stock JX-3P region 0 instead). Verified on
-hardware (2026-10-14). The container metadata is written by `build.sh` and
-the plugin folder holds only `Script/Code8_<n>.Dat` (no Script.xml or preset
-banks of the JX-3P): `plugout_tool.py install` then sends only the firmware,
-and the slot starts with the 64 INIT patches of region 0.
-
-**Status (2026-10-14, hardware): it plays.** Eight voices, correct pitch. It
-starts with the filter closed and opens with the panel CUTOFF, which arrives as
-an id outside the patch (part level, group 1) with a learned curve; patch
-parameters are still ignored, so no other control responds. Earlier silent
-builds and how they were fixed: see examples/from_scratch/NOTES.md (slot
-programs need `+0x70`; ids outside the patch must use the device's values, not
-the emulator's 0). `hybrid.sh` / `plugins/C-HYB` is the diagnostic that found it.
+Region 0 (parameter list, slot memory, note assigner) is ours too:
+`examples/from_scratch/model/`, built by `build.sh`. The container metadata
+is written by `build.sh`; the plugin folder holds only `Script/Code8_<n>.Dat`
+(`plugout_tool.py install` sends only the firmware; the slot starts with the
+64 INIT patches of region 0). `MODEL=jx` builds with the stock JX-3P region 0,
+Script.xml and preset banks instead.
 
 ```bash
 examples/from_scratch/engine/build.sh                  # -> plugins/C-SAW
-python3 examples/from_scratch/engine/test_emu.py        # compare with the JX-3P in emu1
+python3 examples/from_scratch/engine/test_model.py      # model vs JX-3P (reference, emu1)
+python3 examples/from_scratch/engine/test_emu.py        # built engine vs JX-3P (emu1)
 python3 tools/plugout_tool.py install plugins/C-SAW --slot 3
 ```
 
-## What the engine does
+**Status (2026-10-14):** the parameter model is complete in emulation (all
+panel / patch parameters, waveform and effect program swaps); not yet on
+hardware. Before it, the hardware build played with fixed tables (eight voices,
+only the panel CUTOFF responded).
 
-| Slave call | Engine |
+## Files
+
+| File | |
 |---|---|
-| SYNINFO `+0x24` init (called many times) | returns the same descriptor: `D[1]` create, `D[2]` destroy, `D[5]` main object |
-| `vt[0]` | slave index (`+0xF0`): slave 0 = voices 0–3, slave 1 = 4–7 |
-| `vt+0x08` | registers 45 slots / programs / data with OS `+0x28..+0x6C` (same order and contents as the JX-3P) |
-| `vt+0x0C` (also) | starts the slot programs like the JX-3P does when the waveforms / effect type arrive: mute ramps, `+0xC0` (waits for the DSP frame sync), `+0x70(dsp, &prog, &data, ctx, ctx, slot, task, x0, x1)` for DCO1 (`0x6000`, task 2) and DCO2 (`0xB000`, task 3) on DSP2/3 and the effect on DSP4 (`0xB000`, task 3, `0x1F0`, `0x80`), unmute. `+0x70` clears the slot's task bit, loads, and enables it again (`s_boot` `0x01105F94`/`0x01105F5C`): registering the programs in `vt+8` alone does not start them — second silent test |
-| `vt+0x0C`, `vt+0x24(1)` | sends the start-up state: 242 parameter block values (`+0xA4`), 173 bank-5 values (`+0xB0`), 4 × `+0xBC`; separate tables per slave |
-| `vt+0x10` / `vt+0x18` | oscillator mute / unmute (`+0xA0` ramps) |
-| `vt+0x30(id, 0, value)` | `0x429+v` note → pitch `B0(u, 0x21+0x12k, (note−12)/12)`; `0x43A+v` velocity → gate/velocity on DSP 4+u and the envelope gate `B0(u, 0x22+0x12k)`, "any voice on" flags on DSP0/1; `0x45C` → last-voice flags on DSP5 (u = lv>>1, k = lv&1) |
-| on/off ids outside the patch (`0x4A1`, `0x4A2`, `0x4A3`, `0x73E`) | read with OS `+0x00 get(0, group, id)` whenever the state is sent, and applied when they arrive through `vt+0x30`: bank-5 outputs = value ≠ 0 (DSP0/1, 2–5). In the emulator the OS returns 0 for every id outside the patch, so a fixed table had them all off: the first hardware test (2026-10-14) was silent |
-| everything else | no-op (panel parameters are ignored: fixed sound = JX-3P default patch with SAW) |
+| `engine.c` | the engine: model interpreter, parameter state, program registration and swaps, notes |
+| `model_spec.py` | **the parameter model**: for each parameter, the DSP writes as expressions over the current values |
+| `expr.py` | the expression language (Python evaluator + byte code compiler) |
+| `gen_model.py` | `model_spec.py` -> `build/model.h` (tables, byte code, velocity curve) |
+| `programs.py` | microcode copy -> `build/programs.h` |
+| `ref.py`, `test_model.py`, `test_emu.py` | reference (JX-3P in emu1, tests only) and tests |
+| `gen_tables.py` | old table generator (ran the JX-3P engine); no longer part of the build, kept for `re/` tools and `hybrid.sh` |
 
-`gen_tables.py` gets all tables by running the JX-3P engine in emu1 with its
-default patch. `test_emu.py` runs both engines in emu1 and compares every OS
-call: registration, state and note on/off on all eight voices are identical.
+## The parameter model
+
+`out(source, targets, expr, when=None)`: when `source` changes (vt+0x30), the
+engine evaluates `expr` (and `when`) with the current parameter values and
+writes the result to every target: `P<dsp>:<id>/r<ramp>f<flag>` = parameter
+block (`+0xA0` with ramp; `+0xA4` at start-up), `B<dsp>:<id>` = bank 5
+(`+0xB0`). Several sources may write the same DSP id; the last write wins (as
+on the JX-3P). On start-up / full refresh (vt+0x0C, vt+0x24(1)) the engine
+reads all 72 parameters with OS `+0x00 get(0, group, id)` and evaluates every
+source in `REFRESH_ORDER`, then the four voices.
+
+Written from measurements of the JX-3P's behaviour (`re/measure.py`,
+`deps.py`, `probe.py`, `sweepfit.py`, `knotfit.py`, `spec_blocks.py`):
+
+* exact formulas where one fits: linear, two-slope bipolar (`bip`), lists
+  (`pick`), thresholds, LFO rate (`floor((4v+4)/41)` steps of x1, x4/3, x3/2
+  per octave), bend depth `(sens/255)/12 * (min(range, 23) + 1) * {1,2,3}`,
+  `((v+1)/129)^n` for 0x737, panel offsets `floor(p + (255-p) * min(q,100)/100)`
+  (resonance, HPF, portamento, effect amount), LFO rate x `max(1, q/100)`
+* least-squares knots (piecewise linear, log2 domain for times) for curves
+  without a closed form: envelope times, LFO delay, HPF, level, mix, portamento,
+  effect curves, velocity; max error 0.3–2 % (listed in `model_spec.py`)
+* combined outputs: envelopes x circuit mod (per-voice factor
+  `max(lo, 1 - a*cm)`), VCA Mode GATE, per-voice detune (circuit mod spread,
+  UNISON offsets), portamento flags, part routing states (0x22C/0x519/0x544/
+  0x56E), effect parameters per effect type
+* per-slave constants where the two slaves differ (voice spread, routing)
+
+The JX-3P caches some part flags in its 0x22C handler, so its writes depend on
+the order in which those values arrive; the model follows the current values
+(what the JX-3P gives after a full refresh). The tests count those cases
+separately.
+
+## Program registration and swaps
+
+`vt+0x08` registers slots, programs and data per DSP (OS `+0x28/+0x40/+0x58 +
+4*dsp`) with the programs of the current waveforms and effect type. A change of
+DCO1 / DCO2 waveform (0x6D4 / 0x6D9) or effect type (0x748) mutes the level
+ids, waits for the DSP frame (`+0xC0`), replaces the slot program on DSP2/3 or
+DSP4 (`+0x70(dsp, &prog, &data, ctx, ctx, slot, task, x0, x1)`) and ramps the
+levels back; `vt+0x0C` does the same once at start-up (the slot programs only
+run once `+0x70` has enabled their task bit). The empty slot program and the
+data blocks (zeros) are ours.
 
 Build details: `-mcpu=cortex-m4 -mfloat-abi=hard`, linked at slot 1
-(`0x60A00000`); the image has no `.bss` (the slave does not clear the engine
-window, its RAM test leaves patterns there). Relocations = words that move by
-0x200000 between links at `0x60A00000` and `0x60C00000` (77). `+0xB0` gets a
-pointer to the id; the slave reads it on entry (`0x0110DE7C`), so a stack
-variable is fine.
+(`0x60A00000`) and slot 2 to find the relocations; the image has no `.bss` (the
+slave does not clear the engine window). `+0xB0` gets a pointer to the id; the
+slave reads it on entry, so a stack variable is fine.
