@@ -879,8 +879,8 @@ Counts (`os_analyze`): `m0_core0` 4065 called functions; `m1_tcm` 520;
 * This explains §7.10 (region 1 code "runs on another CPU"): on a slave, the
   address `0x60000000` holds `s_data`, not the master's OS, so an engine hook
   that calls a master OS address jumps into unrelated code. Where exactly
-  each slot's engine (`0x60800000 + 0x200000·slot`) is executed — slaves
-  only, or also master core 1 — is not proven yet.
+  each slot's engine (`0x60800000 + 0x200000·slot`) is executed: on the
+  slaves only, not on master core 0 or core 1 (proven in 8.13).
 
 ### 8.3 Start-up and loading (master core 0)
 
@@ -1025,7 +1025,7 @@ side runs tasks `KbdRx`/`KbdWdg` and can reflash it (8.3, `Update Panel.`).
 | Panel, display, menus, patches/performances, sequencer/arp, SD, USB, MIDI, PLUG-OUT install | master BMC core 0 (`m0_core0`, run in place at `0x60000000`) |
 | PLUG-OUT *model* region (region 0, `0x61600000 + 0x200000·slot`) | master core 0 address space (§7.10: region 0 hooks can call the OS) |
 | Effects (reverb, delays, chorus, MFX) and master out, DAC/amp | master BMC core 1 (`0x01100000` + `0x61000000`) |
-| Voices / PLUG-OUT *engine* (region 1, `0x60800000 + 0x200000·slot`) | slave BMCs (`s_boot` + `s_data`), and possibly master core 1 |
+| Voices / PLUG-OUT *engine* (region 1, `0x60800000 + 0x200000·slot`) | slave BMCs (`s_boot` + `s_data`) only (8.13) |
 | Keys, knobs, sliders, LEDs | STM32F1 panel CPU, reflashed by the OS |
 | CV/Gate out, trigger in, bender/LFO/cutoff calibration | master core 0 (test menu), via the BMC A/D–D/A |
 
@@ -1038,10 +1038,11 @@ side runs tasks `KbdRx`/`KbdWdg` and can reflash it (8.3, `Update Panel.`).
    symbols come from `BL` targets only, so functions reached only through
    pointers (vtables, task entries) need the RTTI/vtable lists
    (`sys8fw.find_classes`) or Ghidra's own analysis.
-3. Prove where region 1 runs (slaves vs master core 1): e.g. a region 1 hook
+3. ~~Prove where region 1 runs~~ — slaves only (8.13). Old idea: a region 1 hook
    that only writes a marker to its own memory, then read that address with
    the bulk dump from the master.
-4. Decode the record layout at `0x60290498` (name scrambling, `0x6D0`
+4. Dump the boot loader from QSPI flash (8.14).
+5. Decode the record layout at `0x60290498` (name scrambling, `0x6D0`
    stride) and the master `.rodata` tables (`0x60094800–0x60128000`).
 
 ### 8.11 Kernel RAM of master core 0 (`dumps/kernel_01000000.bin`, 2026-10-14)
@@ -1127,3 +1128,74 @@ What is in it (first look):
 | `0x20001A72–0x200029EE` | **value-label lists of the installed PLUG-OUT** (slot 3, JX-3P model: `UNISON`, `METAL`, `OVERDRIVE`, `JX-3P CH`, `CRUSHER`, `PHASER`, `64FEET`…`2FEET`, `LFO+ENV`, `CIRCUIT MOD`, `Key Assign`, `Porta Type`, `BEND SENS`…) — the OS keeps the labels of the current model in RAM |
 | `0x20002C4A–0x200033D1` | **LZSS stream of the PLUG-OUT being installed** (text broken by flag bytes: `p11CAss·ignJx3p`, `14<tPlugo/ut`, `DREOVERB`, `DCO MODU_LATOR`): installs are decompressed through this RAM buffer |
 | `0x20007090`, `0x200088F8` | the same 128-byte table twice (ramp `0x20…0x3F…0x20`, then pair-swapped) — lookup tables, role unknown |
+
+### 8.13 Where region 1 (the engine) runs: on the slave BMCs only (2026-10-14)
+
+Static proof, `LoadPlugout` in master core 0 (`0x60051BC6` for flash slots,
+`0x60051D32` for a USB install):
+
+1. Per slot, a table at `0x602B9140` (RAM, `0x602B90CC + 0x74 + 16·slot`)
+   holds `{model window, engine window, 0x200000, 0x200000}`:
+   `{0x61600000, 0x60800000}`, `{0x61800000, 0x60A00000}`,
+   `{0x61A00000, 0x60C00000}`, `{0x61C00000, 0x60E00000}`.
+2. The **engine** image is read from QSPI flash (or from the install buffer)
+   and LZSS-decoded (`0x600759A8` → kernel `0x0101294D`) into the **model**
+   window of the master, checked for `SYSTEM8_SYNINFO` (`0x6005234E`), then
+   sent with `0x60051B54(load = engine window, src = model window, len)`:
+   16-byte header `{'BUDB', len, load, 'BOOT'}` + data through kernel
+   `0x010125C1` → `0x0100D548` (USB host bulk to the `BMCBulk` slaves),
+   the same path as the `s_boot`/`s_data` images (8.3).
+3. Only then the **model** image is decoded into the same model window
+   (overwriting the engine copy), checked, and its SYNINFO `+0x24` (init)
+   is called on the master.
+4. An empty slot gets a 0x200-byte image of `0x55` sent to its engine
+   window instead.
+5. `s_boot` (`0x01102562`) runs a RAM test over `0x60800000–0x61000000`
+   (write address, read back) at slave start-up: the slaves have RAM at
+   exactly the four engine windows (their `s_data` occupies
+   `0x60000000–0x60800000`). No code in `m0_core0`, `m1_tcm` or `m1_sdram`
+   uses an engine window address except the table above.
+
+Hardware check (bulk dump from region 0, 2 KiB at the start of each engine
+window of the **master** SDRAM, shared by core 0 and core 1):
+
+| Master address | Content |
+|---|---|
+| `0x60800000` | OS data: a repeating table of u32 `0x31`/`0x24` (period 0xD8), no code, no `SYSTEM8_SYNINFO` |
+| `0x60A00000` | same table, other phase |
+| `0x60C00000`, `0x60E00000` | all zeros (slot 3 had just received the dump PLUG-OUT, whose engine went to the slaves) |
+
+So the engine code is not present in the master's address space; region 1
+runs on the slave BMCs. This is why any call from an engine hook into a
+master OS address hangs (§7.10): on a slave `0x60000000` is `s_data`.
+
+### 8.14 Boot loader: not in the dumps; it is in QSPI flash at offset 0
+
+None of the dumps (`os_full.bin`, `kernel_01000000.bin`,
+`ram_20000000.bin`) contains the loader: no `Roland P1Y01` image trailer,
+no cipher code (§6.4). The OS knows where it is. Flash partition table
+(names at `0x6009B750`, offsets from `0x60078AB8(idx)`):
+
+| # | Name | QSPI offset |
+|---|---|---|
+| 0 | `loader` (Ld0) | `0x000000` |
+| 1 | `updater` (Up0) | `0x010000` |
+| 2 | `app` (Ap0, `App1_Main`) | `0x060000` |
+| 3–6 | `plugout 0…3` (engine at +0, model at +0x100000) | `0x800000`, `0xA00000`, `0xC00000`, `0xE00000` |
+| 7–8 | `plugout p1/p2` (preload images, 0x40-byte `PRELOAD_PLUGOUT` header) | `0x1000000`, `0x1200000` |
+| 9–16 | sequencer / perform / patch / patch2 / manual patch / system / test mode / reserved parameters | `0x1400000`, `0x1780000`, `0x17A0000`, `0x17D0000`, `0x1860000`, `0x18B0000`, `0x18F0000`, `0x1910000` |
+
+The version screen reads each image's trailer from flash: `app` = size at
+flash `0x6004C` (fallback `0x60044`, i.e. `App1_Main` header `+0x44`),
+trailer at `0x60000 + ((size + 0x6F) & ~0xF)`, version `+0x24`, build
+`+0x2C` — so the app is stored in flash in the updater file format
+(header + encrypted payload + trailer). `updater`: same, base `0x10000`.
+`loader` (`0x60000EBA`): size = u32 at flash `0x0C`, trailer at
+`(size + 0x2F) & ~0xF` — a different, 0x20-byte header.
+
+Flash read function: **`0x6004306A(0, 0, &{offset, length, dst})`**
+(QSPI controller `0x40010000`, guarded by a semaphore; 29 callers, used by
+`LoadPlugout` and the version screen). A region 0 hook can therefore read
+flash `0x0–0x60000` (loader + updater) into a buffer and send it with the
+bulk SysEx path (§7.13). The loader is what decrypts `App1_Main`; if it is
+stored in clear, it holds the cipher and the key (§2, §5). Not tried yet.
