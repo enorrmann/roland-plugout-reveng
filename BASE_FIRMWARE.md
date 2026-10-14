@@ -13,7 +13,8 @@ toolchain built around it: `tools/sys8fw.py`. Companion to
 | Slot-0 model + engine (`p0m`, `p0s`) and the 3 factory PLUG-OUTs (`pl1m`, `pl1s`, `pl2m`) | decoded, patchable, repackable; symbols/ELF export |
 | `App1_Main` (the OS, 2.9 MB) | **encrypted in the updater, key not in the file** — but **plaintext in device RAM at `0x60000000`, now shown readable from a plugout** (§5.1) |
 | OS start-up code (first 0xEE bytes of the image, literal pool, DMA helpers) | **dumped and disassembled from the device** (§6); memory map and section copies known |
-| Recreate the OS from source | still blocked on re-encryption (cipher key), but the plaintext is now obtainable from hardware; a full read-back path is the remaining step |
+| Recreate the OS from source | still blocked on re-encryption (cipher key); the plaintext is now **fully dumped** (`dumps/os_full.bin`, §7.14) |
+| OS structure | **mapped** (§8): 6 programs (master BMC core 0/core 1, slave BMCs, STM32 panel CPU), loader, μT-Kernel, subsystems; tool `tools/os_analyze.py` |
 
 ## 1. `SYSTEM8_UP.BIN`
 
@@ -333,6 +334,10 @@ Every search is appended to `examples/mem_scan/scan_log.txt`.
 | `bulk_2.bin` | `0x60000800` | 16384 | bulk, 512 messages (7.13) |
 | `bulk_2048.bin` | `0x60000800` | 65536 | bulk, 2048 messages in one install (7.13) |
 | `os_full.bin` | `0x60000000` | 0x2CDA70 | whole OS image, `bulk_loop.py` (7.14) |
+| `kernel_01000000.bin` | `0x01000000` | 0x19A08 | live kernel RAM of master core 0: vector table, μT-Kernel + runtime, `.bss` (8.11) |
+| `bulk_kernel.log` | | | log of the kernel dump |
+| `ram_20000000.bin` | `0x20000000` | 0x8A48 | live `.data`/`.bss` of master core 0 (8.12) |
+| `bulk_ram20.log` | | | log of that dump |
 | `bulk_loop.log` | | | log of the last `bulk_loop.py` run |
 
 Disassemble with
@@ -783,4 +788,342 @@ wait for it to exit (or kill it) before the next run.
 `bulk_2048.bin` is identical) and the new loop resumed from 384 KiB.
 Stopped at 55.7 % by the hang above: `os_full.bin` = 1638400 bytes
 (`0x60000000`–`0x6018FFFF`, complete chunks only); resume from `0x60190000`.
-Result: _in progress_.
+
+**Result: COMPLETE.** After the power-cycle the loop resumed and ran the
+remaining 20 chunks without a single retry (859 s, ~43 s per chunk with
+idle wait + settle). `dumps/os_full.bin` = **2939504 bytes (`0x2CDA70`),
+`0x60000000`–`0x602CDA6F`**, sha256 starts `2600b866f751f38a`.
+
+Verification against every earlier dump (slow channels and bulk):
+
+| Files | Result |
+|---|---|
+| `os_dump.bin`, `os_dump_2.bin`, `os_helpers.bin`, `os_pool.bin`, `os_dma.bin` (§6) | identical |
+| `bulk.bin`, `bulk_2.bin`, `bulk_2048.bin` (7.13) | identical |
+| 3 checkpoints `mem_names/dump_loop.py` (7.13) | identical |
+| all `dumps/*.bin` of 7.2 (router, thunks, vtable, MIDI class, Identity Reply, `tmpl_602ad770`, …) | identical |
+| `tmpl_602c4d00.bin` (MIDI receive buffer) | 5 bytes differ at `0x602C4D28`–`0x602C4D2C`: data + checksum of the last DT1 received (`F0 41 10 00 00 7E 12 70 10 00 01 xx xx xx xx sum F7`); live RAM, expected |
+
+Note: the range is the mapped OS area at run time, not only the code: it
+also holds live RAM (e.g. the MIDI buffer at `0x602C4D00`), so two dumps
+can differ in such variables.
+
+## 8. Anatomy of the decrypted OS image (2026-10-14)
+
+Source: `dumps/os_full.bin` (§7.14), the whole `App1_Main` as it sits in the
+master's SDRAM at `0x60000000` while the synth runs. Tool:
+`tools/os_analyze.py` (capstone linear sweep; functions = `BL` targets;
+per-function callees/callers, strings, MMIO, RAM; ELF with `fn_*`/`s_*`
+symbols for Ghidra/IDA):
+
+```bash
+python3 tools/os_analyze.py dumps/os_full.bin -o work/os --parts
+#   work/os/functions.json, report.txt, os_full.elf          (whole image)
+#   work/os/<part>/<part>.bin/.elf, functions.json, report.txt (each program at its own link address)
+```
+
+### 8.1 The image is six programs for four kinds of CPU
+
+`App1_Main` is not one program. It is a bundle with its own loader. Proof:
+four copies of the C library tables (`0123456789abcdef@0x` at `0x60115D50`,
+`0x6016EAA0`, `0x6020A8C4`, `0x602B8B08`); the code blocks call almost
+only themselves (`BL` graph); each block has its own NVIC accesses
+(`0xE000E000`); the loader at `0x60001E58`/`0x60001EBE` copies or sends the
+blocks to other addresses/CPUs (8.3); and each extracted part points at its
+own strings only when placed at that run address.
+
+| Part (`--parts` name) | In the image | Size | Runs at | CPU | Content |
+|---|---|---|---|---|---|
+| `m0_core0` | `0x60000000` | `0x130E00` | in place | **master BMC, core 0** | the OS: code `0x60000000–~0x60094800`, then `.rodata`/tables, menu strings (`0x60128000+`), `.data` (`0x60130Bxx`) |
+| `m1_tcm` | `0x60130E00` | `0x42BBC` | `0x01100000` | **master BMC, core 1** | DSP control + global effects (8.5) |
+| `m1_sdram` | `0x60173A00` | `0x7D74C` | `0x61000000` | master BMC, core 1 | debug console screens (`CEZUtil*`), MIDI→DSP command parser |
+| `s_boot` | `0x601F1200` | `0x1D328` | `0x01100000` (on the slave) | **slave BMCs** | `BOOT` image, DSP control (8.6) |
+| `s_data` | `0x6020E600` | `0x7D114` | `0x60000000` (on the slave) | slave BMCs | `DATA` image, debug console screens |
+| `subcpu` | `0x6028B730` | `0x4D68` (u32 at `0x6028B724`) | `0x08000000` | **STM32F1** | panel/keyboard controller firmware (8.7) |
+| — | `0x60290498` | | | | records with 64 names + `----------------`, period `0x6D0`, the 16-bit units of each name scrambled ("t FaliSp" = "Split Fat"); partly modified at run time; probably the performance list. Not decoded |
+| — | `0x602A8000` | | in place | master core 0 | variables (modified at run time), then from `0x602AF008` **boot/link code**: `This is Master BMC.` / `This is Slave BMC 0.`, `BOOT CORE1`, `CORE1 READY`, `RAM Clear`, USB host stack (EHCI/OHCI, `BMCBulk%d Attached`) |
+| — | `0x602B9374` | `0x146FC` | | | scatter-load sources (vector table, kernel for `0x01000000`, `.data` for `0x20000000`) — **all zeros in the dump**: after start-up the OS reuses this SDRAM (e.g. the MIDI receive buffer at `0x602C4D00`). The kernel (`0x01000400–0x010143AC`) is therefore *not* in `os_full.bin`; it was dumped live separately (8.11) |
+
+Counts (`os_analyze`): `m0_core0` 4065 called functions; `m1_tcm` 520;
+`m1_sdram` 254; `s_boot` 540; `s_data` 264; `subcpu` 133.
+
+### 8.2 Hardware picture derived from the code
+
+```
+                 USB host (EHCI/OHCI), "BMCBulk" links
+   ┌──────────────────────────┐ ───────────────► ┌──────────────────────┐
+   │ BMC #0 "Master"          │ ───────────────► │ BMC #1 "Slave0"      │
+   │  core 0: OS (m0_core0)   │                  │ BMC #2 "Slave1"      │
+   │   μT-Kernel, UI, MIDI,   │                  │  core 1: s_boot      │
+   │   SD, USB, PLUG-OUT mgmt │                  │  DATA: s_data        │
+   │  core 1: m1_tcm/m1_sdram │                  │  DSP0..5 + DSPM      │
+   │   DSP control, effects   │                  │  (voices, PLUG-OUT   │
+   │  DSPs, SDRAM 0x60000000  │                  │   engine region 1?)  │
+   └──────────┬───────────────┘                  └──────────────────────┘
+              │ USART (STM32 system bootloader for updates)
+   ┌──────────┴───────────────┐
+   │ STM32F1 "Kbd"/panel CPU   │  switches, encoders, sliders (A/D), LEDs,
+   │ (subcpu, 19.8 KB)         │  keyboard ("CMSK261WithFM3Drv")
+   └──────────────────────────┘
+```
+
+* **BMC** = Roland's custom chip; three of them: `Master`, `Slave0`,
+  `Slave1` (`BMC #%d(%s) CORE#%1d`, `Test BMC0/1/2`, `BMC Slave Adrs = %d`,
+  `Check BMCChipID`). Each has a core 0 and a core 1 (`Check CORE0 Exists`,
+  `CORE1 Build #`, `<CORE1_SELF_BOOT>`) and several DSPs (`DSP%c`, classes
+  `CDSP0Prm`…`CDSP5Prm`, `CDSPMPrm`, `DSP96K`, error texts
+  `PDH/TBW Access (DSP …)`, `Ill Inst`, `Zero Divide`).
+* Master → slaves: USB host on the master (`0x40060000`/`0x40064000`
+  EHCI/OHCI register pages), the slaves appear as `BMCBulk` devices; the
+  boot images go over this link (8.3).
+* This explains §7.10 (region 1 code "runs on another CPU"): on a slave, the
+  address `0x60000000` holds `s_data`, not the master's OS, so an engine hook
+  that calls a master OS address jumps into unrelated code. Where exactly
+  each slot's engine (`0x60800000 + 0x200000·slot`) is executed — slaves
+  only, or also master core 1 — is not proven yet.
+
+### 8.3 Start-up and loading (master core 0)
+
+1. Reset `0x60000000` (§6.2): AIRCR, BASEPRI, DMA init, scatter-load of
+   vector table/kernel/`.data` from `0x602B9374…` (now zero, see 8.1).
+2. `0x60001E58`: copies `0x7D74C` bytes `0x60173A00 → 0x61000000`
+   (`m1_sdram`, checked against the window `0x61000000–0x61600000`), then
+   `0x42BBC` bytes `0x60130E00 → 0x01100000` (`m1_tcm`, window up to
+   `0x01144000`); then loops on two kernel calls (`0x0100C173`, `0x0100C1A1`)
+   with a call `0x600751F6(10)` between tries (probably a 10 ms delay; the
+   kernel is not dumped, so the meaning — most likely "core 1 is up" — is
+   inferred), and continues at `0x60001560`.
+3. `0x60001EBE`: sends the slave images, each as a 16-byte header
+   `{'BUDB', length, load address, 'DATA'|'BOOT'}` followed by the data, through
+   kernel function `0x010125C1` (header buffer `0x602BB600`):
+   `DATA` = `0x6020E600`, `0x7D114` bytes → slave `0x60000000` (window
+   `0x60000000–0x60800000`); `BOOT` = `0x601F1200`, `0x1D328` bytes → slave
+   `0x01100000`.
+4. `0x600021D0` & co.: **STM32 update** — reads the panel CPU version
+   (`version %d : %d  build %d : %d`) and, if needed, rewrites it through
+   the STM32 UART system bootloader (`Error UnProtectReadOut`,
+   `Error SelectUART`, `ERASE ERROR.`, `SUB CPU UPDATE: Writing now...`,
+   `Comparing.....`, `Completed.`) with the image at `0x6028B730`.
+5. Boot modes (`0x60001C9E`): `BOOTMODE_NORMAL`, `BOOT_MODE_FACTORY_RESET`.
+
+The version screen (`0x60076130`) names the parts the way Roland does:
+`Ap0` (application), `Dt0` (data), `Ld0` (loader), `Up0` (updater), `Kbd`
+(panel CPU).
+
+### 8.4 Master core 0: the OS proper
+
+* **RTOS: μT-Kernel** (T-Engine) — `## MemPool Usage Report uTKernel Task ##`,
+  `## Kernel Resource Usage Report ##` with `tsk sem flg mbx mtx mbf por mpl
+  mpf cyc alm` (`0x6004AAC4`). Kernel services are reached through veneers
+  `0x600753xx` → `0x0100xxxx` (§7.5). Object names seen: `System`, `Idle`,
+  `MidiIn`, `MidiOut`, `MidiOutUsb`, `KbdRx`, `KbdWdg`, `Calb`, `QSPIDlyP`.
+* **UI / menus**: table-driven, with the item macros kept as strings
+  (`XITEM_CHAR_VALUE_BOX(…)`, `XITEM_LIST_PRM`, `XITEM_EDIT_PRM`); edit marks
+  `PATCH_EDIT_MARK`, `PERF_EDIT_MARK`…; write/exchange/copy dialogs
+  (`PATCH_WRITE_NUM`, `PATCH_EXCHANGE_SRC/DST`, `SEQ_COPY_SRC_NUM`), name entry
+  (`ABCDEFGHIJ…` charset at `0x60017214`). Display: LCD + 7-segment LEDs
+  (`LCD Check`, `Contrast Check`, `Debug LED 7Seg`).
+* **Storage (SD card, FAT12/16/32, drive `A:`)** (`0x6000B652…0x6001D1C8`):
+  `A:/ROLAND/SYSTEM-8/BACKUP/BACKUP%03d.bin`,
+  `…/DUMP/PATCH|PERFORM/DUMP%03d.json`,
+  `…/EXPORT/PATCH/EXPORT%03d.s8p`, `…/EXPORT/PERFORM/*.s8f`,
+  `sys8_bak.bin`, `sys8_prf.s8f`, `sys8_pat.tsv`; INI-like text sections
+  `[SYSTEM-8]`, `[PATCH]`, `[PERFORMANCE]`, `Version = %X.%X%X`. SD
+  controller page `0x4010B000` (`SDC Attached`). USB mass-storage wrapper
+  `UhMscWrp`.
+* **Sequencer/arpeggiator** (`0x60011678`): step sequencer (`STEP SEQ`,
+  `STEPLOOP`, `REAL REC`, `FIRST/LAST STEP`, 64 steps in 4 pages,
+  `GATE Time`), chord memory (`0x6001A3B4`), arpeggio destination
+  (`ARP_DST`), vocoder input (`IN_VOC`).
+* **Panel / controls**: `SLIDER1…8`, `CTRL2…8`, `FUNC1…8`, `TEMPO`, `PLAY`,
+  `STOP`, `RESET`; panel monitor (`Switch %3d [%-16s] ON/OFF`,
+  `Encoder %2d`, `A/D %3d`, `Bender`, `Modulation`, `Aftertouch`, `Hold`,
+  `Pedal%d`); keyboard driver class `CMSK261WithFM3Drv` /
+  `CKeyboardDrvInterface` (the only RTTI class of core 0, `0x60115F5F`).
+* **PLUG-OUT management**: slots `SYS8`, `PLG1…3` (the SYSTEM-8 itself is
+  slot 0), `PLG%d:%11s`, `PLGOUT_REMOVE_TARGET`, preload checks
+  `PRE1…3: Ver. %X.%X%X / Error! / OK`, `PLGREADY_0007`, `PLG0: Error!`,
+  `JUNO-106 / Coming soon!`. The USB install protocol (`PROTOCOL.md`) and the
+  MIDI router (§7.5–7.7) are in this program.
+* **MIDI**: router `0x6000345C` (§7.7), SysEx `SendDT1`, USB-MIDI out
+  (`MidiOutUsb`), Identity Reply (§7.2).
+* **Test / factory menus** (`0x600365DC…0x6003CA24`, `0x60075C62…`):
+  `TEST MENU`, `Test SD/Sw/Enc/Kbd/BMC0-2`, `FX-RAM`, `SlaveBMC`,
+  `USB Func`, `SD CARD`, **calibration** of the analog I/O
+  (`CALIB_CV_OUT_max`, `CALIB_GATE_OUT_min/max`, `CALIB_TRIG_IN_min/max`,
+  `CALIB_BENDER_min/max`, `CALIB_LFO_RATE_min/max`, `CALIB_CUTOFF_min/max`,
+  `CV OUT 0V/10V`, `GATE OUT 0V/10V`, `TRIGGER IN`), `Factory Reset`,
+  `QC Test Mode`, audio test tones (`OUTPUT :SINE`, `PHONES :SINE`), CORE1
+  debug console (`<CORE1 Debug Console (Adrs=%08Xh)>`).
+* Signals: `SIGABRT`, `SIGPVFN` (pure virtual) handlers at `0x60074178`.
+
+### 8.5 Master core 1: DSP control and global effects (`m1_tcm` + `m1_sdram`)
+
+48 RTTI classes / 1417 virtual methods in `m1_tcm`, 19 in `m1_sdram`:
+
+* `CBmcDspMgr` (67 methods), `CFSPDrv*` (`Sys`, `M`, `01`, `23`, `45`: one
+  driver per DSP pair), `CPIPCDev/Drv` (inter-processor communication),
+  `CMIDIRx`, `CUMDWRx/Tx`, `CMIDIToUMDW` (internal MIDI/parameter stream
+  "UMDW"), `CASGNUMDWRx` (assigner input), `CVPXMonIn`.
+* **The SYSTEM-8 global effects and master section**: `CDSPSystem8Rev`,
+  `…DlyCh`, `…DlyDly`, `…DlyPan`, `…DlyChSt`, `…DlyFlSt`, `…DlyMfx1`,
+  `CDSPSystem8Mst`, each with `s`-prefixed implementations per part
+  `Upr`/`Lwr`/`Ext` (upper part, lower part, external input), plus the
+  parameter class `CPrmDSPSystem8` (326 methods). Same naming family as the
+  base engine `p0s` (§3).
+* Start-up/log texts: `BMCInit`, `BMCInitUDL()`, `CORE I/O Init`,
+  `ThreadMain`, `CORE1 DSP Ready`, `EnableDAC (P1Y01)`, `EnableAmp`,
+  `MuteTotalOn/Off` — core 1 owns the DAC/amp enable and mute.
+* DSP driver `..\..\..\modules\dsp_api\bmc\bmc_dsp_drv.cpp`,
+  `App\dsp_config\dsp_common_memcpy.cpp`; DSP register block `0x41100000`
+  (`+0x2000…+0x9000` per DSP: `StartTrig(MEVF ID=%d)`).
+* `m1_sdram`: debug console screens (`CEZUtilFIFO/Thread/STimer/DSPInt/
+  DSPDump/DSPInfo/DSPProbe/MXM/IDMEMSum/Ver/Console`), `CMidiDSPControl`
+  with `…Command`/`…XMLTag` (a MIDI-driven DSP control protocol), and the
+  version screen (`Appli Version`, `Max Voice`, `Total Voice`).
+
+### 8.6 Slave BMCs (`s_boot` + `s_data`)
+
+Same software family as master core 1 (424 of ~440 strings shared), but:
+no SYSTEM-8 effect classes; instead generic per-DSP parameter classes
+`CDSPPrm`, `CDSP0Prm…CDSP5Prm`, `CDSPMPrm`; texts
+`UpdateSynthPatch: no plugout.`, `UpdateSynthParam: no plugout.`,
+`BMCInitDAC()`, `Check BMCChipID`, `DSP%d: Stop ENV`, and source file
+`App\src_app\dspc\dspc_thread.cpp`. So the **slaves produce the voices**,
+with the synth engine supplied by the PLUG-OUT (`no plugout` when a slot is
+empty); master core 1 adds the effects and the master section.
+
+### 8.7 Panel CPU: STM32F1 (`subcpu`)
+
+Vector table at `0x6028B730`: SP `0x200023B8`, reset `0x0800035D`.
+Peripherals used: GPIOA–E (`0x40010800…0x40011800`, so a 100-pin package),
+ADC1 `0x40012400`, TIM1 `0x40012C00`, TIM8 `0x40013400` (TIM8 → high-density
+F103), TIM4 `0x40000800`, USART1 `0x40013800` (link to the master), RCC
+`0x40021000`, FLASH `0x40022000`. 133 functions, almost no strings. It scans
+switches/encoders/sliders, drives LEDs and reads the keyboard; the master
+side runs tasks `KbdRx`/`KbdWdg` and can reflash it (8.3, `Update Panel.`).
+
+### 8.8 Peripheral pages of the BMC (from code use)
+
+| Page | Used by | Identification |
+|---|---|---|
+| `0x40001000` | core 0 start-up | memory-to-memory DMA (§6.3) |
+| `0x40026000` | all BMC programs | system/chip control (most used; BMC init) — unconfirmed |
+| `0x40031000` | cores 0/1 | PDMAC (`CPDMACXfer`) |
+| `0x40054000` | cores 0/1 | inter-core (`Check CORE0 Exists`) |
+| `0x40060000`, `0x40064000` | core 0 boot/link | USB host EHCI / OHCI |
+| `0x40062000` | core 0 | USB host (`USBH Attach`) |
+| `0x40080000` | core 0 | heavily used, not identified (USB device / MIDI?) |
+| `0x4010B000` | core 0 | SD card controller |
+| `0x41100000` + `0x2000·n` | core 1 / slaves | DSP blocks |
+| `0xE000E000`, `0xE0043000` | all | Cortex-M SCS (NVIC/SysTick), debug |
+
+### 8.9 Where things live, in short
+
+| Synth function | Where |
+|---|---|
+| Panel, display, menus, patches/performances, sequencer/arp, SD, USB, MIDI, PLUG-OUT install | master BMC core 0 (`m0_core0`, run in place at `0x60000000`) |
+| PLUG-OUT *model* region (region 0, `0x61600000 + 0x200000·slot`) | master core 0 address space (§7.10: region 0 hooks can call the OS) |
+| Effects (reverb, delays, chorus, MFX) and master out, DAC/amp | master BMC core 1 (`0x01100000` + `0x61000000`) |
+| Voices / PLUG-OUT *engine* (region 1, `0x60800000 + 0x200000·slot`) | slave BMCs (`s_boot` + `s_data`), and possibly master core 1 |
+| Keys, knobs, sliders, LEDs | STM32F1 panel CPU, reflashed by the OS |
+| CV/Gate out, trigger in, bender/LFO/cutoff calibration | master core 0 (test menu), via the BMC A/D–D/A |
+
+### 8.10 Open items for this analysis
+
+1. ~~Dump the kernel `0x01000000–0x01019A08`~~ (8.11) and ~~`0x20000000–0x20008A48`~~
+   (8.12) — done. Still to do: name the remaining kernel/runtime functions
+   behind the 247 veneers (`work/os/kernel/veneers.txt`).
+2. Ghidra: load `work/os/<part>/<part>.elf` (Cortex-M, LE); the `fn_*`
+   symbols come from `BL` targets only, so functions reached only through
+   pointers (vtables, task entries) need the RTTI/vtable lists
+   (`sys8fw.find_classes`) or Ghidra's own analysis.
+3. Prove where region 1 runs (slaves vs master core 1): e.g. a region 1 hook
+   that only writes a marker to its own memory, then read that address with
+   the bulk dump from the master.
+4. Decode the record layout at `0x60290498` (name scrambling, `0x6D0`
+   stride) and the master `.rodata` tables (`0x60094800–0x60128000`).
+
+### 8.11 Kernel RAM of master core 0 (`dumps/kernel_01000000.bin`, 2026-10-14)
+
+```bash
+python3 examples/midi_send/bulk_loop.py --start 0x01000000 --end 0x01019A08 -o dumps/kernel_01000000.bin
+python3 tools/os_analyze.py dumps/kernel_01000000.bin --base 0x01000000 -o work/os/kernel
+```
+
+2 installs (64 KiB + 38.5 KiB), 85 s, no retry, `BULK OK`. The range is the
+scatter-load target of §6.2: vector table (`0x01000000`, `0x400`), code +
+data (`0x01000400`, `0x13FAC`), `.bss` (`0x010143AC–0x01019A08`).
+
+Verification: identical to every earlier slow read of this area —
+`mem_0000.bin` (70 B at `0x01000000`), `dumps/vec.bin` (960 B at
+`0x01000040`), `rom_58c0.bin`, `rom_59a0.bin`. Vector table: SP
+`0x01050800`, reset `0x60000001`, faults → `0x010058C1…`, SVCall
+`0x01005A1D`, PendSV `0x010058F1`, SysTick `0x01005AB5` (as in §6.2). Code
+part 8 % zeros, `.bss` 82 % zeros.
+
+Content (619 functions):
+
+* **micro T-Kernel 2.00.01** (`micro T-Kernel Version 2.00.01` at
+  `0x01005C24`, `!ERROR! init_kernel`, `!ERROR! start_system`,
+  `<< SYSTEM SHUTDOWN >>`, `<< SYSTEM REBOOT >>`, `tk_ext_tsk/tk_exd_tsk was
+  called in the task independent…` at `0x01003970`, object classes `tkdev
+  task semaphore eventflag mailbox messagebuffer` at `0x01005E74`).
+  Identified: **`0x01004381` = `tk_dly_tsk`** (returns `E_PAR` = -17 for a
+  negative timeout, `E_CTX` = -25 when it may not wait; the loader's
+  `0x600751F6(10)` in 8.3 is therefore a 10 ms delay).
+* The **USB host driver** for the inter-BMC link (`BMCBulk%d Detached`,
+  EHCI/OHCI attach/reset texts at `0x0100DE2E`) and an `Assigner` object.
+* **Roland's C++ runtime** shared by the OS: MIDI message / Wrap classes of
+  §7.7/§7.12 (`0x010075B7` wrap_packet, `0x01007781` Wrap dtor,
+  `0x01007629` Msg ctor, `0x010076E5` set_sysex, `0x01007595` wrap_msg) and
+  parameter/object helpers such as `0x01011A79`/`0x01011A87` (312 call
+  sites each), `0x01011B29`/`0x01011B7F` (~215), `0x0100B39D` (213),
+  `0x01008E91` (197). The slave send `0x010125C1` (8.3) is here too.
+
+**Veneers** (`movw ip / movt ip / bx ip`, 527 in the image, table in
+`work/os/kernel/veneers.txt`): they are far-call bridges between the fast
+RAM and the SDRAM part of the *same* program, not calls into one shared
+kernel:
+
+| Veneers in | Count | Target |
+|---|---|---|
+| `m0_core0` (`0x600751BA–0x60075B56`) | 247 | `0x0100xxxx` / `0x0101xxxx`: this kernel + runtime |
+| `m1_sdram` (`0x6017…`) | 114 | `0x0110xxxx`/`0x0111xxxx` = its own `m1_tcm` |
+| `m1_tcm` (`0x6014…`) | 8 | `0x6100xxxx` = its own `m1_sdram` |
+| `s_data` (`0x6021…`) | 121 | `0x0110xxxx`/`0x0111xxxx` = its own `s_boot` |
+| `s_boot` (`0x6020…`) | 37 | `0x6000xxxx` = its own `s_data` |
+
+So master core 1 and the slaves run their own thread system inside their
+TCM images (`ThreadMain`, `CEZUtilThread`), not the master's μT-Kernel.
+
+### 8.12 `.data`/`.bss` of master core 0 (`dumps/ram_20000000.bin`, 2026-10-14)
+
+```bash
+python3 examples/midi_send/bulk_loop.py --start 0x20000000 --end 0x20008A48 -o dumps/ram_20000000.bin
+```
+
+1 install (1107 messages), 42 s, `BULK OK`. Range = scatter-load targets of
+§6.2: `.data` `0x20000000` (`0x308` bytes, initialised from the image) and
+`.bss` `0x20000308–0x20008A48`. This is **live RAM**: values change between
+reads.
+
+Checkpoints with the slow channel (`mem_names/dump_loop.py`, 48 B each):
+`0x20000000` identical; `0x200002F0` identical except the word at
+`0x200002F0` (`0x20002EE3` slow vs `0x20002F4C` bulk), a buffer pointer that
+moves — expected for live data.
+
+What is in it (first look):
+
+| Address | Content |
+|---|---|
+| `0x2000002C`, `0x20000030` | pointers into the OS (`0x60008473`, `0x6000847D`): callbacks |
+| `0x20000210–0x2000025C` | small tables (`01 02 03 04 05 06 07`, flags), kernel addresses |
+| `0x20000270`, `0x20000278`, `0x200002E0/E4` | kernel/runtime function pointers (`0x0100C4F7`, `0x0100CAB1`, `0x01011DDB`, `0x01011DE1`) |
+| `0x2000027C–0x20000288` | pointers to `0x61E02524…0x61E02E0C`: SDRAM at `0x61E00000`, after the four model windows (`0x61600000…0x61C00000`); not a slot base — possibly install staging (unverified) |
+| `0x200002B0/B4` | peripheral instances `0x40068080`, `0x4006A080` |
+| `0x200002F0`, `0x20000300` | buffer pointers (`0x20002F4C`, `0x20004110`) |
+| `0x20000308…` | MIDI receive buffer: a DT1 being received (`F0 41 10 00 00 7E 12 71 00 01 …`) — the install itself |
+| `0x20001A72–0x200029EE` | **value-label lists of the installed PLUG-OUT** (slot 3, JX-3P model: `UNISON`, `METAL`, `OVERDRIVE`, `JX-3P CH`, `CRUSHER`, `PHASER`, `64FEET`…`2FEET`, `LFO+ENV`, `CIRCUIT MOD`, `Key Assign`, `Porta Type`, `BEND SENS`…) — the OS keeps the labels of the current model in RAM |
+| `0x20002C4A–0x200033D1` | **LZSS stream of the PLUG-OUT being installed** (text broken by flag bytes: `p11CAss·ignJx3p`, `14<tPlugo/ut`, `DREOVERB`, `DCO MODU_LATOR`): installs are decompressed through this RAM buffer |
+| `0x20007090`, `0x200088F8` | the same 128-byte table twice (ramp `0x20…0x3F…0x20`, then pair-swapped) — lookup tables, role unknown |
