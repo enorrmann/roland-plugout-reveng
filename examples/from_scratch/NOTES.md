@@ -69,3 +69,11 @@ Direcciones = JX-3P slot 1 (`plugout_build.py unpack ... --relocs-from Code8_2`)
 * Cambio en vivo: OS `+0x70(dsp, &prog, &datos, 0x60A44E18, ranura, 2, 0, 0)` con nivel en rampa a 0.
 * Palabras de 16 bits LE; DCO1 vs DCO2 = mismo código con operandos +0x200 (banco de memoria). ISA desconocido.
 * Para el PLUG-OUT propio: copiar los blobs de Roland (principal de cada DSP + SQR) y registrarlos igual.
+* Formato (detalle en CUSTOM_PLUGOUTS.md "Microcode format"): NO son tablas de ondas, es código
+  (383 valores distintos en 1988 palabras, sin suavidad; va a memoria de programa 0x41480000+n·0x100000,
+  copiado tal cual). Palabras de 16 bits LE, instrucción + palabras operando (direcciones 0x04nn/0x06nn).
+  Corpus: `re/dsp_corpus.py` -> 199 programas únicos en todas las imágenes. Mapa de opcodes: pendiente.
+* Espacios de operandos (CUSTOM_PLUGOUTS.md "Memory map of a slave DSP"): `C0nn` = parámetro `+0xA0` id nn,
+  `A0nn` = banco 5 `+0xB0` id nn (flags SAW/PULSE A02A/A02B), `02nn`/`04nn`/`06nn` = RAM local, `22nn` = buzón
+  entre programa principal y ranura. Los programas de oscilador NO leen parámetros; el principal se los pasa.
+  Herramienta: `re/dsp_wdiff.py` (alinea copias y clasifica operandos).

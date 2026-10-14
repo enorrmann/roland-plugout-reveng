@@ -298,6 +298,143 @@ Roland's blobs (e.g. the JX-3P SQR program plus the main programs it runs
 under) into the new engine and register them the same way; their parameter
 ids and memory layout come with them.
 
+#### Microcode format: what is known (2026-10-14, static analysis only)
+
+**Code, not wavetables.** Read as 16-bit samples, the SQR blob is not two
+levels and the SAW blob is not a ramp: the mean step between neighbours is
+0.24 of the full range (random data: 0.33; a smooth waveform: well under
+0.05), and the 1988 words use only 383 distinct values, a "vocabulary" like
+an instruction set. Further evidence: the slave writes the blobs to
+**program** memory, the DCO1/DCO2 copies differ only in address operands,
+and SAW and PULSE share one blob. The only data the JX-3P sends with them is
+8 or 32 zero bytes. The waveforms are computed by the DSP code.
+
+**Where it goes in the slave** (`s_boot`):
+
+* Program memory of DSP `n` (0–5) is mapped at **`0x41480000 + n·0x100000`**,
+  DSPM at `0x41260000` (table `0x0111C190`). The program address in the
+  descriptor (`0x100`, `0x6000`, `0xB000`, …) is a **byte offset** into it and
+  must be even (`0x01110648`).
+* Data memory: `0x41440000 + n·0x100000` and `0x41444000 + n·0x100000`
+  (also `0x41448000…`), addresses must be multiples of 8 (`0x0111077A`): the
+  data word is probably 64 bits.
+* `VerifyProg` (`0x011026CA`) compares the blob with program memory word by
+  word, without any transformation: the bytes sit in DSP memory exactly as
+  in the image (no packing, no compression). For a length ≡ 2 mod 4 it
+  compares only the upper halfword of the last 32-bit word (`bfc r0,#0,#16`);
+  why the upper half is not clear yet. `VerifyDrProg` (`0x01102752`) does the
+  same for the data lists.
+* Built-in program lists of the slave itself: `0x6000F7D0` in `s_data`
+  (16-byte headers, two per DSP 0–6, count at `+2`, array at `+4`).
+
+**Corpus**: `examples/from_scratch/re/dsp_corpus.py outdir name=image …`
+finds programs through their descriptors in any image (the load address is
+guessed). All stock PLUG-OUT engines, `p0s`, `pl1m/pl1s/pl2m`, `s_data`,
+`m1_tcm` and `m1_sdram` together: **199 unique programs, 495 450 bytes**
+(`p0s`, the SYSTEM-8 engine, alone has 99 descriptors). `os_full.bin` as a
+whole gives none because its parts have different load addresses.
+
+**Word size and structure**:
+
+* Unit = **16-bit little-endian word**. Even- and odd-indexed words have the
+  same distribution (entropy 9.83/9.83 bits, Jensen–Shannon divergence
+  0.025), and 135 of the 199 programs have a length ≡ 2 mod 4, so there is
+  no 32-bit instruction alignment. Instructions are one word plus optional
+  operand words.
+* Every program starts with `ff70 0a02` (as LE words). There are two
+  endings: `… 0a02 00f8 0b02 0000` (135 programs) or
+  `… 0b02 ff70 0001 00f8` (64). The 14-byte empty-slot stub is
+  `ff70 0a02 ff70 0a02 00f8 0b02 0000`, so `ff70 0a02` is probably a
+  prologue/sync instruction and `00f8 0b02` the end of a task.
+* **Operand words**: all 304 relocated words between the DCO1 and DCO2
+  copies have the form `0x04nn` → `0x06nn` (data address `0x400–0x47F` vs
+  `0x600–0x67F`) and stand alone after opcode words such as `1e05`, `Xfe2`,
+  `Xfe4`, `0c03`. So data addresses are full 16-bit operand words, not
+  fields inside an instruction. A second group, `0x22nn`, moves by +2/+6
+  (`2201` → `2207`, `2204/2205` → `220a/220b`): another address space,
+  probably parameter or coefficient registers.
+* Frequent opcode families (corpus counts): `1e05` (5666; the next word has
+  9.1 bits of entropy, so it takes an operand), `XfeY` with X = 0…F and
+  Y ∈ {0, 2, 4} (`8fe0` 5650, `1fe2` 3734, `0fe0` 3249, `2fe0`, `9fe2`,
+  `2fe4`, `5fe2`, `3fe2`, …; X looks like a 4-bit register field, Y like a
+  sub-opcode), `0c03`, `0902`, `0a02`, `0803/0806/0807`, `3000`, `2800`.
+  Typical sequence: `8fe0 0c03 1e05 <operand>`.
+* Repeated blocks such as `1cb6 3cca 0807 … 2222 2222 aaaa 2aaa` appear about
+  once per program, but not at a fixed offset; the `2222`/`aaaa` words look
+  like bit masks (a field repeated per slot), not instructions.
+
+**Names from the OS** (debug screens `CEZUtilDSPProbe/DSPDump`, m1 strings
+at `0x60170A80…`): memory banks `dt0`, `dt1`, `pdb`, `ecf`, `iom`, `dpm`,
+`drm`, `mxm`, `ccf`, `usb`, `tbw`; modes `mute_mode`, `sat_mode`,
+`dex_mode`, `inh_proc`, `int_mask`; trace events `jmp/bra/jsr`, `tsksw`
+(task switch), `renderer`, `eram/iram writeback to dsp`; errors
+`Ill Inst %-4s Idx%2d`, `Zero Divide`, `PROC OV`, `PDH/TBW Access`. So the
+DSP has jumps, branches and subroutine calls, several tasks per DSP, and
+named data banks; `DSP96K` suggests a 96 kHz rate.
+
+#### Memory map of a slave DSP and operand spaces (2026-10-14)
+
+From `s_boot` (`+0xA0` → `0x0111178A`, `+0xB0` → `0x011111FC`, bank tables
+`0x0111C2B0` and `0x0111C2E0`). DSP `n` = 0–5, base `0x41400000 + n·0x100000`
+(DSPM: `0x41200000`):
+
+| Offset | Size (entries) | Contents / writer |
+|---|---|---|
+| `+0x00000` | 0x800 × 32 bit | bank 0 (float; u32 aliases at `+0x2000`, `+0x4000`) |
+| `+0x10000` | 0x800 | bank 1 (same layout; DSP0 and DSP1 share `0x41510000`) |
+| `+0x20000` | 0x600 | bank 2 |
+| `+0x30000` | 0x200 | bank 4 (DSP0/1: `0x411D0000`/`0x411D8000`) |
+| `+0x40000`, `+0x44000`, `+0x48000` | | data RAM: the `+0x58` "data" lists, 8-byte aligned |
+| `+0x80000` | | **program memory** |
+| `+0xA0000` | 0x800 (DSP0/1) / 0x400 × 16 B | **parameter block**, written by `+0xA0(dsp, id, ramp, flag)`: `[+0]` current value, `[+8]` control `0x08000000 \| ramp<<20 \| flag<<24 \| mode<<28`, `[+0xC]` target float. Looks like a hardware ramp per id |
+
+Shared: bank 5 at `0x41114000 + n·0x4000` (0x400 floats; DSPM `0x41110000`),
+written by **`+0xB0(dsp, &id, s0)`** (`bank 5, id`); bank 3 at `0x4113C000`
+(0x100, common to all).
+
+**Operand spaces.** The main DSP2 program (`0x814` B at `0x100`) holds two
+copies of the same code, one per voice (split at DSP address `0x4DC`).
+Aligning the halves (`dsp_wdiff.py prog.bin --halves`): 312 of 494 words
+are identical — the operations — and the changed words fall into classes
+by high byte, each with its own voice stride:
+
+| Word | Voice stride | Meaning (evidence) |
+|---|---|---|
+| `C0nn` | +0x16 | **parameter block id `nn`** (`+0xA0`): voice A uses `C020…C035` = exactly the `+0xA0` ids of unit 2 (tune `0x20`, fine `0x21`, bend `0x23`, LFO `0x26`, ENV `0x27`, mute `0x32/0x33`, level `0x34/0x35`); voice B `C036…C04B`. `+0xA0` voice stride is 0x16 too |
+| `A0nn` | +0x0E | **bank 5 id `nn`** (`+0xB0`): voice A `A020…A02D`, including the SAW/PULSE flags `A02A` (DCO1) and `A02B` (DCO2); voice B uses `A038/A039`, the ids the engine sends for voice B |
+| `02nn` | +0x38 | per-voice local data (0x38 words per voice) |
+| `22nn` | +0x0D (and +6/+7/+8) | state shared with the slot programs (below) |
+| `80nn`, `84nn` | +6 | another space, unidentified |
+
+The same spaces in the slot programs: DCO1 vs DCO2 copies change
+`04nn` → `06nn` (+0x200: local area of the slot, DCO1 `0x400–0x481`,
+DCO2 `0x600–0x67F`) and `22nn` (+6 / +2). **The oscillator programs never use
+`A0nn`/`C0nn`**: they do not read parameters. They use their local area and
+`22nn`, which the main program also uses heavily (`2200…2238`). So the main
+program of each DSP reads the parameters and passes values to the
+oscillator task through the `22nn` space; the slot code only computes the
+waveform. Within `22nn` the DCO1 copy uses `2201–2206` (voice A) and
+`220E–2213` (voice B), DCO2 the same +6: six words per oscillator, 13 per
+voice. SAW/PULSE uses `2203/2206/2210/2213` that SQR does not, a candidate
+for the PULSE flag and pulse width.
+
+So a 16-bit word is either an **operation** (never changes between copies:
+`XfeY`, `0c03`, `1e05`, `3e07`, …) or a **memory reference** "space +
+address" (`0nnn` local, `22nn`, `80nn/84nn`, `A0nn` bank 5, `C0nn`
+parameters). The references stand where an operation needs them; they are
+not fields inside the operation word. Corpus shares: `XfeY` 17.6 % of all
+words (Y = 0/2/4/6/8 in falling order, X = 0…F, `8` most common).
+
+Open: the operations themselves (what `XfeY`, `0c03`, `1e05`, `3e07`, `0fe4`
+do), the role of `80nn/84nn`, and how a reference is tied to an operation
+(the patterns repeat with period 14 words in the parameter copy loop at
+`0x104–0x178`, e.g. `3e07 8006 8fe2 8fe0 222c 0fe4 8007 8406 8fe0 3e07 0fe4
+8fe2 8407 222d`, which suggests a pipeline, not one operand right after its
+operation). The debug screens in `m1_sdram` (`CEZUtilDSPDump/Probe`) have no
+disassembler: only bank names and checksums. Next: diff the six effect
+programs, and dump DSP memory at run time from a hook (the banks above are
+plain addresses on the slave) to see values the program writes.
+
 ### Writing new code
 
 What works today, without the full ABI:
