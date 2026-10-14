@@ -20,8 +20,10 @@ Direcciones = JX-3P slot 1 (`plugout_build.py unpack ... --relocs-from Code8_2`)
   0 reset, 1 (r1==4) refresco, 2 noteOff(n), 3 noteOn(n,vel), 4 CC(cc,v), 5 param 0x22D,
   6 bend(v), 7/8 nop, 9 set, 10 get, 11 set2, 12 flush, 13 nop, 14 setVoices(n),
   15 setMode(n), 16 voces=[this+4]. Parte = {0,1,2,1,2}[this+0xA0].
-* (stub de emu0, NO es el OS real) callbacks en 0x01000400: [0]=get(parte,grupo,id,&v)->1,
-  [1]=set(parte,grupo,id,v), [2]=flush (nop), [3]=set2(parte,grupo,id).
+* 0x01000400 = tabla REAL del kernel (volcado `dumps/kernel_01000000.bin`): [0] get(parte,grupo,id)
+  -> valor en r0 (0x01012847), [1] set(parte,grupo,id,v), [2] flush (nop en este OS), [3] touch(parte,a,b).
+  get/set ignoran el grupo. Los métodos 9-12 del objeto (`obj->vt[0x24/0x28/0x2C/0x30]`) son sólo
+  envoltorios que calculan la parte y llaman a esta tabla (emu0.py la emulaba mal: escribía en r3).
 * Protocolo de notas (emulado): noteOn -> set(p,2,0x429+voz,nota), set(p,2,0x43A+voz,vel),
   set(p,2,0x45C,voz); noteOff -> set(p,2,0x43A+voz,0); bend -> set(p,2,0x465,v-0x2000);
   CC1 -> set(p,2,0x467,v); CC11 -> set(p,2,0x46A,v).
@@ -119,8 +121,19 @@ recibir onda/tipo de efecto; nuestro engine nunca lo llamaba. Ahora `vt+0x0C` ha
    0x2DF <- 0x6FD; 0x2E0 <- 0x748, 0x6F9; 0x3EF <- 0x6CF; 0x736 <- 0x744, ENV2; 0x737 <-> 0x744; 0x738 <- 0x739/A;
    0x739/A <-> 0x700; ENV1/ENV2 <-> 0x744; 0x749 <- 0x748; 0x6F9 <- 0x748; 0x6FE/0x6FF <- 0x6FD) quedan aproximadas;
    después modelarlas o recalcular las curvas con los valores reales.
-2. **Región 0 en C**: modelo propio (SYNINFO, descriptor, lista de parámetros terminada en -1, objeto asignador de
-   17 entradas). El `get/set` del maestro es `obj->vt[0x28](obj, parte, id, &v)` / `+0x24`, `+0x2C`, `+0x30`
-   (ver región 0 del JX-3P en `0x6191815A`); revisar la sección "Región 0" de arriba contra eso.
+2. ~~Región 0 en C~~: hecho en emulación (`model/`, ver abajo). Falta la prueba en hardware.
 3. Opcional: leer los valores reales de los ids fuera del patch desde la región 0 (arreglar `params_dump.py` /
    `init_params.s` con el objeto del OS) para validar las curvas.
+
+## Región 0 en C (2026-10-14) — `model/` (detalle en `model/README.md`)
+* `model.c`: SYNINFO, init/descriptor, create/destroy/select y el asignador (POLY/MONO/UNISON, hold, CC1/11/64/
+  120-127, bend, modos de split 0-4) escritos por nosotros; sólo llama a la tabla del kernel 0x01000400.
+  `params.py`: lista de parámetros propia (codifica igual que la de serie salvo `JX-3P CH` -> `CHORUS`).
+* **Memoria del slot dentro de la región 0**: el OS guarda los patches del slot en `base + 0x8000` (tabla
+  0x602B9194, accesores 0x6000870E..0x600087A0): 64 patches × 0x200 (u32 por id, índice id − 0x6CD, nombre en
+  palabras 64-67), 64 × 0x898 (patch2), 64 × 0x3710 (patch3 = secuenciador) y buffers de edición en
+  +0x10EA00/+0x10EC00/+0x10F498. Por eso la región 0 mide ~1,1 MiB; un stub chico deja al OS sin esa memoria.
+  Nosotros llevamos 64 `INIT PATCH`; el banco del plugin los sobrescribe al instalar.
+* `model/test_emu.py`: 1000 secuencias aleatorias × 120 eventos dan las mismas llamadas al kernel que la región 0
+  del JX-3P; una mutación deliberada se detecta. `engine/build.sh` ahora arma `plugins/C-SAW` con las dos
+  regiones nuestras (`MODEL=jx` vuelve a la región 0 de serie). **Sin probar en hardware.**

@@ -1,7 +1,10 @@
 #!/bin/sh
 # Build the from-scratch engine into a plugin folder.
 #   examples/from_scratch/engine/build.sh [plugins/JX-3P] [out-plugin-dir]
-# The model (region 0) is still the stock JX-3P one; region 1 is ours.
+# Both regions are ours: region 0 from ../model (C), region 1 from engine.c.
+# MODEL=jx keeps the stock JX-3P region 0 (for comparisons). The JX-3P plugin
+# folder supplies the DSP microcode (copied at build time) and the host-side
+# files (Script.xml, Patch/) of the plugin folder.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
@@ -9,6 +12,8 @@ SRC_PLUGIN=${1:-$ROOT/plugins/JX-3P}
 OUT_PLUGIN=${2:-$ROOT/plugins/C-SAW}
 B=$HERE/build
 mkdir -p "$B"
+MODEL=${MODEL:-c}
+[ "$MODEL" = jx ] || "$HERE/../model/build.sh"
 python3 "$HERE/gen_tables.py" "$SRC_PLUGIN" "$B"
 CFLAGS="-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -Os -ffreestanding \
  -fno-builtin -nostdlib -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$B"
@@ -19,9 +24,9 @@ for base in 0x60A00000 0x60C00000; do
     arm-none-eabi-objcopy -O binary "$B/engine_$base.elf" "$B/engine_$base.bin"
 done
 arm-none-eabi-size "$B/engine_0x60A00000.elf"
-python3 - "$B" <<'PY'
+python3 - "$B" "$MODEL" "$HERE/../model/build" <<'PY'
 import json, os, shutil, struct, sys
-b = sys.argv[1]
+b, model, mb = sys.argv[1:4]
 a = open(os.path.join(b, 'engine_0x60A00000.bin'), 'rb').read()
 c = open(os.path.join(b, 'engine_0x60C00000.bin'), 'rb').read()
 assert len(a) == len(c)
@@ -40,6 +45,10 @@ shutil.copytree(os.path.join(b, 'proj'), proj)
 open(os.path.join(proj, 'region1.bin'), 'wb').write(a)
 r = json.load(open(os.path.join(proj, 'relocs.json')))
 r['1'] = relocs
+if model != 'jx':
+    shutil.copy(os.path.join(mb, 'region0_0x61800000.bin'), os.path.join(proj, 'region0.bin'))
+    r['0'] = json.load(open(os.path.join(mb, 'relocs0.json')))
+    print(f"region 0: ours ({len(r['0'])} relocations)")
 json.dump(r, open(os.path.join(proj, 'relocs.json'), 'w'))
 print(f'region 1: {len(a)} bytes, {len(relocs)} relocations')
 PY

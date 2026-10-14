@@ -5,8 +5,10 @@ Our own ARM code for the slave BMCs. Foreign data: only the DSP programs
 program of each of the six DSPs and the **SAW** program in both oscillator
 slots. Nothing of Roland's is stored in the repository (`build/` is generated).
 
-Region 0 (the model on the master: panel, note assigner) is still the stock
-JX-3P one; replacing it with C is the next step.
+Region 0 (the model on the master: parameter list, slot memory, note
+assigner) is ours too since 2026-10-14: `examples/from_scratch/model/`, built
+by `build.sh` (`MODEL=jx` uses the stock JX-3P region 0 instead). Verified in
+emulation only.
 
 **Status (2026-10-14, hardware): it plays.** Eight voices, correct pitch. It
 starts with the filter closed and opens with the panel CUTOFF, which arrives as
