@@ -20,7 +20,7 @@ Direcciones = JX-3P slot 1 (`plugout_build.py unpack ... --relocs-from Code8_2`)
   0 reset, 1 (r1==4) refresco, 2 noteOff(n), 3 noteOn(n,vel), 4 CC(cc,v), 5 param 0x22D,
   6 bend(v), 7/8 nop, 9 set, 10 get, 11 set2, 12 flush, 13 nop, 14 setVoices(n),
   15 setMode(n), 16 voces=[this+4]. Parte = {0,1,2,1,2}[this+0xA0].
-* Callbacks del OS en 0x01000400 (kernel): [0]=get(parte,grupo,id,&v)->1,
+* (stub de emu0, NO es el OS real) callbacks en 0x01000400: [0]=get(parte,grupo,id,&v)->1,
   [1]=set(parte,grupo,id,v), [2]=flush (nop), [3]=set2(parte,grupo,id).
 * Protocolo de notas (emulado): noteOn -> set(p,2,0x429+voz,nota), set(p,2,0x43A+voz,vel),
   set(p,2,0x45C,voz); noteOff -> set(p,2,0x43A+voz,0); bend -> set(p,2,0x465,v-0x2000);
@@ -84,3 +84,30 @@ Direcciones = JX-3P slot 1 (`plugout_build.py unpack ... --relocs-from Code8_2`)
   `0b02 00f8 0001`. `re/dspmc.py` (palabras en orden de ejecución). Bucle de parámetros: 7 palabras/elemento,
   `80k 3e07 8fe0 8fe2 0fe4 22(k-1) 84k` (pipeline con latencia fija).
 * Próximo experimento posible: parchear palabras de un programa de efecto del maestro en vivo (región 0) y escuchar.
+
+## C-SAW (2026-10-14): primer engine propio en C — `engine/`
+Región 1 en C (`engine/engine.c`), microcódigo de Roland (programas principales + SAW) sacado del JX-3P en
+build (`gen_tables.py`), región 0 todavía la del JX-3P. `test_emu.py`: mismas llamadas al OS que el JX-3P
+(registro, estado, notas en las 8 voces). Instalado en slot 3: el equipo lo reporta (`C-SAW id 0x0008 0.01`).
+1ª prueba: no se cuelga, no suena (el resto de los PLUG-OUTs sigue bien). Causa probable: 4 ids fuera del
+patch (`0x4A1-0x4A3`, `0x73E`) son interruptores que el JX-3P lee del OS; en el emulador valían 0 → tabla con
+todo apagado. Ahora el engine los lee en vivo con `+0x00 get`. 2ª prueba: tampoco suena. Causa más probable: los programas de
+ranura (DCO1/DCO2/efecto) sólo corren como tareas tras `+0x70` (que habilita el bit de tarea), y el JX-3P lo llama al
+recibir onda/tipo de efecto; nuestro engine nunca lo llamaba. Ahora `vt+0x0C` hace la misma secuencia
+(`+0xC0` sync, `+0x70` por DSP, rampas). `test_emu.py` compara también estos arranques. 3ª prueba: tampoco suena.
+* Diagnóstico híbrido (`engine/hybrid.c`, `hybrid.sh`, `plugins/C-HYB`): engine del JX-3P + el nuestro en la misma
+  imagen; slave 0 = JX-3P (control), slave 1 = partes nuestras. Ronda 1 (notas nuestras): suenan las 8 voces.
+  Ronda 2 (todo nuestro salvo parámetros → JX-3P): suenan las 8. Conclusión: falla lo que el JX-3P hace con los
+  parámetros que manda el OS; nuestras tablas tenían los ids fuera del patch en 0 (valor del emulador).
+* `examples/midi_send/params_dump.py` + `init_params.s`: intento de leer esos valores desde la región 0 — falló
+  (todos sin escribir): el `get` del maestro no es una tabla en 0x01000400 (eso era el stub de emu0); la región 0
+  recibe un objeto del OS y llama `obj->vt[0x28](obj, parte, id, &v)`. Corregir la nota de arriba.
+* Ahora: respuestas aprendidas (`gen_tables.responses`): para 30 ids fuera del patch, la respuesta del JX-3P a
+  valores 0..255 (recta o tabla); el engine lee el valor real con `+0x00 get` y la aplica (y en `vt+0x30`).
+  Dependencias entre ids (26 casos, p. ej. 0x2DF, 0x744) no se modelan.
+* **4ª prueba (2026-10-14): SUENA.** Arranca filtrado; al subir CUTOFF del panel suena; las 8 voces y el tracking
+  correctos. Ningún otro control responde (esperable: el engine ignora los parámetros del patch). El CUTOFF del
+  panel llega como id fuera del patch (grupo 1, 0x2DB-0x2E0, probablemente 0x2DD -> DSP4), que sí tiene curva aprendida.
+  Primer sonido de un engine propio en C con microcódigo SAW de Roland.
+* Siguiente: (1) respuestas aprendidas también para los ids del patch (incluido el cambio de programa por onda) para
+  que el panel funcione y el estado inicial sea el del patch real; (2) región 0 en C.
