@@ -13,8 +13,11 @@ does not answer the info query. Ctrl-C finishes the current chunk, then stops.
     python3 examples/midi_send/bulk_loop.py                       # whole OS
     python3 examples/midi_send/bulk_loop.py --count 2048 -o dumps/os_full.bin
     python3 examples/midi_send/bulk_loop.py --start 0x60000000 --end 0x60100000
+    python3 examples/midi_send/bulk_loop.py --flash --start 0 --end 0x60000 -o dumps/flash_loader.bin
 
 Default range: the OS image, 0x60000000 + 0x2CDA70 (App1_Main payload size).
+--flash reads QSPI flash offsets instead (bulk_dump.py --flash); loader 0x0,
+updater 0x10000, app 0x60000 (BASE_FIRMWARE §8.14).
 """
 from __future__ import annotations
 
@@ -48,6 +51,7 @@ def main() -> int:
     ap.add_argument("--settle", type=float, default=3.0,
                     help="pause before each install (s); the device hung at 'receiving plg' without it")
     ap.add_argument("--no-resume", action="store_true")
+    ap.add_argument("--flash", action="store_true", help="dump QSPI flash offsets, not memory")
     ap.add_argument("-o", "--out", default=os.path.join(ROOT, "dumps", "os_full.bin"))
     args = ap.parse_args()
 
@@ -78,7 +82,8 @@ def main() -> int:
             r = subprocess.run([sys.executable, os.path.join(HERE, "bulk_dump.py"),
                                 "--start", hex(addr), "--count", str(count),
                                 "--len", str(args.len), "--slot", str(args.slot),
-                                "-o", tmp], capture_output=True, text=True,
+                                "-o", tmp] + (["--flash"] if args.flash else []),
+                               capture_output=True, text=True,
                                start_new_session=True)   # Ctrl-C must not kill the install
             print(r.stdout.rstrip(), flush=True)
             if "NO RESPONSE" in r.stdout:

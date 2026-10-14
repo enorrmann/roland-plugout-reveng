@@ -11,6 +11,11 @@ bytes to OUT (an existing OUT is extended: resumable with --resume).
 
     python3 examples/midi_send/bulk_dump.py --start 0x60000000 --count 64 -o dumps/bulk.bin
     python3 examples/midi_send/bulk_dump.py --decode cap.raw       # decode only
+
+--flash dumps QSPI flash offsets instead of memory, with JX-3P-INIT-FLASH
+(init_flash.s, same message format; --start is a flash offset):
+
+    python3 examples/midi_send/bulk_dump.py --flash --start 0 --count 64 -o dumps/flash.bin
 """
 from __future__ import annotations
 
@@ -66,6 +71,8 @@ def main() -> int:
     ap.add_argument("--idle", type=float, default=3.0, help="stop capture after this many idle s")
     ap.add_argument("-o", "--out", default=os.path.join(ROOT, "dumps", "bulk.bin"))
     ap.add_argument("--decode", help="only decode a raw capture file")
+    ap.add_argument("--flash", action="store_true",
+                    help="read QSPI flash (JX-3P-INIT-FLASH) instead of memory")
     args = ap.parse_args()
 
     if args.decode:
@@ -76,7 +83,9 @@ def main() -> int:
 
     env = dict(os.environ, SRC=hex(args.start), COUNT=str(args.count), LEN=str(args.len))
     print(f"== build SRC={args.start:#010x} COUNT={args.count} LEN={args.len}")
-    r = subprocess.run([os.path.join(HERE, "make_init_bulk.sh")], env=env,
+    kind = "flash" if args.flash else "bulk"
+    plugin = "JX-3P-INIT-FLASH" if args.flash else "JX-3P-INIT-BULK"
+    r = subprocess.run([os.path.join(HERE, f"make_init_{kind}.sh")], env=env,
                        stdout=subprocess.DEVNULL)
     if r.returncode:
         return r.returncode
@@ -88,7 +97,7 @@ def main() -> int:
     t0 = time.time()
     print(f"== install in slot {args.slot}")
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "plugout_tool.py"),
-                        "install", os.path.join(ROOT, "plugins", "JX-3P-INIT-BULK"),
+                        "install", os.path.join(ROOT, "plugins", plugin),
                         "--slot", str(args.slot), "--no-patches", "-y"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     if r.returncode:

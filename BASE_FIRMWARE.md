@@ -1198,4 +1198,50 @@ Flash read function: **`0x6004306A(0, 0, &{offset, length, dst})`**
 `LoadPlugout` and the version screen). A region 0 hook can therefore read
 flash `0x0–0x60000` (loader + updater) into a buffer and send it with the
 bulk SysEx path (§7.13). The loader is what decrypts `App1_Main`; if it is
-stored in clear, it holds the cipher and the key (§2, §5). Not tried yet.
+stored in clear, it holds the cipher and the key (§2, §5).
+
+**Dumped 2026-10-14** (`dumps/flash_loader.bin`, flash `0x0–0x10000`, one
+install, 43 s, `FLASH OK`):
+
+```bash
+python3 examples/midi_send/bulk_loop.py --flash --start 0 --end 0x10000 -o dumps/flash_loader.bin
+```
+
+PLUG-OUT `plugins/JX-3P-INIT-FLASH` (`init_flash.s`, `make_init_flash.sh`;
+`bulk_dump.py`/`bulk_loop.py --flash`): per message the region 0 init hook
+reads 32 B with `0x6004306A` into the stack and sends them in the §7.13 format
+(address field = flash offset). Result:
+
+* `0x00`: `"BMC 0.10"`, `0x0C` u32 size `0x3D30`, `0x10` `0x21E`,
+  `0x14` `0x00B40201`, `0x18` `FF`×8; payload `0x20–0x3D50`; trailer at
+  `0x3D50`: 12 × 00, `CB F6 F5 C9`, `"Roland P1Y01_C0L"`, `"VER.1.01"`,
+  `"BLD.11E7"`, `"18 0730 10 18 47"`. Rest of the 64 KiB is `FF`.
+* **The loader is encrypted too**: entropy 7.3–7.96, the same 64-bit ECB
+  signature as `App1_Main` (block `7999E9A16AA6D322` 120×, mostly in 16-byte
+  pairs). Its dominant block differs from the app's (`6B4C9A852C732831`).
+  So the key is not in the loader: the BMC decrypts the loader itself (boot
+  ROM / on-chip key).
+
+**Updater dumped 2026-10-14** (`dumps/flash_updater.bin`, flash
+`0x10000–0x60000`, 5 installs):
+
+```bash
+python3 examples/midi_send/bulk_loop.py --flash --start 0x10000 --end 0x60000 -o dumps/flash_updater.bin
+```
+
+(Never run two `bulk_loop.py` at once: a second one sharing the MIDI port made
+the device look hung — all-zero capture, `NO RESPONSE`.)
+
+* Header `0x10000–0x10060` (u32 LE): `"App0_UPD"`, UTF-16 `"ern"`,
+  `"2018/07/30 10:19"`, `"0.010001"`; `+0x28` `0x60000000` (load address);
+  `+0x30` `0x10040`; `+0x40` `0x10060` (payload flash offset), `+0x44`
+  `0x40080` (payload size), `+0x48` `0x60000000`, `+0x50` `0x49A54D00`,
+  `+0x54` `0xB5020001`.
+* Payload `0x10060–0x500E0` (exactly `0x40080` B), trailer `0x500E0–0x50120`:
+  `00`×12, `6A E1 9F 04`, `"Roland P1Y01_C0U"`, `"VER.1.02"`, `"BLD.11E7"`,
+  `"18 0730 10 19 32"`. Rest is `FF`.
+* **Encrypted too**: entropy 7.96–7.99, 64-bit ECB signature again; dominant
+  block `9E57B0A3DCD3B80B` (302×), second `7D7F03CBC8FF560D` (116×). It differs
+  from both the loader (`7999E9A16AA6D322`) and `App1_Main`
+  (`6B4C9A852C732831`). So all three flash images are encrypted, and the key
+  is held by the BMC, not by any of them.
