@@ -109,5 +109,18 @@ recibir onda/tipo de efecto; nuestro engine nunca lo llamaba. Ahora `vt+0x0C` ha
   correctos. Ningún otro control responde (esperable: el engine ignora los parámetros del patch). El CUTOFF del
   panel llega como id fuera del patch (grupo 1, 0x2DB-0x2E0, probablemente 0x2DD -> DSP4), que sí tiene curva aprendida.
   Primer sonido de un engine propio en C con microcódigo SAW de Roland.
-* Siguiente: (1) respuestas aprendidas también para los ids del patch (incluido el cambio de programa por onda) para
-  que el panel funcione y el estado inicial sea el del patch real; (2) región 0 en C.
+
+## Próximos pasos (pendientes, 2026-10-14)
+1. **Panel**: respuestas aprendidas también para los ids del patch (`gen_tables.responses` hoy sólo cubre los de
+   fuera del patch); el engine aplica los valores reales del patch (`vt+0x30` y `+0x00 get` al enviar el estado).
+   Arregla también el arranque filtrado. Ondas (`0x6D4`/`0x6D9`) y tipo de efecto (`0x748`): grabar la secuencia
+   de `+0xC0`/`+0x70` por valor (como `swap_ops`) para cargar SQR/PULSE/NOISE y los 6 efectos. Las dependencias entre
+   ids (26 medidas en emulación: 0x22C/0x519/0x544/0x56E <- 0x739-0x73C; 0x2DC <- 0x6ED; 0x2DD <- 0x6EC;
+   0x2DF <- 0x6FD; 0x2E0 <- 0x748, 0x6F9; 0x3EF <- 0x6CF; 0x736 <- 0x744, ENV2; 0x737 <-> 0x744; 0x738 <- 0x739/A;
+   0x739/A <-> 0x700; ENV1/ENV2 <-> 0x744; 0x749 <- 0x748; 0x6F9 <- 0x748; 0x6FE/0x6FF <- 0x6FD) quedan aproximadas;
+   después modelarlas o recalcular las curvas con los valores reales.
+2. **Región 0 en C**: modelo propio (SYNINFO, descriptor, lista de parámetros terminada en -1, objeto asignador de
+   17 entradas). El `get/set` del maestro es `obj->vt[0x28](obj, parte, id, &v)` / `+0x24`, `+0x2C`, `+0x30`
+   (ver región 0 del JX-3P en `0x6191815A`); revisar la sección "Región 0" de arriba contra eso.
+3. Opcional: leer los valores reales de los ids fuera del patch desde la región 0 (arreglar `params_dump.py` /
+   `init_params.s` con el objeto del OS) para validar las curvas.
