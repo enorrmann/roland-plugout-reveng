@@ -181,7 +181,8 @@ Compression is pure Python: ~6 s for region 0, ~1 s for region 1.
   | Entry | Use seen |
   |---|---|
   | `+0x00` | read at init next to the constants `4` and `0x748` |
-  | `+0x28..+0x40` | read in an init loop, one entry per object |
+  | `+0x28..+0x6C` | DSP microcode registration, 3 lists × 6 DSPs (see "DSP microcode" below) |
+  | `+0x70` | swap the program in one slot of a running DSP (see below) |
   | `+0xA0`, `+0xA4`, `+0xB0` | functions, called with `(obj, …)` from import stubs |
   | `+0xBC` | function taking a float in `s0` |
   | `+0xC0` | function (`[r4+4]` object as first argument) |
@@ -203,9 +204,11 @@ Compression is pure Python: ~6 s for region 0, ~1 s for region 1.
 * Effects: `EfxCmn` holds the type-independent parameters (EFFECT LEVEL is
   curve `0x1C`). OD/DS/FZ share methods; their TONE is `0x60A0AC54`
   (curve `0x10`, −1…+1, sent to DSP id `[this+0x14]`).
-* Oscillator waveform (`OscVoice` methods 8/9): both DCOs send `value − 3`
-  (table at `0x60A44DBC`); "PULSE" vs "NOISE" for positions 3–5 is decided in
-  the DSP program, which is not in the PLUG-OUT.
+* Oscillator waveform: the sound is DSP microcode that the engine carries
+  and loads into the slave, one program per waveform family (see "DSP
+  microcode" below). The earlier note that the waveform "is decided in the DSP
+  program, which is not in the PLUG-OUT" was wrong: the programs are in the
+  PLUG-OUT.
 * Region 0 `0x11AB84..`: value-label lists (`<u32 2><u32 0x14><u32 list id>
   <u32 count>…` followed by `<u32 3><u32 0x1C><char[20]>` labels).
 
@@ -214,6 +217,86 @@ Verified patch (EFFECT TONE inverted; 16 bytes at `0x60A0AC62`, slot 1):
 bl 0x60A0B41E · pop {r4,r5,r6,pc}` — the original tail call
 (`pop.w` + `b.w`) becomes `bl` + `pop`, and the dead `mov r0,r4` is dropped,
 which frees room for the new instruction without moving anything else.
+
+### DSP microcode in the engine (JX-3P, 2026-10-14, emulation only)
+
+The audio is not produced by ARM code. Each engine image contains **DSP
+programs (microcode)** and hands them to the slave BMC, which downloads them
+into its six DSPs. Different waveforms are different programs. Found by
+emulating region 1 (`examples/from_scratch/re/`); listed by
+`dsp_progs.py region1.bin [outdir]`, which also writes the blobs out.
+
+**Load at start-up**: main object (`CPrmDSPJx3pSys8`, vtable `0x60A445CC`)
+`vt+8` = `0x60A0FA98`. It reads three values with OS `+0x00`
+(`get(0, 4, id)`): `0x6D4` DCO1 WAVEFORM (clamped 0–2), `0x6D9` DCO2
+WAVEFORM (0–3), `0x748` (0–5, picks one of six effect programs, so most
+likely the effect type), then registers everything with the OS table. Each
+OS entry `+0x28..+0x6C` is the same function, `0x01105808` in `s_boot`:
+append the argument to one of 18 lists (16-byte headers at
+`0x20084050..0x20084160`):
+
+| OS entries | Argument | Meaning |
+|---|---|---|
+| `+0x28 + 4·n` | DSP address | program **slot** of DSP `n` (`n` = 0–5) |
+| `+0x40 + 4·n` | `&{dsp_addr, bytes, bytes, src}` | **program** for one slot |
+| `+0x58 + 4·n` | `&{dsp_addr, bytes, bytes, src}` | **data** (8 or 32 bytes, all zero in the JX-3P) |
+
+Layout used by the JX-3P (slot 1 addresses; DSP numbers = units of the
+`+0xA0`/`+0xB0` parameter calls):
+
+| DSP | `0x0100` (main) | `0x6000` | `0xB000` | `0x8000` |
+|---|---|---|---|---|
+| 0, 1 (envelopes/LFO) | `0x13CA` / `0x139A` B | — | — | stub |
+| 2, 3 (oscillators, 2 voices each) | `0x814` / `0x7E2` B | **DCO1 program** | **DCO2 program** | — |
+| 4 (filter/VCA + effect) | `0x1436` B | stub | **effect program** | — |
+| 5 (filter/VCA) | `0x1398` B | stub | — | — |
+
+"Stub" = the same 14 bytes everywhere (`70ff 020a 70ff 020a f800 020b 0000`
+at `0x60A1663C`): an empty slot.
+
+**Oscillator programs** (table at `0x60A16844`, 7 pairs `{prog, data}` per
+DSP: DCO1 values 0–2, then DCO2 values 0–3; DSP3's table follows at
+`0x60A1687C`; effects at `0x60A168B4`, 6 pairs). Panel labels from the
+region 0 lists: DCO1 0 SAW, 1 SQR, 2–5 PULSE; DCO2 0 SAW, 1 SQR, 2 PULSE,
+3–5 NOISE.
+
+| Wave | DCO1 (slot `0x6000`), src | DCO2 (slot `0xB000`), src | Size |
+|---|---|---|---|
+| SAW (0), PULSE (2) | `0x60A1B594` | `0x60A1C59C` | `0x1008` B |
+| **SQR (1)** | **`0x60A1D5F4`** | **`0x60A1E57C`** | `0xF88` B |
+| NOISE (DCO2 3) | — | `0x60A1F554` | `0x180` B |
+
+* SAW and PULSE are **one program**; after loading it the engine sends a
+  flag through `+0xB0` (descriptor `0x60A147A8`… for DCO1, `0x60A147C4`… for
+  DCO2) with `s0 = 0.0` for SAW and `1.0` for PULSE. SQR and NOISE have
+  their own programs. Values above the clamp use the last entry (DCO1 3–5 =
+  PULSE, DCO2 4–5 = NOISE).
+* DSP2 and DSP3 get byte-identical programs (separate copies in the image:
+  SQR for DSP3 is at `0x60A2175C` / `0x60A226E4`).
+* The DCO1 and DCO2 copies of the same program differ only in operands: the
+  code is made of 16-bit little-endian words, and 304 of the 314 changed
+  bytes are `+0x200` on a word (`0x04xx` → `0x06xx`, data memory
+  `0x400–0x47F` vs `0x600–0x67F`), the rest small `+2`/`+6` changes
+  (`0x2201` → `0x2207`, `0x221B` → `0x221D`): the same code assembled for a
+  different memory bank and parameter registers.
+* SAW/PULSE vs SQR: same first 78 words and the same tail, otherwise
+  different code. All 26 program blobs in the image
+  start with `70ff 020a` and end with either `020a f800 020b 0000`
+  or `020b 70ff 0100 f800`. The DSP instruction set is still unknown.
+
+**Live waveform change** (`vt+0x3C` = `0x60A0B658` for DCO1; DCO2 likewise):
+ramp the oscillator level ids to 0 (`+0xA0`, DCO1 ids `0x32`/`0x48`, DCO2
+`0x33`/`0x49`), `+0xC0` (r0 = 3, r3 = 1; r0 = 4 for the effect; meaning unknown), then for DSP 2 and 3
+**`+0x70(dsp, &prog, &data, 0x60A44E18, 0x6000 or 0xB000, 2, 0, 0)`**
+(OS `0x011062FA` → `0x01105F94`: replace the program in that slot of the
+running DSP), ramp the levels back to 1 and resend the SAW/PULSE flag.
+Changing `0x748` does the same on DSP4, slot `0xB000`.
+
+Consequences for a from-scratch PLUG-OUT: a square oscillator needs a DSP
+program. Without an assembler for this DSP the only option is to copy
+Roland's blobs (e.g. the JX-3P SQR program plus the main programs it runs
+under) into the new engine and register them the same way; their parameter
+ids and memory layout come with them.
 
 ### Writing new code
 
