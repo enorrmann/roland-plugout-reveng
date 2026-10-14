@@ -77,3 +77,10 @@ Direcciones = JX-3P slot 1 (`plugout_build.py unpack ... --relocs-from Code8_2`)
   `A0nn` = banco 5 `+0xB0` id nn (flags SAW/PULSE A02A/A02B), `02nn`/`04nn`/`06nn` = RAM local, `22nn` = buzón
   entre programa principal y ranura. Los programas de oscilador NO leen parámetros; el principal se los pasa.
   Herramienta: `re/dsp_wdiff.py` (alinea copias y clasifica operandos).
+* **Orden de ejecución**: cada palabra de 32 bits LE lleva 2 instrucciones de 16 bits, **mitad alta primero**
+  (verificado en hardware: volcado de la memoria de programa de los DSP del maestro, DSP4/DSP5 tienen los
+  efectos de m1_tcm byte a byte). Un blob de 4n+2 bytes: su último `0000` no se carga, la instrucción final
+  real es el `0001` que sigue en la imagen. En este orden los 199 programas empiezan `0a02 ff70` y terminan
+  `0b02 00f8 0001`. `re/dspmc.py` (palabras en orden de ejecución). Bucle de parámetros: 7 palabras/elemento,
+  `80k 3e07 8fe0 8fe2 0fe4 22(k-1) 84k` (pipeline con latencia fija).
+* Próximo experimento posible: parchear palabras de un programa de efecto del maestro en vivo (región 0) y escuchar.

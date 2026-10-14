@@ -280,9 +280,9 @@ region 0 lists: DCO1 0 SAW, 1 SQR, 2–5 PULSE; DCO2 0 SAW, 1 SQR, 2 PULSE,
   (`0x2201` → `0x2207`, `0x221B` → `0x221D`): the same code assembled for a
   different memory bank and parameter registers.
 * SAW/PULSE vs SQR: same first 78 words and the same tail, otherwise
-  different code. All 26 program blobs in the image
-  start with `70ff 020a` and end with either `020a f800 020b 0000`
-  or `020b 70ff 0100 f800`. The DSP instruction set is still unknown.
+  different code. Byte layout and execution order: see "Word size and
+  structure" below (all programs start `0a02 ff70` and end `0b02 00f8 0001`
+  in execution order). The DSP instruction set is still unknown.
 
 **Live waveform change** (`vt+0x3C` = `0x60A0B658` for DCO1; DCO2 likewise):
 ramp the oscillator level ids to 0 (`+0xA0`, DCO1 ids `0x32`/`0x48`, DCO2
@@ -334,31 +334,41 @@ guessed). All stock PLUG-OUT engines, `p0s`, `pl1m/pl1s/pl2m`, `s_data`,
 (`p0s`, the SYSTEM-8 engine, alone has 99 descriptors). `os_full.bin` as a
 whole gives none because its parts have different load addresses.
 
-**Word size and structure**:
+**Word size and structure** (word lists below are in **execution order**,
+`examples/from_scratch/re/dspmc.py`):
 
-* Unit = **16-bit little-endian word**. Even- and odd-indexed words have the
-  same distribution (entropy 9.83/9.83 bits, Jensen–Shannon divergence
-  0.025), and 135 of the 199 programs have a length ≡ 2 mod 4, so there is
-  no 32-bit instruction alignment. Instructions are one word plus optional
-  operand words.
-* Every program starts with `ff70 0a02` (as LE words). There are two
-  endings: `… 0a02 00f8 0b02 0000` (135 programs) or
-  `… 0b02 ff70 0001 00f8` (64). The 14-byte empty-slot stub is
-  `ff70 0a02 ff70 0a02 00f8 0b02 0000`, so `ff70 0a02` is probably a
-  prologue/sync instruction and `00f8 0b02` the end of a task.
+* Unit = **16-bit instruction**; two per 32-bit little-endian word, **upper
+  half first**. Evidence, all from the live dump of the master DSP4 (below)
+  plus the corpus: (1) after loading a 0x256-byte blob over a longer
+  program, the blob's last halfword (`0000`, at +0x254) was **not** written —
+  memory still holds the old program's value — while the halfword that
+  follows the blob in the image (`0001`, +0x256) **was**; `VerifyProg` checks
+  only that upper half for a 4n+2 length. So for a 4n+2 blob the image
+  supplies one extra halfword `0001`, which is the real last instruction, and
+  the blob's final `0000` is a filler that is never loaded. (2) In this order
+  every one of the 199 programs starts with `0a02 ff70` and ends with
+  `0b02 00f8 0001` (in memory byte order there were two different endings).
+  (3) The stream becomes much more predictable: conditional entropy of the
+  next word 3.27 bits instead of 4.32.
+* No 32-bit instruction alignment: even- and odd-position words have the same
+  distribution (entropy 9.82/9.84 bits, Jensen–Shannon divergence 0.025), and
+  no frequent word prefers a parity (`1e05` 2879/2787, `8fe0` 2933/2717, …).
+  A 4n+2-byte program is just an odd number of instructions.
+* The 14-byte empty-slot stub is, in execution order, `0a02 ff70 0a02 ff70
+  0b02 00f8 0001`: `0a02 ff70` is a prologue/sync, `0b02 00f8 0001` the end
+  of a task.
 * **Operand words**: all 304 relocated words between the DCO1 and DCO2
   copies have the form `0x04nn` → `0x06nn` (data address `0x400–0x47F` vs
-  `0x600–0x67F`) and stand alone after opcode words such as `1e05`, `Xfe2`,
-  `Xfe4`, `0c03`. So data addresses are full 16-bit operand words, not
-  fields inside an instruction. A second group, `0x22nn`, moves by +2/+6
-  (`2201` → `2207`, `2204/2205` → `220a/220b`): another address space,
-  probably parameter or coefficient registers.
-* Frequent opcode families (corpus counts): `1e05` (5666; the next word has
-  9.1 bits of entropy, so it takes an operand), `XfeY` with X = 0…F and
-  Y ∈ {0, 2, 4} (`8fe0` 5650, `1fe2` 3734, `0fe0` 3249, `2fe0`, `9fe2`,
-  `2fe4`, `5fe2`, `3fe2`, …; X looks like a 4-bit register field, Y like a
-  sub-opcode), `0c03`, `0902`, `0a02`, `0803/0806/0807`, `3000`, `2800`.
-  Typical sequence: `8fe0 0c03 1e05 <operand>`.
+  `0x600–0x67F`). They are separate 16-bit words, not fields inside an
+  instruction. A second group, `0x22nn`, moves by +2/+6 (`2201` → `2207`,
+  `2204/2205` → `220a/220b`).
+* Frequent sequences (corpus, execution order): `<ref> 1e05 0fe0 1fe2`
+  (2169×), `1e05 8fe0 9fe2`, `1e05 8fe0 0fe2`, `1e05 2fe0 3fe2`, `<ref> 0c03
+  8fe0`, `<ref> 3e07 8fe0`. `1e05`, `0c03` and `3e07` are **preceded** by a
+  high-entropy word (a memory reference; entropy of the previous word
+  8.8/7.9/7.4 bits) and followed by `Xfe0`, which is usually followed by
+  `(X+1)fe2` — pairs of a 4-bit field X, X+1 (register pairs?). `XfeY`
+  (X = 0…F, Y = 0/2/4/6/8) makes up 17.6 % of all words.
 * Repeated blocks such as `1cb6 3cca 0807 … 2222 2222 aaaa 2aaa` appear about
   once per program, but not at a fixed offset; the `2222`/`aaaa` words look
   like bit masks (a field repeated per slot), not instructions.
@@ -394,7 +404,7 @@ written by **`+0xB0(dsp, &id, s0)`** (`bank 5, id`); bank 3 at `0x4113C000`
 
 **Operand spaces.** The main DSP2 program (`0x814` B at `0x100`) holds two
 copies of the same code, one per voice (split at DSP address `0x4DC`).
-Aligning the halves (`dsp_wdiff.py prog.bin --halves`): 312 of 494 words
+Aligning the halves (`dsp_wdiff.py prog.bin --halves`): 314 of 494 words
 are identical — the operations — and the changed words fall into classes
 by high byte, each with its own voice stride:
 
@@ -425,15 +435,64 @@ parameters). The references stand where an operation needs them; they are
 not fields inside the operation word. Corpus shares: `XfeY` 17.6 % of all
 words (Y = 0/2/4/6/8 in falling order, X = 0…F, `8` most common).
 
+**Pipeline (main DSP2 program, parameter copy loop at `0x108`).** In
+execution order the loop is 7 words per element:
+
+    8004 3e07 8fe0 8fe2 0fe4 2200 8404
+    8005 3e07 8fe0 8fe2 0fe4 222b 8405
+    8006 3e07 8fe0 8fe2 0fe4 222c 8406   … up to 800b/840b
+
+Element k reads `80k`, runs `3e07 8fe0 8fe2 0fe4`, writes **the previous
+element's** result to `22nn` and reads `84k`. The first write (`2200`) comes
+before any result exists (pipeline fill). So each word is one issue slot,
+results come out with a fixed latency, and references belong to the data
+flow of operations issued earlier: software pipelining.
+
+**No absolute program addresses.** The master loads five effect programs
+(`m1_tcm`, sizes `0x2DE/0x256/0x352/0x3B4/0x670`) three times each, into slots
+`0xEFDC` and `0xF7DC` (0x800 bytes apart). No word differs by 0x800 or 0x400
+between the `0xEFDC` and `0xF7DC` copies: either there are no jumps, or they
+are relative. What does differ is per-instance data: `04nn`→`06nn` (+0x200),
+parameter ids `C17x`→`C1Fx` (+0x80 per instance, so the id field is at
+least 9 bits), data words `0000/0001`→`0008/0009` after `1e05`, and in a third
+copy `43nn`→`41nn`, `03nn`→`01nn`, `5xnn`→`6xnn`. A simple "bit 14 =
+read/write" rule for `0nnn`/`4nnn` does not hold (the two forms share no more
+addresses than unrelated pairs).
+
+#### Live dump of the master's DSP program memory (2026-10-14, hardware)
+
+The master BMC has the same DSP block (core 1, `m1_tcm`, runs the global
+effects), and core 0 can read it: `bulk_loop.py` (region 0 init hook, slot 3)
+read it without problems, `BULK OK` every time, no hang.
+
+    python3 examples/midi_send/bulk_loop.py --start 0x41480000 --end 0x41490000 -o dumps/dsp0_prog_master.bin
+    python3 examples/midi_send/bulk_loop.py --start 0x4158e000 --end 0x41590000 -o dumps/dsp1_prog_master_e000.bin   # and DSP2..5
+
+| DSP | Program memory contents |
+|---|---|
+| 0 | `0x0000–0x002F` (system boot code, 46 B) and `0xFFDC–0xFFFF` (system stub, 36 B), rest zero |
+| 1, 2, 3 | only the `0xFFDC` stub in `0xE000–0xFFFF` |
+| 4 | `0xEFDC` = `m1_tcm` blob `0x01132DA8` (0x256 B), `0xF7DC` = `0x01134238` (0x256 B), stub |
+| 5 | `0xE7DC` = `0x01135388` (0xFD0 B), `0xF7DC` = `0x01136388` (0x2DE B), stub |
+
+* The blobs are in program memory **byte for byte** as in the image (no
+  packing, no compression), at the descriptor address = byte offset.
+* The system pieces come from `m1_sdram` `0x6100F000` (46 B → DSP address
+  `0x0000`) and `0x6100F030` (36 B → `0xFFDC`), descriptors at `0x6100F054`;
+  `s_data` has the same stub at `0x6000F770`. They do not start with
+  `0a02 ff70`, so the corpus does not contain them. Slots are counted down
+  from that stub: `0xF7DC`, `0xEFDC`, `0xE7DC` (0x800 apart).
+* Program memory is plain readable memory from the ARM side, so DSP memory of
+  the master can be dumped at run time; the slave's (the voices) is not
+  reachable from region 0.
+
 Open: the operations themselves (what `XfeY`, `0c03`, `1e05`, `3e07`, `0fe4`
-do), the role of `80nn/84nn`, and how a reference is tied to an operation
-(the patterns repeat with period 14 words in the parameter copy loop at
-`0x104–0x178`, e.g. `3e07 8006 8fe2 8fe0 222c 0fe4 8007 8406 8fe0 3e07 0fe4
-8fe2 8407 222d`, which suggests a pipeline, not one operand right after its
-operation). The debug screens in `m1_sdram` (`CEZUtilDSPDump/Probe`) have no
-disassembler: only bank names and checksums. Next: diff the six effect
-programs, and dump DSP memory at run time from a hook (the banks above are
-plain addresses on the slave) to see values the program writes.
+do) and the role of `80nn/84nn`. The debug screens in `m1_sdram`
+(`CEZUtilDSPDump/Probe`) have no disassembler: only bank names and
+checksums. Next step that can settle opcodes: since the master's program
+memory is plain memory, a region 0 hook could **patch single words of a
+running effect program** (e.g. DSP5 `0xF7DC`) and the result could be heard
+or recorded — a controlled experiment per opcode.
 
 ### Writing new code
 

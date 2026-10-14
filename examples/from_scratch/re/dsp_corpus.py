@@ -8,6 +8,8 @@ u32 src} (dsp_addr < 0x10000 and even) whose src points at a blob starting with
 Unique blobs are written to outdir as <name>_<dsp_addr>_<src>.bin.
 """
 import sys, os, struct, hashlib, math, collections
+sys.path.insert(0, os.path.dirname(__file__))
+from dspmc import words as dsp_words
 
 SIG = b'\x70\xff\x02\x0a'
 
@@ -51,13 +53,13 @@ def main():
     words, even, odd = collections.Counter(), collections.Counter(), collections.Counter()
     nxt = collections.defaultdict(collections.Counter)
     for b in blobs.values():
-        w = struct.unpack('<%dH' % (len(b) // 2), b)
+        w = dsp_words(b)
         for i, x in enumerate(w):
             words[x] += 1; (even if i % 2 == 0 else odd)[x] += 1
             if i + 1 < len(w): nxt[x][w[i + 1]] += 1
     print(f'{len(blobs)} unique programs, {sum(map(len, blobs.values()))} bytes, '
           f'length % 4: {collections.Counter(len(b) % 4 for b in blobs.values())}')
-    print(f'halfword entropy even {entropy(even):.2f} / odd {entropy(odd):.2f}')
+    print(f'word entropy even {entropy(even):.2f} / odd {entropy(odd):.2f} (execution order)')
     for k, v in words.most_common(40):
         print(f'{k:04x} n={v:5d} H(next)={entropy(nxt[k]):5.2f}  next:',
               ' '.join(f'{a:04x}:{b}' for a, b in nxt[k].most_common(4)))

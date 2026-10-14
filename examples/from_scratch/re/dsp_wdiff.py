@@ -7,21 +7,19 @@ Words that differ between copies of the same code are operands; the output
 groups them by high byte and delta, e.g. "c0 +0x16" = parameter ids, voice
 stride 0x16. Words that never change are operations.
 """
-import sys, struct, difflib, collections
-
-def words(path):
-    b = open(path, 'rb').read()
-    return list(struct.unpack('<%dH' % (len(b) // 2), b))
+import sys, os, difflib, collections
+sys.path.insert(0, os.path.dirname(__file__))
+from dspmc import blob_words
 
 def main():
-    a = words(sys.argv[1])
+    a = blob_words(sys.argv[1])
     if sys.argv[2] == '--halves':
         half = max(range(len(a) // 4, len(a) // 2 + 1),
                    key=lambda s: sum(a[i] == a[i + s] for i in range(len(a) - s)))
-        print(f'halves split at word {half} (byte {2 * half:#x})')
+        print(f'halves split at word {half} (byte {2 * half:#x}, execution order)')
         b, a = a[half:], a[:half]
     else:
-        b = words(sys.argv[2])
+        b = blob_words(sys.argv[2])
     sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
     cls, same = collections.Counter(), 0
     for op, i1, i2, j1, j2 in sm.get_opcodes():
