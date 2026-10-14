@@ -41,18 +41,38 @@ assert not diff, diff[:10]
 proj = os.path.join(b, 'projC')
 if os.path.exists(proj):
     shutil.rmtree(proj)
-shutil.copytree(os.path.join(b, 'proj'), proj)
-open(os.path.join(proj, 'region1.bin'), 'wb').write(a)
-r = json.load(open(os.path.join(proj, 'relocs.json')))
-r['1'] = relocs
-if model != 'jx':
+if model == 'jx':
+    shutil.copytree(os.path.join(b, 'proj'), proj)          # stock region 0 and metadata
+    r = json.load(open(os.path.join(proj, 'relocs.json')))
+else:
+    # our own project: container metadata written here, both regions ours.
+    # Region header fields: format magic, a build stamp in the stock
+    # "YY-MMDD_HH:MM:SS" form, the container tool version the stock files carry,
+    # and the load / entry words of the SYSTEM-8 format.
+    os.makedirs(proj)
+    def region(f, load):
+        return {'file': f, 'stamp': '26-1014_00:00:00', 'magic': 'SYSTEM-8:Plugout',
+                'tool': '0.0114FA', 'load': load, 'entry': load}
+    json.dump({'format': 1, 'device': 'SYSTEM-8', 'slot': 1, 'name': 'C-SAW', 'model_id': 8,
+               'version': '0.01', 'records': 4096,
+               'regions': [region('region0.bin', '0x60800000'), region('region1.bin', '0x60200000')]},
+              open(os.path.join(proj, 'plugout.json'), 'w'), indent=2)
     shutil.copy(os.path.join(mb, 'region0_0x61800000.bin'), os.path.join(proj, 'region0.bin'))
-    r['0'] = json.load(open(os.path.join(mb, 'relocs0.json')))
+    r = {'0': json.load(open(os.path.join(mb, 'relocs0.json')))}
     print(f"region 0: ours ({len(r['0'])} relocations)")
+open(os.path.join(proj, 'region1.bin'), 'wb').write(a)
+r['1'] = relocs
 json.dump(r, open(os.path.join(proj, 'relocs.json'), 'w'))
 print(f'region 1: {len(a)} bytes, {len(relocs)} relocations')
 PY
 BT="python3 $ROOT/tools/plugout_build.py"
 $BT set-id "$B/projC" --name "C-SAW" --version 0.01
 $BT show "$B/projC"
-$BT plugin "$B/projC" --template "$SRC_PLUGIN" -o "$OUT_PLUGIN"
+# MODEL=jx: Script.xml and the JX-3P preset banks for the patch transfer.
+# Ours: only the firmware; the 64 INIT patches are in region 0.
+rm -rf "$OUT_PLUGIN/Patch" "$OUT_PLUGIN/Script/Script.xml"   # left over from older builds
+if [ "$MODEL" = jx ]; then
+    $BT plugin "$B/projC" --template "$SRC_PLUGIN" -o "$OUT_PLUGIN"
+else
+    $BT plugin "$B/projC" -o "$OUT_PLUGIN"
+fi

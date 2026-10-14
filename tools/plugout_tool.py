@@ -318,6 +318,13 @@ def cmd_banks(args) -> int:
 def cmd_install(args) -> int:
     if args.no_patches and args.patches_only:
         raise SystemExit("--no-patches and --patches-only exclude each other")
+    if (not args.no_patches and args.plugin and not args.bank
+            and not os.path.exists(os.path.join(args.plugin, "Script", "Script.xml"))):
+        if args.patches_only:
+            raise SystemExit(f"{args.plugin} has no Script.xml: no patch bank to send")
+        # e.g. the from-scratch PLUG-OUTs: their patches are in the firmware image
+        print(f"{args.plugin}: no Script.xml, sending only the firmware")
+        args.no_patches = True
     if args.slot < 1:
         raise SystemExit("slot 0 is the synth itself; PLUG-OUT slots start at 1")
     gap, wire = args.gap_ms / 1000.0, args.wire_pacing

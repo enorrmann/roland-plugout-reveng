@@ -137,3 +137,19 @@ recibir onda/tipo de efecto; nuestro engine nunca lo llamaba. Ahora `vt+0x0C` ha
 * `model/test_emu.py`: 1000 secuencias aleatorias × 120 eventos dan las mismas llamadas al kernel que la región 0
   del JX-3P; una mutación deliberada se detecta. `engine/build.sh` ahora arma `plugins/C-SAW` con las dos
   regiones nuestras (`MODEL=jx` vuelve a la región 0 de serie). **Sin probar en hardware.**
+
+## Qué sigue dependiendo de Roland en C-SAW (2026-10-14, región 0 propia verificada en hardware)
+| Parte | Origen | Estado |
+|---|---|---|
+| Región 0 (modelo, lista de parámetros, memoria del slot) | `model/` | **propia**, suena en hardware |
+| Código del engine (región 1) | `engine/engine.c` | propio |
+| Metadatos del contenedor (`plugout.json`) | `engine/build.sh` | **propios** (antes: `unpack` del JX-3P) |
+| `Script.xml` + `Patch/` en `plugins/C-SAW` | plantilla JX-3P | **eliminados**: sin Script.xml `plugout_tool.py install` manda sólo el firmware; los 64 INIT están en la región 0 (`MODEL=jx` los sigue copiando) |
+| Microcódigo DSP (6 programas principales + SAW, ~41 KB) | copiado del JX-3P al compilar | **pendiente**: requiere el ISA del DSP (assembler propio) |
+| Tablas del engine (estado inicial 242+173 valores por slave, 30 ids con 78 curvas / 770 salidas, rampas de mute, curva de velocidad, secuencia `+0xC0`/`+0x70`, orden de registro) | `gen_tables.py` **ejecuta el engine del JX-3P** en emu1 | **pendiente**: reemplazar por un modelo propio parámetro -> DSP (coincide con el paso "Panel") |
+| Patch por defecto con el que se generan esas tablas | defaults de `Script.xml` del JX-3P (`re/jxpatch.py`) | pendiente, junto con lo anterior (pasar a `model/params.INIT`) |
+
+Orden propuesto: (1) modelo propio de parámetros en el engine: fórmulas por id (recta / tabla) escritas por nosotros
+a partir de lo medido, y el estado inicial calculado con ellas desde `INIT`; `gen_tables.py` queda sólo para copiar
+microcódigo y como referencia de test. (2) ISA del DSP (`re/dspmc.py`, `dsp_wdiff.py`): sin eso el microcódigo no se
+puede reemplazar.

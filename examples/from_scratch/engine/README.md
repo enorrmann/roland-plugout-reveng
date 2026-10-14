@@ -7,8 +7,11 @@ slots. Nothing of Roland's is stored in the repository (`build/` is generated).
 
 Region 0 (the model on the master: parameter list, slot memory, note
 assigner) is ours too since 2026-10-14: `examples/from_scratch/model/`, built
-by `build.sh` (`MODEL=jx` uses the stock JX-3P region 0 instead). Verified in
-emulation only.
+by `build.sh` (`MODEL=jx` uses the stock JX-3P region 0 instead). Verified on
+hardware (2026-10-14). The container metadata is written by `build.sh` and
+the plugin folder holds only `Script/Code8_<n>.Dat` (no Script.xml or preset
+banks of the JX-3P): `plugout_tool.py install` then sends only the firmware,
+and the slot starts with the 64 INIT patches of region 0.
 
 **Status (2026-10-14, hardware): it plays.** Eight voices, correct pitch. It
 starts with the filter closed and opens with the panel CUTOFF, which arrives as
