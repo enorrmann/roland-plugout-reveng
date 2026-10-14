@@ -758,8 +758,21 @@ python3 examples/midi_send/bulk_loop.py > dumps/bulk_loop.log 2>&1   # whole OS 
 python3 examples/midi_send/bulk_loop.py --start 0x60000000 --end 0x60100000 -o part.bin
 ```
 
-Timing: ~40 s per 64 KiB chunk (build + 16.5 s install/capture + 3 s idle
+Timing: ~40 s per 64 KiB chunk (build + 16.5 s install/capture incl. 3 s idle
 wait + info query), ~1.6 KB/s overall, ~30 min for the whole OS.
+
+**Early stop of the capture — tried and REVERTED (2026-10-14):** a version
+of `bulk_dump.py` stopped the capture as soon as all `COUNT` messages were
+decoded (raw size ≥ `COUNT × (12 + 2·LEN)`, plus 8 bytes of CC/PC
+`B3 00 55  B3 20 00  C3 00` that the install puts on USB1), skipping the
+3 s `--idle` wait (16.5 s → 13.6 s). One chunk later the next install
+stuck on the device display at "receiving plg 3" (`no reply on 71 30 03 00
+after 3 x 5 s`, no info answer, power-cycle needed). The device seems to need
+the pause after an install before the next one; the 3 s idle wait is kept
+(25 chunks in a row without problems with it).
+After the power-cycle the same chunk `0x60190000` dumped cleanly with the
+idle wait back, so the address was not the cause. `bulk_loop.py` also waits
+`--settle` s (default 3) before every install, as an extra margin.
 
 Pitfall: killing `bulk_loop.py`/`bulk_dump.py` from outside (not Ctrl-C) can
 leave an `amidi -r` capture running for up to 63 s, holding the USB1 port;
@@ -768,4 +781,6 @@ wait for it to exit (or kill it) before the next run.
 **Run (2026-10-14):** a first version wrote one file per chunk; 6 chunks
 (`0x60000000`–`0x6005FFFF`) were merged into `os_full.bin` (the overlap with
 `bulk_2048.bin` is identical) and the new loop resumed from 384 KiB.
+Stopped at 55.7 % by the hang above: `os_full.bin` = 1638400 bytes
+(`0x60000000`–`0x6018FFFF`, complete chunks only); resume from `0x60190000`.
 Result: _in progress_.

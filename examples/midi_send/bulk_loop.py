@@ -45,6 +45,8 @@ def main() -> int:
     ap.add_argument("--len", type=int, default=32, help="bytes per message (<= 32)")
     ap.add_argument("--slot", type=int, default=3)
     ap.add_argument("--retries", type=int, default=2)
+    ap.add_argument("--settle", type=float, default=3.0,
+                    help="pause before each install (s); the device hung at 'receiving plg' without it")
     ap.add_argument("--no-resume", action="store_true")
     ap.add_argument("-o", "--out", default=os.path.join(ROOT, "dumps", "os_full.bin"))
     args = ap.parse_args()
@@ -72,6 +74,7 @@ def main() -> int:
                   f"try {attempt + 1}, {el:.0f} s", flush=True)
             if os.path.exists(tmp):
                 os.remove(tmp)
+            time.sleep(args.settle)
             r = subprocess.run([sys.executable, os.path.join(HERE, "bulk_dump.py"),
                                 "--start", hex(addr), "--count", str(count),
                                 "--len", str(args.len), "--slot", str(args.slot),
