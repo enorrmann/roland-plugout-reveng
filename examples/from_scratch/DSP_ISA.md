@@ -80,7 +80,20 @@ D ≥ 8: r(D−8) = X + Y + r[op] (the op field becomes the index of a third reg
 
 Measured with even B nibble, X = r1, Y = r2 *(exact, 7 probes)*: `3c42` |X| + Y; `3e42` Y − |X|; `b042`
 **min(X, Y)**; `b442` **max(X, Y)**; `b842` |X|; `ba42` |Y|; `be42` Y. The other B ops return saturated-looking
-bit patterns (`7ffxxxxx`): comparisons or integer conversions, **not decoded**.
+bit patterns (`7ffxxxxx`): comparisons or integer conversions, **not decoded**. Raw grids on master DSP3 (X = r1,
+Y = r2, D = r3 = −0.375; result word):
+
+| op | (.25,.5) | (.5,.25) | (−.25,.5) | (.25,−.5) | (1.5,.125) | (0,.5) | (.5,0) | (−.25,−.5) | (.25,.75) | (−.25,.75) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `3042` | 0 | 0 | .5 | 0 | 0 | 0 | 0 | `7ff80000` | .25 | .75 |
+| `3242` | .5 | .25 | 0 | `7ff80000` | .125 | .5 | 0 | 0 | .5 | 0 |
+| `3442` | .75 | .75 | `7ffc0000` | `7ffc0000` | 1.625 | .5 | .5 | | | |
+| `3842` | .75 | .75 | `7ff40000` | `7ffc0000` | 1.625 | .5 | .5 | | | |
+| `3642` | `7ffbffff` | `7ff7ffff` | `2bffffff` | `7ffbffff` | `7fe7ffff` | `7fffffff` | `7ff7ffff` | | | |
+| `3a42` | `7ff3ffff` | `7ff3ffff` | `2bffffff` | `23ffffff` | `7fe5ffff` | `7ff7ffff` | `7ff7ffff` | | | |
+
+They look like sign-dependent selects / sums with a second number format for negative results; usable only once
+decoded.
 
 ## 6. MAC (two words)
 
