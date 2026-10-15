@@ -364,7 +364,8 @@ transfer observed]**.
 7. A complete program: `re/dspasm.py saw dco2` generates our own naive SAW for the DCO2 slot (pitch in `[2207]` /
    `[2214]`, `f = 440·2^(p − 4.75)`, fs 96 kHz, 2^x by Taylor + 4 squarings, phase kept in the ring (load S + 1,
    store S), wrap without branches: q = max(phase − 1, 0), four times q = min(256·q, 1), phase −= 2q). Installed
-   in the C-SAW PLUG-OUT it is in tune within ±1.2 cents from note 36 to 96, harmonics 1/n.
+   in the C-SAW PLUG-OUT it is in tune within ±1.2 cents from note 36 to 96, harmonics 1/n. Full description:
+   `CUSTOM_OSC.md`.
 
 ## 12. Template table (all classes of the corpus)
 

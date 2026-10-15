@@ -533,6 +533,7 @@ transferencia; el `fe` de `XfeY` son bits de modo). No parece un campo de bits s
   Lo de "varía en el tiempo" del DSP4 era ruido de lectura + tareas compartidas.
 
 ## SAW propio, primer microcódigo nuestro (2026-10-15) — `re/dspasm.py`, `re/dspown.py`, `re/dspexp/own/`
+Documento técnico completo: `CUSTOM_OSC.md`.
 * `re/dspasm.py`: ensamblador mínimo del subconjunto establecido (ops A, min/max de B, cargas/guardados, inmediatos
   16/32) que valida cada instrucción con `dspisa`; `saw dco1|dco2` genera el oscilador. `dspown.py`: carga en vivo
   (sólo sirve si el programa registrado tiene el mismo tamaño) y mide notas por audio (pico del espectro).
