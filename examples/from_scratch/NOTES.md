@@ -446,17 +446,86 @@ SysEx `F0 7D 02/03` desde el manejador de CC (funciona, no cuelga). Lectura de 8
   instrucción (0.250977 = RAW `2404…` = w2) → es un **inmediato**; en `0803` (sin inmediatos) lee basura. Encaja
   con `0807 3cca 1cb6 imm32 imm32` (Horner) del corpus. Bits 15 de Z y 3 de W = negado (barrido F0–F7).
 
+### Formato de instrucción (2026-10-15, medido en el maestro) — `re/dspslots.py`, `re/dspclass.py`
+**Instrucción** = cabecera `clase<<5 | largo` + palabras. La **clase (11 bits) es una plantilla**: fija qué
+es cada posición (no hay marcas de tipo en las palabras: un `0000` en una posición de transferencia ES una
+transferencia; el `fe` de `XfeY` son bits de modo). No parece un campo de bits simple: se cataloga por medición
+(`dspslots.py`: sondas `3c01`/`5c01` en cada posición, resto `0000`). Orden general observado:
+`[ops A y w1 de MAC] [transferencias] [ranuras: w2 de MAC, luego referencias] [inmediatos]`.
+
+| clase | ejemplo | plantilla |
+|---|---|---|
+| 0x048 | `0902 w` / `0903 w imm16` / `0904 w imm32` | op A (+ inmediato) |
+| 0x0A8 | `1503 2987 7505` | op A, op A (en paralelo; un solo inmediato en total) |
+| 0x040 | `0803 w1 w2` (+ inmediatos en 0806/0807) | MAC |
+| 0x060 | `0c03 T r` | transferencia, ranura |
+| 0x0F0 / 0x1F0 / 0x3C0 / 0x720 / 0x722 | `1e05`, `3e07`, `7809`, `e40b`, `e44d` | 2 / 3 / 4 / 5 / 6 transferencias + sus ranuras |
+| 0x0A0 | `1405 w1 T w2 r` | MAC con una transferencia (w2 = ranura 0) |
+| 0x088 | `1107 w1 A w2 imm…` | MAC + op A |
+| 0x158 | `2b09 w1 T T w2 r r imm` | MAC + 2 transferencias |
+
+* **Transferencia** `XfeY` (posición de transferencia): X 0–7 carga rX ← [ranura Y/2], X 8–15 guarda
+  [ranura Y/2] ← r(X−8). Las ranuras se cuentan desde la primera palabra después de las transferencias, **incluidas
+  las w2 de MAC** (por eso hay `1fe2` = ranura 1 cuando la ranura 0 es la w2). El byte del medio (`fe`, `9b`, `a9`,
+  `e0`…) es modo (sin decodificar; `X9bY` no cambia r0–r7 ni los valores ocultos de la op 0).
+* **Op A** (16 bits): D[15:12] op[11:9] X[8:6] modoY[5:4] Y[3:0] — tabla exacta más arriba. Y: bit 3 = negado.
+* **Modo de un operando** (Y de op A, Y de w1, W de w2, c de w2): 00 registro, 01 inmediato de 16 bits, **10 de 24
+  bits**, 11 de 32 bits. Los inmediatos salen de un **flujo de bits** al final de la instrucción, en orden, sin
+  alinear (24 bits = 1,5 palabras; `0903 3060 2800` lee 8 bits de la instrucción siguiente). Ej.: `1107 7522 6504
+  0025 800d 0002 2222` → MAC r7 = W + Y·X con Y = `800d00` = −1/5040 y W = `022222` = 1/120 (serie del seno).
+  Dos ops A con inmediato en la misma instrucción la vuelven ilegal (el programa deja de guardar).
+* **MAC** (w1 + w2): w1 = D[15:12] op1[11:9] X[8:6] modoY[5:4] Y[3:0]; w2 = Z[15:12] (bit 15 negado) op2[11:9]
+  C[8:6] modoW[5:4] W[3:0] (bit 3 negado). Resultado: op1 bit0 = signo de P1 = Y·X, bit1 = + W, bit2 = + P2 = c·Z;
+  op1 0/1 no escribe. op2: bits 11–10 = modo de c (00 → c = rC, 10 → inmediato de 24 bits, 11 → de 32), bit 9 = 1
+  con c registro; con op2 = 000 y op1 = 6/7 no hay productos (W ± X + Z). Ejemplos exactos: `0803 0c0a 9281` =
+  interpolación lineal r1 + r2·(r0 − r1); `2b09 2c8f … 5983 … a2aa aa00` = r3 + r7·r2 − (1/6)·r5 (serie del seno);
+  `0807 3cca 1cb6 002e3bc7 01a01a01` = 2/315 + r2·r3 + (2/2835)·r1 (Horner de la exponencial).
+* **Op 0 sub 2** (`0902 4086`): rD = rD·rD+1; rD+1 = 2 − rD+1·rY; rY = rD+1·rY = paso de Newton del recíproco.
+* Peligro de las sondas: un programa cortado con una señal dejaba el efecto del maestro reemplazado. Ahora
+  `dspmaster.Session` guarda el original en `work/dspmaster_saved.json` y `dspmaster.py --restore` lo repone; el
+  programa original de `0xEFDC` también está en `dumps/os_full.bin` `0x163868` (183 palabras).
+
+### Unidades, plantillas y predicación (2026-10-15, maestro) — `re/dspslots.py`, `re/dsptemplates.py`, `re/dspisa.py`, `re/dspnlfit.py`
+* **Plantillas de las 118 clases del corpus** medidas (`dspslots.py all` + resto; `dsptemplates.py` →
+  `work/dspclass/templates.txt`; `dspslots.py ab` → `work/dspclass/ab.txt` separa unidad A de B). Cubren el 99.9 %
+  de las instrucciones del corpus. Letras: A (op ALU unidad A), B (op unidad B, mismo formato de palabra), M/N
+  (MAC w1/w2), C (palabra de condición), T (transferencia), R (referencia), I (inmediatos). Ej.: `0x0050` (`0a02`) = B;
+  `0x00b0` = A B; `0x0188` = A B T R; `0x0160` = A A B; `0x06c8` = B B T T T R R.
+* **Op A con D ≥ 8** (`0902 b{op}42`, exacto): r(D−8) = X + Y + r[op] (el campo op es el índice del tercer sumando).
+* **Unidad B** (`0a02 w`, exacto en 7 sondas): `3c42` = |X| + Y, `3e42` = Y − |X|, `b042` = **min(X, Y)**, `b442` =
+  **max(X, Y)**, `b842` = |X|, `ba42` = |Y|, `be42` = Y. Las demás dan valores con el patrón de bits saturado
+  (`7ffxxxxx`, ≈ 511.x en RAW): comparaciones/conversiones a entero sin decodificar (`work/dspclass/bunit_raw.jsonl`).
+* **Unidad C = predicación**: solas no cambian registros; en `2d06 1050 1052 Cw 3000 0000` (dos cargas de r1: 1.0 y 0)
+  `1b10` deja siempre la primera, `1a10` siempre la segunda, y `0e12`/`0e10`/`1312`/`0b12` eligen según una
+  condición que depende de la op B anterior (con min/max/|X|+Y cambian los patrones) pero no es el signo de su
+  resultado: probablemente varios bits de bandera; sin resolver (pocas sondas: hace falta n ≥ 16).
+* `dspisa.py dis` ya desensambla los programas de Roland con estas plantillas (p. ej. el SAW del JX-3P: pitch
+  [2201] − 4.75, × ln2, Horner de la exponencial, Newton del recíproco, π/2 y serie del seno).
+* `dspclass.py ins "a;b"` acepta secuencias; `PAD=n` mete no-ops; `dspnlfit.py` ajusta con abs/min/max/signo.
+* Sigue abierto: valores ocultos de la op 0 sub 4/5; ops B "511"; bits de condición de C; modos de transferencia
+  distintos de `fe` (`9b`, `a9`, `e0`, `e1`, `db`…: no cambian r0–r7, probablemente registros de dirección /
+  líneas de retardo); segunda palabra de C en el arreglo de ranuras.
+
+### Predicación por tiempo y memoria entre ejecuciones (2026-10-15, abierto) — `re/dspcount.py`
+* La condición de las palabras C **depende del tiempo**, no sólo de los datos: la misma sonda con los mismos valores
+  da 1 en 8 de 10 repeticiones y 0 en 2 (`0a02 b042; 2d06 1050 1052 0e12 3000 0000`). Hipótesis: contador de
+  muestras / sub-muestras o banderas de otra tarea del DSP4.
+* **Hipótesis (no confirmada)**: una carga en la instrucción siguiente a una escritura en memoria devolvería el dato
+  recién escrito. Salió de una sola prueba; el programa "bueno" después tampoco acumuló, así que puede ser otra cosa.
+* Acumular en memoria entre ejecuciones (`r2 <- [07a1]; r2 += 2^-16; [07a1] <- r2`) **no funcionó de forma
+  reproducible**: una vez la dirección `07a1` crecía (~4 000 incrementos/s), pero el mismo programa después quedó fijo.
+  Probables causas: otras tareas del DSP4 (la ranura `0xEFDC` parece una tarea de control) usan los mismos
+  registros/memoria entre ejecuciones, o la memoria se direcciona con un puntero que avanza (líneas de retardo).
+  Para estudiarlo hace falta una ranura/DSP propio sin otras tareas (p. ej. el engine en los slaves con `dsplive`,
+  observando por audio) o mapear qué zonas de DT0 usan las demás tareas.
+
 ## Próximos pasos del ISA (para seguir)
-0. Hecho (2026-10-15): formato y 7 de 8 ops de `0902` (sección "ALU `0902 w` decodificada en vivo"). Siguiente:
-   regla de la op 0; Y con bits 5–4 ≠ 0 (¿r16–r63?); `0903`/`0904` con el mismo formato (op + inmediato);
-   clases `0803`, `1503`, `0807`, `1804`… con sondas de constantes.
-1. Lotes de 4 pruebas como `b12`–`b14` (ahora en vivo con `dsplive.py poke`, sin reinstalar) (plantillas `r_*.txt`: r0 = x, r1 = 0.5x por `1430`, una operación, salida
-   r0). Siguiente lote propuesto: `1080` sacando r0; `54` con r1 = constante 0.5 y con 0.25; `0902 1c01`
-   (suma con destino 1) sacando r1; `0902 0880`/`0881` (op 88).
-2. Resta y negación (para un oscilador hacen falta suma, resta, multiplicación, comparación/saturación y memoria):
-   buscar en el corpus el par de `c0` (p. ej. `c4`, `cc`) y medir con r1 = 2x (resta → 1.0, suma → 3.0).
-3. Memoria entre muestras: guardar en `06nn` y leer en la muestra siguiente (retardo de una muestra → filtro
-   peine con `x + x[n−1]`: espectro con cero en 48 kHz, visible en las bandas).
-4. Con suma, multiplicación y memoria: primer oscilador propio (fase += incremento desde el parámetro de pitch,
-   wrap por saturación o resta), escrito en `re/dspexp/audio` y medido igual.
+Referencia limpia de lo establecido: `DSP_ISA.md` (esta carpeta). Pendiente (2026-10-15):
+1. Fuente de la condición de las palabras C (varía en el tiempo con los mismos datos): medirla donde no haya otras
+   tareas, p. ej. en los slaves con `dsplive.py` (ranura DCO2 propia) observando por audio, o contando en memoria
+   en una ranura/DSP del maestro que no comparta tareas.
+2. Memoria entre ejecuciones (acumular, retardo de una muestra) en un contexto sin otras tareas.
+3. Ops de la unidad B con resultado saturado `7ffxxxxx`, B impares, modos de transferencia ≠ `fe`, segunda palabra
+   de C, valores ocultos de la op 0 sub 4/5.
+4. Con eso: primer oscilador propio (fase += incremento, vuelta con min/max/condición) en la ranura DCO2.
 5. Probar en el equipo el C-SAW normal con la corrección de descriptores (cambios de onda y de efecto).

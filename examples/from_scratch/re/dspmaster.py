@@ -9,7 +9,7 @@ never runs a half-written program), we wait, read bank 0 (RAW view) twice, and p
 program back (tail first, head last). Values are printed as RAW words and decoded floats.
 While it runs, that global effect (reverb/delay of the SYSTEM-8) is replaced.
 """
-import argparse, os, sys, time
+import argparse, json, os, signal, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -26,6 +26,19 @@ def pack(hw):
     """halfwords in execution order -> 32-bit memory words (upper half first)"""
     hw = list(hw) + [0] * (len(hw) % 2)
     return [hw[i] << 16 | hw[i + 1] for i in range(0, len(hw), 2)]
+
+
+SAVED = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'work', 'dspmaster_saved.json')
+
+
+def restore_saved(pk):
+    s = json.load(open(SAVED))
+    pa, orig = s['addr'], s['words']
+    pk.write(pa, pack(EMPTY))
+    pk.write(pa + 12, orig[3:])
+    for i in reversed(range(3)):
+        pk.write(pa + 4 * i, [orig[i]])
+    return pk.read(pa, len(orig)) == orig
 
 
 def majority(reads):
@@ -78,14 +91,65 @@ def run(pk, prog, read=(0x400, 8), dsp=4, slot=0xEFDC, wait=0.05):
     return a, b
 
 
+class Session:
+    """keep a test slot open: save the original program once, update only changed words, restore at the end"""
+    def __init__(self, pk, dsp=4, slot=0xEFDC, size=256, wait=0.02):
+        self.pk, self.dsp, self.pa, self.wait = pk, dsp, prog_addr(dsp, slot), wait
+        self.orig = pk.read(self.pa, size)
+        # keep a copy on disk (a killed run can be repaired with `dspmaster.py --restore`) and restore on SIGTERM
+        json.dump({'addr': self.pa, 'words': self.orig}, open(SAVED, 'w'))
+        signal.signal(signal.SIGTERM, lambda *a: sys.exit(1))
+        self.cur = list(pack(EMPTY))
+        pk.write(self.pa, self.cur)
+
+    def load(self, prog):
+        new = pack(prog)
+        if len(new) > len(self.orig):
+            raise ValueError('program too long for the saved area')
+        new += [0] * max(0, len(self.cur) - len(new))
+        diff = [i for i in range(len(new)) if i >= len(self.cur) or new[i] != self.cur[i]]
+        head = [i for i in diff if i < 3]
+        for i in [i for i in diff if i >= 3]:                 # body (contiguous runs), head last
+            self.pk.write(self.pa + 4 * i, [new[i]])
+        for i in reversed(head):
+            self.pk.write(self.pa + 4 * i, [new[i]])
+        self.cur = new
+        time.sleep(self.wait)
+
+    def read(self, first, n, k=7):
+        reads = []
+        for _ in range(k):
+            reads.append(self.pk.read(bank0(self.dsp, first), n))
+        return majority(reads)
+
+    def close(self):
+        pk, pa, orig = self.pk, self.pa, self.orig
+        pk.write(pa, pack(EMPTY))
+        pk.write(pa + 4 * 3, orig[3:])
+        for i in reversed(range(3)):
+            pk.write(pa + 4 * i, [orig[i]])
+        if pk.read(pa, len(orig)) != orig:
+            print('WARNING: original program not restored exactly', file=sys.stderr)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('prog')
+    ap.add_argument('prog', nargs='?')
+    ap.add_argument('--restore', action='store_true', help='put back the program saved by the last Session')
     ap.add_argument('--read', nargs=2, default=['0x400', '8'])
     ap.add_argument('--dsp', type=int, default=4)
     ap.add_argument('--slot', default='0xEFDC')
     ap.add_argument('--wait', type=float, default=0.05)
     a = ap.parse_args()
+    if a.restore:
+        print('restored' if restore_saved(Peek()) else 'MISMATCH')
+        return
     prog = words_of(open(a.prog).read())
     first, n = int(a.read[0], 0), int(a.read[1], 0)
     x, y = run(Peek(), prog, (first, n), a.dsp, int(a.slot, 0), a.wait)
