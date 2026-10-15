@@ -42,6 +42,7 @@ def imm_words(v, bits):
 
 
 def a(name, d, x=0, y=0, imm=None, bits=32):
+    # note: for 'move' the operand is y (register) or imm
     """unit A: rd = op(...); y: register index (negative -> -r|y|), or imm (float)"""
     op, sub = A_OPS[name]
     if sub is not None:
@@ -59,11 +60,14 @@ def a(name, d, x=0, y=0, imm=None, bits=32):
 
 
 def b(name, d, x, y):
-    """unit B, measured forms only: min / max into rd (d = 0..7), x in r0..r3, y register"""
-    op = {'min': 0, 'max': 2}[name]
+    """unit B, measured forms only (DSP_ISA_SPEC.md §6.3), x in r0..r3, y register:
+    min / max (rd = min|max(rx, ry), D = 8 + d form), absadd (rd = |rx| + ry), subabs (rd = ry - |rx|)"""
     if not 0 <= x <= 3:
         raise ValueError('unit B measured with X in r0..r3 only')
-    return [0x050 << 5 | 2, (8 + d) << 12 | op << 9 | x << 6 | y]
+    if name in ('min', 'max'):
+        return [0x050 << 5 | 2, (8 + d) << 12 | {'min': 0, 'max': 2}[name] << 9 | x << 6 | y]
+    nib = {'absadd': 0xC, 'subabs': 0xE}[name]
+    return [0x050 << 5 | 2, d << 12 | nib << 8 | x << 6 | y]
 
 
 def ld(r, addr):
@@ -121,6 +125,75 @@ def saw(slot, fs=96000.0, level=1.0):
     return P
 
 
+def osc_core(pin, state):
+    """common part: r1 = phase in [-1, 1) advanced by 2 * 440 * 2^(p - 4.75) / fs (needs r5 = 0, r6 = 1; uses r0-r3)"""
+    return [], pin, state
+
+
+def wrap(reg, tmp):
+    """reg -= 2 if reg >= 1 (branch-free, exact; reg < 3); needs r5 = 0, r6 = 1; tmp in r0..r3"""
+    P = [a('add', tmp, reg, imm=-1.0, bits=16), b('max', tmp, tmp, 5)]
+    for _ in range(4):
+        P += [a('mul', tmp, tmp, imm=256.0, bits=16), b('min', tmp, tmp, 6)]
+    P += [a('mul', tmp, tmp, imm=2.0, bits=16), a('sub', reg, tmp, reg)]
+    return P
+
+
+FOLD_SLOTS = {   # DCO1 only: phase state S, LFO state L (ring: load X+1, store X)
+    'dco1': {'A': (0x2201, (0x221F, 0x221B), 0x0470, 0x0474), 'B': (0x220E, (0x2227, 0x2223), 0x0480, 0x0484)},
+    'dco2': {'A': (0x2207, (0x2221, 0x221D), 0x0670, 0x0674), 'B': (0x2214, (0x2229, 0x2225), 0x0680, 0x0684)},
+}
+
+
+def fold(slot, fs=96000.0, lfo_hz=0.25, gmin=1.0, gmax=4.5, level=0.9):
+    """wavefolder with motion: triangle at the note's pitch, gain g = gmin + (gmax - gmin) * |lfo| swept by an
+    internal triangle LFO (lfo_hz), folded twice by reflections at +-1:  x <- 1 - |x - 1| ; x <- |x + 1| - 1"""
+    K = 2 * 440.0 / fs
+    P = [[0x0A02, 0xFF70],
+         a('move', 5, imm=0.0, bits=16), a('move', 6, imm=1.0, bits=16), a('move', 7, imm=-1.0, bits=16)]
+    for voice in 'AB':
+        pin, outs, state, lstate = FOLD_SLOTS[slot][voice]
+        P += [ld(1, state + 1),                             # r1 = phase (previous sample)
+              ld(0, pin),                                   # r0 = pitch p
+              ld(4, lstate + 1),                            # r4 = LFO phase
+              a('add', 0, 0, imm=-4.75),
+              a('mul', 2, 0, imm=math.log(2) / 16),
+              a('move', 3, imm=1 / 24),
+              a('ymacd', 3, 2, imm=1 / 6), a('ymacd', 3, 2, imm=0.5),
+              a('ymacd', 3, 2, imm=1.0), a('ymacd', 3, 2, imm=1.0)]
+        P += [a('mul', 3, 3, 3)] * 4
+        P += [a('mul', 3, 3, imm=K), a('add', 1, 3, 1)]     # r1 = phase + inc
+        P += wrap(1, 2)
+        P += [st(1, state)]
+        # LFO: r4 += 2 * lfo_hz / fs, wrapped (tmp r2)
+        P += [a('add', 4, 4, imm=2 * lfo_hz / fs)]
+        P += wrap(4, 2)
+        P += [st(4, lstate)]
+        # triangle from the phase: tri = 2|phase| - 1
+        P += [b('absadd', 3, 1, 7),                         # r3 = |phase| - 1
+              a('mul', 3, 3, imm=2.0, bits=16),
+              a('add', 3, 3, 6)]                            # r3 = tri in [-1, 1]
+        # gain from the LFO: g = gmin + (gmax - gmin) * |lfo|
+        P += [a('move', 2, y=4),
+              b('absadd', 2, 2, 5),                         # r2 = |lfo|
+              a('mul', 2, 2, imm=gmax - gmin),
+              a('add', 2, 2, imm=gmin),
+              a('mul', 0, 2, 3)]                            # r0 = g * tri
+        for _ in range(2):                                  # two fold stages: |x| up to 5
+            P += [a('add', 2, 0, 7),                        # r2 = x - 1
+                  b('subabs', 0, 2, 6),                     # x = 1 - |x - 1|
+                  a('add', 3, 0, 6),                        # r3 = x + 1
+                  b('absadd', 0, 3, 7)]                     # x = |x + 1| - 1
+        if level != 1.0:
+            P.append(a('mul', 0, 0, imm=level))
+        P += [st(0, outs[0]), st(0, outs[1])]
+    P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
+    for ins in P:
+        if dspisa.template(ins) is None:
+            raise AssertionError(f'no template for {ins}')
+    return P
+
+
 def text(P, comment=''):
     return (f'# {comment}\n' if comment else '') + '\n'.join(' '.join(f'{w:04x}' for w in ins) for ins in P) + '\n'
 
@@ -142,7 +215,7 @@ def simulate(words, pitch, n, slot='dco2'):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('cmd', choices=['saw', 'sim'])
+    ap.add_argument('cmd', choices=['saw', 'fold', 'sim'])
     ap.add_argument('arg')
     ap.add_argument('--fs', type=float, default=96000.0)
     ap.add_argument('--level', type=float, default=1.0)
@@ -151,6 +224,11 @@ def main():
     ap.add_argument('--slot', default='dco2')
     ap.add_argument('-o')
     a_ = ap.parse_args()
+    if a_.cmd == 'fold':
+        P = fold(a_.arg, a_.fs)
+        t = text(P, f'own wavefold (moving) for the {a_.arg} slot, fs {a_.fs:g} (re/dspasm.py)')
+        (open(a_.o, 'w').write(t) if a_.o else print(t, end=''))
+        return
     if a_.cmd == 'saw':
         P = saw(a_.arg, a_.fs, a_.level)
         t = text(P, f'own naive SAW for the {a_.arg} slot, fs {a_.fs:g}, level {a_.level:g} (re/dspasm.py)')

@@ -99,7 +99,7 @@ LISTS = {
     2: ['ON', 'OFF'],
     3: ['SIN', 'SQR', 'RND', 'RND', 'RND', 'RND'],
     4: ['OFF', 'LFO', 'ENV', 'LFO+ENV', 'LFO+ENV', 'LFO+ENV'],
-    5: ['SAW', 'SQR', 'PULSE', 'PULSE', 'PULSE', 'PULSE'],
+    5: ['SAW', 'SQR', 'PULSE', 'FOLD', 'PULSE', 'PULSE'],      # 3 = our wavefolder (engine.c dco1_wave)
     6: ['SAW', 'SQR', 'PULSE', 'NOISE', 'NOISE', 'NOISE'],
     7: ['64FEET', '32FEET', '16FEET', '8FEET', '4FEET', '2FEET'],
     8: ['ENV-1', 'ENV-2', 'GATE'],
