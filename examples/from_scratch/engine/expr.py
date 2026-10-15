@@ -6,6 +6,7 @@ Python (float32, like the engine) and compiles them to the byte code that
 engine.c interprets (see eval_expr() there).
 
     P(0x6EC) / 255          parameter value
+    F(0x7E4)                float parameter (the OS returns float32 bits)
     clamp(x, 0, 1), pick(i, [a, b, c]), x >= 3, exp2(x), knots(x, lo, step, [...])
 """
 import struct
@@ -15,7 +16,7 @@ def f32(x):
 
 # op codes (keep in sync with engine.c)
 OPS = ['const', 'param', 'slave', 'add', 'sub', 'mul', 'div', 'min', 'max', 'ge', 'lt',
-       'sel', 'exp2', 'pick', 'knots', 'abs', 'floor', 'interp']
+       'sel', 'exp2', 'pick', 'knots', 'abs', 'floor', 'interp', 'fparam']
 OP = {n: i for i, n in enumerate(OPS)}
 
 
@@ -40,7 +41,7 @@ class E:
     def __neg__(s): return E('sub', lift(0.0), s)
 
     def params(self):
-        if self.op == 'param':
+        if self.op in ('param', 'fparam'):
             return {self.a[0]}
         out = set()
         for x in self.a:
@@ -56,6 +57,7 @@ class E:
         op, a = self.op, self.a
         if op == 'const': return f32(a[0])
         if op == 'param': return f32(float(vals.get(a[0], 0)))
+        if op == 'fparam': return struct.unpack('<f', struct.pack('<I', vals.get(a[0], 0) & 0xFFFFFFFF))[0]
         if op == 'slave': return f32(float(slave))
         if op == 'pick':
             i = int(a[0].ev(vals, slave))
@@ -101,6 +103,7 @@ class E:
             consts.append(x); return len(consts) - 1
         if op == 'const': return [OP['const'], c(a[0])]
         if op == 'param': return [OP['param'], a[0]]
+        if op == 'fparam': return [OP['fparam'], a[0]]
         if op == 'slave': return [OP['slave']]
         if op == 'pick':
             out = a[0].code(consts)
@@ -135,6 +138,7 @@ def _find(consts, tab):
 
 
 def P(i): return E('param', i)
+def F(i): return E('fparam', i)      # float parameter (group 5): the value's bits are a float32
 SLAVE = E('slave')
 def clamp(x, lo, hi): return E('min', E('max', lift(x), lift(lo)), lift(hi))
 def emin(a, b): return E('min', lift(a), lift(b))

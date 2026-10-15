@@ -1,0 +1,14 @@
+# batch 5: r0 = noise, r1 = 0.5; one register op 0902 0<op>1 per note (t0 = reference)
+dco1_=z_dco1.txt
+t0=n_pass.txt
+t1=o_40.txt
+t2=o_08.txt
+t3=o_4c.txt
+t4=o_54.txt
+t5=o_3c.txt
+t6=o_45.txt
+t7=o_44.txt
+t8=o_2c.txt
+t9=o_14.txt
+t10=o_3b.txt
+t11=o_c0.txt

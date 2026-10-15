@@ -1,0 +1,6 @@
+# batch 13: register ops 08 4c c0 54 with r0 = x, r1 = 0.5x
+dco1_=z_dco1.txt
+d2a=r_08.txt
+d2b=r_4c.txt
+d3a=r_c0.txt
+d3b=r_54.txt

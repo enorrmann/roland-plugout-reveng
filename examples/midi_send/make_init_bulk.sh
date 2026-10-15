@@ -15,7 +15,7 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 arm-none-eabi-as -mcpu=cortex-a9 -mthumb --defsym CAVE_OFF=$CAVE_OFF --defsym INIT_OFF=$INIT_OFF \
     --defsym ROUTER=0x6000345c --defsym DTORW=0x600753f4 --defsym MASK=${MASK:-0x1A20} \
-    --defsym SRC=${SRC:-0x60000000} --defsym LEN=${LEN:-32} --defsym COUNT=${COUNT:-64} \
+    ${TRI:+--defsym TRI=1 --defsym VSTRIDE=${VSTRIDE:-0x2000}} ${POKE:+--defsym POKEN=$(($(wc -c < "$POKE") / 8)) --defsym DELAY=${DELAY:-1000000} -I $(dirname "$POKE")} ${SAVEN:+--defsym SAVEN=$SAVEN --defsym SAVEADDR=$SAVEADDR} ${SNAPN:+--defsym SNAPN=$SNAPN --defsym SNAPSRC=$SNAPSRC --defsym SNAPDST=$SNAPDST --defsym DELAY=${DELAY:-1000000}} --defsym SRC=${SRC:-0x60000000} --defsym LEN=${LEN:-32} --defsym COUNT=${COUNT:-64} \
     --defsym CTOR=0x600753cc --defsym SETSX=0x600754bc --defsym WRAPM=0x600754c6 --defsym DTORM=0x600753e0 \
     "$HERE/init_bulk.s" -o h.o
 arm-none-eabi-ld -Ttext=$(printf 0x%x $((BASE + CAVE_OFF))) --entry=hook h.o -o h.elf

@@ -22,6 +22,51 @@ hook:
 base:
     push    {r0-r11, lr}           @ 52 bytes
     sub     sp, sp, #FRAME
+.ifdef SAVEN
+    @ SAVE: copy SAVEN words from SAVEADDR to savebuf (restored after the dump)
+    ldr     r0, =SAVEADDR
+    adr.w   r1, savebuf
+    ldr     r2, =SAVEN
+5:  ldr     r3, [r0], #4
+    str     r3, [r1], #4
+    subs    r2, r2, #1
+    bne     5b
+.endif
+.ifdef POKEN
+    @ POKE: POKEN (address, value) pairs from poketab, written in order
+    @ (test data, then a DSP program), then wait DELAY loop turns
+    adr.w   r1, poketab
+    ldr     r2, =POKEN
+4:  ldr     r0, [r1], #4
+    ldr     r3, [r1], #4
+    str     r3, [r0]
+    subs    r2, r2, #1
+    bne     4b
+    dsb
+    ldr     r2, =DELAY
+6:  subs    r2, r2, #1
+    bne     6b
+.endif
+.ifdef SNAPN
+    @ SNAP: copy SNAPN words from SNAPSRC to SNAPDST twice, DELAY loop turns
+    @ apart (second copy at SNAPDST + 4*SNAPN); dump SRC = SNAPDST afterwards
+    ldr     r0, =SNAPSRC
+    ldr     r1, =SNAPDST
+    ldr     r2, =SNAPN
+8:  ldr     r3, [r0], #4
+    str     r3, [r1], #4
+    subs    r2, r2, #1
+    bne     8b
+    ldr     r2, =DELAY
+9:  subs    r2, r2, #1
+    bne     9b
+    ldr     r0, =SNAPSRC
+    ldr     r2, =SNAPN
+10: ldr     r3, [r0], #4
+    str     r3, [r1], #4
+    subs    r2, r2, #1
+    bne     10b
+.endif
     ldr     r8, =SRC               @ r8 = current address
     ldr     r7, =COUNT             @ r7 = messages left
 next:
@@ -39,6 +84,24 @@ next:
     lsls    r0, r0, #4
     subs    r2, r2, #1
     bne     1b
+.ifdef TRI
+    @ TRI: 2 words per message, each as its three DSP views read back to back
+    @ (IEEE at +0, SD31 at +VSTRIDE, RAW at +2*VSTRIDE; data banks 0x2000,
+    @ bank 5 / DPC 0x1000): 24 data bytes, addr += 8
+    mov     r1, r8
+    movs    r2, #2
+2:  ldr     r0, [r1]
+    bl      put32
+    add     r0, r1, #VSTRIDE
+    ldr     r0, [r0]
+    bl      put32
+    add     r0, r1, #(2 * VSTRIDE)
+    ldr     r0, [r0]
+    bl      put32
+    adds    r1, r1, #4
+    subs    r2, r2, #1
+    bne     2b
+.else
     mov     r1, r8                 @ data, 2 nibbles per byte
     movs    r2, #LEN
 2:  ldrb    r0, [r1], #1
@@ -48,6 +111,7 @@ next:
     strb    r3, [r5], #1
     subs    r2, r2, #1
     bne     2b
+.endif
     movs    r0, #0xF7
     strb    r0, [r5], #1
     mov     r6, sp
@@ -78,10 +142,24 @@ next:
     ldr     r4, =(DTORM + 1)
     blx     r4                     @ Msg dtor
 
+.ifdef TRI
+    add     r8, r8, #8
+.else
     add     r8, r8, #LEN
+.endif
     subs    r7, r7, #1
     bne     next
     add     sp, sp, #FRAME
+.ifdef SAVEN
+    ldr     r0, =SAVEADDR          @ RESTORE the saved words
+    adr.w   r1, savebuf
+    ldr     r2, =SAVEN
+7:  ldr     r3, [r1], #4
+    str     r3, [r0], #4
+    subs    r2, r2, #1
+    bne     7b
+    dsb
+.endif
 
     adr.w   r5, base               @ witness: own name = image + 0x10
     ldr     r4, =(CAVE_OFF - 0x10)
@@ -98,6 +176,29 @@ next:
     add     r12, r12, r5
     pop     {r0-r11, lr}
     bx      r12
+.ifdef TRI
+put32:                             @ r0 -> 4 bytes little endian, 2 nibbles each, at r5
+    movs    r3, #4
+1:  lsrs    r12, r0, #4
+    and     r12, r12, #15
+    strb    r12, [r5], #1
+    and     r12, r0, #15
+    strb    r12, [r5], #1
+    lsrs    r0, r0, #8
+    subs    r3, r3, #1
+    bne     1b
+    bx      lr
+.endif
     .ltorg
 msg:
     .asciz  "BULK OK"
+.ifdef POKEN
+    .balign 4
+poketab:
+    .incbin "poke.bin"             @ POKE=<dir>/poke.bin: u32 address, u32 value pairs
+.endif
+.ifdef SAVEN
+    .balign 4
+savebuf:
+    .space  4 * SAVEN
+.endif

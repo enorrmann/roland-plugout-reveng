@@ -45,7 +45,7 @@ def decode(raw: bytes) -> list[tuple[int, bytes]]:
     return out
 
 
-def check(msgs: list[tuple[int, bytes]], start: int | None) -> tuple[bytes, int]:
+def check(msgs: list[tuple[int, bytes]], start: int | None, div: int = 1) -> tuple[bytes, int]:
     """Concatenate contiguous messages; report gaps. Returns (data, first addr)."""
     if not msgs:
         return b"", start or 0
@@ -57,8 +57,18 @@ def check(msgs: list[tuple[int, bytes]], start: int | None) -> tuple[bytes, int]
             print(f"  GAP/ORDER: expected {expect:#010x}, got {a:#010x} -- stopping here")
             break
         data += d
-        expect += len(d)
+        expect += len(d) // div
     return bytes(data), first
+
+
+def find_port(name: str = "SYSTEM-8 MIDI 1") -> str | None:
+    """the ALSA raw MIDI port of USB1 (its card number changes with other devices)"""
+    out = subprocess.run(["amidi", "-l"], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        f = line.split(None, 2)
+        if len(f) == 3 and f[2].strip() == name:
+            return f[1]
+    return None
 
 
 def main() -> int:
@@ -67,10 +77,14 @@ def main() -> int:
     ap.add_argument("--count", type=int, default=64, help="messages per install")
     ap.add_argument("--len", type=int, default=32, help="bytes per message (<= 32)")
     ap.add_argument("--slot", type=int, default=3)
-    ap.add_argument("--port", default="hw:3,0,0", help="capture port (USB1)")
+    ap.add_argument("--port", default=None,
+                    help="capture port (default: the one amidi -l lists as 'SYSTEM-8 MIDI 1')")
     ap.add_argument("--idle", type=float, default=3.0, help="stop capture after this many idle s")
     ap.add_argument("-o", "--out", default=os.path.join(ROOT, "dumps", "bulk.bin"))
     ap.add_argument("--decode", help="only decode a raw capture file")
+    ap.add_argument("--tri", action="store_true",
+                    help="DSP data bank: per word its IEEE/SD31/RAW views (+0/+0x2000/+0x4000) read "
+                         "back to back; 2 words per message, output = 12-byte records")
     ap.add_argument("--flash", action="store_true",
                     help="read QSPI flash (JX-3P-INIT-FLASH) instead of memory")
     args = ap.parse_args()
@@ -81,7 +95,11 @@ def main() -> int:
         print(f"{len(msgs)} messages, {len(data)} contiguous bytes from {first:#010x}")
         return 0
 
+    if args.tri:
+        args.len = 24
     env = dict(os.environ, SRC=hex(args.start), COUNT=str(args.count), LEN=str(args.len))
+    if args.tri:
+        env["TRI"] = "1"
     print(f"== build SRC={args.start:#010x} COUNT={args.count} LEN={args.len}")
     kind = "flash" if args.flash else "bulk"
     plugin = "JX-3P-INIT-FLASH" if args.flash else "JX-3P-INIT-BULK"
@@ -90,6 +108,11 @@ def main() -> int:
     if r.returncode:
         return r.returncode
 
+    if args.port is None:
+        args.port = find_port()
+        if args.port is None:
+            print("== SYSTEM-8 MIDI 1 not found in amidi -l")
+            return 1
     raw_path = os.path.join(HERE, "cap_bulk.raw")
     cap = subprocess.Popen(["amidi", "-p", args.port, "-r", raw_path, "-t", str(args.idle + 60)],
                            stderr=subprocess.DEVNULL)
@@ -114,7 +137,7 @@ def main() -> int:
     print(f"== install + capture {time.time() - t0:.1f} s, {last} raw bytes")
 
     msgs = decode(open(raw_path, "rb").read())
-    data, first = check(msgs, args.start)
+    data, first = check(msgs, args.start, 3 if args.tri else 1)
     want = args.count * args.len
     print(f"   {len(msgs)}/{args.count} messages, {len(data)}/{want} contiguous bytes "
           f"from {first:#010x}")

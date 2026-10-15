@@ -26,6 +26,16 @@ panel / patch parameters, waveform and effect program swaps); not yet on
 hardware. Before it, the hardware build played with fixed tables (eight voices,
 only the panel CUTOFF responded).
 
+**DSP descriptors (2026-10-14):** program and data descriptors are six words
+`{addr, bytes, bytes, src, 0, 0}` (the OS uses the last two) and each one is
+used by one DSP only, with its own data descriptor, as in the JX-3P image.
+The engine had four-word descriptors shared by DSP2 and DSP3; fixed, not yet
+re-tested on hardware with waveform / effect changes.
+
+**ISA test bench:** `DSPTEST=1 MC_TEST=... build.sh` (driven by
+`re/dspaudio.py`) runs test microcode in the DCO2 slots of DSP2/DSP3; see
+NOTES.md "ISA del DSP medido en el equipo por audio USB".
+
 ## Files
 
 | File | |
@@ -65,6 +75,10 @@ Written from measurements of the JX-3P's behaviour (`re/measure.py`,
   UNISON offsets), portamento flags, part routing states (0x22C/0x519/0x544/
   0x56E), effect parameters per effect type
 * per-slave constants where the two slaves differ (voice spread, routing)
+* float parameters: the OS returns float32 bits for 0x74D and 0x7E4 (`F(id)`);
+  0x7E4 is the cutoff the JX-3P writes last on a refresh (an integer 0 here
+  closed the filter at start-up on hardware), the panel cutoff 0x2DB pulls it
+  towards 1 (`F + (1 - F) * q / 100`)
 
 The JX-3P caches some part flags in its 0x22C handler, so its writes depend on
 the order in which those values arrive; the model follows the current values

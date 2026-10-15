@@ -1,0 +1,7 @@
+# effect slot: input to [2204] [2206] (the addresses MAIN4 reads), nothing to 2203/2205
+0a02 ff70
+1e05 0fe0 1fe2 2200 2200
+1e05 8fe0 8fe2 2204 2206
+0a02 ff70
+0b02 00f8
+0001

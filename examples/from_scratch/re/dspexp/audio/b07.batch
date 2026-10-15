@@ -1,0 +1,14 @@
+# batch 7 (each test played twice): latency, 0401 = multiply?, 0060, add immediate 0c20
+dco1_=z_dco1.txt
+t0=n_pass.txt
+t1=n_mul1430_1_r1.txt
+t2=p_nop.txt
+t3=p_chain.txt
+t4=m_a.txt
+t5=m_b.txt
+t6=m_c.txt
+t7=k_0050_3000.txt
+t8=k_0050_b000.txt
+t9=n_0060.txt
+t10=n_0c20.txt
+t11=n_1c20.txt

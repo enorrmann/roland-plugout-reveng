@@ -1,0 +1,14 @@
+# batch 8: all twelve = n_pass (are odd notes / odd test slots silent regardless of the program?)
+dco1_=z_dco1.txt
+t0=n_pass.txt
+t1=n_pass.txt
+t2=n_pass.txt
+t3=n_pass.txt
+t4=n_pass.txt
+t5=n_pass.txt
+t6=n_pass.txt
+t7=n_pass.txt
+t8=n_pass.txt
+t9=n_pass.txt
+t10=n_pass.txt
+t11=n_pass.txt

@@ -1,0 +1,5 @@
+# batch 4: 16-bit immediate multiply (1410), 34e0 multiply, register op 0401
+dco1_=z_dco1.txt
+dco2_saw=n_mul1410_r1.txt
+dco2_sqr=n_mul34e0_r3.txt
+dco2_noise=n_op0401_r0.txt

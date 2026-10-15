@@ -1,0 +1,8 @@
+# DCO2 slot: r0 <- noise; 0904 0430 imm 0.5 (= 1430 with destination nibble 0?); outputs <- r0
+0a02 ff70
+0c03 0fe0 2200
+0904 0430 2800 0000
+7809 8fe0 8fe2 8fe4 8fe6 2221 221d 2229 2225
+0a02 ff70
+0b02 00f8
+0001

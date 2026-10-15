@@ -1,0 +1,5 @@
+# batch 3: destination nibble of 1430 (0430 -> r0?), check the SQR slot, immediate 2.0
+dco1_=z_dco1.txt
+dco2_saw=n_mul0430_r0.txt
+dco2_sqr=n_pass.txt
+dco2_noise=n_mul1430_2_r1.txt

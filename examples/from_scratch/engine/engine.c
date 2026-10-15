@@ -13,7 +13,9 @@
  */
 #include <stdint.h>
 
-typedef struct { uint32_t addr, n1, n2; const void *src; } dspdesc_t;
+/* program / data descriptor as in the JX-3P image: the OS uses the two trailing words (zero in the
+   image; with a 4-word struct it overwrote the next array entry, and every odd entry was silent) */
+typedef struct { uint32_t addr, n1, n2; const void *src; uint32_t os[2]; } dspdesc_t;
 typedef struct { uint16_t src, when, nwhen, expr, nexpr, t0; uint8_t nt; } mout_t;
 typedef struct { uint8_t bank, dsp, ramp, flag; uint16_t id; } mtgt_t;
 
@@ -46,25 +48,46 @@ static int os_get(int grp, int id) { return ((get_fn)OS(0x00))(0, grp, id); }
 static const uint32_t mc_empty[4] = { 0x0a02ff70, 0x0a02ff70, 0x0b0200f8, 0x00010000 };
 static const uint32_t zero_data[8];
 
-#define PROG(a, name) { a, MC_##name##_BYTES, MC_##name##_BYTES, mc_##name }
-#define EMPTY(a) { a, 0xe, 0xe, mc_empty }
-#define DATA(a, n) { a, n, n, zero_data }
+#define PROG(a, name) { a, MC_##name##_BYTES, MC_##name##_BYTES, mc_##name, { 0, 0 } }
+#define EMPTY(a) { a, 0xe, 0xe, mc_empty, { 0, 0 } }
+#define DATA(a, n) { a, n, n, zero_data, { 0, 0 } }
 enum { SLOT_MAIN = 0x0100, SLOT_DCO1 = 0x6000, SLOT_DCO2 = 0xB000, SLOT_FX = 0xB000, SLOT_X = 0x8000 };
 
-static const dspdesc_t main_prog[6] = {
+/* Every descriptor is used by one DSP only, and every program has its own data descriptor, as in
+   the JX-3P image (DSP2 and DSP3 have separate tables): the OS links registered descriptors through
+   their trailing words, and one descriptor shared by DSP2 and DSP3 silenced every other swap. */
+static dspdesc_t main_prog[6] = {
     PROG(0x0100, MAIN0), PROG(0x0100, MAIN1), PROG(0x0100, MAIN2),
     PROG(0x0100, MAIN3), PROG(0x0100, MAIN4), PROG(0x0100, MAIN5),
 };
-static const dspdesc_t empty_x = EMPTY(SLOT_X), empty_6 = EMPTY(SLOT_DCO1);
-/* DCO1 waveform 0 SAW, 1 SQR, 2.. PULSE (= SAW program + flag); DCO2 0 SAW, 1 SQR, 2 PULSE, 3.. NOISE */
-static const dspdesc_t dco1_prog[3] = { PROG(SLOT_DCO1, DCO1_SAW), PROG(SLOT_DCO1, DCO1_SQR), PROG(SLOT_DCO1, DCO1_SAW) };
-static const dspdesc_t dco2_prog[4] = { PROG(SLOT_DCO2, DCO2_SAW), PROG(SLOT_DCO2, DCO2_SQR),
-                                        PROG(SLOT_DCO2, DCO2_SAW), PROG(SLOT_DCO2, DCO2_NOISE) };
-/* effect types 0 OD, 1 DS, 2 CHORUS, 3 FUZZ, 4 CRUSHER, 5 PHASER */
-static const dspdesc_t fx_prog[6] = { PROG(SLOT_FX, FX_OD), PROG(SLOT_FX, FX_DS), PROG(SLOT_FX, FX_CH),
-                                      PROG(SLOT_FX, FX_FZ), PROG(SLOT_FX, FX_CR), PROG(SLOT_FX, FX_PH) };
-static const dspdesc_t data_0 = DATA(0x0000, 8), data_8 = DATA(0x0008, 8), data_8l = DATA(0x0008, 0x20),
-                       data_dco1 = DATA(0x0008, 8), data_dco2 = DATA(0x0010, 8), data_fx = DATA(0x16e8, 8);
+static dspdesc_t empty_x[2] = { EMPTY(SLOT_X), EMPTY(SLOT_X) };              /* DSP0, DSP1 */
+static dspdesc_t empty_6[2] = { EMPTY(SLOT_DCO1), EMPTY(SLOT_DCO1) };        /* DSP4, DSP5 */
+/* DCO1 waveform 0 SAW, 1 SQR, 2.. PULSE (= SAW program + flag); DCO2 0 SAW, 1 SQR, 2 PULSE, 3.. NOISE;
+   [0] DSP2, [1] DSP3 */
+#define DCO1_PROGS { PROG(SLOT_DCO1, DCO1_SAW), PROG(SLOT_DCO1, DCO1_SQR), PROG(SLOT_DCO1, DCO1_SAW) }
+#define DCO2_PROGS { PROG(SLOT_DCO2, DCO2_SAW), PROG(SLOT_DCO2, DCO2_SQR), PROG(SLOT_DCO2, DCO2_SAW), \
+                     PROG(SLOT_DCO2, DCO2_NOISE) }
+static dspdesc_t dco1_prog[2][3] = { DCO1_PROGS, DCO1_PROGS };
+#ifdef DSPTEST
+/* ISA test bench (re/dspaudio.py): no live swaps (they were unreliable from note events); the
+   DCO2 slot of DSP2 runs test program t0, the one of DSP3 t1, whatever the waveform. Each test
+   program has a voice A path (outputs [2221] [221d]) and a voice B path ([2229] [2225]). */
+static dspdesc_t dco2_prog[2][4] = { { PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0) },
+                                     { PROG(SLOT_DCO2, T1), PROG(SLOT_DCO2, T1), PROG(SLOT_DCO2, T1), PROG(SLOT_DCO2, T1) } };
+#else
+static dspdesc_t dco2_prog[2][4] = { DCO2_PROGS, DCO2_PROGS };
+#endif
+#define D8 DATA(0x0008, 8)
+#define D10 DATA(0x0010, 8)
+static dspdesc_t dco1_data[2][3] = { { D8, D8, D8 }, { D8, D8, D8 } };
+static dspdesc_t dco2_data[2][4] = { { D10, D10, D10, D10 }, { D10, D10, D10, D10 } };
+/* effect types 0 OD, 1 DS, 2 CHORUS, 3 FUZZ, 4 CRUSHER, 5 PHASER (DSP4) */
+static dspdesc_t fx_prog[6] = { PROG(SLOT_FX, FX_OD), PROG(SLOT_FX, FX_DS), PROG(SLOT_FX, FX_CH),
+                                PROG(SLOT_FX, FX_FZ), PROG(SLOT_FX, FX_CR), PROG(SLOT_FX, FX_PH) };
+#define DFX DATA(0x16e8, 8)
+static dspdesc_t fx_data[6] = { DFX, DFX, DFX, DFX, DFX, DFX };
+static dspdesc_t data_0[6] = { DATA(0, 8), DATA(0, 8), DATA(0, 8), DATA(0, 8), DATA(0, 8), DATA(0, 8) };
+static dspdesc_t data_8[6] = { D8, D8, D8, D8, DATA(0x0008, 0x20), DATA(0x0008, 0x20) };   /* slot 1 */
 
 /* ---- engine object -------------------------------------------------------------- */
 
@@ -93,7 +116,7 @@ static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v;
 /* ---- the model's byte code (ops as in expr.py) -------------------------------------- */
 
 enum { OP_CONST, OP_PARAM, OP_SLAVE, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MIN, OP_MAX, OP_GE, OP_LT,
-       OP_SEL, OP_EXP2, OP_PICK, OP_KNOTS, OP_ABS, OP_FLOOR, OP_INTERP };
+       OP_SEL, OP_EXP2, OP_PICK, OP_KNOTS, OP_ABS, OP_FLOOR, OP_INTERP, OP_FPARAM };
 
 static float floorf_(float x)
 {
@@ -121,6 +144,11 @@ static float eval_expr(const engine_t *e, unsigned off, unsigned n)
         switch (op) {
         case OP_CONST: st[sp++] = mconst[mcode[i++]]; break;
         case OP_PARAM: st[sp++] = (float)e->val[mcode[i++]]; break;
+        case OP_FPARAM: {                    /* float parameter: the value's bits */
+            union { int32_t i; float f; } u = { .i = e->val[mcode[i++]] };
+            st[sp++] = u.f;
+            break;
+        }
         case OP_SLAVE: st[sp++] = (float)e->slave; break;
         case OP_EXP2: st[sp - 1] = exp2f_(st[sp - 1]); break;
         case OP_ABS: if (st[sp - 1] < 0) st[sp - 1] = -st[sp - 1]; break;
@@ -209,21 +237,24 @@ static void dco_levels(int id, float v, int ramp)     /* level of DCO1 (0x32) or
 static void swap_dco(engine_t *e, int which)
 {
     int id = which == 1 ? 0x32 : 0x33;
-    const dspdesc_t *p = which == 1 ? &dco1_prog[clampi(e->val[P_DCO1_WAVE], 0, 2)]
-                                    : &dco2_prog[clampi(e->val[P_DCO2_WAVE], 0, 3)];
+    int w1 = clampi(e->val[P_DCO1_WAVE], 0, 2), w2 = clampi(e->val[P_DCO2_WAVE], 0, 3);
     dco_levels(id, 0.0f, 0);
     ((sync_fn)OS(0xC0))(3, 0, 0, 1);
     for (int d = 2; d <= 3; d++)
-        swap(d, p, which == 1 ? &data_dco1 : &data_dco2, which == 1 ? SLOT_DCO1 : SLOT_DCO2,
-             which == 1 ? 2 : 3, 0, 0);
+        if (which == 1)
+            swap(d, &dco1_prog[d - 2][w1], &dco1_data[d - 2][w1], SLOT_DCO1, 2, 0, 0);
+        else
+            swap(d, &dco2_prog[d - 2][w2], &dco2_data[d - 2][w2], SLOT_DCO2, 3, 0, 0);
     dco_levels(id, 1.0f, 3);
 }
+
 
 static void swap_fx(engine_t *e)
 {
     p_ramp(4, 0x4a, 3, 1, 1, 0.0f);
     ((sync_fn)OS(0xC0))(4, 0, 3, 1);
-    swap(4, &fx_prog[clampi(e->val[P_FX_TYPE], 0, 5)], &data_fx, SLOT_FX, 3, 0x1F0, 0x80);
+    int t = clampi(e->val[P_FX_TYPE], 0, 5);
+    swap(4, &fx_prog[t], &fx_data[t], SLOT_FX, 3, 0x1F0, 0x80);
     p_ramp(4, 0x4a, 3, 0, 0, 1.0f);
     if (e->val[P_FX_TYPE] == 0) {                     /* OVERDRIVE: its two level ids */
         p_ramp(4, 0x1f3, 15, 0, 0, 1.0f);
@@ -303,16 +334,16 @@ static void e_load(engine_t *e)                                         /* vt+0x
         for (int s = 0; s < nslot[d]; s++)
             ((reg_fn)OS(0x28 + 4 * d))((const void *)(uintptr_t)slots[d][s]);
     for (int d = 0; d < 6; d++) {
-        const dspdesc_t *p[3] = { &main_prog[d], d < 2 ? &empty_x : &empty_6, 0 };
-        if (d == 2 || d == 3) { p[1] = &dco1_prog[w1]; p[2] = &dco2_prog[w2]; }
+        const dspdesc_t *p[3] = { &main_prog[d], d < 2 ? &empty_x[d] : &empty_6[d - 4], 0 };
+        if (d == 2 || d == 3) { p[1] = &dco1_prog[d - 2][w1]; p[2] = &dco2_prog[d - 2][w2]; }
         if (d == 4) p[2] = &fx_prog[fx];
         for (int s = 0; s < nslot[d]; s++)
             ((reg_fn)OS(0x40 + 4 * d))(p[s]);
     }
     for (int d = 0; d < 6; d++) {
-        const dspdesc_t *p[3] = { &data_0, d >= 4 ? &data_8l : &data_8, 0 };
-        if (d == 2 || d == 3) { p[1] = &data_dco1; p[2] = &data_dco2; }
-        if (d == 4) p[2] = &data_fx;
+        const dspdesc_t *p[3] = { &data_0[d], &data_8[d], 0 };
+        if (d == 2 || d == 3) { p[1] = &dco1_data[d - 2][w1]; p[2] = &dco2_data[d - 2][w2]; }
+        if (d == 4) p[2] = &fx_data[fx];
         for (int s = 0; s < nslot[d]; s++)
             ((reg_fn)OS(0x58 + 4 * d))(p[s]);
     }

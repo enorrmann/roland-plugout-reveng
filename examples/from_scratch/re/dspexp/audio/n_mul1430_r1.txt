@@ -1,0 +1,8 @@
+# DCO2 slot: r0 <- noise; 0904 1430 imm 0.5 (multiply? as in pitch*ln2 of the DCOs); outputs <- r1
+0a02 ff70
+0c03 0fe0 2200
+0904 1430 2800 0000
+7809 9fe0 9fe2 9fe4 9fe6 2221 221d 2229 2225
+0a02 ff70
+0b02 00f8
+0001

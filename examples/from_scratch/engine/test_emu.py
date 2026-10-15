@@ -117,7 +117,7 @@ def main():
         o = Eng(vals, slave); o.boot()
         for it in range(n):
             for x in T.SOURCES:
-                v = rng.randrange(T.RANGES.get(x, 256))
+                v = T.rand_value(rng, x)
                 j.log.clear(); run_jx.setp(j, x, v)
                 o.e.log.clear(); o.setp(x, v)
                 if calls(j, j.log) != calls(o.e, o.e.log):

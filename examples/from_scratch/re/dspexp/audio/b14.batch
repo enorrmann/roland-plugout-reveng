@@ -1,0 +1,6 @@
+# batch 14: 4c move or sub, 54 with r1 = 0.25x, 1050 immediate load into r1, 1080 (rd = rd op rs)
+dco1_=z_dco1.txt
+d2a=r_4c_2x.txt
+d2b=r_54_q.txt
+d3a=r_ld1050.txt
+d3b=r_1080.txt

@@ -1,0 +1,7 @@
+# DCO1 slot: its four outputs = 0 ([221f] [221b] voice A, [2227] [2223] voice B; local RAM 04xx)
+0a02 ff70
+0903 0050 0000
+7809 8fe0 8fe2 8fe4 8fe6 221f 221b 2227 2223
+0a02 ff70
+0b02 00f8
+0001

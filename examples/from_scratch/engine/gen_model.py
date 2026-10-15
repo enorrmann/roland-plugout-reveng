@@ -39,7 +39,7 @@ def depth(code):
                                   ('ge', 2), ('lt', 2), ('sel', 3), ('exp2', 1), ('abs', 1), ('floor', 1))}
     while i < len(code):
         op = code[i]
-        if op in (OP['const'], OP['param']):
+        if op in (OP['const'], OP['param'], OP['fparam']):
             d += 1; i += 2
         elif op == OP['slave']:
             d += 1; i += 1
@@ -75,9 +75,9 @@ def main(out):
         # param operands: id -> index
         i = 0
         while i < len(c):
-            if c[i] == OP['param']:
+            if c[i] in (OP['param'], OP['fparam']):
                 c[i + 1] = idx[c[i + 1]]
-            i += {OP['const']: 2, OP['param']: 2, OP['pick']: 2, OP['interp']: 3, OP['knots']: 5}.get(c[i], 1)
+            i += {OP['const']: 2, OP['param']: 2, OP['fparam']: 2, OP['pick']: 2, OP['interp']: 3, OP['knots']: 5}.get(c[i], 1)
         assert depth(c) <= 16, depth(c)
         off = len(code)
         code.extend(c)

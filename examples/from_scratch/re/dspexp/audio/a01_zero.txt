@@ -1,0 +1,7 @@
+# effect slot: outputs = 0 (0903 0050 0000 then store r0, as at the start of MAIN0 / NOISE)
+0a02 ff70
+0903 0050 0000
+1e05 8fe0 8fe2 2203 2205      # [2203], [2205] <- r0
+0a02 ff70
+0b02 00f8
+0001

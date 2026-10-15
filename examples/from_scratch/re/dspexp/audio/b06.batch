@@ -1,0 +1,14 @@
+# batch 6: immediate loads (constants -> swap transient), 0401 again, op 08, stale registers
+dco1_=z_dco1.txt
+t0=n_pass.txt
+t1=k_0050_3000.txt
+t2=k_0050_2800.txt
+t3=k_0050_b000.txt
+t4=k_0060_3000.txt
+t5=k_1050_2800.txt
+t6=n_0401_half.txt
+t7=n_mul1430_1_r1.txt
+t8=n_0081.txt
+t9=n_r1_stale.txt
+t10=n_1080.txt
+t11=n_1400.txt

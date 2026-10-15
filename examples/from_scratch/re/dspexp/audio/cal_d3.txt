@@ -1,0 +1,10 @@
+# calibration, DSP3: voice A = noise x0.25, voice B = noise x0.125
+0a02 ff70
+0c03 0fe0 2200                       # r0 <- noise
+0904 1430 2400 0000                  # r1 = r0 * 0.25
+1e05 9fe0 9fe2 2221 221d             # voice A outputs <- r1
+0904 1430 2200 0000                  # r1 = r0 * 0.125
+1e05 9fe0 9fe2 2229 2225             # voice B outputs <- r1
+0a02 ff70
+0b02 00f8
+0001

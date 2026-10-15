@@ -1,0 +1,6 @@
+# batch 12 (4 paths, no swaps): 0401 = reg x reg multiply? (m_a = m_b if so); op->op latency; 1430 x1
+dco1_=z_dco1.txt
+d2a=m_a.txt
+d2b=m_b.txt
+d3a=p_chain.txt
+d3b=n_mul1430_1_r1.txt

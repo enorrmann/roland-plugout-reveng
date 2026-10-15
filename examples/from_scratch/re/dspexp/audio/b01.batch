@@ -1,0 +1,5 @@
+# batch 1: is 0903 0050 <imm16> "r0 = immediate"? DCO1 silent; DCO2 = +1.0 / +0.5 / -1.0
+dco1_=z_dco1.txt
+dco2_saw=c_one.txt
+dco2_sqr=c_half.txt
+dco2_noise=c_mone.txt

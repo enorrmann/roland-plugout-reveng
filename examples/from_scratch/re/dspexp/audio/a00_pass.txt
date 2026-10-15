@@ -1,0 +1,7 @@
+# effect slot: input [2200] straight to the outputs [2203] [2205] (the OD program's I/O)
+0a02 ff70
+1e05 0fe0 1fe2 2200 2200      # r0, r1 <- [2200]
+1e05 8fe0 8fe2 2203 2205      # [2203], [2205] <- r0
+0a02 ff70
+0b02 00f8
+0001

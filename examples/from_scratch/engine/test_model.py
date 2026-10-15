@@ -6,7 +6,7 @@
 
 usage: python3 test_model.py [n]      (reference only; needs build/proj from build.sh)
 """
-import math, os, random, sys
+import math, os, random, struct, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import model_spec as M
@@ -18,8 +18,17 @@ RANGES = {0x6cd: 6, 0x6d4: 6, 0x6d6: 6, 0x6d7: 6, 0x6d9: 6, 0x6db: 6, 0x6dc: 6, 
 SOURCES = sorted({s for s, *_ in M.OUT if s is not None})
 
 
+FLOATS = (0x74d, 0x7e4)        # float parameters (the OS returns float32 bits)
+
+
+def rand_value(rng, i):
+    if i in FLOATS:
+        return struct.unpack('<I', struct.pack('<f', rng.random()))[0]
+    return rng.randrange(RANGES.get(i, 256))
+
+
 def rand_state(rng):
-    return {i: rng.randrange(RANGES.get(i, 256)) for i in M.REFRESH_ORDER}
+    return {i: rand_value(rng, i) for i in M.REFRESH_ORDER}
 
 
 def parse(t):
@@ -83,7 +92,7 @@ def main():
                 run_jx.setp(e, i, v)
             e.call(e.u32(e.vt + 0x24), e.o, 1)      # JX-3P caches some flags: make them current
             for x in SOURCES:
-                v = rng.randrange(RANGES.get(x, 256))
+                v = rand_value(rng, x)
                 e.log.clear()
                 run_jx.setp(e, x, v)
                 vals[x] = v

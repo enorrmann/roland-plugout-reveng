@@ -164,6 +164,199 @@ puede reemplazar.
   0x3EF multiplica la velocidad del LFO; Circuit Mod (0x744) = dispersión por voz de tiempos de envolvente, detune
   y filtro; UNISON añade offsets de detune por voz; 0x22C/0x519/0x544/0x56E = estados de ruteo de parte (5, por
   slave); el JX-3P cachea un flag de sens en su handler de 0x22C (el modelo sigue los valores actuales).
+* Parámetros float (grupo 5): 0x74D y 0x7E4 llegan del OS como bits float32 y se escriben tal cual. 0x7E4 es el
+  cutoff que el JX-3P escribe último al refrescar; tratarlo como entero 0 dejó el filtro cerrado al arrancar en el
+  equipo (el emulador devolvía 0 = 0.0 y no lo mostró). 0x2DB lleva ese valor hacia 1: `F + (1-F)·q/100`.
 * Tests: `engine/test_model.py` (modelo vs JX-3P: 0 diferencias en cambios con tolerancia 3 %, 0 en refresco;
   error máximo 2 %) y `engine/test_emu.py` (engine compilado vs JX-3P: registro, estado de arranque, cambios de
   los 72 parámetros, swaps de onda/efecto, mute/unmute, notas: todo igual). **Sin probar en hardware.**
+
+## Motor DSP en el VST3 (2026-10-14) — `re/vst_rtti.py`, `re/vst_sim.py` (sólo análisis estático)
+`plugins/JX-3P/JX-3P.vst3` (1.0.7, x86-64) **no** trae el microcódigo (ningún fragmento de los 17 programas, en
+ningún orden de bytes). Comparte con la región 1 las tablas float del engine (>100 KB de 0x60A258A0… = `.rdata`
+0x9C8744…) y las clases de control `CDSPJx3p{Env,Lfo,Osc,Flt,Amp}Voice`, `VoiceCmn`, `VoiceMix`, `Mst`, `Noise`,
+`PatchLev`, `Efx{Od,Ds,Fz,Cr,Ch,Ph,Cmn}` (= el código ARM del PLUG-OUT; métodos = lookup en tabla + escritura de
+parámetro). Las escrituras van a `CJx3pSim`, un **modelo DSP nativo en float**:
+* 1138 parámetros con nombre registrados en 0x180382BF0 (`vst_sim.py params`): por voz 110 (stride de índice
+  0x6E, de campo 0x3F80): LFO (Rate, Delay, Sin/Sqr/S&H Sw, Trig…), ENV1/ENV2 (Attack/Decay/Sustain/Release,
+  "LFO trigger env sw"), OSC (Feet, Detune, Sync, Pulse Sw, Bend, LFO/Env mod, PWM), LPF (Cutoff, Resonance, Env/LFO/
+  Key/Velocity mod), AMP; luego común: HPF, efectos (OD/DS/FZ/Crusher/Phaser/Chorus/Flanger), delay, reverb, master.
+* `CDSPJx3pEnvVoice` ctor (0x180375FC0, voz 0..7) fija los índices: voz 0 = 0x1F (LFO trigger env sw), 0x20-0x23
+  (ENV1 A/D/S/R), 0x24, 0x25-0x28 (ENV2); en el ARM los mismos métodos escriben P{u}:0x2F+etapa(+0x17) / 0x33+etapa.
+* Render: 8 funciones de ~33 KB, una por voz (0x1803B2530, 0x1803BA830, … 0x1803EB820; ~5900 instrucciones SSE,
+  cada una usa los 110 campos de su voz) = LFO + envolventes + osciladores + LPF + AMP; 0x1803AA580 = parte común
+  (HPF, efectos, delay, reverb, master). Helpers: 0x1803B23F0/0x1803B2480 (curvas con pow), 0x1803B2270
+  (polinomio por tramos, tabla de 0xD0 bytes por tramo).
+* Uso: especificación legible del algoritmo (qué calcula cada programa de microcódigo y con qué parámetros) y
+  nombres para los ids DSP; el equipo sigue necesitando microcódigo (el DSP es el que genera audio).
+
+### LFO y envolventes según el render del VST (Ghidra, `re/ghidra/`, 2026-10-14)
+Descripción propia del algoritmo (voz 0, 0x1803B2530; constantes de 0x180391630; dos juegos por frecuencia de
+muestreo). Los valores que escribe el lado de control (= nuestros P0/P1 del modelo) son los parámetros de esto.
+* **LFO** (por muestra): rate 0..1 (o el de la entrada externa / tempo) -> `f = 0.46624·e^(5.28342·rate) − 0.41338`,
+  incremento de fase `f/65536` (máx. 0.015534) × Rate Ratio × factor de frecuencia de muestreo. Fase en [−1, 1)
+  con wrap; LFO Trig / Reset Sw intervienen en el reinicio de fase (detalle sin verificar). Formas: **Sin** = polinomio sobre |fase|
+  `−1.181x³ + 1.8136x² + 1.3674x − 1` (de −1 a 1, aproximación de seno a partir de un triángulo); **Sqr** = signo
+  de la fase; **S&H** = muestra del ruido LFSR de 24 bits en cada vuelta de fase. Salida = suma de cada forma × su
+  switch. **Delay**: rampa 0..1 desde la nota (LFO Delay) que multiplica la salida si LFO Delay OnOff.
+* **ENV1/ENV2** (a 1 kHz: contador que suma 1/48 o 1/88.2 por muestra y dispara la etapa al volver a −1). Gate =
+  gate de la voz (o el cuadrado del LFO si "LFO trigger env sw"); flanco ascendente -> fase de ataque.
+  **Attack** lineal: `env += Attack` por tick hasta el pico 1.0 (fin del ataque). **Decay**: un polo hacia
+  `S = Sustain`: `env = S + (1 − Decay)(env − S)`, sin bajar de S mientras dura el gate. **Release** (gate off):
+  `env = (1 − Release)·env`, piso 0. En ambos se suma una deriva pequeña `−1.5e−5·(0.5 − env)` si env < 0.5
+  (imitación del circuito analógico). O sea, Attack/Decay/Release son incremento/coeficiente por tick, no tiempos.
+* Modulaciones (siguiente bloque): pitch = Detune + Feet + bend×range + ENV1×Env1 Mod Level (con inversión) ×
+  Osc Env Mod Sw + LFO×Lfo Mod Level × Osc LFO Mod Sw (+ mod wheel); PWM = nivel PWMod; cutoff = LPF Cutoff
+  pasado por una cúbica y saturado a 0..1, más las modulaciones de ENV/LFO/Key/Velocity.
+
+## ISA del DSP: primeros hallazgos (2026-10-14, estático) — `re/dspdis.py`
+* **Longitud de instrucción = 5 bits bajos de su primera palabra** (en palabras de 16 bits, orden de ejecución).
+  Los 84 programas únicos del corpus (`work/corpus`: los 6 PLUG-OUTs + OS: s_data, m1_tcm…) se dividen exactos
+  con esta regla; con 4 bits fallaba sólo SAW (`9692` = 18 palabras). Longitudes 1–18; `0001` = instrucción de 1
+  palabra (frecuente: ¿nop / burbuja?). 119 valores distintos de los 11 bits altos.
+* Forma de una instrucción (VLIW): cabecera, palabras de control (`XfeY` = registro X en la posición Y/2, y otras
+  como `99b1`, `b9b2`, `be0c`), referencias de memoria (`02nn` local, `C0nn` parámetro, `A0nn` banco 5, `22nn`) y a
+  veces **inmediatos de 32 bits Q31** al final: `0155 5555` = 1/96. Ejemplos: `1e05 Afe0 Bfe2 m1 m2` (dos refs, dos
+  registros), `0c03 Afe0 m` (una ref; al inicio de MAIN0 se usa con r8 sobre todo el estado = borrado), `0903 hi lo`.
+* **Ancla con el VST**: `6507 0c70 be0a 99b1 b9b2 0155 5555` = contador de tick de la envolvente (+1/192 por
+  muestra en formato RAW, ver abajo; en el VST +1/48 a 48 kHz), 4 veces en MAIN0/MAIN1 = 2 voces × 2 envolventes.
+* **Mapa de MAIN0** (DSP0, voces A/B; MAIN1 igual con otras direcciones). Voz A palabras 31–1212, voz B 1213–
+  (mismos bloques, ids +0x17): parámetros de voz/portamento (C020–C025, A020–A025), LFO (A026 ← 0x4A1, A027 ← 0x702,
+  **A028 = rate** ← 0x3EF/0x6CF en `1409 … a028 2775b5ea a69d3813` con dos inmediatos, A02D delay ← 0x6CE, A02C
+  forma ← 0x6CD, A02A ← 0x6D3, C026–C02E), **ENV1** (tick en 818, **Attack C02F en 859** `6907 … 024e c02f`, Decay/
+  Sustain C030/C031 en 874, Release C032 en 913), **ENV2** igual en 1068–1163 (C033–C036). Estado de la ENV1 de la
+  voz A en 0x0246–0x0253 (0x024E = valor de la envolvente, candidato).
+
+### Formato numérico del DSP (medido en el equipo, 2026-10-14) — `re/dspnum.py`
+* Mapa de memoria de los DSP (tabla de la pantalla de debug `CEZUtilDSPDump`, `m1_sdram` 0x61014BB0, entradas
+  {flags, nombre, dirección, bytes}): DSP n = `0x41400000 + n·0x100000`: DTn0 (banco 0, 0x800 palabras) IEEE `+0`,
+  SD31 `+0x2000`, RAW `+0x4000`; DTn1 igual en `+0x10000` (en el DSP4 del maestro lee 0 y no guarda lo escrito);
+  `+0x40000` (0x3000 B), `+0x60000` (0x10000 B), ENVn `+0xA0000` (= bloque de parámetros con rampa);
+  DPCn (banco 5) `0x41114000 + n·0x4000`, vistas IEEE/SD31/RAW cada 0x1000; DPCM, DTM, PRGM (`0x41240000`), MTCB,
+  WM2418 (el DAC/códec), IOMD, MXM (mezclador), DP01/23/45.
+* **RAW** = la palabra interna del DSP: bit 31 signo (signo-magnitud), bits 30-29 exponente s (×16 por paso), bits
+  28-0 mantisa M: **valor = ±M / 2^(32−4s)**. 1.0 = `30000000`, 0.5 = `28000000`, −1 = `B0000000`, 100 = `66400000`.
+  Verificado escribiendo 74 floats por la vista IEEE de DPC4 (0x41124E00) y leyendo SD31/RAW (`bulk_dump.py --tri`,
+  `CONV=conv.bin`): 74/74. SD31 = Q31 saturado.
+* Los inmediatos del microcódigo están en RAW. MAIN0/MAIN1 contienen las constantes del render del VST: LFO
+  `0.466238·e^(5.283422·rate) − 0.413384` (`2775B5EA`, `45488E4F`, `A69D3813`), tope de incremento 0.015534
+  (`03FA0945`), deriva de la envolvente −1.5e−5 (`8000FBA8`), tick 1/192 (`01555555`); cerca del LFO, `0807 3cca …`
+  con 2/315, 4/45, 2/3, −2/3, 1 (Horner de un polinomio). Las del seno del VST (1.181, 1.8136, 1.3674) no aparecen.
+* Herramientas en el equipo: `examples/midi_send/bulk_dump.py --tri` (por palabra, las tres vistas leídas seguidas;
+  `VSTRIDE=0x1000` para DPC) y `CONV=<dir>/conv.bin` (escribe esa tabla en SRC antes de leer). `bulk_dump.py`
+  busca el puerto "SYSTEM-8 MIDI 1" solo (antes fijo en hw:3).
+* Volcados: `dumps/dsp{4,5}_dt0{,_tri}.bin` (efectos del maestro en marcha), `dumps/conv_dpc.bin`.
+
+### Pruebas en el equipo sobre los DSP del maestro: abandonadas (2026-10-14)
+`re/dsprun.py` + hook (SAVE/POKE/SNAP/RESTORE en `init_bulk.s`): reemplazar el programa de DSP4 0xEFDC un instante
+funciona y se restaura, pero el ARM **no puede escribir el banco DT0** (ni por la vista RAW ni por la IEEE; sí el
+banco 5 / DPC y la RAM de la región 0) y un programa de prueba con E/S en el banco 5 no mostró cambios. Sin un
+canal de observación fiable el usuario pidió otro camino: análisis estático con el VST como referencia.
+
+### Osciladores: VST vs microcódigo (estático, 2026-10-14) — `re/vst_anchor.py`
+* **VST** (render de voz, OSC1 ~línea 1050 de `voice0.c`, OSC2 ~2380; salida `st_d30`/`st_d90`, usada una muestra
+  después): pitch + `st_1310` (−4.75) -> `poly_table` (doble precisión) -> incremento, tope ±512 y `st_17d0`
+  (0.249); fase en [−1, 1) con wrap; **4 sub-muestras por muestra** (posiciones 0.25/0.5 para el sync);
+  transición suavizada `tri((fase+1)/2)·256·(1/256)/inc`, saturada a ±1, polinomio impar (`st_1a40…1a80`) y
+  cadena de retardos (`st_14d0…17a0`, FIR de diezmado). Dos ramas según un modo (`*(sim+0x88)+0x28`), una por
+  frecuencia de muestreo.
+* **Anclas** (`vst_anchor.py init.c work/corpus/JX_*.bin`: cada constante de la inicialización del VST en RAW,
+  buscada como inmediato): en SAW/SQR (DCO1 `6000_60a1b594`/`…d5f4`, DCO2 `b000_…`): −4.75 en la instr. 13 (voz B
+  1026), ln2 en 17, la serie de 23–59, 0.249 en 94 (1107), **π/2 en 201/373/545/717 = las 4 sub-muestras**. El mapa
+  completo une también LFO, envolventes (MAIN0/1), filtro y VCA (MAIN4/5: −3.29, 11.5, 0.675, 14, 5.5…).
+* **Exponencial del pitch en el microcódigo**: x = (pitch − 4.75)·ln2 y luego e^(2y) con la serie 2ⁿ/n!
+  repartida en dos cadenas de Horner en paralelo: pares 1, 2, 2/3, 4/45, 2/315, 4/14175 y impares (÷2) 1, 2/15,
+  4/315, 2/2835, 2.565e−5 (= (2¹¹/11!)/2). El VST usa una tabla en su lugar (las mismas constantes están en su
+  inicialización, `st_1360…13c0`, sin uso en el render).
+* **Primer opcode con semántica (hipótesis fuerte, por el patrón de coeficientes)**: `0807 3cca 1cb6 A B` (y `0806 … A`) = paso de Horner doble: dos
+  multiplicar-sumar en paralelo con dos inmediatos RAW de 32 bits; `1108 3472 20a1 0036 0001 A B` arranca las dos
+  cadenas; `0904 0c20 imm` / `0904 1430 imm` = operación con un inmediato (probablemente suma −4.75 y producto ×ln2; sin verificar).
+
+### Formato de instrucción: transferencias y referencias (estático, 2026-10-14) — `re/dspvar.py`
+* **Transferencias `XfeY`**: X = 0–7 **lee** memoria al registro X, X = 8–15 **escribe** en memoria el registro X;
+  Y/2 = índice de la referencia. Evidencia: los parámetros `C0nn` (sólo lectura para el DSP) aparecen siempre con
+  X = 0–7 (136 de 136 en `1e05`); el gate de la voz `0207` (MAIN0) se escribe una vez desde `A022` —el gate que manda
+  el ARM (`note_gate`, banco 5 id 0x22)— en la instr. 40 `1e05 8fe0 1fe2 0207 a022` (`[0207] ← w8`, `r1 ← [A022]`)
+  y se lee tres veces (`1fe2` en 78, 735, 985); al inicio de MAIN0 `0903 0050 0000` + `0c03 8fe0 0200/0202/0204`
+  (y 0262/0264/0266 voz B) = las tres entradas del jack externo del VST (`st_b0/d0/f0`) puestas a 0.
+* **Referencias = una por transferencia**, contiguas, en el mismo orden, después de la última transferencia y de
+  0–4 palabras "puente"; luego, inmediatos. Medido alineando copias del mismo código (mitades de voz A/B,
+  DCO1/DCO2, instancias de efectos): las palabras que cambian entre copias están exactamente ahí (1025× 1-1-0,
+  955× 2-2-0, 545× 2-2 con 1 puente, 484× 1-1 con 1 puente, 233× 3-3-0…). Sólo transferencias: `0c03` (1),
+  `1e05` (2), `3e07` (3), `7809` (4), `e40b` (5).
+* **Palabras de operación** (antes de la primera transferencia): casi todas `X op Y` (nibble, byte central,
+  nibble): `X fe Y` (transferencia), `X 9b Y` (`99b1`, `b9b2`…), `X 50 Y`, `X 44 Y`, `X cc Y`… ~200 bytes centrales.
+  Hipótesis: byte central = operación, nibbles = registros (16).
+* **Inmediatos**: RAW de 32 bits, pero no siempre alineados a palabra: en el SAW `0807 3cca 1d62 4200 002a aaaa aa00`
+  lleva 2.0 (`42000000`) y 2/3 (`2aaaaaaa`) desplazados un byte; el empaquetado depende de la operación.
+
+## ISA del DSP medido en el equipo por audio USB (2026-10-14) — `re/dspaudio.py`, `re/dspexp/audio/`
+**Canal de observación**: el audio USB del SYSTEM-8 (`arecord -D hw:SYSTEM8,0 -f FLOAT_LE -r 96000 -c 2`, sólo
+FLOAT_LE). Hay un filtro de continua en la cadena: una constante sólo se ve como transitorio. Estímulo: el ruido que
+el principal escribe en `[2200]` en cada muestra (lo lee el programa NOISE). Medida: rms y 4 bandas de espectro
+(0–300, 300–1k, 1k–3k, 3k–8k Hz) contra la calibración, con la misma nota. Con ruido blanco, x² también es plano.
+
+**Banco de pruebas** (`DSPTEST=1 MC_TEST=… engine/build.sh`, plugin `plugins/C-DSPT`, slot 3):
+* `programs.py`: `MC_TEST=prefijo=archivo,…` reemplaza programas (`dco1_=z_dco1.txt` silencia el DCO1;
+  `t0=`/`t1=` = programas de prueba). Archivos = palabras hex en orden de ejecución, `#` comentarios.
+* `engine.c -DDSPTEST`: el slot DCO2 del **DSP2 corre t0 y el del DSP3 t1**, cargados al arrancar (sin swaps en
+  vivo). Cada programa tiene camino de voz A (salidas `[2221] [221d]`) y B (`[2229] [2225]`) → **4 pruebas por
+  instalación** (`d2a= d2b= d3a= d3b=` en el `.batch`; `dspaudio.py` arma los dos programas, `work/dspaudio/prog_d*.txt`).
+  `model_spec.py` con `DSPTEST`: nivel de efecto P4:0x49 fijo en 1 (el slot de efecto con el patch del equipo no
+  se oyó; no usado).
+* Flujo: `dspaudio.py install bNN.batch` (con `--force`: sin él `plugout_tool` se saltea la instalación si nombre y
+  versión coinciden, "already in slot 3") → **el usuario selecciona PLG3 a mano** (tras instalar el equipo vuelve a
+  SYSTEM-8) sin tocar notas → `dspaudio.py recall bNN` (8 notas distintas, una por voz) → `dspaudio.py report bNN`.
+* **Mapa de voces** (calibración `b11`, ganancias 1/8 1/4 1/2 1): notas 60 62 64 65 / 67 69 71 72 (recién
+  seleccionado, poly) = DSP3-B, DSP3-A, DSP2-B, DSP2-A en cada slave; cada prueba sale replicada en los dos slaves.
+  El nivel sube un poco con la nota (seguimiento del filtro): `report` normaliza contra `b11` nota por nota.
+* Swaps en vivo (`+0x70`) desde eventos de nota: **no fiables** (programa mudo o se queda el anterior). Cada slave
+  sólo hace el swap de sus voces y el asignador alterna slaves; tampoco con nota selectora separada. Causa sin aclarar
+  (el swap del OS, `0x01105F94`, no usa doble buffer: para la tarea, escribe programa y datos, `+0x1105f2c` pone a
+  un valor el rango de parámetros `x0..x0+x1`, `ctx` = pares {dir, tamaño} a limpiar, rehabilita la tarea).
+* De paso, **bug del motor corregido**: los descriptores de programa/datos del JX-3P son de 6 palabras
+  `{dir, bytes, bytes, src, 0, 0}` (las dos últimas las usa el OS) y uno por DSP y por programa (el JX-3P tiene
+  tablas separadas para DSP2 y DSP3, `0x60A0B878`/`0x60A0B87C`, y un descriptor de datos tras cada programa). Los
+  nuestros eran de 4 palabras y compartidos entre DSP2/DSP3; ahora `dspdesc_t` tiene `os[2]` y todos son únicos.
+  `test_emu.py` sigue OK (el emulador no modela esas palabras). **Falta probar el C-SAW normal en el equipo** con
+  cambios de onda (SQR, NOISE) y de efecto.
+
+**Confirmado** (todo replicado en dos slaves salvo donde se indica; x = ruido de `[2200]`):
+| Instrucción | Efecto | Medida |
+|---|---|---|
+| `0c03 Xfe0 ref` / `1e05 …` / `7809 …` | transferencias: X 0–7 carga rX ← [ref], X 8–f guarda [ref] ← r(X−8); Y/2 = índice de la referencia | copia de `[2200]` a la salida = referencia |
+| `0904 d43s imm32` | rd = rs × imm (inmediato RAW de 32 bits) | ×0.5 → 0.50, ×2.0 → 2.15 (lote viejo), ×1.0 → 1.02 |
+| `0903 d41s imm16` | rd = rs × imm (16 bits = mitad alta del RAW) | ×0.5 → 0.50 |
+| `0903 d050 imm16` | rd = imm | r1 = 0.5 → 0.50 (vía `0401`) |
+| `0902 0401` | r0 = r0 × r1 | 0.5x·0.5x = x·0.25x → 0.100 = 0.100 |
+| `0902 0081` | r0 = r0 × r1 (otra multiplicación, op 08) | 0.20 (= 0.5x²) |
+| `0902 0c01` | r0 = r0 + r1 | 1.51 |
+| `0902 04c1` | r0 = r1 (copia) | r1 = 0.5x → 0.50, r1 = 2x → 2.00 |
+| `0001` | nop de 1 palabra | no cambia nada |
+| encadenado | una instrucción ve el resultado de la anterior (sin latencia visible) | `0430` ×0.5 → `1430` ×1 sobre r0 → 0.50 |
+* Constante −1 (`0903 0050 b000`): transitorio negativo al cambiar programa; +1 (`3000`) residuo DC opuesto.
+  `0904 0c20 imm` sobre el ruido ≈ 1× (compatible con suma de inmediato; el DC no se ve).
+* Palabra de operación de una instrucción `09xx` = `d op s` (nibble destino, byte operación, nibble fuente).
+
+**Abierto**:
+* `0902 1080` (op 08, destino 1, fuente 0) dejó **r1 sin cambiar** (0.50 con r1 = 0.5x): `08` no es
+  `rd = rd × rs`; ¿escribe siempre r0? Probar sacando r0.
+* `0902 0541` (op 54): con r1 = 0.5x da 2.0 / 2.3, con 0.25x 1.10 / 1.22 (distinto por slave → no lineal: ¿saturación,
+  división, valor absoluto?). Probar con r1 constante (`0903 1050 imm`) y amplitudes distintas.
+* `0904 0060 3000 0000` sobre el ruido: silencio (b07); sin ruido, ruido con pasabajos de registros viejos: ¿acumulador?
+* Ops frecuentes sin probar: `4c` con otros nibbles (`34c4`/`44c3` en pares), `50` (`4507`), `88` (`0881`), `c8`,
+  `bc`, `44`, `cc`; las de dos palabras de operación (`0803 0c0a 9281`, 705×; `0803 0809 5280`); los formatos con
+  inmediatos desalineados (`0807 3cca 1d62 …`).
+* Fuentes > 7 (`5549`, `5546`): ¿registros 8–15 o modificador?
+
+## Próximos pasos del ISA (para seguir)
+1. Lotes de 4 pruebas como `b12`–`b14` (plantillas `r_*.txt`: r0 = x, r1 = 0.5x por `1430`, una operación, salida
+   r0). Siguiente lote propuesto: `1080` sacando r0; `54` con r1 = constante 0.5 y con 0.25; `0902 1c01`
+   (suma con destino 1) sacando r1; `0902 0880`/`0881` (op 88).
+2. Resta y negación (para un oscilador hacen falta suma, resta, multiplicación, comparación/saturación y memoria):
+   buscar en el corpus el par de `c0` (p. ej. `c4`, `cc`) y medir con r1 = 2x (resta → 1.0, suma → 3.0).
+3. Memoria entre muestras: guardar en `06nn` y leer en la muestra siguiente (retardo de una muestra → filtro
+   peine con `x + x[n−1]`: espectro con cero en 48 kHz, visible en las bandas).
+4. Con suma, multiplicación y memoria: primer oscilador propio (fase += incremento desde el parámetro de pitch,
+   wrap por saturación o resta), escrito en `re/dspexp/audio` y medido igual.
+5. Probar en el equipo el C-SAW normal con la corrección de descriptores (cambios de onda y de efecto).
