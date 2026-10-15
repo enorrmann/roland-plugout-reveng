@@ -529,7 +529,9 @@ transferencia; el `fe` de `XfeY` son bits de modo). No parece un campo de bits s
   Lo de "varía en el tiempo" del DSP4 era ruido de lectura + tareas compartidas.
 
 ## Próximos pasos del ISA (para seguir)
-Referencia limpia de lo establecido: `DSP_ISA.md` (esta carpeta). Pendiente (2026-10-15):
+Referencia limpia de lo establecido: `DSP_ISA.md` (resumen) y `DSP_ISA_SPEC.md` (especificación técnica para
+ensamblador/compilador: formatos de bits, 118 plantillas, inmediatos, semántica de ejecución medida — ops de una
+instrucción en paralelo, guardado del valor viejo, sin latencia entre instrucciones). Pendiente (2026-10-15):
 1. Qué fija los 16 bits de condición de contexto (lado ARM). Ops de la unidad B con resultado `7ffxxxxx`
    (¿conversiones a entero / floor?) en el DSP3.
 2. Memoria entre ejecuciones (acumular, retardo de una muestra) en un contexto sin otras tareas.

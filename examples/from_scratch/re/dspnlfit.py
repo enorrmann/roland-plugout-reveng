@@ -9,6 +9,8 @@ a*b, sign(a), step(a) (a >= 0), |a|*b.
 import argparse, itertools, json
 import numpy as np
 
+WRAP = False
+
 
 def atoms(R, ops):
     A = {'1': np.ones(len(R))}
@@ -29,6 +31,9 @@ def atoms(R, ops):
         for b in names:
             if a != b:
                 A[f'|{a}|*{b}'] = np.abs(col[a]) * col[b]
+                A[f'{a}*step({b})'] = col[a] * (col[b] >= 0)
+                A[f'step({a}-{b})'] = (col[a] - col[b] >= 0).astype(float)
+                A[f'{a}*step({a}-{b})'] = col[a] * (col[a] - col[b] >= 0)
     return A
 
 
@@ -49,11 +54,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('raw')
     ap.add_argument('--ops', default='D=3,X=1,Y=2')
+    ap.add_argument('--wrap', action='store_true', help='read results > 256 as v - 512')
     a = ap.parse_args()
+    global WRAP
+    WRAP = a.wrap
     ops = {k: int(v[1:] if v.startswith('r') else v) for k, v in (t.split('=') for t in a.ops.split(','))}
     for line in open(a.raw):
         rec = json.loads(line)
         X, Y = np.array(rec['X']), np.array(rec['Y'])
+        if WRAP:
+            Y = np.where(Y > 256, Y - 512, Y)          # results >= 256 read as wrapped negatives (v - 512)
         R = X[:, :8]
         A = atoms(R, ops)
         res = []

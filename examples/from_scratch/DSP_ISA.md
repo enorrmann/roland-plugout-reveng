@@ -4,6 +4,9 @@ State 2026-10-15. Only what was **measured on the hardware** (master DSP4, live 
 marked with how sure it is. The history, raw evidence and dead ends are in `NOTES.md` (sections from
 "ISA del DSP medido en el equipo por audio USB" on). Hardware context: `../../ARCHITECTURE.md`.
 
+**Technical specification for assembler / compiler writers: `DSP_ISA_SPEC.md`** (bit layouts, all 118
+templates, immediate packing, execution semantics, encoding examples). This file is the short overview.
+
 Tools: `re/dspisa.py` (decoder / disassembler / simulator), `re/dsp_templates.txt` + `re/dsp_units_ab.txt`
 (measured templates), `re/dspmc.py` (word order), `re/dspnum.py` (number format).
 
@@ -65,7 +68,7 @@ General order: `[A/B/M/C words] [T words] [slots: N words, then R words] [I bits
 
 | op | result in rD |
 |---|---|
-| 0 | X is a sub-code: 0, 3 = nothing; 1 = **Y** (move / load immediate); 2 = Newton step: rD = rD·rD+1, rD+1 = 2 − rD+1·rY, rY = rD+1·rY (reciprocal); 4, 5 = D + Y + hidden value; 6, 7 = D + Y |
+| 0 | X is a sub-code: 0, 3 = nothing; 1 = **Y** (move / load immediate); 2 = Newton step: rD = rD·rD+1, rD+1 = 2 − rD+1·rY, rY = rD+1·rY (reciprocal); 4, 5 = D + Y + h4 / h5 (hidden per-context values: DSP4 `0xEFDC` 0.0313 / 320, DSP3 163 / 1.80469; not changed by A, B or MAC writes with D = 12/13 nor by the program-start B ops — source unknown); 6, 7 = D + Y |
 | 1 | D + X + Y |
 | 2 | X · Y |
 | 3 | D + X · Y |
@@ -92,8 +95,11 @@ Y = r2, D = r3 = −0.375; result word):
 | `3642` | `7ffbffff` | `7ff7ffff` | `2bffffff` | `7ffbffff` | `7fe7ffff` | `7fffffff` | `7ff7ffff` | | | |
 | `3a42` | `7ff3ffff` | `7ff3ffff` | `2bffffff` | `23ffffff` | `7fe5ffff` | `7ff7ffff` | `7ff7ffff` | | | |
 
-They look like sign-dependent selects / sums with a second number format for negative results; usable only once
-decoded.
+Unit B with D ≥ 8 has side effects on other registers (`0a02 cc42` → r4 = .5 and r2 = −1; `0a02 cf06` → r4 = 1,
+r5 = 1.1377; `0a02 8f19` → r0 = 1; DSP3, r0..r7 = .5 .25 .125 0 .0625 −.75 .875 −.0625). The weird ops above
+look like sign-dependent selects / sums with a second number format for negative results; usable only once
+decoded. With random inputs (n = 12, `work/dspclass/bweird_raw.jsonl`, results > 256 read as v − 512) no formula of up
+to 3 terms fits; `3a42` = −`3842` and `3b42` = −`3942` exactly (sign pairs like A op 4/5).
 
 ## 6. MAC (two words)
 
@@ -109,8 +115,19 @@ r4·(−1/5040) + 1/120.
 
 Transfer `X mm Y` at a T position: mode byte mm = `fe`: X 0–7 loads rX ← [slot Y/2], X 8–15 stores
 [slot Y/2] ← r(X−8). Slots are counted from the first word after the transfers, MAC second words included.
-*(certain)* Other mode bytes (`9b`, `a9`, `e0`, `e1`, `db`, …) do not change r0–r7: **not decoded** (likely
-address registers / delay-line access). Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter block,
+*(certain)* Other mode bytes, tested as loads of r3 from a word preloaded through `fe` (master DSP3):
+
+| group | mode bytes | result |
+|---|---|---|
+| same memory as `fe` | `fe`, `ff`, `3e`, `0e`, `10`, `12` | loads the word |
+| other memory | `e0`, `e1`, `db`, `ed`, `be`, `8e`, `ee`, `de`, `ce`, `7e`, `fc`, `fd`, `f0` | loads 0 (not the word) |
+| no load into rX | `9b`, `a9`, `9e` | r3 unchanged |
+
+Seen as two nibbles (a, b) with b = `e`: a ∈ {f, 3, 0} same address, a ∈ {b, 8, e, d, c, 7} elsewhere, a = 9 no load.
+Hypothesis: a selects an address (offset) register — delay-line addressing — and `9b`/`a9` load an address register
+instead of a data register. Stores with the "other memory" modes did **not** show up in banks 0, 1, 2, 4, bank 5
+or data RAM `+0x40000…` of DSP3 (one hit in bank 1 was not reproducible): probably external delay memory. **Not
+decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter block,
 `A0nn` bank 5, `22nn` mailbox between main and slot program (from the static analysis).
 
 ## 8. Condition words (C)
