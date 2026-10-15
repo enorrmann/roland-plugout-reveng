@@ -349,8 +349,30 @@ el principal escribe en `[2200]` en cada muestra (lo lee el programa NOISE). Med
   inmediatos desalineados (`0807 3cca 1d62 …`).
 * Fuentes > 7 (`5549`, `5546`): ¿registros 8–15 o modificador?
 
+## Pokes de microcódigo en vivo por MIDI (2026-10-15) — `re/dsplive.py`, `engine.c -DDSPLIVE`
+* **Escritura en el slave**: el OS del slave escribe la memoria de programa con `str` de 32 bits comunes
+  (`s_boot` `0x011100DE`, llamado desde el swap `0x01105F94`): DSP n en `0x41480000 + n·0x100000` (tabla
+  `0x0111C20C−0x7C`) + dirección de la ranura en bytes (DCO2 `0xB000` → DSP2 `0x4168B000`, DSP3 `0x4178B000`).
+  Registro de control/tarea `0x41104318 + n·0x1000` (`[ctl] = máscara | 2<<28`), puerto de medias palabras
+  `0x41104700 + n·0x1000` (el OS lo usa para trozos de 2 bytes: escribimos palabras enteras). Bloques ≥ 0x40 B por DMA.
+* **Transporte sin tocar la región 0 ni el OS**: pitch bend → id de voz 0x465 (14 bits de datos), luego CC1 →
+  0x467 (comando: `seq<<6 | cmd<<4 | ext`; cmd 0 dirección, 1 dato y avanza, 2 control: ext 0 restaurar). El
+  engine actúa cuando cambia 0x467 y lee 0x465 con `+0x00 get`. Los dos slaves reciben lo mismo → cada prueba
+  sigue replicada. Bend y modulación quedan neutralizados en el modelo del engine en este build. El maestro manda
+  rangos de ids "sucios" (kernel `0x01011B7E` guarda min/max de id) y el slave notifica cada id del rango
+  (`UpdateSynthParam`): por eso un comando = valores en ids distintos + cambio del id de comando, y 15 ms entre comandos.
+  El kernel recorta cada id a su min/max (`0x01010C24`): por eso no usamos ids de 32 bits arbitrarios.
+* Engine: sombra de la ranura DCO2 de DSP2/DSP3 en RAM (8 KiB c/u), escribe la palabra de 32 bits completa (mitad
+  alta = instrucción de 16 bits par, primero en ejecución). `engine/test_live.py` lo verifica en emu1.
+* Flujo: `dsplive.py install l00.batch` (una vez) → seleccionar PLG3 → `dsplive.py poke d2a=x.txt d3b=y.txt` (sólo
+  las palabras que cambian, cola primero) → `dsplive.py recall NAME` (graba + `report` contra b11) → `restore`.
+  Unos 30 palabras = 0.5 s; sin reinstalar ni tocar el panel.
+* **Verificado en el equipo**: L00 (4 caminos directos) = 1.00 ±2 %; poke de 3 palabras d2a = cero → sólo las notas
+  65/72 a 0.000 (ambos slaves); restore → 1.00; las 4 pruebas de b14 por poke (L03) = b14 instalado dentro de 1 %
+  (incluida la diferencia entre slaves del op `54`: 1.09 / 1.23).
+
 ## Próximos pasos del ISA (para seguir)
-1. Lotes de 4 pruebas como `b12`–`b14` (plantillas `r_*.txt`: r0 = x, r1 = 0.5x por `1430`, una operación, salida
+1. Lotes de 4 pruebas como `b12`–`b14` (ahora en vivo con `dsplive.py poke`, sin reinstalar) (plantillas `r_*.txt`: r0 = x, r1 = 0.5x por `1430`, una operación, salida
    r0). Siguiente lote propuesto: `1080` sacando r0; `54` con r1 = constante 0.5 y con 0.25; `0902 1c01`
    (suma con destino 1) sacando r1; `0902 0880`/`0881` (op 88).
 2. Resta y negación (para un oscilador hacen falta suma, resta, multiplicación, comparación/saturación y memoria):

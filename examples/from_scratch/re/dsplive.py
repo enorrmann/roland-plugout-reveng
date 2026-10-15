@@ -125,6 +125,7 @@ def main():
         da.install()
         st = state_from_batch(batch)
         st['installed'] = json.loads(json.dumps(st['words']))
+        st['installed_paths'] = dict(st['paths'])
         save_state(st)
         print('installed: select PLG3 on the panel, then poke / recall')
         return
@@ -134,6 +135,7 @@ def main():
     if a.cmd == 'restore':
         Link(delay=a.delay).cmd(2, 0)
         st['words'] = json.loads(json.dumps(st['installed']))
+        st['paths'] = dict(st.get('installed_paths', st['paths']))
         save_state(st)
         return
     if a.cmd == 'poke':
