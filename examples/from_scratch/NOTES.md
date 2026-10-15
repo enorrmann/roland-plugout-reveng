@@ -579,6 +579,15 @@ Documento técnico completo: `CUSTOM_OSC.md`.
   programa no ve (memoria de retardo, bus de audio). Próximo método: observarlas por audio en los slaves (laboratorio)
   o buscar en el código ARM (`s_boot`/`m1_tcm`) qué registros de hardware se configuran para esos puertos.
 
+### Puertos X9bY y entradas de sincronismo (2026-10-15, por audio en el laboratorio)
+* `X9bY` escribiendo ruido a los puertos 0–7 no llega a la salida; `Xa9Y` no carga nada (lo "leído" era el registro
+  que dejó la ranura DCO1: **los registros se comparten entre ranuras del mismo DSP**). `X9bY` no redirige el
+  resultado de la op B de la misma instrucción ni carga los valores ocultos h4/h5 (que ahora valen 0 en el DSP3).
+  Sigue sin decodificar.
+* Entradas del DCO2 según Cross Mod: `[2209]` = 1 con SYNC/METAL, `[220a]` = 1 con METAL, `[220b]` = tren de
+  impulsos (un pulso por ciclo) con SYNC/METAL, `[220c]` = 0. Las escribe el programa principal (MAIN2/3), no las
+  `X9bY`. Detalle en `CUSTOM_OSC.md` §2.
+
 ## Próximos pasos del ISA (para seguir)
 Referencia limpia de lo establecido: `DSP_ISA.md` (resumen) y `DSP_ISA_SPEC.md` (especificación técnica para
 ensamblador/compilador: formatos de bits, 118 plantillas, inmediatos, semántica de ejecución medida — ops de una

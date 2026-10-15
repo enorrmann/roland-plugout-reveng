@@ -37,6 +37,21 @@ Taken from Roland's SAW programs (disassembled with `re/dspisa.py dis`) and conf
 | outputs | `[221f]`, `[221b]` | `[2227]`, `[2223]` | `[2221]`, `[221d]` | `[2229]`, `[2225]` |
 | our state (phase) | `0470` (read `0471`) | `0480` (read `0481`) | `0670` (read `0671`) | `0680` (read `0681`) |
 
+* DCO2 extra inputs, measured by audio on the lab plugin (noise × input, DCO1 level 0) for the panel's
+  **Cross Mod** button (OFF / SYNC / METAL), written by the main program (MAIN2/3: `[2209] <- r3`,
+  `[220b] <- r1`, …):
+
+  | input (voice A / B) | OFF | SYNC | METAL | meaning |
+  |---|---|---|---|---|
+  | `[2209]` / `[2216]` | 0 | 1 | 1 | sync enabled |
+  | `[220a]` / `[2217]` | 0 | 0 | 1 | cross-mod (METAL) enabled |
+  | `[220b]` / `[2218]` | 0 | pulse train | pulse train | sync pulses: one impulse per DCO1 cycle (flat harmonics at the note frequency) |
+  | `[220c]` / `[2219]` | 0 | 0 | 0 | not seen used |
+
+  An own oscillator can implement hard sync by resetting its phase when `[220b]` is non-zero (and `[2209]` = 1).
+* Registers are shared by the programs of one DSP within a sample: the DCO2 slot sees what the DCO1 slot left in
+  r0–r7 (measured: r0/r3/r4 carry DCO1 signal). Usable for own inter-slot communication; never rely on an
+  initial value.
 * `22nn` is the mailbox between the DSP's main program and its slot programs. Roland writes two different values to
   the two outputs; we write the same signal to both (it sounds right; their exact roles are not decoded).
 * Pitch scale: `p = (note − 12) / 12` plus the modulations the main program adds (bend, range, detune, LFO / ENV

@@ -20,8 +20,8 @@ Everything here comes from **measurements on the hardware** (exact register/memo
 
 | resource | description | status |
 |---|---|---|
-| r0–r7 | 8 data registers, RAW number format (§2). The only registers transfers can load/store. | [exact] |
-| hidden state | at least two hidden values read by A op 0 sub-codes 4/5 (§6.2); per execution context | [unknown] |
+| r0–r7 | 8 data registers, RAW number format (§2). The only registers transfers can load/store. **Shared by all programs of one DSP** within a sample: a slot program starts with whatever the previous program (main or other slot) left (measured: the DCO2 slot sees signal values left by the DCO1 slot) | [exact] / [measured] |
+| hidden state | at least two hidden values read by A op 0 sub-codes 4/5 (§6.1); they change between power cycles (DSP3: 163 / 1.80 before, 0 / 0 after a reboot) and no tested instruction writes them | [unknown] |
 | bank 0 (DT0) | data memory, 0x800 32-bit words per DSP, a **ring** addressed relative to a pointer that advances every sample (§9) | [measured] |
 | other memories | bank 1/2/4/5, parameter block, mailbox, delay memory: reached with other reference prefixes / transfer modes | [inferred] / [unknown] |
 | condition bits | 16 static bits per execution context, tested by C words (§8) | [measured] |
@@ -195,7 +195,7 @@ w2:  Z[15:12]  op2[11:9]  C[8:6]  mW[5:4]  W[3:0]
 |---|---|---|
 | `fe` `ff` `3e` `0e` `10` `12` | same address as `fe` | [measured] (use `fe`) |
 | `e0` `e1` `db` `ed` `be` `8e` `ee` `de` `ce` `7e` `fc` `fd` `f0` | other memory (reads 0 where `fe` reads the word; writes not found in banks 0/1/2/4/5) | [unknown] |
-| `9b` `a9` `9e` | no data register loaded. `X9bY` (write r(X−8) to "port" Y; Roland uses Y = 1–3) does **not** change r0–r7, the condition bits, or what `fe` loads read afterwards; `Xa9Y` does not read back what `X9bY` wrote. They talk to something not visible from the program (delay memory, audio bus?) | [unknown] |
+| `9b` `a9` `9e` | no data register loaded. `X9bY` (write r(X−8) to "port" Y; Roland uses Y = 1–3, usually in the same instruction as a unit-B op) does **not**: change r0–r7, change the condition bits, change what `fe` loads read afterwards, redirect the result of the unit-B op of its instruction, set the hidden values of A op 0 sub 4/5, or reach the slot's audio output (noise written to ports 0–7 on the slaves: silence). `Xa9Y` loads nothing (ports 0–7 read back nothing, also with Roland's SAW running in the other slot). Target not visible from the program (delay memory, other DSPs?) | [unknown] |
 
 ### 5.4 Condition word (C)
 
@@ -218,7 +218,10 @@ all of them for some fields ≥ 8 when the condition is false **[measured, unexp
 
 16-bit data address. **[exact]** for 0x0000–0x07FF = bank 0 word index. Prefixes seen in the corpus
 **[inferred, static analysis]**: `02nn`/`04nn`/`06nn` local variables (bank 0), `22nn` mailbox between the main
-program and the slot programs (`2200` = noise source, `2201` pitch, `2221`/`221d`/`2229`/`2225` slot outputs),
+program and the slot programs (`2200` = noise source, `2201` pitch, `2221`/`221d`/`2229`/`2225` slot outputs;
+DCO2 extra inputs **[measured by audio]**: `2209`/`2216` = sync enabled (1 with Cross Mod SYNC or METAL),
+`220a`/`2217` = cross-mod (METAL) enabled, `220b`/`2218` = sync pulse train (one impulse per DCO1 cycle),
+`220c`/`2219` = 0 — written by the main program MAIN2/3, see `CUSTOM_OSC.md` §2),
 `C0nn` parameter block (ramped parameters written by the ARM, read-only for the DSP), `A0nn` bank 5,
 `60e0`/`60f0`/`8400`/`8401` I/O-like addresses in master DSP0/1 routing programs, `84xx`/`a4xx`/`86xx` with
 non-`fe` transfer modes (delay memory?) [unknown].
@@ -354,6 +357,7 @@ transfer observed]**.
 |---|---|
 | two ops in one instruction | both read old values (`1503 3c01 4cc1`: r4 uses old r3), independent of word order |
 | op + store in one instruction | the store writes the **old** register value |
+| program → next program on the same DSP | registers carry over (no reset between the main and slot programs) |
 | op + load in one instruction | the op reads the **old** value; the load result is visible to the next instruction |
 | op and load writing the same register in one instruction | the register received the **sum** (seen once; avoid) |
 | ALU op → next instruction | the result is visible (no latency) |
@@ -525,7 +529,8 @@ time.
 ## 14. Open items (do not emit)
 
 1. Unit-B encodings not listed in §6.3/§6.4; unit-B side effects with D ≥ 8; exact seed table of the reciprocal.
-2. Transfer modes other than `fe` (delay memory, address registers); odd transfer slot fields.
+2. Transfer modes other than `fe` (delay memory, address registers); odd transfer slot fields; the target of the
+   `X9bY` / `Xa9Y` "ports" (tests that ruled things out: §5.3).
 3. Hidden values h4/h5 of A op 0 sub-codes 4/5 and how to set them.
 4. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.
 5. MAC with D ≥ 8; MAC op2 mode 1 (imm16).
