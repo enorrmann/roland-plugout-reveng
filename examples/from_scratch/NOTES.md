@@ -371,7 +371,42 @@ el principal escribe en `[2200]` en cada muestra (lo lee el programa NOISE). Med
   65/72 a 0.000 (ambos slaves); restore → 1.00; las 4 pruebas de b14 por poke (L03) = b14 instalado dentro de 1 %
   (incluida la diferencia entre slaves del op `54`: 1.09 / 1.23).
 
+### ALU `0902 w` decodificada en vivo (2026-10-15) — `re/dspexp/audio/live/`, lotes L10–L25, Q*, R*, V0, O0/O1, W0
+Método: `dsplive.py poke` + sondas de constantes (`live/probe.py`, `probe3.py`): r3 = ruido, constantes exactas
+(`0903 d050 imm16`) en D (destino viejo), X e Y, la operación, +1.0 (conserva el signo) y `r0 *= r3`
+(`0902 0403`) → ganancia − 1 = resultado exacto (±1–2 %). Con ruido solo (r0 = x, r1 = x/2, r2 = x/4, r3 = x/8)
+varias lecturas eran ambiguas (las de la tabla "Confirmado" de arriba con `04c1`, `0081`, `0541` usaban
+registros sin inicializar).
+
+**Palabra de operación** (la cabecera `0902` = clase 0x48 + largo 2):
+| bits | campo |
+|---|---|
+| 15–12 | destino D (r0–r15) |
+| 11–9 | operación (8) |
+| 8–6 | X (r0–r7) |
+| 5–0 | Y (con 5–4 = 00: r0–r15; otros valores: registros que leímos sin inicializar → probablemente r16–r63) |
+
+| op (bits 11–9) | B = bits 11–8 | resultado | sondas (D, X, Y) |
+|---|---|---|---|
+| 0 | 0/1 | **selección** (devuelve exactamente uno de D/X/Y; regla abierta, ver abajo) | |
+| 1 | 2/3 | D + X + Y | (.5,.25,.125) → .87; (.25,.5,−.125) → .62 |
+| 2 | 4/5 | X · Y | .03, −.06 |
+| 3 | 6/7 | D + X · Y | .54, .19 |
+| 4 | 8/9 | Y + X · D | .25, 0 |
+| 5 | a/b | Y − X · D | 0, −.25 |
+| 6 | c/d | X + Y | .375, .375 |
+| 7 | e/f | Y − X | −.125, −.625 |
+Con B impar X es r4–r7: verificado cargando r5 (V0: .88, .53, .25, .375 = lo predicho). Todo coincide con las
+mediciones con ruido (p. ej. `0c81` = r2 + r1, `0cc2` = r3 + r2, `1c01` = r1 = r0 + r1, `3c01` = r3 = r0 + r1).
+* Op 0, datos: `0001`/`0002` (X = r0 = D = .5) → .5; `0041` (X = Y = r1 = .25) → .25; `0081` (X = r2 = .125,
+  Y = r1 = .25) → .125; `0042` (X = r1, Y = r2) → Y en 10 de 10 combinaciones (D, X ∈ {0, ±.25, ±.5}, Y = ±.125).
+  Candidatos: mín/máx por magnitud o comparación con D; falta una sonda con Y > X para X = r1.
+* r2 y r3 parecen valer 1.0 al empezar la ranura cuando nadie los escribe (explica `04c1` = r1 y `0881` = 1.5).
+
 ## Próximos pasos del ISA (para seguir)
+0. Hecho (2026-10-15): formato y 7 de 8 ops de `0902` (sección "ALU `0902 w` decodificada en vivo"). Siguiente:
+   regla de la op 0; Y con bits 5–4 ≠ 0 (¿r16–r63?); `0903`/`0904` con el mismo formato (op + inmediato);
+   clases `0803`, `1503`, `0807`, `1804`… con sondas de constantes.
 1. Lotes de 4 pruebas como `b12`–`b14` (ahora en vivo con `dsplive.py poke`, sin reinstalar) (plantillas `r_*.txt`: r0 = x, r1 = 0.5x por `1430`, una operación, salida
    r0). Siguiente lote propuesto: `1080` sacando r0; `54` con r1 = constante 0.5 y con 0.25; `0902 1c01`
    (suma con destino 1) sacando r1; `0902 0880`/`0881` (op 88).
