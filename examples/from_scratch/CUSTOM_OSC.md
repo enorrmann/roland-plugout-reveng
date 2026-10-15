@@ -202,6 +202,26 @@ cd examples/from_scratch/re && python3 dspown.py notes NAME --notes 36 48 60 69 
   48 kHz / 0.0091667 at 96 kHz as computed, the wrap of 1.25 gives −0.75, and the ring trail of the running program
   shows the phase stepping by 0.0092 per sample.
 
+### 7.1 Lab plugin: write programs live, no reinstall
+
+A live poke only runs completely if the program is not longer than the one registered at install time. The lab
+plugin registers a 2048-word program (`re/dspexp/own/lab_pad.txt`: noise to both voices, padded with no-ops) in the
+DCO2 slot of DSP2 and DSP3, silences DCO1 and carries the master peek (`PEEK`) in region 0:
+
+```bash
+cd examples/from_scratch/re
+O=$PWD/dspexp/own; A=$PWD/dspexp/audio
+DSPLIVE=1 PEEK=1 python3 -c "import dspaudio as da; da.build('dco1_=$A/z_dco1.txt,t0=$O/lab_pad.txt,t1=$O/lab_pad.txt'); da.install()"
+# (then reset work/dsplive/state.json to the lab program, see NOTES.md) and select PLG3 once
+python3 dspown.py load dspexp/own/fold_dco2.txt      # any program <= 2048 words, in seconds
+python3 dspown.py notes NAME --notes 48 69 81           # measure
+python3 dspown.py restore                               # back to the lab program
+```
+
+Verified 2026-10-15: SAW (187 words) and FOLD (352 words) poked live into the lab plugin sound as installed
+(SAW harmonics 1/n; FOLD brightness cycling every ~4 s with the internal LFO). Programs for the lab must use the
+DCO2 addresses (`dspasm.py saw|fold dco2`).
+
 ## 8. Results (2026-10-15, C-SAW with both SAW programs ours)
 
 | note | measured | equal temperament | error | harmonics 1…5 |

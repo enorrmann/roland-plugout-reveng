@@ -33,6 +33,9 @@ TEMPLATES = {
     0x158: 'MTTNRRI*',
 }
 IMMBITS = {1: 16, 2: 24, 3: 32}
+# context condition bits (condition 0 first) tested by C words; default = slave DCO slots (measured by audio)
+CONTEXT_BITS = {'dco': '0011011001100110', 'master_dsp3': '0111111011101110', 'master_dsp4_efdc': '0111101111100111'}
+CONTEXT = 'dco'
 
 
 def raw_value(w):
@@ -131,9 +134,41 @@ def a_op(w, regs, imm, out):
     return f'r{d} = {s}'
 
 
+def sfu(w, regs, imm, out):
+    """unit B, D >= 8 and nibble f: special functions selected by the mode bits (DSP_ISA_SPEC.md §6.4)"""
+    d, mode, y = (w >> 12) - 8, (w >> 4) & 3, w & 15
+    Y = regs[y & 7]
+    import math
+    if mode == 0 and not y & 8:                     # reciprocal seed: r(d) = sign * 2^-e, r(d+1) ~ 1/m (|Y| = 2^e m)
+        if Y:
+            m, e = math.frexp(abs(Y))
+            out[d] = math.copysign(2.0 ** -e, Y)
+            out[(d + 1) & 7] = 1 / m                 # hardware seed is within ~1 %
+        return f'r{d}, r{d + 1} = recip_seed(r{y & 7})'
+    if mode == 1:                                   # exp split: r(d) = e^floor(Y), Y = frac(Y)
+        fl = math.floor(Y)
+        out[d] = math.exp(fl)
+        out[y & 7] = Y - fl
+        return f'r{d} = e^floor(r{y & 7}); r{y & 7} = frac(r{y & 7})'
+    if mode == 2 and y & 8:
+        out[d] = math.copysign(1.0, Y) if Y else 0.0
+        return f'r{d} = sign(r{y & 7})'
+    if mode == 3 and y & 8:
+        out[d] = -1.0 if Y < 0 else 0.0
+        return f'r{d} = -(r{y & 7} < 0)'
+    if mode == 3 and not y & 8:
+        out[d] = float(math.ceil(Y))
+        return f'r{d} = ceil(r{y & 7})'
+    return f'SFU:{w:04x} (r{d}: unknown)'
+
+
 def b_op(w, regs, imm, out):
     """unit B: same word layout; only the ops below are known"""
     d, b, x, mode, y = w >> 12, (w >> 8) & 15, (w >> 6) & 7, (w >> 4) & 3, w & 15
+    if d >= 8 and b == 0xF and (w >> 6) & 3 == 0:     # special-function unit (measured forms only)
+        return sfu(w, regs, imm, out)
+    if d >= 8 and b == 0xF:                          # ff70 / ef75 / ef74 (program start): no visible effect
+        return f'B:{w:04x} (r{d & 7}: no visible effect, program-start form)'
     Y = raw_value(imm.take(mode)) if mode else (-regs[y & 7] if y & 8 else regs[y & 7])
     ys = f'#{Y:.7g}' if mode else ('-' if y & 8 else '') + f'r{y & 7}'
     X = regs[x]
@@ -142,7 +177,7 @@ def b_op(w, regs, imm, out):
         (1, 0x0): (min(X, Y), f'min(r{x}, {ys})'), (1, 0x4): (max(X, Y), f'max(r{x}, {ys})'),
         (1, 0x8): (abs(X), f'|r{x}|'), (1, 0xa): (abs(Y), f'|{ys}|'), (1, 0xe): (Y, ys),
     }
-    k = (d >> 3, b)                      # measured with even b only (X = r1); odd b not measured
+    k = (d >> 3, b & 0xE)                # odd b = same op with X in r4..r7 (measured: d150 d550 e190 e590)
     if k in known:
         out[d & 7], txt = known[k]
         return f'r{d & 7} = {txt}'
@@ -180,12 +215,46 @@ def run(ins, regs, mem=None):
     if t is None:
         raise ValueError(f'unknown template for class {ins[0] >> 5:#x} len {len(ins)}')
     body = ins[1:]
-    imm = Imm([w for w, k in zip(body, t) if k == 'I'])
+    # slot array = every word after the last transfer; the first ones are MAC second words (N), the slots that
+    # a memory transfer (mode fe) points to are references, the remaining slot words are the immediate bit stream
+    # (in order). Transfers with another mode byte do not use a slot. (DSP_ISA_SPEC.md §4.3)
+    last_t = max([i for i, k in enumerate(t) if k == 'T'], default=-1)
+    if last_t >= 0:
+        nN = t.count('M')
+        tail = list(t[last_t + 1:])
+        for i in range(len(tail)):
+            tail[i] = 'N' if i < nN else 'S'
+        t = t[:last_t + 1] + ''.join(tail)
+    slot_words = [w for w, k in zip(body, t) if k in 'NS']
+    used = set()
+    for w, k in zip(body, t):
+        if k == 'T' and (w >> 4) & 0xFF == 0xFE:
+            used.add((w & 15) >> 1)
+    nN = t.count('N')
+    imm_words = [w for i, w in enumerate(slot_words) if i >= nN and i not in used] if last_t >= 0 else \
+        [w for w, k in zip(body, t) if k == 'I']
+    imm = Imm(imm_words)
     out, mem = list(regs), dict(mem or {})
-    slots = [w for w, k in zip(body, t) if k in 'NR']
+    slots = slot_words if last_t >= 0 else [w for w, k in zip(body, t) if k in 'NR']
     n_words = iter([w for w, k in zip(body, t) if k == 'N'])
     text = []
+    # predication: units = ops (A/B/M) then transfers, numbered from 1 in position order (DSP_ISA_SPEC.md §8)
+    units = [i for i, k in enumerate(t) if k in 'ABM'] + [i for i, k in enumerate(t) if k == 'T']
+    bits = CONTEXT_BITS[CONTEXT]
+    skip = set()
     for w, k in zip(body, t):
+        if k == 'C':
+            cc, neg, ua, ub = (w >> 9) & 15, (w >> 8) & 1, (w >> 4) & 15, w & 15
+            cond = (bits[cc] == '1') != bool(neg)
+            u = ua if cond else ub
+            if 1 <= u <= len(units):
+                skip.add(units[u - 1])
+    for pos, (w, k) in enumerate(zip(body, t)):
+        if pos in skip:
+            text.append(f'(skipped by C) {k}:{w:04x}')
+            if k == 'M':
+                next(n_words)
+            continue
         if k == 'A':
             text.append(a_op(w, regs, imm, out))
         elif k == 'M':
@@ -193,7 +262,8 @@ def run(ins, regs, mem=None):
         elif k == 'B':
             text.append(b_op(w, regs, imm, out))
         elif k == 'C':
-            text.append(f'C:{w:04x}')
+            cc, neg, a_, b_ = (w >> 9) & 15, (w >> 8) & 1, (w >> 4) & 15, w & 15
+            text.append(f'C: if {"!" if neg else ""}cond{cc} skip unit {a_ or "-"} else skip unit {b_ or "-"}')
         elif k == 'T':
             reg, slot, mode = w >> 12, (w & 15) >> 1, (w >> 4) & 0xFF
             addr = slots[slot] if slot < len(slots) else None

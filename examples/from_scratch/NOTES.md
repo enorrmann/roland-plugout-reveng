@@ -552,6 +552,33 @@ Documento técnico completo: `CUSTOM_OSC.md`.
   notas 36–96 afinadas dentro de ±1.2 cents, armónicos 1 : 0.50 : 0.33 : 0.25 : 0.20 (diente de sierra ideal).
   Sin anti-aliasing (es un SAW ingenuo) y PULSE (mismo programa con bandera) no está implementado.
 
+### Plugin de laboratorio y condiciones de las ranuras DCO (2026-10-15)
+* **Laboratorio** (sin reinstalar): DSPTEST + DSPLIVE + PEEK, DCO2 de DSP2/DSP3 con un programa registrado de 2048
+  palabras (`re/dspexp/own/lab_pad.txt`), DCO1 en silencio. `dspown.py load prog.txt` carga cualquier programa
+  ≤ 2048 palabras en segundos; probado con el SAW y el FOLD (`CUSTOM_OSC.md` §7.1). Al instalarlo hay que poner
+  `work/dsplive/state.json` en el programa de laboratorio (palabras instaladas = `lab_pad`).
+* **Bits de condición en la ranura DCO2 de los slaves** (por audio: ruido × suma de pesos 1/2..1/16 de 4
+  condiciones por camino, dos instalaciones rotando condiciones entre DSP y voz, `dspasm.cond_probe`): verdaderas
+  2 3 5 6 9 10 13 14 (`0011011001100110`), iguales en DSP2/DSP3 y voz A/B. Verificado antes el método en el DSP3 del
+  maestro (0.4375 / 0.875 exactos).
+* Plantillas: corregida la regla de ranuras (todo lo que sigue a las transferencias es arreglo de ranuras; las w2 de
+  MAC primero; referencias = las ranuras que apunta una transferencia `fe`; el resto = inmediatos; las
+  transferencias con otro modo no usan ranura). El SAW de Roland pasa de 225 a 239 instrucciones decodificadas; quedan
+  C (32 + 6 con modo de transferencia), B (24) y modos de transferencia (20).
+
+### SAW de Roland al 90 % (2026-10-15) — `re/dspcsweep.py`, `re/dspcondsnap.py`, `re/dspisa.py`
+* Palabras C decodificadas (barridos completos de 256 valores en 3 clases): byte alto = condición + negación; bits
+  7–4 = unidad que se saltea si la condición es verdadera, bits 3–0 = si es falsa; unidades = ops y luego
+  transferencias, numeradas desde 1. `dspisa` ya aplica la predicación con los bits de contexto (DCO por defecto).
+* Unidad B: con B impar X va de r4 a r7 (las clamp 0..1 de Roland); unidad de funciones especiales (D ≥ 8, nibble
+  f): semilla de recíproco (`cf06`, luego Goldschmidt), separación exponencial (`8f19`: e^⌊x⌋ y frac), signo,
+  máscara de negativo, techo.
+* Resultado: el SAW de Roland pasa de 225 a **291 de 325 instrucciones decodificadas**. Faltan las transferencias
+  `X9bY` (26 instrucciones) y las formas de inicio `ef75`/`ef74`. Las `X9bY` no cambian r0–r7, ni los bits de
+  condición, ni lo que leen las cargas `fe` después, y `Xa9Y` no lee lo que escribieron: hablan con algo que el
+  programa no ve (memoria de retardo, bus de audio). Próximo método: observarlas por audio en los slaves (laboratorio)
+  o buscar en el código ARM (`s_boot`/`m1_tcm`) qué registros de hardware se configuran para esos puertos.
+
 ## Próximos pasos del ISA (para seguir)
 Referencia limpia de lo establecido: `DSP_ISA.md` (resumen) y `DSP_ISA_SPEC.md` (especificación técnica para
 ensamblador/compilador: formatos de bits, 118 plantillas, inmediatos, semántica de ejecución medida — ops de una

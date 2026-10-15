@@ -111,9 +111,13 @@ unidentified word) inside the slot area — see the notes in §12.
 
 ### 4.3 Slot array
 
-The **slot array** starts at the first position after the last `T`. Slot k = (k+1)-th word of that array.
-**N words are slots too**: a MAC second word occupies slot 0 (and 1, …, one per M) and the references follow
-**[exact]**. A transfer addresses slot `Y >> 1` (§5.3). Example: `2b09 2c8f 6fe2 7fe4 5983 0407 0403 a2aa aa00`
+The **slot array** = every word after the last `T`. Slot k = (k+1)-th word of that array. **N words come first**
+(one per M). Among the remaining slots, the ones a memory transfer (mode `fe`) points to are **references**; the
+ones nobody points to are the **immediate bit stream**, in order **[exact on the corpus: every decoding
+inconsistency of the earlier "R then I" rule disappears]**. Transfers with another mode byte do not use a slot.
+Example: `1805 5550 6fe2 7000 0219` = A(5550, imm16) T(6fe2: slot 1) | slot 0 = `7000` (the imm16 = 256),
+slot 1 = `0219` (reference). In §12 the `R`/`I` letters after the transfers are therefore only the layout of the
+most frequent instance; an assembler places references and immediates by this rule. A transfer addresses slot `Y >> 1` (§5.3). Example: `2b09 2c8f 6fe2 7fe4 5983 0407 0403 a2aa aa00`
 = M(2c8f) T(6fe2: slot 1) T(7fe4: slot 2) | slot 0 = N(5983), slot 1 = R(0407), slot 2 = R(0403) | I(a2aa aa00).
 
 ### 4.4 Immediates
@@ -191,28 +195,24 @@ w2:  Z[15:12]  op2[11:9]  C[8:6]  mW[5:4]  W[3:0]
 |---|---|---|
 | `fe` `ff` `3e` `0e` `10` `12` | same address as `fe` | [measured] (use `fe`) |
 | `e0` `e1` `db` `ed` `be` `8e` `ee` `de` `ce` `7e` `fc` `fd` `f0` | other memory (reads 0 where `fe` reads the word; writes not found in banks 0/1/2/4/5) | [unknown] |
-| `9b` `a9` `9e` | no data register loaded (address register?) | [unknown] |
+| `9b` `a9` `9e` | no data register loaded. `X9bY` (write r(X−8) to "port" Y; Roland uses Y = 1–3) does **not** change r0–r7, the condition bits, or what `fe` loads read afterwards; `Xa9Y` does not read back what `X9bY` wrote. They talk to something not visible from the program (delay memory, audio bus?) | [unknown] |
 
 ### 5.4 Condition word (C)
 
 ```
- 15        8  7      0
-+------------+--------+
-| condition  | target |
-+------------+--------+
-condition = cc[4:1] neg[0]   (cc = one of 16 context condition bits, neg = invert)
+ 15         9  8     7     4  3     0
++-------------+-----+--------+--------+
+|  cc (4 bits) | neg |  skipT |  skipF |
++-------------+-----+--------+--------+
+cond = context_bit[cc] XOR neg
+if cond: unit skipT does not execute, else unit skipF does not execute  (0 / out of range: none)
 ```
 
-| target byte | effect | status |
-|---|---|---|
-| `x10` | op 1 of the instruction runs only if NOT (condition) | [measured] |
-| `x11` | op 1 runs only if (condition) | [measured] |
-| `x12` | op 2 runs only if (condition) | [measured] |
-| `x00`, `x18`, `x30` | no predication | [measured] |
-| others | [unknown] | |
-
-"op 1 / op 2" = the first / second A/B op of the instruction. The exact sense of the target codes is from a few
-cases; verify before relying on it.
+**Units** are numbered from 1 in position order: first the ops (A, B, M), then the transfers **[measured, classes
+0x0B8, 0x168, 0x2F0 (incl. a transfer as unit 3): full 256-value sweeps on master DSP3]**. `x12` = "skip op 1 if
+true, op 2 if false" is a select between two results written to the same register (`2d06 1050 1052 0e12 3000 0000`).
+Class 0x570 (three ops + transfer) follows the same rule for fields 1–3 but skips **all** ops for field 0 and runs
+all of them for some fields ≥ 8 when the condition is false **[measured, unexplained]**.
 
 ### 5.5 Reference word (R)
 
@@ -265,26 +265,37 @@ SAW oscillator) after an initial estimate.
 
 ### 6.3 Unit B
 
-Same word layout. Known encodings (D < 8, even "B" nibble, i.e. X = bits 7–6 with X[2] = 0) **[exact]**:
+Same word layout. **[exact unless noted]**
 
-| word pattern | rD ← |
+| word form | rD ← |
 |---|---|
-| `D c X Y`  (op 6) | \|rX\| + Y |
-| `D e X Y`  (op 7) | Y − \|rX\| |
+| `D c X Y` (op 6, D < 8) | \|rX\| + Y |
+| `D e X Y` (op 7, D < 8) | Y − \|rX\| |
+| D = 8+d, op 0 | min(rX, Y) |
+| D = 8+d, op 2 | max(rX, Y) |
+| D = 8+d, op 4 | \|rX\| |
+| D = 8+d, op 5 | \|Y\| |
+| D = 8+d, op 7 (nibble e) | Y |
 
-D = 8+d (writes rd):
+X is 3 bits: the "B" nibble's low bit is X[2], so odd nibbles are the same ops with X in r4–r7 (measured
+`d150` = min(r5, imm 1.0), `d550` = max(r5, 0), `e590` = max(r6, 0), `e190` = min(r6, 1.0): Roland's
+`clamp(x, 0, 1)`). Y may be an immediate (mode bits). The ops with D < 8 and op 0–5 return sign-dependent results with
+an unidentified format for negatives (`7ffxxxxx`) **[unknown]**. Some D ≥ 8 forms also change other registers.
 
-| op | rd ← |
-|---|---|
-| 0 | min(rX, Y) |
-| 2 | max(rX, Y) |
-| 4 | \|rX\| |
-| 5 | \|Y\| |
-| 7 | Y |
+### 6.4 Special-function unit (unit B, D = 8+d, nibble `f`, bits 7–6 = 00)
 
-Unit-B ops with D ≥ 8 can also change **other** registers (`0a02 cc42` also sets r2 = −1; `0a02 cf06` sets
-r4 = 1, r5 = 1.1377) **[measured]**. Every other unit-B encoding (ops 0–5 with D < 8, odd X[2]) returns
-sign-dependent results with an unidentified number format for negative results (`7ffxxxxx`) **[unknown]**.
+Selected by the mode bits (5–4) and Y bit 3; Y register = Y & 7. **[measured, random inputs]**
+
+| mode | Y bit 3 | function | example |
+|---|---|---|---|
+| 00 | 0 | **reciprocal seed**: \|Y\| = 2^e·m (m in [0.5, 1)): r(d) ← sign(Y)·2^−e, r(d+1) ← ≈ 1/m (within ~1 %) | `cf06`: r4, r5 from r6; refined by three `0902 4086` Goldschmidt steps |
+| 01 | (1) | **exp split**: r(d) ← e^⌊Y⌋, rY ← Y − ⌊Y⌋ | `8f19`: r0 = e^⌊r1⌋, r1 = frac(r1); Roland then evaluates e^frac by Horner |
+| 10 | 1 | sign: r(d) ← ±1 | `8f29` |
+| 11 | 1 | negative mask: r(d) ← −1 if Y < 0 else 0 | `8f39` |
+| 11 | 0 | ceiling: r(d) ← ⌈Y⌉ | `cf36` |
+| 00 | 1, 10/0, 01/0 | other functions writing several registers | `8f09`, `cf26`, `cf16` **[unknown]** |
+
+`ff70`, `ef75`, `ef74` (bits 7–6 = 01; program start) have no visible effect on r0–r7.
 
 ## 7. MAC semantics **[exact on the measured cases]**
 
@@ -315,6 +326,7 @@ A C word enables/disables an A/B op of its instruction according to one of 16 **
 |---|---|
 | master DSP3 main program | `0111111011101110` |
 | master DSP4 slot 0xEFDC | `0111101111100111` |
+| slave DSP2 and DSP3, DCO2 slot (both voices) | `0011011001100110` (true: 2 3 5 6 9 10 13 14) — measured by audio, two installs with the bits rotated over DSP and voice |
 
 Consequences for a compiler: C words specialise code per context (e.g. per slot / voice); they are **not** a
 data-dependent branch or select. Data-dependent choices must be built from min / max / |x| (unit B) and
@@ -512,7 +524,7 @@ time.
 
 ## 14. Open items (do not emit)
 
-1. Unit-B encodings not listed in §6.3; unit-B side effects with D ≥ 8.
+1. Unit-B encodings not listed in §6.3/§6.4; unit-B side effects with D ≥ 8; exact seed table of the reciprocal.
 2. Transfer modes other than `fe` (delay memory, address registers); odd transfer slot fields.
 3. Hidden values h4/h5 of A op 0 sub-codes 4/5 and how to set them.
 4. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.

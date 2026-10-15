@@ -194,6 +194,25 @@ def fold(slot, fs=96000.0, lfo_hz=0.25, gmin=1.0, gmax=4.5, level=0.9):
     return P
 
 
+def cond_probe(path_conds, weights=(0.5, 0.25, 0.125, 0.0625)):
+    """DCO2 test program (DSPTEST bench, re/dspaudio.py): for voice A (outputs [2221] [221d]) and B ([2229] [2225])
+    out = noise[2200] * sum(w_j for the context conditions k_j that hold). path_conds = (conds_A, conds_B).
+    Predication: `2d06 2050 1052 <2k>12 0000 <w>`: op 1 r2 = 0 (always), op 2 r1 = w only if condition k."""
+    P = [[0x0A02, 0xFF70]]
+    for conds, outs in zip(path_conds, ((0x2221, 0x221D), (0x2229, 0x2225))):
+        P.append(a('move', 4, imm=0.0, bits=16))                      # acc = 0
+        for k, wgt in zip(conds, weights):
+            P += [a('move', 1, imm=0.0, bits=16),
+                  [0x168 << 5 | 6, 0x2050, 0x1052, (2 * k) << 8 | 0x12, 0x0000, raw(wgt) >> 16],
+                  a('add', 4, 1, 4)]                                  # acc += r1
+        P += [ld(0, 0x2200), [0x0001], a('mul', 0, 0, 4), st(0, outs[0]), st(0, outs[1])]
+    P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
+    for ins in P:
+        if dspisa.template(ins) is None:
+            raise AssertionError(f'no template for {ins}')
+    return P
+
+
 def text(P, comment=''):
     return (f'# {comment}\n' if comment else '') + '\n'.join(' '.join(f'{w:04x}' for w in ins) for ins in P) + '\n'
 
@@ -202,8 +221,12 @@ def simulate(words, pitch, n, slot='dco2'):
     """run the program n times (one execution per sample) in dspisa; returns the voice A outputs"""
     ins_list = [ins for _, ins in __import__('dspdis').instructions(words)]
     mem = {SLOTS[slot]['A'][0]: pitch, SLOTS[slot]['B'][0]: pitch}
+    ring = [SLOTS[slot][v][2] for v in 'AB'] + [FOLD_SLOTS.get(slot, {}).get(v, (0, 0, 0, None))[3] for v in 'AB']
     out = []
     for _ in range(n):
+        for st_ in ring:                      # ring memory: what was stored at S is read at S + 1 next sample
+            if st_ is not None and st_ in mem:
+                mem[st_ + 1] = mem[st_]
         regs = [0.0] * 8
         for ins in ins_list:
             if tuple(ins) in ((0x0A02, 0xFF70), (0x0B02, 0x00F8), (0x0001,)):
