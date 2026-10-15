@@ -22,15 +22,15 @@ Everything here comes from **measurements on the hardware** (exact register/memo
 |---|---|---|
 | r0–r7 | 8 data registers, RAW number format (§2). The only registers transfers can load/store. | [exact] |
 | hidden state | at least two hidden values read by A op 0 sub-codes 4/5 (§6.2); per execution context | [unknown] |
-| bank 0 (DT0) | data memory, 0x800 32-bit words per DSP, addressed by reference words 0x0000–0x07FF (§9) | [exact] |
+| bank 0 (DT0) | data memory, 0x800 32-bit words per DSP, a **ring** addressed relative to a pointer that advances every sample (§9) | [measured] |
 | other memories | bank 1/2/4/5, parameter block, mailbox, delay memory: reached with other reference prefixes / transfer modes | [inferred] / [unknown] |
 | condition bits | 16 static bits per execution context, tested by C words (§8) | [measured] |
 | program memory | per DSP, ARM address 0x41480000 + n·0x100000 + slot byte address | [exact] |
 
-A **program** runs from its first word to its end instruction once per *execution*. Execution rate depends on the
-context: slave oscillator slots run at the sample rate; master DSP3 main program runs once per 1024-sample block
-(46.9/s); master DSP4 slot 0xEFDC (a control task shared with other tasks) ≈ 4000/s. Registers do **not** survive
-between executions in a shared context (other tasks use them); bank-0 memory does persist **[measured]**.
+A **program** runs from its first word to its end instruction once per sample. **The DSP sample rate is 96 kHz**
+(measured: ~96 000 executions/s on master DSP3; an oscillator computed with fs = 96 000 is in tune within ±1.2
+cents on the slaves) **[measured]**. Registers do **not** survive between executions where other programs share the
+DSP (they use the same registers); persistent state must live in memory (§9).
 
 ## 2. Number format (RAW)
 
@@ -325,7 +325,14 @@ transfer observed]**.
 
 * Load: `rR ← mem[slot]`; store: `mem[slot] ← r(R−8)` with mode `fe` **[exact]**.
 * Up to 6 transfers per instruction (classes 0x060…0x722) **[exact]**.
-* Memory persists between executions in a private context **[measured]**.
+* **Ring addressing [measured]**: a reference R addresses physical word (R + ptr) mod ring, and ptr moves by one
+  word every sample. Within one sample, a value stored at R is read back at R. **A value stored at R is read at R + 1
+  in the next sample** (R + k after k samples). This is how state and delay lines work: to keep a variable from one
+  sample to the next, load it from S + 1 and store it to S. Loading from S reads the value stored at S − 1 one sample
+  ago (on master DSP3, a counter loaded from S and stored to S did not accumulate; loaded from S + 1 it counted
+  96 000 times per second). Verified on master DSP3 and by the oscillator on the slave DCO slots.
+* Consequence for observation: the ARM sees physical words; a value stored every sample leaves a trail over the
+  whole bank (2048 words in < 0.4 s).
 * Bank 0 can be read by the ARM (RAW view) but ARM writes to bank 0 do not stay; bank 5 is ARM-writable
   **[measured]**.
 
@@ -337,8 +344,9 @@ transfer observed]**.
 | op + store in one instruction | the store writes the **old** register value |
 | op + load in one instruction | the op reads the **old** value; the load result is visible to the next instruction |
 | op and load writing the same register in one instruction | the register received the **sum** (seen once; avoid) |
-| consecutive instructions | no visible latency: an instruction sees the previous instruction's results (op or load) |
-| load right after a store | (hypothesis, not reproduced) may return the stored word; avoid relying on it |
+| ALU op → next instruction | the result is visible (no latency) |
+| **load → ALU op** | **one instruction of latency**: an op in the instruction right after the load still sees the old register; from the second instruction on it sees the loaded value (a no-op or any unrelated instruction in between is enough) |
+| load → store of the loaded register | not characterised; keep one instruction in between |
 
 ## 11. Encoding examples
 
@@ -352,6 +360,11 @@ transfer observed]**.
 5. `r0 ← r1 + r2·(r0 − r1)`: MAC, template `MN` (0x040): w1 D=0 op1=6 X=0 mY=0 Y=r2 (corpus uses `0c0a`);
    w2 Z=−r1 (`9`), op2=001, C=r2, mW=0, W=r1 → `9281` → `0803 0c0a 9281`.
 6. `r3 ← |r1| + r2` (unit B): template `B` (class 0x050), word D=3 op=6 X=1 Y=2 → `3c42` → `0a02 3c42`.
+
+7. A complete program: `re/dspasm.py saw dco2` generates our own naive SAW for the DCO2 slot (pitch in `[2207]` /
+   `[2214]`, `f = 440·2^(p − 4.75)`, fs 96 kHz, 2^x by Taylor + 4 squarings, phase kept in the ring (load S + 1,
+   store S), wrap without branches: q = max(phase − 1, 0), four times q = min(256·q, 1), phase −= 2q). Installed
+   in the C-SAW PLUG-OUT it is in tune within ±1.2 cents from note 36 to 96, harmonics 1/n.
 
 ## 12. Template table (all classes of the corpus)
 
@@ -486,10 +499,13 @@ from the resolver's fallback and should be re-checked before an assembler emits 
 
 `re/dsppeek.py` (PLUG-OUT region 0 built with `-DPEEK`: MIDI pitch bend + CC1 in, SysEx out) lets the PC write
 any master memory and read it back. `re/dspmaster.py` loads a test program into a context (`DSPCTX=dsp3`: the idle
-master DSP3 main program, default; `efdc`: master DSP4 slot 0xEFDC), the original is saved and restored
+master DSP3 main program, default; `efdc`: master DSP4 slot 0xEFDC, shared with the global effects — writing its
+data memory once silenced the whole instrument until a power cycle), the original is saved and restored
 (`dspmaster.py --restore` repairs an interrupted run). `re/dspprobe.py` sets r0..r7, runs instruction lines and
-stores r0..r7 to bank 0 [0780..0787], which is read back (majority of 7 reads; single reads occasionally return 0
-or `4ea5f810`). `re/dspfit.py`, `re/dspclass.py`, `re/dspnlfit.py` fit exact formulas over random operands;
+stores r0..r7 to bank 0 [0780..0787], which is read back (majority of 7 reads). Because bank 0 is a ring (§9),
+the stored values leave a trail and the ARM read returns the value stored at some recent sample: fine for constant
+results, but measuring a value that changes per sample needs a coherent 16-word read (the ring rotates ~10 µs per
+word) or a read-back through memory the program itself maintains. `re/dspfit.py`, `re/dspclass.py`, `re/dspnlfit.py` fit exact formulas over random operands;
 `re/dspslots.py` maps template positions; `re/dsptemplates.py` builds §12. Only one tool may use the MIDI port at a
 time.
 
@@ -502,3 +518,5 @@ time.
 5. MAC with D ≥ 8; MAC op2 mode 1 (imm16).
 6. A op D ≥ 8 inside multi-op classes.
 7. Classes not present in the corpus.
+8. Ring size per DSP / context, and whether some reference ranges (mailbox `22nn`, parameters `C0nn`) bypass the
+   ring.

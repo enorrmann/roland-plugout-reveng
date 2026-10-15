@@ -75,7 +75,7 @@ cambio sí puede llamar a los servicios del slave (`0x0113FC00`). Cada slave cor
 
 | Dirección (DSP n = 0..5) | Contenido | ARM puede |
 |---|---|---|
-| `0x41400000 + n·0x100000` (+`0x2000` SD31, +`0x4000` RAW) | banco 0 (DT0): RAM de datos del programa (refs `02nn`/`04nn`/`06nn`) | leer (escribir no queda) |
+| `0x41400000 + n·0x100000` (+`0x2000` SD31, +`0x4000` RAW) | banco 0 (DT0): RAM de datos del programa (refs `02nn`/`04nn`/`06nn`), un **anillo** que rota una palabra por muestra (los DSP corren a 96 kHz) | leer (escribir no queda) |
 | `0x41480000 + n·0x100000` | **memoria de programa** (+ dirección de ranura en bytes) | leer y escribir (stores de 32 bits) |
 | `0x41104318 + n·0x1000` | control y bit de tarea de cada ranura | escribir |
 | `0x41114000 + n·0x4000` | banco 5 / DPC (refs `A0nn`, `+0xB0`) | leer y escribir |
@@ -91,7 +91,7 @@ cambio sí puede llamar a los servicios del slave (`0x0113FC00`). Cada slave cor
 | `re/dsplive.py` | PC + engine `-DDSPLIVE` en los **slaves** | escribe en vivo la memoria de programa de DSP2/DSP3 de los slaves (pitch bend + CC1 → ids `0x465`/`0x467` → engine) | ISA por audio sin reinstalar |
 | `re/dsppeek.py` | PC + región 0 `-DPEEK` en el **maestro** (core 0) | lee y escribe memoria **del maestro** en vivo, incluidos sus DSP; responde por SysEx | valores exactos de registros (DSP del maestro) |
 
-| `re/dspmaster.py`, `re/dspprobe.py`, `re/dspfit.py`, `re/dspclass.py`, `re/dspslots.py`, `re/dspcount.py` | PC + región 0 `-DPEEK` | programas de prueba en la ranura `0xEFDC` del **DSP4 del maestro** (una tarea de control, ~4 000 ejecuciones/s, comparte el DSP con otras), resultados leídos de DT0 | ISA exacto (`examples/from_scratch/DSP_ISA.md`) |
+| `re/dspmaster.py`, `re/dspprobe.py`, `re/dspfit.py`, `re/dspclass.py`, `re/dspslots.py`, `re/dspcount.py` | PC + región 0 `-DPEEK` | programas de prueba en el **DSP3 del maestro** (ocioso; por defecto) o en la ranura `0xEFDC` del DSP4 (compartida con los efectos: tocarla puede silenciar la salida hasta reiniciar), resultados leídos de DT0 | ISA exacto (`examples/from_scratch/DSP_ISA.md`) |
 | `re/dspisa.py` | PC | nada (decodificador / desensamblador / simulador con `re/dsp_templates.txt`) | leer el microcódigo de Roland |
 
 La distinción importante: **dsplive** actúa en los DSP de los **slaves** (voces, se observan por audio) y

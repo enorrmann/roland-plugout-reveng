@@ -147,9 +147,8 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
 ## 9. Open
 
 1. What sets the 16 context condition bits (ARM side); the second word of C instructions in the slot array.
-2. Memory between executions: on master DSP3 (private, runs once per 1024-sample block, 46.9/s) memory persists
-   and a counter accumulates; on DSP4 slot `0xEFDC` (shared task, ~4 000 runs/s) it did not. Load latency /
-   load-after-store effects: **hypothesis**, not settled.
+2. (solved) The DSP runs at 96 kHz; data memory is a ring (state: load S + 1, store S); a load has one instruction
+   of latency. See `DSP_ISA_SPEC.md` §9–§10.
 3. Unit B ops returning `7ffxxxxx`; odd B nibbles; hidden values of A op 0 sub 4/5; D ≥ 8 inside multi-op classes.
 4. Transfer modes other than `fe`.
 

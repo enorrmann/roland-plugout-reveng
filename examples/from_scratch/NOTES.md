@@ -514,6 +514,8 @@ transferencia; el `fe` de `XfeY` son bits de modo). No parece un campo de bits s
   recién escrito. Salió de una sola prueba; el programa "bueno" después tampoco acumuló, así que puede ser otra cosa.
 * Acumular en memoria entre ejecuciones (`r2 <- [07a1]; r2 += 2^-16; [07a1] <- r2`) **no funcionó de forma
   reproducible**: una vez la dirección `07a1` crecía (~4 000 incrementos/s), pero el mismo programa después quedó fijo.
+  **Explicado después**: la memoria es un anillo (lo guardado en S se lee en S + 1 la muestra siguiente) y las
+  cargas tienen una instrucción de latencia (sección "SAW propio").
   Probables causas: otras tareas del DSP4 (la ranura `0xEFDC` parece una tarea de control) usan los mismos
   registros/memoria entre ejecuciones, o la memoria se direcciona con un puntero que avanza (líneas de retardo).
   Para estudiarlo hace falta una ranura/DSP propio sin otras tareas (p. ej. el engine en los slaves con `dsplive`,
@@ -522,11 +524,32 @@ transferencia; el `fe` de `XfeY` son bits de modo). No parece un campo de bits s
 ### Contexto limpio: DSP3 del maestro; condiciones C = bits de contexto (2026-10-15) — `re/dspcond.py`
 * El DSP3 del maestro está ocioso (programa principal `0001 0001 0b03 0080 7fee 0001`, fin distinto de las
   ranuras). `dspmaster.Session` usa ahí su programa principal (`DSPCTX=dsp3`, por defecto; `efdc` = la tarea del
-  DSP4). Corre una vez por bloque de 1024 muestras (46.9/s); la memoria persiste y un contador acumula.
+  DSP4). ~~Corre una vez por bloque de 1024 muestras (46.9/s)~~ **Corrección**: corre a **96 kHz** como todo
+  programa; el 46.9/s era 96 000/2048 ≈ un contador que sólo se reencontraba con su valor una vez por vuelta del
+  anillo (ver "SAW propio" abajo).
 * En el DSP3 la predicación es estable. Palabra C: byte bajo = a qué op (`x10`/`x11` op 1, `x12` op 2), byte alto =
   condición (bit 0 niega, bits 4–1 = una de 16). Las 16 condiciones **no son banderas**: ninguna op A/B las cambia
   y no varían en el tiempo; difieren por contexto (DSP3 `0111111011101110`, DSP4 `0xEFDC` `0111101111100111`).
   Lo de "varía en el tiempo" del DSP4 era ruido de lectura + tareas compartidas.
+
+## SAW propio, primer microcódigo nuestro (2026-10-15) — `re/dspasm.py`, `re/dspown.py`, `re/dspexp/own/`
+* `re/dspasm.py`: ensamblador mínimo del subconjunto establecido (ops A, min/max de B, cargas/guardados, inmediatos
+  16/32) que valida cada instrucción con `dspisa`; `saw dco1|dco2` genera el oscilador. `dspown.py`: carga en vivo
+  (sólo sirve si el programa registrado tiene el mismo tamaño) y mide notas por audio (pico del espectro).
+* Algoritmo: p de `[2201]`/`[220e]` (DCO1) o `[2207]`/`[2214]` (DCO2), f = 440·2^(p − 4.75); 2^x = (e^(x·ln2/16))^16
+  con Taylor de grado 4; incremento = 2f/96000; fase en [−1, 1) guardada en el anillo; vuelta sin saltos:
+  q = max(fase − 1, 0), 4 × q = min(256·q, 1) (queda 0 ó 1 exacto), fase −= 2q; salida = fase en las dos
+  salidas de la voz. 187 palabras por ranura.
+* Lo que hubo que descubrir en el camino (todo medido en el DSP3 del maestro, peek exacto):
+  1. **El DSP corre a 96 kHz** (no 48): ~96 000 ejecuciones/s.
+  2. **La memoria de datos es un anillo**: una referencia R apunta a (R + puntero) y el puntero avanza una palabra por
+     muestra; lo guardado en R se lee en R + 1 a la muestra siguiente. Estado persistente: cargar de S + 1, guardar
+     en S. (Lo que antes parecía "memoria compartida/no reproducible" y el rastro que llenaba todo el banco era esto.)
+  3. **Latencia de carga de una instrucción**: una op justo después de la carga ve el registro viejo.
+  4. El poke en vivo de un programa más largo que el registrado no corre entero: hay que instalarlo.
+* Resultado en el equipo (C-SAW con `MC_TEST=dco1_saw=…,dco2_saw=…`, patch INIT, DCO-1 SAW, Mod Sens bajo):
+  notas 36–96 afinadas dentro de ±1.2 cents, armónicos 1 : 0.50 : 0.33 : 0.25 : 0.20 (diente de sierra ideal).
+  Sin anti-aliasing (es un SAW ingenuo) y PULSE (mismo programa con bandera) no está implementado.
 
 ## Próximos pasos del ISA (para seguir)
 Referencia limpia de lo establecido: `DSP_ISA.md` (resumen) y `DSP_ISA_SPEC.md` (especificación técnica para
