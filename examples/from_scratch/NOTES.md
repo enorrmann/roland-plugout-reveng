@@ -401,6 +401,17 @@ mediciones con ruido (p. ej. `0c81` = r2 + r1, `0cc2` = r3 + r2, `1c01` = r1 = r
 * Op 0, datos: `0001`/`0002` (X = r0 = D = .5) → .5; `0041` (X = Y = r1 = .25) → .25; `0081` (X = r2 = .125,
   Y = r1 = .25) → .125; `0042` (X = r1, Y = r2) → Y en 10 de 10 combinaciones (D, X ∈ {0, ±.25, ±.5}, Y = ±.125).
   Candidatos: mín/máx por magnitud o comparación con D; falta una sonda con Y > X para X = r1.
+* **Modo de Y (bits 5–4)**: 00 = registro; 01 = inmediato de 16 bits (`0903 d050 imm16` = op 0 sub 1 "Y" → rd = imm;
+  `0903 d41s` = X·imm16); 11 = inmediato de 32 bits (`0904 1430 imm32` = op 2, r1 = r0·imm). Sin inmediato (`0902`)
+  Y vale 0 (de ahí las "sumas que no suman" de L12–L19).
+* **Op 0**: X es un sub-código, no un registro (cargar r2/r4/r5 no cambia nada): 0 → D, 1 → Y (copia), 3 → D,
+  2 → ≈ D·0.27, 5/6/7 → ≈ D + Y, 4 → ≈ D + Y + 0.92. Poco usada en el corpus (8× `0040`).
+* **Clase 0x40 (`08xx`)**: NO son dos palabras `0902`. `0803 0c01 0000` (r0=.5, r1=.25, r2=.125) → r0 = 3·r0
+  (5 conjuntos de valores). Barrido de bits (F0–F7): en w2 los bits 3–0 y 15–12 son dos registros-operando más
+  (1 → r1, 2 → r2: 1.25, 1.125), bits 5–4 anulan un operando (→ 1.0), bits 11–9 cambian la operación
+  (.89/.64/.66), bits 8–6 sin efecto aquí; w1 se parece a la palabra ALU (D en 15–12: 1c01/2c01/4c01 dejan r0;
+  X en 8–6: 0c41 → 1.25, 0c81 → 1.125) pero su Y casi no influye (sólo `0c09` → 1.12). Hipótesis: operación de
+  3–4 entradas (suma/MAC) con el resto de operandos en w2. Sigue.
 * r2 y r3 parecen valer 1.0 al empezar la ranura cuando nadie los escribe (explica `04c1` = r1 y `0881` = 1.5).
 
 ## Próximos pasos del ISA (para seguir)
