@@ -102,24 +102,31 @@ address registers / delay-line access). Reference words: `02nn`/`04nn`/`06nn` lo
 
 ## 8. Condition words (C)
 
-C words alone change nothing; they **select** between alternative results of the A/B ops in the same
-instruction (`2d06 1050 1052 Cw 3000 0000`: r1 = 1.0 or 0). `1b10` always takes the first, `1a10` always the
-second. For `0e12`, `0e10`, `1312`, `0b12` the choice **varies over time with identical inputs** (and changes
-with the B op before): the condition source is **not decoded** (sample/sub-sample counter? flags of other
-tasks?).
+*(measured on master DSP3, a context no other task shares, and on DSP4 slot `0xEFDC`)*
+* A C word predicates the A/B ops of its instruction. Low byte = which op and how (`x10`, `x11` → op 1,
+  `x12` → op 2; `x00`, `x18`, `x30` → none). High byte = condition code: **bit 0 negates**, bits 4–1 select
+  **one of 16 conditions**.
+* The 16 conditions are **static context bits**, not result flags: no A or B op changed them, they do not change over
+  time, and they differ per context: DSP3 main program `0111111011101110`, DSP4 slot `0xEFDC` `0111101111100111`
+  (condition 0 first). Probably set per task by the ARM (the OS program swap takes a "task" argument, 2 or 3).
+  Roland's code uses them to specialise shared code per slot / voice; **data-dependent choices use min / max / abs
+  (unit B)**, not C.
+* The earlier "varies over time" on DSP4 came from reads with a zeroed word and from other tasks; with a private
+  context the result is stable.
 
 ## 9. Open
 
-1. Source of the C conditions; the second word of C instructions in the slot array.
-2. Memory between executions on master DSP4 slot `0xEFDC`: accumulating in memory was not reproducible (a task that
-   shares DSP4 with others, ~4 000 runs/s). Possible load-after-store pipeline effect: **hypothesis**.
+1. What sets the 16 context condition bits (ARM side); the second word of C instructions in the slot array.
+2. Memory between executions: on master DSP3 (private, runs once per 1024-sample block, 46.9/s) memory persists
+   and a counter accumulates; on DSP4 slot `0xEFDC` (shared task, ~4 000 runs/s) it did not. Load latency /
+   load-after-store effects: **hypothesis**, not settled.
 3. Unit B ops returning `7ffxxxxx`; odd B nibbles; hidden values of A op 0 sub 4/5; D ≥ 8 inside multi-op classes.
 4. Transfer modes other than `fe`.
 
 ## Method
 
 `re/dsppeek.py` (region 0 `-DPEEK`, MIDI CC1 + pitch bend in, SysEx out) writes test programs into master DSP4
-slot `0xEFDC` (`re/dspmaster.py`, original restored; `--restore` repairs a killed run) and reads bank 0 (RAW
+slot `0xEFDC` (`re/dspmaster.py`; context `DSPCTX=dsp3` (default: master DSP3 main program, private) or `efdc`; original restored; `--restore` repairs a killed run) and reads bank 0 (RAW
 view, majority of 7 reads). `re/dspprobe.py` (fixed registers), `re/dspfit.py` / `re/dspclass.py` /
 `re/dspnlfit.py` (random registers, exact smallest-formula search), `re/dspslots.py` (template positions),
 `re/dsptemplates.py` (templates). Only one tool may use the MIDI port at a time.

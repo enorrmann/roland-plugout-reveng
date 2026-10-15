@@ -519,11 +519,19 @@ transferencia; el `fe` de `XfeY` son bits de modo). No parece un campo de bits s
   Para estudiarlo hace falta una ranura/DSP propio sin otras tareas (p. ej. el engine en los slaves con `dsplive`,
   observando por audio) o mapear qué zonas de DT0 usan las demás tareas.
 
+### Contexto limpio: DSP3 del maestro; condiciones C = bits de contexto (2026-10-15) — `re/dspcond.py`
+* El DSP3 del maestro está ocioso (programa principal `0001 0001 0b03 0080 7fee 0001`, fin distinto de las
+  ranuras). `dspmaster.Session` usa ahí su programa principal (`DSPCTX=dsp3`, por defecto; `efdc` = la tarea del
+  DSP4). Corre una vez por bloque de 1024 muestras (46.9/s); la memoria persiste y un contador acumula.
+* En el DSP3 la predicación es estable. Palabra C: byte bajo = a qué op (`x10`/`x11` op 1, `x12` op 2), byte alto =
+  condición (bit 0 niega, bits 4–1 = una de 16). Las 16 condiciones **no son banderas**: ninguna op A/B las cambia
+  y no varían en el tiempo; difieren por contexto (DSP3 `0111111011101110`, DSP4 `0xEFDC` `0111101111100111`).
+  Lo de "varía en el tiempo" del DSP4 era ruido de lectura + tareas compartidas.
+
 ## Próximos pasos del ISA (para seguir)
 Referencia limpia de lo establecido: `DSP_ISA.md` (esta carpeta). Pendiente (2026-10-15):
-1. Fuente de la condición de las palabras C (varía en el tiempo con los mismos datos): medirla donde no haya otras
-   tareas, p. ej. en los slaves con `dsplive.py` (ranura DCO2 propia) observando por audio, o contando en memoria
-   en una ranura/DSP del maestro que no comparta tareas.
+1. Qué fija los 16 bits de condición de contexto (lado ARM). Ops de la unidad B con resultado `7ffxxxxx`
+   (¿conversiones a entero / floor?) en el DSP3.
 2. Memoria entre ejecuciones (acumular, retardo de una muestra) en un contexto sin otras tareas.
 3. Ops de la unidad B con resultado saturado `7ffxxxxx`, B impares, modos de transferencia ≠ `fe`, segunda palabra
    de C, valores ocultos de la op 0 sub 4/5.

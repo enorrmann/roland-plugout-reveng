@@ -59,51 +59,56 @@ def bank0(dsp, idx):
     return 0x41404000 + dsp * 0x100000 + 4 * idx       # RAW view
 
 
-def run(pk, prog, read=(0x400, 8), dsp=4, slot=0xEFDC, wait=0.05):
-    pa = prog_addr(dsp, slot)
-    new, empty = pack(prog), pack(EMPTY)
-    new += [0] * max(0, len(empty) - len(new))
-    orig = pk.read(pa, len(new))
-    try:
-        pk.write(pa, empty)                                    # empty task first
-        if len(new) > len(empty):
-            pk.write(pa + 4 * len(empty), new[len(empty):])    # body
-        for i in reversed(range(len(empty))):                  # head last
-            pk.write(pa + 4 * i, [new[i]])
+def run(pk, prog, read=(0x400, 8), dsp=None, slot=None, wait=0.05):
+    """one test program in the current context (DSPCTX): load, read bank 0 twice (majority), restore"""
+    with Session(pk, dsp, slot, wait=wait) as ses:
+        ses.load(prog)
         time.sleep(wait)
         first, n = read
-        # single words read while the DSP is running sometimes come back wrong (0 or 4ea5f810,
-        # one word per read of 8): read 5 times and take the per-word majority
-        reads = []
-        for _ in range(5):
-            reads.append(pk.read(bank0(dsp, first), n))
-            time.sleep(wait / 5)
-        a = majority(reads)
-        b = majority(reads[::-1])
-    finally:
-        pk.write(pa, empty)                                    # restore: empty head, tail, head
-        if len(orig) > len(empty):
-            pk.write(pa + 4 * len(empty), orig[len(empty):])
-        for i in reversed(range(len(empty))):
-            pk.write(pa + 4 * i, [orig[i]])
-    if pk.read(pa, len(orig)) != orig:
-        print('WARNING: original program not restored exactly', file=sys.stderr)
-    return a, b
+        return ses.read(first, n), ses.read(first, n)
+
+# test contexts: (dsp, slot, program used while switching, words saved). 'dsp3' = the main program of master
+# DSP3, which is idle (0001 0001 0b03 0080 7fee 0001): no other task shares it. 'efdc' = the global-effect
+# control task on DSP4 (shared with other tasks, ~4000 runs/s).
+CONTEXTS = {
+    'efdc': (4, 0xEFDC, EMPTY, 256),
+    'dsp3': (3, 0x0000, [0x0001, 0x0001, 0x0B03, 0x0080, 0x7FEE, 0x0001], 256),
+}
+CONTEXT = os.environ.get('DSPCTX', 'dsp3')
+MAIN_END = [0x0B03, 0x0080, 0x7FEE, 0x0001]
+
+
+def adapt(prog, ctx=None):
+    """our test programs are written as slot programs (0a02 ff70 ... 0a02 ff70 0b02 00f8 0001); the DSP3 main
+    program ends with 0b03 0080 7fee 0001 instead"""
+    if (ctx or CONTEXT) != 'dsp3':
+        return prog
+    p = list(prog)
+    if p[:2] == [0x0A02, 0xFF70]:
+        p = p[2:]
+    if p[-5:] == [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001]:
+        p = p[:-5]
+    return [0x0001, 0x0001] + p + MAIN_END
 
 
 class Session:
     """keep a test slot open: save the original program once, update only changed words, restore at the end"""
-    def __init__(self, pk, dsp=4, slot=0xEFDC, size=256, wait=0.02):
+    def __init__(self, pk, dsp=None, slot=None, size=None, wait=0.02):
+        cdsp, cslot, cempty, csize = CONTEXTS[CONTEXT]
+        dsp = cdsp if dsp is None else dsp
+        slot = cslot if slot is None else slot
+        size = csize if size is None else size
+        self.empty = cempty
         self.pk, self.dsp, self.pa, self.wait = pk, dsp, prog_addr(dsp, slot), wait
         self.orig = pk.read(self.pa, size)
         # keep a copy on disk (a killed run can be repaired with `dspmaster.py --restore`) and restore on SIGTERM
         json.dump({'addr': self.pa, 'words': self.orig}, open(SAVED, 'w'))
         signal.signal(signal.SIGTERM, lambda *a: sys.exit(1))
-        self.cur = list(pack(EMPTY))
+        self.cur = list(pack(self.empty))
         pk.write(self.pa, self.cur)
 
     def load(self, prog):
-        new = pack(prog)
+        new = pack(adapt(prog))
         if len(new) > len(self.orig):
             raise ValueError('program too long for the saved area')
         new += [0] * max(0, len(self.cur) - len(new))
@@ -124,7 +129,7 @@ class Session:
 
     def close(self):
         pk, pa, orig = self.pk, self.pa, self.orig
-        pk.write(pa, pack(EMPTY))
+        pk.write(pa, pack(self.empty))
         pk.write(pa + 4 * 3, orig[3:])
         for i in reversed(range(3)):
             pk.write(pa + 4 * i, [orig[i]])
