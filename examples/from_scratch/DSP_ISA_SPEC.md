@@ -3,6 +3,7 @@
 Roland BMC DSP as used by the SYSTEM-8 (and its PLUG-OUTs). State 2026-10-15. Overview and history:
 `DSP_ISA.md`, `NOTES.md`. Hardware context: `../../ARCHITECTURE.md`. Reference implementation of the
 decoder and simulator: `re/dspisa.py`; measured template data: `re/dsp_templates.txt`, `re/dsp_units_ab.txt`.
+ARM-side memory map of the DSP banks (static analysis): `DSP_ARM_SIDE.md`. First own program: `CUSTOM_OSC.md`.
 
 Everything here comes from **measurements on the hardware** (exact register/memory read-back on a master DSP,
 §13) unless marked otherwise. Status tags:
@@ -195,7 +196,7 @@ w2:  Z[15:12]  op2[11:9]  C[8:6]  mW[5:4]  W[3:0]
 |---|---|---|
 | `fe` `ff` `3e` `0e` `10` `12` | same address as `fe` | [measured] (use `fe`) |
 | `e0` `e1` `db` `ed` `be` `8e` `ee` `de` `ce` `7e` `fc` `fd` `f0` | other memory (reads 0 where `fe` reads the word; writes not found in banks 0/1/2/4/5) | [unknown] |
-| `9b` `a9` `9e` | no data register loaded. `X9bY` (write r(X−8) to "port" Y; Roland uses Y = 1–3, usually in the same instruction as a unit-B op) does **not**: change r0–r7, change the condition bits, change what `fe` loads read afterwards, redirect the result of the unit-B op of its instruction, set the hidden values of A op 0 sub 4/5, or reach the slot's audio output (noise written to ports 0–7 on the slaves: silence). `Xa9Y` loads nothing (ports 0–7 read back nothing, also with Roland's SAW running in the other slot). Target not visible from the program (delay memory, other DSPs?) | [unknown] |
+| `9b` `a9` `9e` | no data register loaded. `X9bY` (write r(X−8) to "port" Y; Roland uses Y = 1–3, usually in the same instruction as a unit-B op) does **not**: change r0–r7, change the condition bits (hypothesis from corpus statistics "port 1/2/3 → condition groups 4–7/8–11/12–15, read by a C word 2 instructions later": tested on master DSP3 with values ±0.5, 0, ±2, ±1/16, raw patterns 1/2/4/8/F, 0x000F0000, 0x7fffffff, 0xF0000000, distance 1–3, inside a unit-B instruction, and across the sample boundary; and on the slave DCO2 slot by audio — the groups never changed), change what `fe` loads read afterwards, redirect the result of the unit-B op of its instruction, set the hidden values of A op 0 sub 4/5, or reach the slot's audio output (noise written to ports 0–7 on the slaves: silence). `Xa9Y` loads nothing (ports 0–7 read back nothing, also with Roland's SAW running in the other slot). Target not visible from the program (delay memory, other DSPs?) | [unknown] |
 
 ### 5.4 Condition word (C)
 
@@ -224,7 +225,7 @@ DCO2 extra inputs **[measured by audio]**: `2209`/`2216` = sync enabled (1 with 
 `220c`/`2219` = 0 — written by the main program MAIN2/3, see `CUSTOM_OSC.md` §2),
 `C0nn` parameter block (ramped parameters written by the ARM, read-only for the DSP), `A0nn` bank 5,
 `60e0`/`60f0`/`8400`/`8401` I/O-like addresses in master DSP0/1 routing programs, `84xx`/`a4xx`/`86xx` with
-non-`fe` transfer modes (delay memory?) [unknown].
+non-`fe` transfer modes (delay memory?) [unknown]. From the ARM side (`CEZUtilDSPDump` in the OS, static analysis, `DSP_ARM_SIDE.md`) bits 15–13 of a reference look like the bank: 0 DT0, 1 DT1, 2 DT2, 3 IOMD, 4 MXM (inter-DSP audio matrix; a DSP pair writes its Z area, the next pair reads it in its M/O areas), 5 DPC, 6 = ENV **[inferred, not verified on hardware]**. `Xa9Y` only occurs in effect programs right after a `{8+d}f6c` B op, followed by loads from bank-2 `4001…` and a linear interpolation: probably a delay-line read pointer (WMEM, the WM2418-side wave/delay memory) **[hypothesis]**.
 
 ## 6. ALU semantics
 
@@ -528,9 +529,14 @@ time.
 
 ## 14. Open items (do not emit)
 
+Decoding coverage (2026-10-15): Roland's JX-3P SAW slot program 291 / 325 instructions (90 %), the whole corpus
+90.4 %. The remainder: non-`fe` transfer modes (`X9bY` / `Xa9Y`, 5.1 % of the corpus), program start/end words,
+unknown unit-B / SFU ops. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §11.
+
+
 1. Unit-B encodings not listed in §6.3/§6.4; unit-B side effects with D ≥ 8; exact seed table of the reciprocal.
 2. Transfer modes other than `fe` (delay memory, address registers); odd transfer slot fields; the target of the
-   `X9bY` / `Xa9Y` "ports" (tests that ruled things out: §5.3).
+   `X9bY` / `Xa9Y` "ports" (tests that ruled things out: §5.3). Next candidates: `Xa9Y` as a delay tap (`{8+d}f6c` then `3a90`, then a bank-2 `4001` load) and IOMD/MXM (prefix 3/4) references on master DSP3.
 3. Hidden values h4/h5 of A op 0 sub-codes 4/5 and how to set them.
 4. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.
 5. MAC with D ≥ 8; MAC op2 mode 1 (imm16).

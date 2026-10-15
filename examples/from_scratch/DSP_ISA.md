@@ -4,7 +4,7 @@ State 2026-10-15. Only what was **measured on the hardware** (master DSP4, live 
 marked with how sure it is. The history, raw evidence and dead ends are in `NOTES.md` (sections from
 "ISA del DSP medido en el equipo por audio USB" on). Hardware context: `../../ARCHITECTURE.md`.
 
-**Technical specification for assembler / compiler writers: `DSP_ISA_SPEC.md`** (bit layouts, all 118
+**This overview is behind the spec: where they differ, `DSP_ISA_SPEC.md` wins.** **Technical specification for assembler / compiler writers: `DSP_ISA_SPEC.md`** (bit layouts, all 118
 templates, immediate packing, execution semantics, encoding examples). This file is the short overview.
 
 Tools: `re/dspisa.py` (decoder / disassembler / simulator), `re/dsp_templates.txt` + `re/dsp_units_ab.txt`
@@ -143,6 +143,21 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
   (unit B)**, not C.
 * The earlier "varies over time" on DSP4 came from reads with a zeroed word and from other tasks; with a private
   context the result is stable.
+
+## 9. Later findings (summary; details in `DSP_ISA_SPEC.md`)
+
+* The DSP runs at **96 kHz**; bank 0 is a **ring** (a value stored at S is read at S + 1 in the next sample:
+  state = load S + 1, store S); a load needs one instruction before an ALU op can use it; ops of one instruction
+  read before they write.
+* Registers are shared between the programs of one DSP within a sample.
+* C word: high byte = cc << 1 | neg; low byte = unit skipped if true (bits 7–4) / if false (bits 3–0), units
+  numbered from 1 (ops, then transfers). Context bits also measured on the slave DCO2 slot: `0011011001100110`.
+* Unit B: odd nibble = X from r4–r7 (clamps `d150`/`d550`/`e190`/`e590`); SFU ops (`cf06` reciprocal seed, `8f19`
+  exp split, `8f29` sign, `8f39` negative mask, `cf36` ceil).
+* DCO2 slot inputs `2209`–`220c` (sync, METAL, sync pulse train), written by the main program.
+* `X9bY` does **not** set condition bits (hypothesis from the corpus tested on DSP3 and the slaves, rejected).
+  Bank numbering of reference prefixes and the inter-DSP routing (static analysis): `DSP_ARM_SIDE.md`.
+* First own microcode (SAW, FOLD) plays on the hardware: `CUSTOM_OSC.md`.
 
 ## 9. Open
 

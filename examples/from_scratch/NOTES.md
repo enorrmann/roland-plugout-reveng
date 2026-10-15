@@ -587,15 +587,32 @@ Documento técnico completo: `CUSTOM_OSC.md`.
 * Entradas del DCO2 según Cross Mod: `[2209]` = 1 con SYNC/METAL, `[220a]` = 1 con METAL, `[220b]` = tren de
   impulsos (un pulso por ciclo) con SYNC/METAL, `[220c]` = 0. Las escribe el programa principal (MAIN2/3), no las
   `X9bY`. Detalle en `CUSTOM_OSC.md` §2.
+* Hipótesis del análisis estático (agente, `DSP_ARM_SIDE.md`): puerto 1/2/3 de `X9bY` → grupos de condición
+  4–7 / 8–11 / 12–15, leídos por una C dos instrucciones después (el 90 % de las `X9bY` del corpus tienen una C a
+  distancia 2). **No se confirma**: en el DSP3 del maestro (`re/dspx9b.py`; valores ±0.5, 0, ±2, ±1/16, patrones
+  crudos 1/2/4/8/F, 0x000F0000, 0x7fffffff, 0xF0000000, distancia 1–3, dentro de una instrucción con op B, y
+  escribiendo al final de una muestra y leyendo al principio de la siguiente) los grupos siguen en `1110`; en los
+  slaves por audio (`re/dspexp/own/x9b_pos_neg.txt`, `x9b_zero_big.txt` contra `x9b_none.txt`) la ganancia queda en
+  0.875/0.876/0.874. La correlación parece patrón del compilador de Roland, no causa.
+* Del mismo análisis (sin verificar en el equipo): bits 15–13 de una referencia = banco (0 DT0, 1 DT1, 2 DT2,
+  3 IOMD, 4 MXM, 5 DPC, 6 ENV); el audio entre DSP va por MXM (zona Z → zonas M/O del par siguiente); `Xa9Y` sólo
+  en programas de efecto tras `{8+d}f6c`, seguido de cargas del banco 2 `4001…` e interpolación lineal → toma de
+  línea de retardo (WMEM). Próximos experimentos: `Xa9Y` como toma de retardo y referencias IOMD/MXM en el DSP3.
 
 ## Próximos pasos del ISA (para seguir)
-Referencia limpia de lo establecido: `DSP_ISA.md` (resumen) y `DSP_ISA_SPEC.md` (especificación técnica para
-ensamblador/compilador: formatos de bits, 118 plantillas, inmediatos, semántica de ejecución medida — ops de una
-instrucción en paralelo, guardado del valor viejo, sin latencia entre instrucciones). Pendiente (2026-10-15):
-1. Qué fija los 16 bits de condición de contexto (lado ARM). Ops de la unidad B con resultado `7ffxxxxx`
-   (¿conversiones a entero / floor?) en el DSP3.
-2. Memoria entre ejecuciones (acumular, retardo de una muestra) en un contexto sin otras tareas.
-3. Ops de la unidad B con resultado saturado `7ffxxxxx`, B impares, modos de transferencia ≠ `fe`, segunda palabra
-   de C, valores ocultos de la op 0 sub 4/5.
-4. Con eso: primer oscilador propio (fase += incremento, vuelta con min/max/condición) en la ranura DCO2.
-5. Probar en el equipo el C-SAW normal con la corrección de descriptores (cambios de onda y de efecto).
+Referencia: `DSP_ISA_SPEC.md` (especificación, manda), `DSP_ISA.md` (resumen), `DSP_ARM_SIDE.md` (mapa de bancos
+del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD propios, laboratorio, comparación de osciladores §11).
+Estado al 2026-10-15: SAW de Roland 90 % decodificado, corpus 90,4 %.
+
+Estado del equipo al cerrar: slot 3 = plugin de laboratorio (DSPTEST + DSPLIVE + PEEK); en la ranura DCO2 quedó el
+último programa de prueba (`x9b_zero_big`): `python3 re/dspown.py restore` vuelve a `lab_pad`.
+
+Pendiente:
+1. `Xa9Y` como toma de línea de retardo en el DSP3 del maestro: `[4000]` ← rampa, `bf6c` r3, `0001`, `3a90`,
+   leer `[4001]`–`[4003]` (`DSP_ARM_SIDE.md` §4.3).
+2. Referencias con prefijo 3 (IOMD) y 4 (MXM): guardar desde el DSP3 y leer 0x4113C000 / 0x41531000 con el peek;
+   escribir desde el ARM y cargar en el DSP (§4.2).
+3. Qué fija los bits de condición de contexto; ops B/SFU sin decodificar (`cf16`, `cf26`, `8f09`, resultados
+   `7ffxxxxx`); valores ocultos h4/h5.
+4. Decisión del usuario: empezar el compilador / SDK (DSL embebido en Python: grafo, registros, estado, voces),
+   validado con el laboratorio.

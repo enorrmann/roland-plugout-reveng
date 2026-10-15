@@ -270,3 +270,22 @@ oscillator, Roland's too — a patch setting, not a fault).
    PWM).
 3. Output scaling / the meaning of the second output word.
 4. Own main programs (envelopes, LFO, filter, VCA) to remove the last copied Roland microcode.
+
+## 11. Roland's oscillators compared (corpus, 2026-10-15)
+
+Disassembled with `re/dspisa.py dis ../../work/corpus/<name>.bin` (corpus local, not in git). All models use the
+same technique: exponential pitch (SFU `8f19` exp split + polynomial), reciprocal by seed + Newton/Goldschmidt
+(`cf06`, `0902 4086`), the discontinuities smoothed with a sine-polynomial edge, 4 sub-samples per output sample.
+They differ in how many edges per voice they compute:
+
+| model / program | instructions | edges per voice | decoded |
+|---|---|---|---|
+| JX-3P SAW (DCO slot) | 325 | 1 | 291 / 325 (90 %) |
+| SH-101 (oscillator inside main program `SH_0100_60a12bc0`) | 610 | 2 (saw + pulse) | ~90 % |
+| Jupiter-4 DCO1 (`JP4_6000_60a1c450`) | 616 | 3 (no −4.75 constant) | ~90 % |
+| Juno-106 / Juno-60 | — | 3 | 88–94 % |
+| SH-1000 | — | 1 | 88–94 % |
+
+The undecoded rest is the same everywhere: non-`fe` transfer modes (`X9bY`, `Xa9Y`: 5.1 % of the corpus), the
+program start/end words and a few unit-B / SFU ops (`cf16`, `cf26`, `8f09`). None of them is needed for an own
+oscillator (§4–§8 work without them).
