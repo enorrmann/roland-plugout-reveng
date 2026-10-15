@@ -1,0 +1,6 @@
+# live 00: all four paths = noise pass-through (gain 1.0 vs b11 everywhere)
+dco1_=z_dco1.txt
+d2a=n_pass.txt
+d2b=n_pass.txt
+d3a=n_pass.txt
+d3b=n_pass.txt

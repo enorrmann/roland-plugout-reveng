@@ -149,14 +149,15 @@ def report(batch, cal='b11'):
         return x.std(), np.array([np.sqrt((S[(f >= a) & (f < b)] ** 2).mean()) for a, b in
                                   ((0, 300), (300, 1000), (1000, 3000), (3000, 8000))])
     spec = {}
-    for line in open(os.path.join(HERE, 'dspexp', 'audio', batch + '.batch')):
+    bf = batch if os.path.exists(batch) else os.path.join(HERE, 'dspexp', 'audio', batch + '.batch')
+    for line in open(bf):
         w = line.split('#')[0].strip()
         if '=' in w:
             spec[w.split('=')[0]] = w.split('=')[1]
     for i, n in enumerate(VOICE_NOTES):
         p = PATH_OF[i]
         r, rb = bands(os.path.join(OUT, f'{cal}_n{n}.raw'))
-        x, xb = bands(os.path.join(OUT, f'{batch}_n{n}.raw'))
+        x, xb = bands(os.path.join(OUT, f'{os.path.basename(batch).removesuffix(".batch")}_n{n}.raw'))
         g = GAIN_B11[p]
         print(f'{n} {p} {spec.get(p, "?"):<22} gain {x / r * g:7.4f}   bands ' + ' '.join(f'{v:.3f}' for v in xb / rb * g))
 

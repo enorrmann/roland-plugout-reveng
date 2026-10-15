@@ -77,6 +77,23 @@ static dspdesc_t dco2_prog[2][4] = { { PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0),
 #else
 static dspdesc_t dco2_prog[2][4] = { DCO2_PROGS, DCO2_PROGS };
 #endif
+#ifdef DSPLIVE
+#ifndef DSPTEST
+#error DSPLIVE needs DSPTEST
+#endif
+/* Live microcode pokes (re/dsplive.py): the host sends pitch bend (14 data bits, voice id 0x465)
+   and then CC1 (command, voice id 0x467); both reach every slave as parameters. The engine acts
+   when 0x467 changes (bit 6 toggles on every command) and reads 0x465 from the slave's store:
+     0x467 = seq<<6 | cmd<<4 | ext   (P = bend + 0x2000, 14 bits)
+     cmd 0 ADDR  dsp = 2 + (ext & 1), cur = P (16-bit word index in execution order, from the slot)
+     cmd 1 DATA  word = P | (ext & 3) << 14 -> the DCO2 slot at cur, cur++
+     cmd 2 CTRL  ext 0: restore t0/t1 as built; ext 1: nop
+   The slave OS writes program memory with plain 32-bit stores (s_boot 0x011100DE: DSP n at
+   0x41480000 + n * 0x100000 + slot address); we keep a shadow of each slot and store whole words. */
+#define LIVE_WORDS 0x800                     /* 32-bit words per slot shadow (8 KiB) */
+static uint32_t live_shadow[2][LIVE_WORDS] = { { 1 } };   /* nonzero: kept out of .bss */
+static int live_dsp = 2, live_cur, live_last = -1;
+#endif
 #define D8 DATA(0x0008, 8)
 #define D10 DATA(0x0010, 8)
 static dspdesc_t dco1_data[2][3] = { { D8, D8, D8 }, { D8, D8, D8 } };
@@ -301,7 +318,51 @@ static void read_params(engine_t *e)
 {
     for (int i = 0; i < NPARAM; i++)
         e->val[i] = os_get(param_group[i], param_id[i]);
+#ifdef DSPLIVE
+    e->val[pidx(0x465)] = 0;                 /* bend / modulation carry pokes: no modulation */
+    e->val[pidx(0x467)] = 0;
+#endif
 }
+
+#ifdef DSPLIVE
+static volatile uint32_t *live_prog(int dsp) { return (volatile uint32_t *)(0x41480000u + dsp * 0x100000u + SLOT_DCO2); }
+
+static void live_restore(int k)
+{
+    const dspdesc_t *p = &dco2_prog[k][0];
+    unsigned n = (p->n1 + 3) / 4;
+    const uint32_t *src = p->src;
+    for (unsigned i = 0; i < LIVE_WORDS; i++)
+        live_shadow[k][i] = i < n ? src[i] : 0;
+    for (unsigned i = 0; i < n; i++)
+        live_prog(2 + k)[i] = src[i];
+}
+
+static void live_cmd(int m)
+{
+    if (m == live_last)
+        return;
+    live_last = m;
+    int cmd = (m >> 4) & 3, ext = m & 15;
+    int p = (os_get(2, 0x465) + 0x2000) & 0x3FFF;   /* stored signed or as 16 bits */
+    if (cmd == 0) {
+        live_dsp = 2 + (ext & 1);
+        live_cur = p;
+    } else if (cmd == 1) {
+        if (live_cur >= 2 * LIVE_WORDS)
+            return;
+        int k = live_dsp - 2, i = live_cur >> 1;
+        uint32_t w = (uint32_t)(p | (ext & 3) << 14), x = live_shadow[k][i];
+        x = live_cur & 1 ? (x & 0xFFFF0000u) | w : (x & 0xFFFFu) | w << 16;   /* upper half first */
+        live_shadow[k][i] = x;
+        live_prog(live_dsp)[i] = x;
+        live_cur++;
+    } else if (cmd == 2 && ext == 0) {
+        live_restore(0);
+        live_restore(1);
+    }
+}
+#endif
 
 /* full refresh: every output with the current values, in the JX-3P's order (last write wins) */
 static void send_state(engine_t *e)
@@ -355,6 +416,11 @@ static void e_start(engine_t *e)                                         /* vt+0
     swap_dco(e, 1);
     swap_dco(e, 2);
     swap_fx(e);
+#ifdef DSPLIVE
+    live_restore(0);                         /* shadows = the programs as built */
+    live_restore(1);
+    live_last = os_get(2, 0x467) & 0x7F;
+#endif
 }
 static void e_mute(engine_t *e)                                          /* vt+0x10 */
 {
@@ -384,6 +450,10 @@ static void e_param(engine_t *e, int id, int zero, int value)            /* vt+0
 {
     (void)zero;
     int v;
+#ifdef DSPLIVE
+    if (id == 0x467) { live_cmd(value & 0x7F); return; }
+    if (id == 0x465) return;
+#endif
     if (id >= 0x429 && id < 0x429 + 8) {
         v = id - 0x429 - e->first;
         if (v >= 0 && v < 4) note_pitch(e, v, value);

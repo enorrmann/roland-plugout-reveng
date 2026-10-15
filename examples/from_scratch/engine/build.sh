@@ -24,6 +24,7 @@ fi
 CFLAGS="-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -Os -ffreestanding \
  -fno-builtin -nostdlib -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$B"
 if [ -n "$DSPTEST" ]; then CFLAGS="$CFLAGS -DDSPTEST"; fi
+if [ -n "$DSPLIVE" ]; then CFLAGS="$CFLAGS -DDSPLIVE"; fi
 arm-none-eabi-gcc $CFLAGS -c "$HERE/engine.c" -o "$B/engine.o"
 # link at the slot 1 and slot 2 run addresses; the words that move are the relocations
 for base in 0x60A00000 0x60C00000; do
