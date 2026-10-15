@@ -120,6 +120,7 @@ def main():
         if not os.path.exists(batch):
             batch = os.path.join(HERE, 'dspexp', 'audio', batch)
         os.environ['DSPLIVE'] = '1'
+        os.environ['PEEK'] = '1'          # region 0: master peek (dsppeek.py)
         spec = da.spec_of(batch)
         da.build(','.join(f'{k}={f}' for k, f in spec))
         da.install()

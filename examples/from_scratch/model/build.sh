@@ -7,7 +7,7 @@ B=$HERE/build
 mkdir -p "$B"
 python3 "$HERE/params.py" "$B"
 CFLAGS="-mcpu=cortex-m4 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
- -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$B"
+ -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$B ${PEEK:+-DPEEK}"
 arm-none-eabi-gcc $CFLAGS -c "$HERE/model.c" -o "$B/model.o"
 arm-none-eabi-gcc $CFLAGS -c "$HERE/storage.S" -Wa,-I"$B" -o "$B/storage.o"
 # link at the slot 1 and slot 2 run addresses; the words that move are the relocations

@@ -480,8 +480,100 @@ static void m_note_on(struct assign *a, int note, int vel)
     key(a, note, vel);
 }
 
+#ifdef PEEK
+/* Live memory peek / poke for DSP experiments (re/dsppeek.py), master side.
+ * Region 0 runs on the OS CPU (master BMC core 0): it can read and write the
+ * master's DSP memories and send MIDI through the OS router. Commands arrive
+ * as CC1 values seq<<6 | 3<<4 | cmd (cmd field 3 is ignored by the slave
+ * engine's DSPLIVE protocol, and these CC1s are not forwarded to the slaves);
+ * the 14-bit data P is the last pitch bend, read back from voice id 0x465 (the OS writes the bend
+ * there itself; the assigner's bend method is not called for MIDI bend).
+ *   cmd 0 A_LO = P, 1 A_HI = P      address = 0x40000000 | A_HI << 16 | A_LO << 2
+ *   cmd 2 D_LO = P, 3 D_MID = P     data bits 0-13, 14-27
+ *   cmd 4 write: data = D_LO | D_MID << 14 | (P & 15) << 28 -> *address, address += 4
+ *   cmd 5 read P words (1..16): reply F0 7D 02 <address: 8 nibbles> <words: 8 nibbles each> F7,
+ *         address += 4 P
+ *   cmd 6 ping: reply F0 7D 03 <P: 4 nibbles> F7
+ * MIDI out = the sequence of the OS Identity handler (BASE_FIRMWARE.md 7.12). */
+static uint32_t peek_alo, peek_ahi, peek_dlo, peek_dmid;
+
+static void sx_send(const uint8_t *buf, int len)
+{
+    uint32_t msg[4], wrap[4];                                          /* filled by the ctors */
+    ((void (*)(void *))0x600753CDu)(msg);                              /* Msg ctor */
+    ((uint8_t *)msg)[6] = 4;                                           /* cable 4 */
+    ((void (*)(void *, const void *, int))0x600754BDu)(msg, buf, len); /* set SysEx */
+    ((void (*)(void *, void *))0x600754C7u)(wrap, msg);                /* wrap_msg */
+    ((void (*)(int, void *))0x6000345Du)(0x1A20, wrap);                /* router: USB1 + DIN */
+    ((void (*)(void *))0x600753F5u)(wrap);                             /* Wrap dtor */
+    ((void (*)(void *))0x600753E1u)(msg);                              /* Msg dtor */
+}
+
+static uint8_t *put_nibbles(uint8_t *b, uint32_t v, int n)
+{
+    while (n--)
+        *b++ = (v >> (4 * n)) & 15;
+    return b;
+}
+
+static volatile uint32_t *peek_addr(void)
+{
+    return (volatile uint32_t *)(0x40000000u | peek_ahi << 16 | peek_alo << 2);
+}
+
+static void peek_advance(int words)
+{
+    uint32_t w = (peek_ahi << 14 | peek_alo) + words;
+    peek_alo = w & 0x3FFF;
+    peek_ahi = (w >> 14) & 0x3FFF;
+}
+
+static void peek_cmd(struct assign *as, int cmd)
+{
+    uint8_t buf[3 + 8 + 16 * 8 + 1], *b = buf;
+    int bend = 0;
+    as->vt->get(as, G_VOICE, ID_BEND, &bend);
+    uint32_t p = (uint32_t)(bend + 0x2000) & 0x3FFF;
+    switch (cmd) {
+    case 0: peek_alo = p; break;
+    case 1: peek_ahi = p; break;
+    case 2: peek_dlo = p; break;
+    case 3: peek_dmid = p; break;
+    case 4:
+        *peek_addr() = peek_dlo | peek_dmid << 14 | (p & 15) << 28;
+        __asm volatile ("dsb" ::: "memory");
+        peek_advance(1);
+        break;
+    case 5: {
+        int n = p < 1 ? 1 : p > 16 ? 16 : (int)p;
+        volatile uint32_t *a = peek_addr();
+        *b++ = 0xF0; *b++ = 0x7D; *b++ = 0x02;
+        b = put_nibbles(b, (uint32_t)(uintptr_t)a, 8);
+        for (int i = 0; i < n; i++)
+            b = put_nibbles(b, a[i], 8);
+        *b++ = 0xF7;
+        sx_send(buf, b - buf);
+        peek_advance(n);
+        break;
+    }
+    case 6:
+        *b++ = 0xF0; *b++ = 0x7D; *b++ = 0x03;
+        b = put_nibbles(b, p, 4);
+        *b++ = 0xF7;
+        sx_send(buf, b - buf);
+        break;
+    }
+}
+#endif
+
 static void m_cc(struct assign *a, int cc, int v)
 {
+#ifdef PEEK
+    if (cc == 1 && (v & 0x30) == 0x30) {
+        peek_cmd(a, v & 15);
+        return;
+    }
+#endif
     switch (cc) {
     case 1: modulation(a, v); break;
     case 7: case 10: case 65: break;

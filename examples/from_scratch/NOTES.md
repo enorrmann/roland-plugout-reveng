@@ -414,6 +414,38 @@ mediciones con ruido (p. ej. `0c81` = r2 + r1, `0cc2` = r3 + r2, `1c01` = r1 = r
   3–4 entradas (suma/MAC) con el resto de operandos en w2. Sigue.
 * r2 y r3 parecen valer 1.0 al empezar la ranura cuando nadie los escribe (explica `04c1` = r1 y `0881` = 1.5).
 
+### Peek exacto en los DSP del maestro (2026-10-15) — `re/dsppeek.py`, `re/dspmaster.py`, `re/dspprobe.py`, `re/dspfit.py`
+Ver `ARCHITECTURE.md` (raíz) para qué corre dónde. La región 0 (`model.c -DPEEK`, se instala con `dsplive.py
+install`) recibe comandos por CC1 (`seq<<6 | 3<<4 | cmd`, el dato de 14 bits en el pitch bend, que la región 0
+relee del id de voz 0x465: el OS escribe el bend ahí y **no** llama al método bend del asignador) y contesta con
+SysEx `F0 7D 02/03` desde el manejador de CC (funciona, no cuelga). Lectura de 8 palabras ≈ 40 ms.
+* `dspmaster.py`: escribe un programa de prueba en la ranura `0xEFDC` del **DSP4 del maestro** (efecto global; se
+  guarda y se restaura), espera y lee el banco 0 (vista RAW `0x41804000`). **El programa corre**: los `0c03` que
+  guardan registros aparecen exactos en DT0.
+* Lecturas de DT0 con el DSP en marcha: ~1 palabra de cada 8 sale mal (0 o `4ea5f810`): se lee 5 veces y se toma
+  la mayoría por palabra. Zona usada: `[0780..0787]` (libre en DT40; `0x400` la tocan otros programas).
+* `7809` con 4 registros distintos guardó sólo el último (en las pruebas por audio siempre era el mismo registro).
+  Para varios registros: un `0c03` por registro.
+* Sólo r0–r7 se pueden guardar (XfeY: X 8–15 = guardar r0–r7) y `0903` con D ≥ 8 no carga r8+.
+* `dspprobe.py`: r0..r7 = constantes, instrucción, r0..r7 → DT0; `dspfit.py`: N juegos aleatorios y búsqueda de
+  la fórmula exacta más chica (hasta 3 monomios). Con esto la tabla de `0902` queda **exacta** (error 0):
+  op0 sub1 = Y, 1 = D+X+Y, 2 = X·Y, 3 = D+X·Y, 4 = Y+D·X, 5 = Y−D·X, 6 = X+Y, 7 = Y−X.
+* **Y bit 3 = negado**: Y = 8+n → −rn (`3c08` → 0, `3c0f` → X + r7·(−1)). X: 3 bits (r0–r7). D: 4 bits; D ≥ 8
+  escribe r(D−8) con otro resultado (`8c01` → r0 = 1.625 en vez de .75): sin aclarar.
+* Op 0, sub-códigos (exacto): 0/3 = nada, 1 = Y, 4 = D+Y+h4, 5 = D+Y+h5, 6/7 = D+Y, 2 = cambia r1, r3, r4 a la
+  vez. h4 = 0.0313, h5 = 320 en el maestro (≈ 0.92 en el slave): valores ocultos (¿otro banco de registros?).
+* **Clase 0x40 (`0803 w1 w2`)**, exacto con `dspfit.py --all` (plantilla `0803 3{op1}40 2{op2}04`: D=r3, X=r1
+  (w1 bits 8–6), Y=r0 (w1 bits 3–0), Z=r2 (w2 bits 15–12), W=r4 (w2 bits 3–0)):
+  | op1 (w1 bits 11–9) | resultado |
+  |---|---|
+  | 0, 1 | no escribe |
+  | 2 / 3 | W ± Y·X |
+  | 4 / 5 | ±Y·X + c·Z |
+  | 6 / 7 | W ± Y·X + c·Z (con op2 = 0: W ± X + Z, sin productos) |
+  op2 (w2 bits 11–9) elige c: 1 → Y; 0 → sin multiplicador; 2–7 → constante que sale de los bits de la propia
+  instrucción (0.250977 = RAW `2404…` = w2) → es un **inmediato**; en `0803` (sin inmediatos) lee basura. Encaja
+  con `0807 3cca 1cb6 imm32 imm32` (Horner) del corpus. Bits 15 de Z y 3 de W = negado (barrido F0–F7).
+
 ## Próximos pasos del ISA (para seguir)
 0. Hecho (2026-10-15): formato y 7 de 8 ops de `0902` (sección "ALU `0902 w` decodificada en vivo"). Siguiente:
    regla de la op 0; Y con bits 5–4 ≠ 0 (¿r16–r63?); `0903`/`0904` con el mismo formato (op + inmediato);
