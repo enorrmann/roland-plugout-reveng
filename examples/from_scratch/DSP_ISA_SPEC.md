@@ -1,6 +1,7 @@
 # DSP instruction set — technical specification (for assembler / compiler writers)
 
-Roland BMC DSP as used by the SYSTEM-8 (and its PLUG-OUTs). State 2026-10-15. Overview and history:
+Roland BMC DSP as used by the SYSTEM-8 (and its PLUG-OUTs). State 2026-10-16 (delay memory, hidden registers,
+indexed transfers, buses, sqrt/log/frexp: §6.3–§9.1). Practical uses of each feature: `DSP_USOS.md`. Overview and history:
 `DSP_ISA.md`, `NOTES.md`. Hardware context: `../../ARCHITECTURE.md`. Reference implementation of the
 decoder and simulator: `re/dspisa.py`; measured template data: `re/dsp_templates.txt`, `re/dsp_units_ab.txt`.
 ARM-side memory map of the DSP banks (static analysis): `DSP_ARM_SIDE.md`. First own program: `CUSTOM_OSC.md`.
@@ -22,9 +23,10 @@ Everything here comes from **measurements on the hardware** (exact register/memo
 | resource | description | status |
 |---|---|---|
 | r0–r7 | 8 data registers, RAW number format (§2). The only registers transfers can load/store. **Shared by all programs of one DSP** within a sample: a slot program starts with whatever the previous program (main or other slot) left (measured: the DCO2 slot sees signal values left by the DCO1 slot) | [exact] / [measured] |
-| hidden state | at least two hidden values read by A op 0 sub-codes 4/5 (§6.1); they change between power cycles (DSP3: 163 / 1.80 before, 0 / 0 after a reboot) and no tested instruction writes them | [unknown] |
+| hidden registers | h4–h7, loaded by C-position words `40TY` (§9.0). h4 = delay base (`f6c`) and the value A op 0 sub 4 adds, h5 = delay-tap result address (A op 0 sub 5), h6 = index of mode-`28` transfers, h7 unknown. Values are left by other tasks (master DSP4: h4 = 288, h5 = 0x105/16384; DSP3: 0 after a reboot): set them before use | [measured] |
 | bank 0 (DT0) | data memory, 0x800 32-bit words per DSP, a **ring** addressed relative to a pointer that advances every sample (§9) | [measured] |
-| other memories | bank 1/2/4/5, parameter block, mailbox, delay memory: reached with other reference prefixes / transfer modes | [inferred] / [unknown] |
+| other memories | reference prefix = bank (bits 15–13): bank 2 (`4nnn`) two pages alternating per sample, DMA window of the delay memory where the ARM wired it (§9.1); bank 3 (`60nn`) IOMD, not read back; bank 4 (`8nnn`) MXM inter-DSP bus, not kept to the next sample; bank 5 (`Annn`) plain persistent memory; bank 6 (`Cnnn`) parameters; bank 1 (`22nn`) mailbox (§9) | [measured] / bank 1, 6 [inferred] |
+| delay memory | a ring advancing one sample per sample, addresses in units of 16384 samples; reached only through the bank-2 DMA (§9.1) | [measured] |
 | condition bits | 16 static bits per execution context, tested by C words (§8) | [measured] |
 | program memory | per DSP, ARM address 0x41480000 + n·0x100000 + slot byte address | [exact] |
 | time budget | slave DSP2/3: ≈ 930–950 single-op instructions per sample for main + both oscillator slots (main2/3 = 189): a DCO2 slot of 733 instructions ran, 753 did not (DCO1 slot 6). Master DSP3 (idle, `re/dspbudget.py`: K fillers before a ring counter): the counter runs with 900 fillers + 22 and stops with 920–950 → **≈ 925–945 instructions per sample on every DSP**. **An A/A/B instruction (class 0x160) costs the same as a single-op one** (same edge with A/A/B fillers, 3654 halfwords; not a memory limit). Over budget the end of the program (voice B) is lost; afterwards the device can stay unstable (wrong / no sound, LFO-like garbage) until a **power cycle** (seen twice on the slaves) | [measured] |
@@ -197,14 +199,16 @@ w2:  Z[15:12]  op2[11:9]  C[8:6]  mW[5:4]  W[3:0]
 | field | meaning | status |
 |---|---|---|
 | R | 0–7: load rR ← memory; 8–15: store memory ← r(R−8) | [exact] |
-| mode | `fe` = plain access to the referenced address. See table below | partly |
+| mode | `fe` = plain access to the referenced address; `28` indexed (§9.0); `a9` delay-tap request (§9.1). See table below | partly |
 | Y | slot index = Y >> 1 (Y even in 99.97 % of the corpus; the 5 odd cases are [unknown]) | [exact] |
 
 | mode byte | behaviour | status |
 |---|---|---|
 | `fe` `ff` `3e` `0e` `10` `12` | same address as `fe` | [measured] (use `fe`) |
 | `e0` `e1` `db` `ed` `be` `8e` `ee` `de` `ce` `7e` `fc` `fd` `f0` | other memory (reads 0 where `fe` reads the word; writes not found in banks 0/1/2/4/5) | [unknown] |
-| `9b` `a9` `9e` | no data register loaded. `X9bY` (write r(X−8) to "port" Y; Roland uses Y = 1–3, usually in the same instruction as a unit-B op) does **not**: change r0–r7, change the condition bits (hypothesis from corpus statistics "port 1/2/3 → condition groups 4–7/8–11/12–15, read by a C word 2 instructions later": tested on master DSP3 with values ±0.5, 0, ±2, ±1/16, raw patterns 1/2/4/8/F, 0x000F0000, 0x7fffffff, 0xF0000000, distance 1–3, inside a unit-B instruction, and across the sample boundary; and on the slave DCO2 slot by audio — the groups never changed), change what `fe` loads read afterwards, redirect the result of the unit-B op of its instruction, set the hidden values of A op 0 sub 4/5, or reach the slot's audio output (noise written to ports 0–7 on the slaves: silence). `Xa9Y` loads nothing (ports 0–7 read back nothing, also with Roland's SAW running in the other slot). Target not visible from the program (delay memory, other DSPs?) | [unknown] |
+| `28` | **indexed**: rX ← bank0[⌊h6·16384⌋ + Y] (X 8–15: store); Y is an offset, no reference slot; ring-relative (§9.0) | [exact] |
+| `a9` | **delay-tap request** with the read address in rX; results to bank 2 [h5..h5+2] (§9.1) | [measured] |
+| `9b` `9e` | no data register loaded. `X9bY` (write r(X−8) to "port" Y; Roland uses Y = 1–3, usually in the same instruction as a unit-B op) does **not**: change r0–r7, change the condition bits (hypothesis from corpus statistics "port 1/2/3 → condition groups 4–7/8–11/12–15, read by a C word 2 instructions later": tested on master DSP3 with values ±0.5, 0, ±2, ±1/16, raw patterns 1/2/4/8/F, 0x000F0000, 0x7fffffff, 0xF0000000, distance 1–3, inside a unit-B instruction, and across the sample boundary; and on the slave DCO2 slot by audio — the groups never changed), change what `fe` loads read afterwards, redirect the result of the unit-B op of its instruction, set the hidden values of A op 0 sub 4/5, or reach the slot's audio output (noise written to ports 0–7 on the slaves: silence). `Xa9Y` loads nothing (ports 0–7 read back nothing, also with Roland's SAW running in the other slot). Also ruled out on 2026-10-16 (master DSP4 slot 0xF7DC and DSP3): condition bits in a context with delay hardware, h4–h6, delay-memory write, indexed bank-0 store; a unique marker written with `b9b1..3` is not found in any MXM window, IOMD (3 views), banks 0/1/2/5 of DSP3 or bank 5 of DSP2. Target not visible from the ARM | [unknown] |
 
 ### 5.4 Condition word (C)
 
@@ -599,22 +603,23 @@ time.
 
 ## 14. Open items (do not emit)
 
-Decoding coverage (2026-10-16, `dspisa.py cov`): the whole corpus 17877 / 19095 = 93.6 %; the rest is mostly `X9bY`
-(3.4 %) and the program-start marker words (1.4 %). The remainder: non-`fe` transfer modes (`X9bY` / `Xa9Y`, 5.1 % of the corpus), program start/end words,
-unknown unit-B / SFU ops. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §11.
+Decoding coverage (2026-10-16, `python3 re/dspisa.py cov work/corpus`): 17877 / 19095 = **93.6 %**. The rest:
+`X9bY` ≈ 650 instructions (3.4 %), program-start marker words `ff70`/`ef75`/`ef74` 262 (1.4 %, no measurable
+effect), a few unit-B forms (`eda8`, `e7d2`, `8c0f`, `fde8`, `8c30`: nibbles c/6 with an immediate or X in r4–r7),
+transfer mode `e0`. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §11.
 
-
-1. Unit-B encodings not listed in §6.3/§6.4; unit-B side effects with D ≥ 8; exact seed table of the reciprocal.
-2. (`Xa9Y` = delay-tap request, §9.1.) `40xx` control words other than `4022`/`4050`; line length; how the ARM sets
-   up a delay window for another slot/DSP. Transfer modes other than `fe`; odd transfer slot fields; the target of the
-   `X9bY` / `Xa9Y` "ports" (tests that ruled things out: §5.3). Next candidates: `Xa9Y` as a delay tap (`{8+d}f6c` then `3a90`, then a bank-2 `4001` load) and IOMD/MXM (prefix 3/4) references on master DSP3.
-3. (Solved §9.0: h4/h5 are the delay base / tap address, set by `40TY`.) h7 (`40c5`), mode-3 `40TY`, h6 readers
-   other than mode `28`.
-4. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.
-5. (Solved §7: D ≥ 8 halves, op2 010 = imm16, an A op in a MAC class reads N.) MAC op2 = 011.
-6. A op D ≥ 8 inside multi-op classes.
-7. Classes not present in the corpus.
-9. Why an over-budget slot program leaves the slaves unstable until a power cycle; cost of MAC-class and
+1. `X9bY` (§5.3: everything ruled out so far). Candidates left: h7, hardware not mapped for the ARM (wave bus,
+   ENV/MEVF), slave voice contexts.
+2. Delay memory (§9.1): line length (u = 100 reads nothing), how the ARM sets up a window for another slot / DSP
+   (slaves: J60/JX chorus), number of taps per sample, fraction resolution; no audio test yet.
+3. Hidden registers (§9.0): h7 (`40c5`), mode-3 `40TY` (reads 0), readers of h6 other than mode `28`; a non-ring
+   indexed target (bank 5?) for fixed tables.
+4. Buses (§9): MXM latency, routing on the slaves, ARM writes to MXM read by a DSP.
+5. MAC op2 = 011 (constant result); `8f09` (partial, §6.4); unit-B forms listed above; exact reciprocal / rsqrt seed
+   tables.
+6. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.
+7. A op D ≥ 8 inside multi-op classes; classes not present in the corpus.
+8. Why an over-budget program leaves the slaves unstable until a power cycle; cost of MAC-class and
    transfer-heavy instructions (only single-op A and A/A/B measured: 1 cycle each).
-8. Ring size per DSP / context, and whether some reference ranges (mailbox `22nn`, parameters `C0nn`) bypass the
+9. Ring size per DSP / context, and whether some reference ranges (mailbox `22nn`, parameters `C0nn`) bypass the
    ring.

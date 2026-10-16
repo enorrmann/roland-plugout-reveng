@@ -1,6 +1,6 @@
 # DSP instruction set (Roland BMC DSP) — reference
 
-State 2026-10-15. Only what was **measured on the hardware** (master DSP4, live probes; see "Method"), each item
+State 2026-10-16 (corpus 93.6 % decoded). Only what was **measured on the hardware** (master DSP4, live probes; see "Method"), each item
 marked with how sure it is. The history, raw evidence and dead ends are in `NOTES.md` (sections from
 "ISA del DSP medido en el equipo por audio USB" on). Hardware context: `../../ARCHITECTURE.md`.
 
@@ -123,7 +123,9 @@ Transfer `X mm Y` at a T position: mode byte mm = `fe`: X 0–7 loads rX ← [sl
 |---|---|---|
 | same memory as `fe` | `fe`, `ff`, `3e`, `0e`, `10`, `12` | loads the word |
 | other memory | `e0`, `e1`, `db`, `ed`, `be`, `8e`, `ee`, `de`, `ce`, `7e`, `fc`, `fd`, `f0` | loads 0 (not the word) |
-| no load into rX | `9b`, `a9`, `9e` | r3 unchanged |
+| indexed | `28` | rX ← bank0[h6 + Y] (ring-relative; see §9) |
+| delay-tap request | `a9` | results to bank 2 [h5..] (see §9) |
+| no load into rX | `9b`, `9e` | r3 unchanged; `X9bY` target still unknown |
 
 Seen as two nibbles (a, b) with b = `e`: a ∈ {f, 3, 0} same address, a ∈ {b, 8, e, d, c, 7} elsewhere, a = 9 no load.
 Hypothesis: a selects an address (offset) register — delay-line addressing — and `9b`/`a9` load an address register
@@ -173,13 +175,19 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
   an immediate (integer·16384); h4 = delay base, h5 = tap-result address (these were the "hidden values" of A op 0
   sub 4/5), h6 = index: `X28Y` loads/stores bank0[h6 + Y] (tables in memory). `DSP_ISA_SPEC.md` §9.0.
 
-## 9. Open
+* **More 2026-10-16**: indexed transfers are ring-relative → `[S + k]` = variable delay < 2048 samples on any DSP;
+  buses: `[60nn]` = IOMD word nn, DSP3 Z/S stores (`85nn`/`87nn`) → DSP4 O loads (`83nn`); MAC D ≥ 8 = result/2,
+  op2 010 = imm16, an A op inside a MAC class reads N; SFU `cf16` sqrt split, `cf26` log2 split; unit B nibble 2/6 =
+  min/max(−X, Y), c = frexp. Coverage tool: `python3 re/dspisa.py cov work/corpus` (93.6 %).
 
+## 9. Open (full list: `DSP_ISA_SPEC.md` §14)
+
+0. `X9bY` (ruled out: condition bits, h4–h6, delay write, indexed store, every ARM-visible window).
 1. What sets the 16 context condition bits (ARM side); the second word of C instructions in the slot array.
 2. (solved) The DSP runs at 96 kHz; data memory is a ring (state: load S + 1, store S); a load has one instruction
    of latency. See `DSP_ISA_SPEC.md` §9–§10.
-3. Unit B ops returning `7ffxxxxx`; odd B nibbles; hidden values of A op 0 sub 4/5; D ≥ 8 inside multi-op classes.
-4. Transfer modes other than `fe`.
+3. Unit B ops returning `7ffxxxxx`; odd B nibbles; (hidden values solved: h4/h5); D ≥ 8 inside multi-op classes.
+4. Transfer modes other than `fe`, `28`, `a9`.
 
 ## Method
 

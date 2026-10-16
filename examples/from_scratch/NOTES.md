@@ -644,24 +644,43 @@ Estado al 2026-10-16 (noche): corpus 93.6 % (`dspisa.py cov`); antes: SAW de Rol
 semántica: inmediatos compartidos entre ops A/B, clases A+B y A+A+B, costo de 1 ciclo, presupuesto ≈ 940
 instrucciones por muestra).
 
-Estado del equipo al cerrar (2026-10-16): slot 3 = laboratorio de 4096 palabras (DSPTEST + DSPLIVE + PEEK, nombre
+Estado del equipo al cerrar (2026-10-16, noche): reiniciado una vez a la tarde (el volcado de WMEM colgó el
+maestro); después todas las sesiones del maestro (DSP3 y DSP4 `f7dc`) cerraron restaurando el original
+(verificado: delay `f7dc` = `m1_tcm_f7dc_01134238` palabra por palabra, DSP3 main = `0001 0001 0b03 0080 7fee 0001`).
+El laboratorio de los slaves no se tocó hoy. Estado anterior: slot 3 = laboratorio de 4096 palabras (DSPTEST + DSPLIVE + PEEK, nombre
 C-SAW, `lab_pad4k.txt`; `work/dsplive/state.json` = lab_pad4k). En la ranura DCO2 quedó la Fuzz Saw de 290 puntos
 (`re/dspexp/own/wt2/live_fuzz290.txt`). `python3 re/dspown.py restore` vuelve al silencio de `lab_pad4k`.
 C-WAVE v2 se reinstala con `NAME=C-WAVE WAVETABLE=1 OWN_PROGS=dco1_w0=…/wt2/dco1_w0.txt,… engine/build.sh` +
 `tools/plugout_tool.py install plugins/C-WAVE --slot 3`.
 
-Herramientas nuevas: `re/wav2dco.py` (WAV → programa, imprime instrucciones y lo que queda para la otra DCO),
+Herramientas del 16/10 (ISA, todas por el peek, salidas en el banco 5 `A3C0..`): `re/dsptap.py` (línea de retardo
+propia en `f7dc`), `re/dsprdly.py` (mediciones dentro del delay de Roland, `--d3`, `--drop`/`--remove`),
+`re/dsphreg.py` (palabras `40TY` → h4/h5), `re/dspidx.py` (indexado `X28Y`), `re/dspidxring.py` (indexado y
+anillo), `re/dspbus.py` (stores MXM/IOMD vistos por el ARM), `re/dspbus2.py` (DSP3 → DSP4), `re/dspx9bscan.py`
+(busca lo escrito con `X9bY`), `re/dspmacfit.py` (fórmula de una instrucción con registros aleatorios, `--dump`),
+`re/dspisa.py cov` (cobertura del corpus).
+
+Herramientas anteriores: `re/wav2dco.py` (WAV → programa, imprime instrucciones y lo que queda para la otra DCO),
 `re/wtcheck.py` (escala + armónicos contra la tabla), `re/dspbudget.py` (presupuesto de tiempo en el DSP3 del
 maestro, sin audio), `dspasm.aab()` (instrucción A/A/B).
 
 Reglas aprendidas (antes de cada sesión de medición):
+* Programas de prueba en el maestro: **≤ ~900 instrucciones** (uno de ~1200 en `f7dc` dio todo 0); medir en tandas.
+* No volcar la WMEM (0x41300000) entera con un programa propio en `f7dc` (colgó el maestro).
+* Las salidas de prueba van al banco 5 (`A3C0..`, DPC*n* RAW 0x4111E000 + 0x4000·(n−2)): las lecturas sueltas del
+  banco 0 caen en otras referencias por el anillo. Marcas únicas por referencia (no reutilizar valores entre corridas).
 * Comprobar el SAW de referencia (`dspown.py load dspexp/own/saw_dco2.txt` + escala → armónicos 1/n). Si sale mal
   (silencio, ruido, tono fijo) apagar y prender el equipo: un programa que se pasa del presupuesto deja los slaves
   inestables y el reset MIDI no alcanza.
 * Contar instrucciones, no palabras: DSP2/3 ≈ 940 por muestra con main2/3 = 189 → las dos ranuras DCO ≈ 750.
 * Una sola herramienta MIDI a la vez; `dspmaster.py --restore` si se corta una sesión del maestro.
 
-Pendiente (ISA, próxima sesión):
+**Plan para la próxima sesión (2026-10-17)**: probar por audio en el laboratorio de los slaves (PLG3, ranura DCO2)
+lo hallado hoy, empezando por el **retardo indexado del banco 0** (vibrato/chorus propio: `[S] ← x`, h6 = (S + k)/16384,
+`X28Y` + lerp; ver `DSP_USOS.md` §2) y el indexado/`40TY` en los slaves; después seguir con la lista de abajo
+(`X9bY`, h7, latencia MXM). Antes: comprobar el SAW de referencia.
+
+Pendiente (ISA):
 1. (Hecho el 16/10, ver "Tomas de retardo") `Xa9Y` = pedido de toma. Falta: palabras `40xx` con otros bytes
    bajos, tamaño de la línea, cómo se configura una línea en otra ranura/DSP (¿plugout propio en los slaves, donde
    corren chorus de J60/JX?), y probarlo por audio.
