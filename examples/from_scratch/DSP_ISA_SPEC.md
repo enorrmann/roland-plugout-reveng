@@ -309,6 +309,10 @@ Selected by the mode bits (5–4) and Y bit 3; Y register = Y & 7. **[measured, 
 
 `ff70`, `ef75`, `ef74` (bits 7–6 = 01; program start) have no visible effect on r0–r7.
 
+`{8+d}f6c` (bits 7–6 = 01, mode 10, Y = `c`): **rd ← (rd + base) mod 512**, base = a per-task delay base register
+(0 on master DSP3, 288 left by the other tasks of master DSP4, set by `40xx` words, §9.1) **[measured]**. Used to
+turn a delay into a delay-memory read address (§9.1).
+
 ## 7. MAC semantics **[exact on the measured cases]**
 
 ```
@@ -357,8 +361,33 @@ transfer observed]**.
   96 000 times per second). Verified on master DSP3 and by the oscillator on the slave DCO slots.
 * Consequence for observation: the ARM sees physical words; a value stored every sample leaves a trail over the
   whole bank (2048 words in < 0.4 s).
+* Persistence per bank (master DSP3, counter loaded from W and stored to W) **[measured]**: bank 0 ring (load S+1);
+  **bank 2 (`4nnn`) = two pages alternating every sample** (a store is read back in the same sample and 2 samples
+  later, not at W+1); bank 4 (`80nn`, M zone) does not keep values to the next sample; bank 5 (`Annn`) plain
+  persistent memory; bank 3 (`60nn`) not read back. The ARM reads bank 5 coherently (DPC*n* RAW view), which makes
+  it the best place for test outputs.
 * Bank 0 can be read by the ARM (RAW view) but ARM writes to bank 0 do not stay; bank 5 is ARM-writable
   **[measured]**.
+
+### 9.1 Delay memory (bank-2 DMA) **[measured, master DSP4 slot 0xF7DC, 2026-10-16]**
+
+Only where the ARM connected the task's bank-2 window to the delay memory (master DSP4 global-delay slot 0xF7DC,
+window `4300`; nothing happens on master DSP3). Delay memory = a ring that advances one sample per sample;
+addresses are in units of 16384 samples. Per sample:
+
+| step | instruction | effect |
+|---|---|---|
+| write | `[4300] ← x` (any `fe` store) | x enters the delay ring at address 324 (fixed for this slot by the ARM) |
+| base | `1d06 4022 7fe0 c1fc <imm32>` | f6c base ← raw imm >> 22 (`5100 0000` → 324). Other low bytes of `40xx`: unknown, avoid |
+| address | `{8+d}f6c` | rd ← rd + base (§6.4) |
+| destination | `0b03 4050 <a>` | the next request writes its results to bank 2 [4000 + a ..] (`0301` → `[4301..4303]`). **Without it the request is ignored** |
+| request | `da90` (`0c02 3a90`, or `1b04 c510 3a90 0008`) | read at address rd |
+| results | load `[a]`, `[a+1]`, `[a+2]` (same sample) | x[n − L − ⌊k⌋], x[n − L − ⌊k⌋ − 1], frac(k), with k = 16384·(rd − 324), L = 2–3 samples (program position) |
+
+Interpolate with `0803 0c0a 9281`-style lerp: r0 + frac·(r1 − r0). With base = 324 the delay is 16384·u + L for
+u = r before f6c (measured u = 0, 0.5, 1, 10, 50.648 → 3, 8196, 16388, 163844, 829826 samples; u = 100 out of the
+line). Roland's global delay: `m1_tcm_f7dc_01134238`, two taps (`[4301..]`, `[4304..]`). Tool: `re/dsptap.py`,
+`re/dsprdly.py`. A full ARM read of WMEM (0x41300000) with a test program in this slot hung the master once.
 
 ## 10. Execution semantics **[measured, master DSP3]**
 
@@ -546,7 +575,8 @@ unknown unit-B / SFU ops. Per-model comparison of the oscillators: `CUSTOM_OSC.m
 
 
 1. Unit-B encodings not listed in §6.3/§6.4; unit-B side effects with D ≥ 8; exact seed table of the reciprocal.
-2. Transfer modes other than `fe` (delay memory, address registers); odd transfer slot fields; the target of the
+2. (`Xa9Y` = delay-tap request, §9.1.) `40xx` control words other than `4022`/`4050`; line length; how the ARM sets
+   up a delay window for another slot/DSP. Transfer modes other than `fe`; odd transfer slot fields; the target of the
    `X9bY` / `Xa9Y` "ports" (tests that ruled things out: §5.3). Next candidates: `Xa9Y` as a delay tap (`{8+d}f6c` then `3a90`, then a bank-2 `4001` load) and IOMD/MXM (prefix 3/4) references on master DSP3.
 3. Hidden values h4/h5 of A op 0 sub-codes 4/5 and how to set them.
 4. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.

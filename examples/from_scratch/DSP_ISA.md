@@ -163,6 +163,11 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
   like a single op. Per-sample budget ≈ 925–945 instructions on every DSP (main2/3 of the slaves = 189).
   Wavetables with one A/A/B instruction per point: `CUSTOM_OSC.md`. *(2026-10-16)*
 
+* **Delay taps (2026-10-16, master DSP4 slot 0xF7DC)**: `[4300] ← x` writes the delay ring; `1d06 4022 … <imm>`
+  sets a base (imm >> 22); `{8+d}f6c` = rd += base; `0b03 4050 0301` sets where the results go; `da90` requests
+  the read; `[4301..4303]` = two adjacent samples + fraction; delay = 16384·(rd − 324) + 2–3 samples. Bank 2 = two
+  pages alternating per sample, bank 5 plain memory. Details: `DSP_ISA_SPEC.md` §9.1.
+
 ## 9. Open
 
 1. What sets the 16 context condition bits (ARM side); the second word of C instructions in the slot array.

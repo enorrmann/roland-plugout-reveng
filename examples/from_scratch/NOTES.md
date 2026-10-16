@@ -661,8 +661,9 @@ Reglas aprendidas (antes de cada sesión de medición):
 * Una sola herramienta MIDI a la vez; `dspmaster.py --restore` si se corta una sesión del maestro.
 
 Pendiente (ISA, próxima sesión):
-1. `Xa9Y` como toma de línea de retardo en el DSP3 del maestro: `[4000]` ← rampa, `bf6c` r3, `0001`, `3a90`,
-   leer `[4001]`–`[4003]` (`DSP_ARM_SIDE.md` §4.3). Objetivo: delays / chorus / reverb propios.
+1. (Hecho el 16/10, ver "Tomas de retardo") `Xa9Y` = pedido de toma. Falta: palabras `40xx` con otros bytes
+   bajos, tamaño de la línea, cómo se configura una línea en otra ranura/DSP (¿plugout propio en los slaves, donde
+   corren chorus de J60/JX?), y probarlo por audio.
 2. `X9bY` (escritura a "puertos" 1–3): qué destino tienen (memoria de retardo, MXM, otro DSP).
 3. Referencias con prefijo 3 (IOMD) y 4 (MXM): guardar desde el DSP3 y leer 0x4113C000 / 0x41531000 con el peek;
    escribir desde el ARM y cargar en el DSP (§4.2).
@@ -671,6 +672,40 @@ Pendiente (ISA, próxima sesión):
    `7ffxxxxx`); valores ocultos h4/h5; palabras de inicio/fin de programa.
 6. Por qué un programa que se pasa del presupuesto deja el equipo inestable (¿se puede detectar o evitar?).
 7. Recalcular la cobertura del corpus con `dspisa.py` corregido (inmediatos compartidos).
+
+### Tomas de retardo `{8+d}f6c` / `Xa9Y` y bancos 2/4/5 (2026-10-16, maestro, `re/dsptap.py`)
+* **Persistencia por banco** (contador load W / store W en el DSP3): banco 0 anillo (load S+1, 96 000/s); **banco 2
+  (`4xxx`) = dos páginas que alternan cada muestra** (load W lee lo guardado hace 2 muestras: 48 000/s; lo guardado se
+  relee en la misma muestra; W+1 no); banco 4 (`80xx`, zona M) no persiste entre muestras (0/s; en la misma muestra
+  sí se relee); banco 5 (`Axxx`) memoria simple persistente (96 000/s); IOMD (`6010`) no se relee; `4800` lee 0.
+  Las lecturas del ARM del banco 2 del DSP3 (0x41720000, IEEE) titilan entre las dos páginas; las escrituras del ARM
+  caen en una sola.
+* **Línea de retardo propia funcionando** (ranura `f7dc` del DSP4 del maestro, la única con el banco 2 conectado a
+  la memoria de retardo; en el DSP3 nada de esto tiene efecto). Secuencia mínima por muestra (`re/dsptap.py`):
+  1. `[4300] ← x` (puerto de escritura de esta ranura: el ARM lo ubica en la **posición 324** de un anillo que
+     avanza una muestra por muestra, como el banco 0 pero en la memoria de retardo; unidad = 16384 muestras).
+  2. `1d06 4022 7fe0 c1fc <imm32>`: fija la **base de `f6c`** = bits crudos del inmediato >> 22 (`5100 0000` → 324,
+     `4800 0000` → 288, `3000 0000` → 192, `0` → 0). El valor que deja otra tarea del DSP4 es 288 (los `efdc`
+     usan `1d05 4020 3a90 4800 0000`). La palabra `40xx` tiene el bit 6 del byte alto, no es una C común; otros
+     bytes bajos (`4003`, `4010`, `4020`…) dan efectos raros: **sin decodificar**.
+  3. `{8+d}f6c`: **rd = (rd + base) mod 512** (dirección de lectura; aplicado dos veces: 302.648 → 78.648).
+  4. `0b03 4050 <addr>`: **destino de los resultados en el banco 2** (`0301` → `[4301..4303]`; Roland `0304` para
+     la toma 2, J60 `0001`/`0004`). **Sin esta palabra el pedido se ignora** (por eso mis primeras pruebas daban 0).
+  5. `da90` (`0c02 3a90` o el `1b04 c510 3a90 0008` de Roland): el pedido con la dirección en rd.
+  6. Cargar `[W+1]` = x[n − L − ⌊16384·(A − 324)⌋], `[W+2]` = una muestra más vieja, `[W+3]` = fracción de
+     16384·(A − 324) (0.25/0.5/0.75 medidos exactos), con A = dirección de 3. → `r0 + frac·(r1 − r0)`.
+     L = 2 muestras en mi programa corto, 3 en el de Roland (posición en el programa). Con base = 324 el retardo
+     es directamente 16384·u + L. Medido: u = 0 → 3, 0.5 → 8196, 1 → 16388, 10 → 163844, 50.648 → 829826 (8.6 s),
+     100 → nada (fuera de la línea); base 330 → edad +6 unidades; base 300 → zona "futura" (0).
+* El delay global que corre (`m1_tcm_f7dc_01134238`): r3 = 14.648 (≈ 2.5 s) antes de `bf6c`, base 324.
+  `[4303]` = 1/64 y `[4306]` = 3/16 son sus fracciones reales. `X9bY` no cambia la base (probado puertos 1–3).
+* Herramienta para medir dentro del programa de Roland: `re/dsprdly.py` (contador como entrada del delay, salida de
+  audio en 0, `--d3` fuerza el retardo, `--drop`/`--remove` bisecan instrucciones). Salidas por el **banco 5**
+  (`A3C0..`, DPC4 RAW 0x41126000): el ARM lo lee coherente (las lecturas sueltas del banco 0 caen en otras
+  referencias por el anillo).
+* WMEM (0x41300000, 128 K palabras, el tamaño del IDM) leída entera con el delay de Roland en silencio: todo 0.
+  **Un segundo volcado con mi programa en `f7dc` colgó el maestro** (el peek dejó de responder; USB seguía): no
+  volver a leer la WMEM con un programa propio en esa ranura (o leer de a poco).
 
 Pendiente (osciladores, cuando se retome):
 * `wav2dco.py` → plugout completo con N WAV elegidos, repartiendo puntos según el presupuesto de cada DSP.
