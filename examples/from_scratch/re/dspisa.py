@@ -9,7 +9,8 @@ body position:
     A  ALU op (16 bits)          M  MAC first word (w1)        N  MAC second word (w2)
     T  transfer                  R  reference (slot)           I  immediate bits (rest of the instruction)
 Slots (for transfers XfeY: slot Y/2) are counted from the first position after the transfers: N words
-first, then R words. Operand modes 1/2/3 take 16/24/32 bits from the immediate bit stream, in order.
+first, then R words. Operand modes 1/2/3 take 16/24/32 bits from the immediate bit stream: MAC operands in order,
+every A/B op from the start of the stream (two A/B ops with immediates share the same bits, measured 2026-10-16).
 """
 import argparse, os, struct, sys
 
@@ -256,10 +257,12 @@ def run(ins, regs, mem=None):
                 next(n_words)
             continue
         if k == 'A':
-            text.append(a_op(w, regs, imm, out))
+            imm.pos = 0           # every A/B op reads its immediate from the start of the stream (measured
+            text.append(a_op(w, regs, imm, out))   # 2026-10-16: two ops with imm16/imm32 get the same bits)
         elif k == 'M':
             text.append(mac(w, next(n_words), regs, imm, out))
         elif k == 'B':
+            imm.pos = 0
             text.append(b_op(w, regs, imm, out))
         elif k == 'C':
             cc, neg, a_, b_ = (w >> 9) & 15, (w >> 8) & 1, (w >> 4) & 15, w & 15

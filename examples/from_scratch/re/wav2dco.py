@@ -14,10 +14,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import dspasm   # noqa: E402
 
-# measured 2026-10-16 (lab plugin, DCO1 slot empty, one-op-per-instruction version): DCO2 programs of 401
-# instructions play on every voice, 421 and more only on voice A (B, the second half, sounds something else): a time
-# budget per sample, not a memory limit. The installed C-WAVE (DCO1 401 + DCO2 391) failed on voice B already.
-LIMIT = 400
+# measured 2026-10-16: a DSP runs ~930-950 instructions per sample (slaves by audio, master DSP3 with
+# re/dspbudget.py; an A/A/B instruction costs the same as a single-op one). Main2/3 takes 189, so the two DCO slots
+# of a DSP share ~750 (CUSTOM_OSC.md). Over budget voice B fails and the device may need a power cycle.
+BUDGET = 750
+MARGIN = 40             # the edge is not sharp (925-945); stay this far below it
 
 
 def read_wav(path):
@@ -73,12 +74,14 @@ def resample_cycle(x, n):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('wav')
-    ap.add_argument('-n', type=int, default=32, help='table points (default 32; 4 instructions per point for both voices, max 120)')
+    ap.add_argument('-n', type=int, default=32, help='table points (default 32; ~4 instructions per point for both voices)')
     ap.add_argument('--slot', default='dco2', choices=['dco1', 'dco2'])
     ap.add_argument('--level', type=float, default=0.9)
     ap.add_argument('--keep-dc', action='store_true')
     ap.add_argument('--cycle', type=int, help='cycle length in samples (default: the whole file)')
     ap.add_argument('--frame', type=int, default=0, help='with --cycle: take frame FRAME (multi-frame wavetables)')
+    ap.add_argument('--pad-mid', type=int, default=0, help='no-ops between voice A and B (time budget probe)')
+    ap.add_argument('--pad-mid-aab', type=int, default=0, help='A/A/B fillers between voice A and B')
     ap.add_argument('--check', action='store_true', help='simulate and compare with the table')
     ap.add_argument('-o')
     a = ap.parse_args()
@@ -91,11 +94,12 @@ def main():
     if not a.keep_dc:
         y -= y.mean()
     y *= a.level / np.max(np.abs(y))
-    P = dspasm.wavetable(a.slot, [round(float(v), 6) for v in y])
+    P = dspasm.wavetable(a.slot, [round(float(v), 6) for v in y], pad_mid=a.pad_mid, pad_mid_aab=a.pad_mid_aab)
     nwords = sum(len(i) for i in P)
-    print(f'{a.wav}: {len(x)} samples -> {a.n} points, program {nwords} words, {len(P)} instructions'
-          f'{" (above the measured ~400-instruction budget: voice B may fail)" if len(P) > LIMIT else ""}',
-          file=sys.stderr)
+    rest = BUDGET - MARGIN - len(P)
+    print(f'{a.wav}: {len(x)} samples -> {a.n} points, program {nwords} words, {len(P)} instructions; '
+          + (f'leaves ~{rest} for the other DCO slot (with a margin of {MARGIN})' if rest > 0 else
+             'TOO LONG for the per-sample budget even with the other DCO empty (voice B fails)'), file=sys.stderr)
     t = dspasm.text(P, f'wavetable from {os.path.basename(a.wav)}, {a.n} points, {a.slot} (re/wav2dco.py)')
     (open(a.o, 'w').write(t) if a.o else print(t, end=''))
     if a.check:

@@ -58,8 +58,9 @@ General order: `[A/B/M/C words] [T words] [slots: N words, then R words] [I bits
 * Operand **mode** (2 bits, see each format): 00 register, 01 immediate 16 bits, 10 immediate 24 bits, 11
   immediate 32 bits. Immediates are the top bits of a RAW word, taken **in order from a continuous bit stream** at
   the end of the instruction (24 bits = 1.5 words; past the end it reads the next instruction). *(certain)*
-* Two A ops with an immediate each in one instruction made it illegal (nothing stored); a MAC may take several
-  immediates. *(measured, few cases)*
+* Several A/B ops of one instruction **share** the immediate: each reads it from the start of the bit stream with
+  its own width (so two A/B ops cannot have different constants); a MAC's operands take their immediates in
+  order. *(certain, 2026-10-16; this explains the old "two A ops with an immediate made it illegal")*
 * Register field bit 3 (Y of A/B, Z and W of MAC) = **negate** (Y = 8 + n → −rn). *(certain for A; seen in MAC)*
 
 ## 4. Unit A (16-bit word)
@@ -158,6 +159,9 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
 * `X9bY` does **not** set condition bits (hypothesis from the corpus tested on DSP3 and the slaves, rejected).
   Bank numbering of reference prefixes and the inter-DSP routing (static analysis): `DSP_ARM_SIDE.md`.
 * First own microcode (SAW, FOLD) plays on the hardware: `CUSTOM_OSC.md`.
+* Multi-op classes 0x0B0 (A, B) and 0x160 (A, A, B): all ops read before writing; an A/A/B costs **one cycle**,
+  like a single op. Per-sample budget ≈ 925–945 instructions on every DSP (main2/3 of the slaves = 189).
+  Wavetables with one A/A/B instruction per point: `CUSTOM_OSC.md`. *(2026-10-16)*
 
 ## 9. Open
 

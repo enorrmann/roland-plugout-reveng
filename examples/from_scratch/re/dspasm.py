@@ -74,6 +74,17 @@ def b(name, d, x, y=0, imm=None):
     return [0x050 << 5 | 2, d << 12 | nib << 8 | x << 6 | y]
 
 
+def aab(a1, a2, bop):
+    """class 0x160 (A, A, B in one instruction; DSP_ISA_SPEC.md §4.4): the three ops read their operands before any
+    write; at most one of them may take an immediate (every A/B op reads its immediate from the start of the bit
+    stream, so two immediates would be the same bits). a1, a2: a(...) results, bop: b(...) result."""
+    imms = [ins[2:] for ins in (a1, a2, bop) if len(ins) > 2]
+    if len(imms) > 1:
+        raise ValueError('only one immediate per A/A/B instruction (they share the bit stream)')
+    words = [a1[1], a2[1], bop[1]] + (imms[0] if imms else [])
+    return [0x160 << 5 | (len(words) + 1)] + words
+
+
 def ld(r, addr):
     return [0x060 << 5 | 3, r << 12 | 0xFE0, addr]
 
@@ -198,24 +209,39 @@ def fold(slot, fs=96000.0, lfo_hz=0.25, gmin=1.0, gmax=4.5, level=0.9):
     return P
 
 
-def wavetable(slot, table, fs=96000.0, level=1.0):
+def wavetable(slot, table, fs=96000.0, level=1.0, chunk=64, pad_mid=0, fused=True, pad_mid_aab=0):
     """single-cycle wavetable oscillator with the table hardcoded in the program (no indexed reads exist):
-    linear interpolation between the N points (v[N] = v[0]) written as a sum of ramps,
-        out = c + sum_k s_k * max(u, k),   u = N * (phase + 1) / 2 in [0, N),
-    s_k = change of slope at point k, c = v[0] - sum_k s_k * k. Two instructions per point: unit B
-    max(r0, imm k) and unit A op 3 (acc += r2 * imm s_k). Every point is evaluated each sample.
-    The accumulator stays below ~4N + 3 (format limit 512): N <= 120."""
+    linear interpolation between the N points (v[N] = v[0]), every point evaluated each sample.
+    u = N * (phase + 1) / 2 in [0, N). The points are split in chunks [a, b) of <= `chunk` points; chunk value
+        w = clamp(u - a, 0, b - a),   h(w) = cst + sum_{k in chunk} s_k * max(w, k - a)
+    = interp(clamp(u, a, b)) - v[a] (s_k = change of slope at k inside the chunk, slope 0 before a), and
+    out = v[0] + sum of the chunk values. Two instructions per point (unit B max(r2, imm16) and unit A op 3
+    acc += r2 * imm32), ~5 per chunk; intermediate values stay below 4 * chunk + 4 (format limit 512).
+    fused (default): ONE instruction per point, class 0x160 A/A/B, software-pipelined on relu(w - i):
+        r1 = w - j (counter), r2 = relu(w - (j - 1)), r3 = chunk sum;
+        instruction j: A r1 += r7 (-1) | A r3 += r2 * s[j-1] (imm32) | B r2 = max(r1, r5 = 0)
+    (all read before writing). No lower clamp needed (w < 0 gives relu 0), the upper clamp min(w, L) remains,
+    ~4 instructions per chunk; partial sums stay below 2 + 2 * chunk.
+    pad_mid_aab: filler A/A/B instructions there (cost of a 3-op instruction).
+    pad_mid: filler ALU instructions (r7 = r5) between the voice A and the voice B code (time budget probe)."""
     N = len(table)
-    if N < 2 or N > 120:
-        raise ValueError('table of 2..120 points')
+    if N < 2 or N > 4096:
+        raise ValueError('table of 2..4096 points')
     K = 2 * 440.0 / fs
     v = [float(x) for x in table]
     d = [v[(k + 1) % N] - v[k] for k in range(N)]
-    s = [d[k] - (d[k - 1] if k else 0.0) for k in range(N)]
-    c = v[0] - sum(s[k] * k for k in range(N))
+    chunks = []
+    for a_ in range(0, N, chunk):
+        b_ = min(N, a_ + chunk)
+        sl = [d[k] - (d[k - 1] if k > a_ else 0.0) for k in range(a_, b_)]
+        if any(sl):
+            chunks.append((a_, b_, sl, -sum(x * i for i, x in enumerate(sl))))
     P = [[0x0A02, 0xFF70],
-         a('move', 5, imm=0.0, bits=16), a('move', 6, imm=1.0, bits=16)]
+         a('move', 5, imm=0.0, bits=16), a('move', 6, imm=1.0, bits=16), a('move', 7, imm=-1.0, bits=16)]
     for voice in 'AB':
+        if voice == 'B':
+            P += [a('move', 4, y=5)] * pad_mid               # r4 = 0: one cheap ALU instruction each
+            P += [aab(a('move', 4, y=5), a('move', 3, y=5), b('max', 2, 1, 5))] * pad_mid_aab   # 3-op fillers
         pin, outs, state = SLOTS[slot][voice]
         P += [ld(1, state + 1), ld(0, pin),
               a('add', 0, 0, imm=-4.75), a('mul', 2, 0, imm=math.log(2) / 16), a('move', 3, imm=1 / 24),
@@ -227,18 +253,31 @@ def wavetable(slot, table, fs=96000.0, level=1.0):
         P += [st(1, state)]
         P += [a('mul', 0, 1, imm=N / 2.0),                  # r0 = u = N/2 * phase + N/2
               a('add', 0, 0, imm=N / 2.0),
-              a('move', 3, imm=c)]                          # r3 = accumulator
-        for k in range(N):
-            if s[k] == 0:
-                continue
-            if k == 0:
-                P.append(a('mac', 3, 0, imm=s[0]))          # max(u, 0) = u
-                continue
-            P += [b('max', 2, 0, imm=float(k)),             # r2 = max(u, k)
-                  a('mac', 3, 2, imm=s[k])]                 # acc += s_k * r2
+              a('move', 4, imm=v[0])]                       # r4 = output accumulator
+        for a_, b_, sl, cst in chunks if fused else ():
+            P += [a('add', 1, 0, imm=-float(a_)) if a_ else a('move', 1, y=0),   # r1 = w = u - a
+                  b('min', 1, 1, imm=float(b_ - a_)),       # w = min(w, L)
+                  aab(a('add', 1, 1, 7), a('move', 3, imm=0.0, bits=16), b('max', 2, 1, 5))]  # r1 = w-1, r3 = 0, r2 = relu(w)
+            for sk in sl:
+                P.append(aab(a('add', 1, 1, 7), a('mac', 3, 2, imm=sk), b('max', 2, 1, 5)))
+            P.append(a('add', 4, 3, 4))                     # r4 += chunk value
+        for a_, b_, sl, cst in chunks if not fused else ():
+            P += [a('add', 1, 0, imm=-float(a_)),           # r1 = w = clamp(u - a, 0, b - a)
+                  b('max', 1, 1, 5),
+                  b('min', 1, 1, imm=float(b_ - a_)),
+                  a('move', 3, imm=cst)]                    # r3 = chunk accumulator
+            for i, sk in enumerate(sl):
+                if sk == 0:
+                    continue
+                if i == 0:
+                    P.append(a('mac', 3, 1, imm=sk))        # max(w, 0) = w
+                    continue
+                P += [b('max', 2, 1, imm=float(i)),         # r2 = max(w, i)
+                      a('mac', 3, 2, imm=sk)]               # r3 += s * r2
+            P.append(a('add', 4, 3, 4))                     # r4 += chunk value
         if level != 1.0:
-            P.append(a('mul', 3, 3, imm=level))
-        P += [st(3, outs[0]), st(3, outs[1])]
+            P.append(a('mul', 4, 4, imm=level))
+        P += [st(4, outs[0]), st(4, outs[1])]
     P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
     for ins in P:
         if dspisa.template(ins) is None:

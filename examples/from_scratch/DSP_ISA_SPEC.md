@@ -27,6 +27,7 @@ Everything here comes from **measurements on the hardware** (exact register/memo
 | other memories | bank 1/2/4/5, parameter block, mailbox, delay memory: reached with other reference prefixes / transfer modes | [inferred] / [unknown] |
 | condition bits | 16 static bits per execution context, tested by C words (§8) | [measured] |
 | program memory | per DSP, ARM address 0x41480000 + n·0x100000 + slot byte address | [exact] |
+| time budget | slave DSP2/3: ≈ 930–950 single-op instructions per sample for main + both oscillator slots (main2/3 = 189): a DCO2 slot of 733 instructions ran, 753 did not (DCO1 slot 6). Master DSP3 (idle, `re/dspbudget.py`: K fillers before a ring counter): the counter runs with 900 fillers + 22 and stops with 920–950 → **≈ 925–945 instructions per sample on every DSP**. **An A/A/B instruction (class 0x160) costs the same as a single-op one** (same edge with A/A/B fillers, 3654 halfwords; not a memory limit). Over budget the end of the program (voice B) is lost; afterwards the device can stay unstable (wrong / no sound, LFO-like garbage) until a **power cycle** (seen twice on the slaves) | [measured] |
 
 A **program** runs from its first word to its end instruction once per sample. **The DSP sample rate is 96 kHz**
 (measured: ~96 000 executions/s on master DSP3; an oscillator computed with fs = 96 000 is in tune within ±1.2
@@ -134,9 +135,16 @@ most frequent instance; an assembler places references and immediates by this ru
   (`0903 3060 2800` reads 8 bits of the next header) **[exact]**. An assembler must always emit
   `ceil(total_bits / 16)` I words, padding the last one with zeros.
 * Consumption order **[exact for the measured cases]**: within an A/B op: Y. Within a MAC: Y (w1), then c (w2
-  op2 mode), then W (w2). Between several ops of one instruction: position order **[inferred]**.
-* Restriction: two A ops that each take an immediate in one instruction (class 0x0A8, len 5) made the program
-  stop **[measured]**. Use at most one immediate-taking A/B op per instruction; a MAC may take several.
+  op2 mode), then W (w2).
+* **Several A/B ops of one instruction share the immediate [exact, 2026-10-16, master DSP3]**: every A/B op that
+  takes an immediate reads it from the **start** of the bit stream, each with its own width. Measured: AB
+  `1606 36b0 9410 2800 0000 4200` (A `r3 += r2·imm32`, B `r1 = max(r0, imm16)`) → A gets 0.5 (`28000000`), B gets
+  0.5 (`2800`), not 2.0 (`4200`); `1605 3690 9410 2800 4200` (imm16 + imm16) → both 0.5; AAB
+  `2c06 1c70 3682 a410 2800 4200` → A1 imm32 = `28004200` (0.500063), B imm16 = `2800`. The earlier observation
+  "two A ops with immediates in class 0x0A8 len 5 made the program stop" was probably a consequence (the second
+  op did not get the bits expected). An assembler gives an instruction **at most one immediate value** (several
+  ops may use it, with their widths); a MAC's operands are consumed in order (combination MAC + A/B with
+  immediates: [unknown]).
 
 ## 5. Word formats
 
@@ -357,6 +365,7 @@ transfer observed]**.
 | case | result |
 |---|---|
 | two ops in one instruction | both read old values (`1503 3c01 4cc1`: r4 uses old r3), independent of word order |
+| A + B / A + A + B in one instruction (classes 0x0B0, 0x160) | all three read old values [exact, 2026-10-16]: `1603 1c42 a445` (A `r1 = r1 + r2`, B `r2 = max(r1, r5)`) → r1 = old r1 + old r2, r2 = max(old r1, r5); `2c06 1c47 36b0 a445 2800 0000` (A `r1 += r7`, A `r3 += r2·0.5`, B `r2 = max(r1, r5)`) exact. Used for one-instruction-per-point wavetables (`CUSTOM_OSC.md`) and verified by audio on the slaves |
 | op + store in one instruction | the store writes the **old** register value |
 | program → next program on the same DSP | registers carry over (no reset between the main and slot programs) |
 | op + load in one instruction | the op reads the **old** value; the load result is visible to the next instruction |
@@ -377,6 +386,8 @@ transfer observed]**.
 5. `r0 ← r1 + r2·(r0 − r1)`: MAC, template `MN` (0x040): w1 D=0 op1=6 X=0 mY=0 Y=r2 (corpus uses `0c0a`);
    w2 Z=−r1 (`9`), op2=001, C=r2, mW=0, W=r1 → `9281` → `0803 0c0a 9281`.
 6. `r3 ← |r1| + r2` (unit B): template `B` (class 0x050), word D=3 op=6 X=1 Y=2 → `3c42` → `0a02 3c42`.
+6b. Three ops in one instruction, template `AAB` (class 0x160): `r1 ← r1 + r7 | r3 ← r3 + r2·s | r2 ← max(r1, r5)`
+   = A `1c47`, A op 3 imm32 `36b0`, B `a445`, one imm32 → `2c06 1c47 36b0 a445 <s hi> <s lo>` (`re/dspasm.py aab()`).
 
 7. A complete program: `re/dspasm.py saw dco2` generates our own naive SAW for the DCO2 slot (pitch in `[2207]` /
    `[2214]`, `f = 440·2^(p − 4.75)`, fs 96 kHz, 2^x by Taylor + 4 squarings, phase kept in the ring (load S + 1,
@@ -542,5 +553,7 @@ unknown unit-B / SFU ops. Per-model comparison of the oscillators: `CUSTOM_OSC.m
 5. MAC with D ≥ 8; MAC op2 mode 1 (imm16).
 6. A op D ≥ 8 inside multi-op classes.
 7. Classes not present in the corpus.
+9. Why an over-budget slot program leaves the slaves unstable until a power cycle; cost of MAC-class and
+   transfer-heavy instructions (only single-op A and A/A/B measured: 1 cycle each).
 8. Ring size per DSP / context, and whether some reference ranges (mailbox `22nn`, parameters `C0nn`) bypass the
    ring.

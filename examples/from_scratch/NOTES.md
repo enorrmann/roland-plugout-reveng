@@ -599,6 +599,38 @@ Documento técnico completo: `CUSTOM_OSC.md`.
   en programas de efecto tras `{8+d}f6c`, seguido de cargas del banco 2 `4001…` e interpolación lineal → toma de
   línea de retardo (WMEM). Próximos experimentos: `Xa9Y` como toma de retardo y referencias IOMD/MXM en el DSP3.
 
+## Wavetables desde WAV y presupuesto de tiempo del DSP (2026-10-16) — `re/wav2dco.py`, `CUSTOM_OSC.md`
+* **Conversor**: `re/wav2dco.py ciclo.wav -n N` (PCM o float, `--cycle 2048 --frame K` para tablas de varios
+  cuadros) → programa para DCO1/DCO2; la tabla va como inmediatos (no hay lecturas indexadas). `re/wtcheck.py`
+  toca una escala y compara los armónicos con la tabla (`--harmonics 5`: el filtro del patch apaga los altos).
+* **El límite es de tiempo, no de memoria**: con la primera versión (5 instrucciones por punto) fallaba la **voz B**
+  (segunda mitad del programa → notas alternas de una escala; el usuario oía "un saw en notas fijas"). Medido en el
+  laboratorio con relleno entre las voces: la ranura DCO2 corre 733 instrucciones y no 753 (DCO1 = 6, main = 189)
+  → DSP2/3 ≈ 930–950 instrucciones simples por muestra.
+* **Plugout C-WAVE** (`NAME=C-WAVE WAVETABLE=1 OWN_PROGS=… engine/build.sh`, `engine.c -DWAVETABLE`): 6 programas
+  propios por DCO, uno por posición de forma de onda; DCO2 = 6 AKWF, DCO1 = 6 cuadros de Echo Sound Works de 32 a
+  120 puntos. Con la versión de 2 instrucciones por punto todo sonó bien (verificado por audio y por el usuario).
+  Ahora la ranura 3 tiene de nuevo el laboratorio.
+* **Decodificado (DSP3 del maestro, exacto)**: las clases 0x0B0 (A, B) y 0x160 (A, A, B) leen todos los operandos
+  antes de escribir; **varios ops A/B de una instrucción comparten el inmediato** (cada uno lo lee desde el
+  principio del flujo de bits). Corregido `re/dspisa.py`; nuevo `dspasm.aab()`.
+* **Una instrucción por punto**: `r1 += r7 | r3 += r2·s | r2 = max(r1, r5)` en cadena sobre relu(w − i), bloques
+  de 64 puntos. En vivo en el laboratorio: 32 y 144 puntos (2022 palabras) → 6/6 notas bien.
+* **Cuidado**: tras cargar un programa que se pasa del presupuesto el equipo puede quedar inestable (silencio,
+  niveles erráticos, ruido tipo LFO, el SAW de referencia roto; el reset MIDI no alcanza) hasta **apagarlo y
+  prenderlo**. Pasó dos veces (relleno con `0001` y la prueba de 705 instrucciones con relleno). Antes de medir:
+  comprobar el SAW de referencia (`dspown.py load dspexp/own/saw_dco2.txt` → armónicos 1/n).
+* **Costo de A/A/B medido sin audio** (`re/dspbudget.py`, DSP3 del maestro: K rellenos antes de un contador en el
+  anillo; el contador sube 1,46/s mientras el programa entra en la muestra): con relleno simple corre K = 900 y se
+  detiene en 920–950; con relleno A/A/B lo mismo (3654 medias palabras, no es memoria) → **una A/A/B cuesta un
+  ciclo** y el presupuesto es ≈ 925–945 instrucciones por muestra también en el maestro.
+* **Máximo**: en el borde, una DCO sola 310 puntos (733 instrucciones) y las dos 136 cada una; **recomendado con
+  margen: una DCO sola ≤ 290 puntos (693 instrucciones, 3830 palabras), las dos ≤ 128 cada una**.
+* Preparado sin instalar (el equipo quedó inestable, hace falta apagarlo y prenderlo): C-WAVE v2
+  (`re/dspexp/own/wt2/`, DCO1 64…256 puntos) y `lab_pad4k.txt`.
+* Pendiente: un `lab_pad` que no se pase del presupuesto (programa corto + relleno **después** del final) y
+  que reserve 4096 palabras (el máximo de la sombra de DSPLIVE) para probar tablas más grandes en vivo.
+
 ## Próximos pasos del ISA (para seguir)
 Referencia: `DSP_ISA_SPEC.md` (especificación, manda), `DSP_ISA.md` (resumen), `DSP_ARM_SIDE.md` (mapa de bancos
 del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD propios, laboratorio, comparación de osciladores §11).

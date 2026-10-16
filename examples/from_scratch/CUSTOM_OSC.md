@@ -233,6 +233,11 @@ python3 dspown.py notes NAME --notes 48 69 81           # measure
 python3 dspown.py restore                               # back to the lab program
 ```
 
+**`lab_pad4k.txt` (2026-10-16, prepared, not installed yet)**: silence + END after 7 instructions, then zeros up to
+4096 words (the DSPLIVE shadow size). It reserves twice the space of `lab_pad.txt` and, unlike it (2035 no-ops,
+over the time budget whenever PLG3 is selected), stays far below the per-sample budget. Install with `t0=$O/lab_pad4k.txt,t1=$O/lab_pad4k.txt`
+and put `lab_pad4k` in `work/dsplive/state.json` (`installed` and `words` of DSP 2 and 3).
+
 Verified 2026-10-15: SAW (187 words) and FOLD (352 words) poked live into the lab plugin sound as installed
 (SAW harmonics 1/n; FOLD brightness cycling every ~4 s with the internal LFO). Programs for the lab must use the
 DCO2 addresses (`dspasm.py saw|fold dco2`).
@@ -296,7 +301,9 @@ oscillator (§4–§8 work without them).
   sample. Linear interpolation written as a sum of ramps: `out = c + Σ s_k · max(u, k)`, `u = N·(phase + 1)/2`,
   `s_k` = change of slope at point k, `c = v0 − Σ s_k·k`. Per point and voice: unit B `max(r0, imm16 k)` (as
   Roland's `d550`) + unit A op 3 `r3 += r2 · imm32 s_k` → **2 instructions**. Phase/pitch code = the SAW's.
-  Accumulator stays below ~4N + 3 (format limit 512) → N ≤ 120.
+  Points are split in chunks of 64: each chunk works on `w = clamp(u − a, 0, 64)` and adds `interp(clamp(u)) − v[a]`
+  to the output, so no intermediate value exceeds ~260 (format limit 512); ~5 instructions per chunk. Simulated
+  exact up to 256 points.
 * `python3 re/wav2dco.py cycle.wav [-n 32] [--cycle 2048 --frame K] -o prog.txt [--check]`; PCM and float WAV.
   Cycle FFT-resampled to N points (band-limited), DC removed, peak = 0.9. Live: `python3 re/dspown.py load
   prog.txt` (lab, DCO2 slot). Check on the device: `python3 re/wtcheck.py NAME cycle.wav -n N` (scale, harmonics
@@ -309,4 +316,36 @@ oscillator (§4–§8 work without them).
   above 401 instructions in DCO2 (DCO1 empty), installed already with DCO1 401 + DCO2 391. Roland's DSP2/3 load
   is main 189 + DCO1 325 + DCO2 357 instructions, but with several ops per instruction. The 2-instruction version
   measured on the device (C-WAVE, scale of 12 notes, all match within 0.02): DCO1 198 and 262 instructions with
-  DCO2 198. Larger positions: see NOTES.md.
+  DCO2 198; by ear the user found all six DCO1 positions (up to 550) and all DCO2 positions fine.
+* **Budget measured** (lab, live, DCO1 = 6-instruction empty program, 32-point table + K filler instructions
+  `r7 ← r5` between voice A and B, scale of 6 notes): DCO2 slot of 208, 508, 658, 733 instructions → all notes
+  OK; 753, 770 → both voices wrong; 808 → voice A OK, voice B silent. With main2/3 (189) the **DSP2/3 budget is
+  ≈ 930–950 single-op instructions per sample** (≈ 90 M instructions/s at 96 kHz), the same as C-WAVE's
+  189 + 550 + 198 = 937 that worked. The early failures of the 5-instruction version at 421 in the lab are not
+  explained by this (the patch's LFO was found active during some later measurements).
+* **One instruction per point (2026-10-16, default `fused=True`)**: class 0x160 A/A/B (all three ops read before
+  writing, `DSP_ISA_SPEC.md` §10) pipelines the relu form `Σ s_i·relu(w − i)`: state before instruction j is
+  r1 = w − j, r2 = relu(w − (j − 1)); instruction j = `r1 += r7 (−1) | r3 += r2·s[j−1] (imm32) | r2 = max(r1, r5)`.
+  Only one immediate per instruction (A/B ops share the immediate bits, §4.4) — that is why the counter is a
+  register op and not `max(w, imm k)`. Per chunk: `w = u − a`, `w = min(w, 64)` (no lower clamp: relu of a negative
+  is 0), one A/A/B init (`r1 = w − 1, r3 = 0, r2 = relu(w)`), `r4 += r3`. Partial sums < 2 + 2·64.
+  Cost: 6 words per point and voice; instructions = 2N + ~75 (32 points: 145 instructions / 622 words, was 208;
+  256 points: 617 / 3394). Simulated error unchanged (0.0024). **On the device (lab, live): 32 points and 144
+  points (2022 words, the most the lab's 2048-word registration allows) → 6/6 notes match the table.**
+* **C-WAVE v2 (built 2026-10-16, not installed)**: same AKWF in DCO2 (32 points, 145 instructions), DCO1 positions
+  64 / 96 / 128 / 160 / 208 / 224 points = 209 / 281 / 345 / 417 / 521 / 553 instructions (`re/dspexp/own/wt2/`).
+  With main 189 + DCO2 145 the DSP totals are 543 … 887, all at least ~40 below the measured edge (position 6 was 256
+  points = 951 first, reduced to 224 when the budget was known). Build: as C-WAVE with `wt2` instead of `wt`.
+* **Cost of A/A/B measured** (master DSP3, `re/dspbudget.py`, no audio): single-op and A/A/B fillers hit the
+  per-sample limit at the same count (≈ 925–945 instructions): **an A/A/B costs one cycle**. (The fused 705-
+  instruction lab probe that failed was the moment the device became unstable; not a budget result.)
+* **Maximum with one instruction per point**: the two DCO slots of a DSP share ≈ 750 instructions (940 − main 189).
+  Edge: one DCO alone (the other empty) 310 points (733 instructions → DSP 928), both DCOs 136 points each
+  (369 + 369). **Recommended with ~40 instructions of margin: one DCO ≤ 290 points (693 instructions, 3830 words:
+  installed, or live with `lab_pad4k`), both DCOs ≤ 128 points each (345 + 345).** `wav2dco.py` prints what a
+  program leaves for the other slot (budget 750, margin 40). The WAV length does not matter; N points carry harmonics up to N/2.
+* **Maximum table (2-instruction version)**: oscillator slots share ≈ 750 instructions per DSP; a slot costs ≈ 80 (pitch and phase, both
+  voices) + 4 per point + 10 per 64-point chunk. One DCO alone (the other empty): **≈ 150 points**; both DCOs
+  equal: ≈ 70 points each. Memory: 14 words per point (both voices) → 150 points ≈ 2400 words: installed only
+  (the lab registers 2048 words: ≤ 125 points live). The WAV length does not matter (resampled to N points; N
+  points carry harmonics up to N/2).
