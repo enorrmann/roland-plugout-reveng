@@ -3,6 +3,7 @@ disassembler and simulator.
 
     python3 dspisa.py dis prog.bin|prog.txt          # disassemble (blob in memory order, or hex words in execution order)
     python3 dspisa.py sim "0902 3c01" [--regs ...]    # simulate one instruction on r0..r7
+    python3 dspisa.py cov work/corpus                # decoding coverage over a directory of .bin programs
 
 An instruction = header (class << 5 | length) + words. The class is a template (TEMPLATES): one letter per
 body position:
@@ -37,6 +38,9 @@ IMMBITS = {1: 16, 2: 24, 3: 32}
 # context condition bits (condition 0 first) tested by C words; default = slave DCO slots (measured by audio)
 CONTEXT_BITS = {'dco': '0011011001100110', 'master_dsp3': '0111111011101110', 'master_dsp4_efdc': '0111101111100111'}
 CONTEXT = 'dco'
+# hidden registers (DSP_ISA_SPEC.md §9.0), loaded by C-position words 40TY: h4 = delay base (f6c, A op 0 sub 4),
+# h5 = tap-result address (A op 0 sub 5), h6 = index of mode-28 transfers, h7 = unknown. Defaults: master DSP4.
+HIDDEN = {4: 288.0, 5: 0x105 / 16384, 6: 0.0, 7: 0.0}
 
 
 def raw_value(w):
@@ -77,6 +81,8 @@ def template(ins):
         load_measured()
         template.loaded = True
     t = TEMPLATES.get(cls)
+    if cls == 0x060 and n == 1:          # `0c02 X28Y` / `0c02 3a90`: a transfer without a reference (measured)
+        return 'T'
     if t is None:
         return None
     if t.endswith('*'):
@@ -116,8 +122,9 @@ def a_op(w, regs, imm, out):
     if y & 8 and not mode:
         ys = '-' + ys
     D, X = regs[d & 7], regs[x]
-    if d >= 8:
-        return f'r{d - 8} ?= (D>=8, op {op}) unknown'
+    if d >= 8:                    # r(D-8) = X + Y + r[op] (exact in the single-op class, DSP_ISA.md §4)
+        out[d - 8] = X + Y + regs[op]
+        return f'r{d - 8} = r{x} + {ys} + r{op}'
     if op == 0:
         if x == 1:
             out[d] = Y; return f'r{d} = {ys}'
@@ -127,7 +134,8 @@ def a_op(w, regs, imm, out):
         if x in (6, 7):
             out[d] = D + Y; return f'r{d} = r{d} + {ys}'
         if x in (4, 5):
-            return f'r{d} = r{d} + {ys} + h{x}  (hidden)'
+            out[d] = D + Y + HIDDEN[x]
+            return f'r{d} = r{d} + {ys} + h{x}'
         return 'nop'
     s = {1: f'r{d} + r{x} + {ys}', 2: f'r{x} * {ys}', 3: f'r{d} + r{x} * {ys}', 4: f'{ys} + r{x} * r{d}',
          5: f'{ys} - r{x} * r{d}', 6: f'r{x} + {ys}', 7: f'{ys} - r{x}'}[op]
@@ -146,6 +154,20 @@ def sfu(w, regs, imm, out):
             out[d] = math.copysign(2.0 ** -e, Y)
             out[(d + 1) & 7] = 1 / m                 # hardware seed is within ~1 %
         return f'r{d}, r{d + 1} = recip_seed(r{y & 7})'
+    if mode == 1 and not y & 8:                     # sqrt split: |Y| = m 4^-k, m in [1, 4) (DSP_ISA_SPEC.md §6.4)
+        if Y:
+            m, k = abs(Y), 0
+            while m >= 4: m, k = m / 4, k - 1
+            while m < 1: m, k = m * 4, k + 1
+            out[y & 7], out[(d + 1) & 7], out[7] = m, 1 / math.sqrt(m), math.copysign(2.0 ** -k, Y)
+        return f'r{y & 7}, r{d + 1}, r7 = sqrt_split(r{y & 7})  (m, ~1/sqrt m, sign 2^-k)'
+    if mode == 2 and not y & 8:                     # log2 split: Y = m 2^e, m in [0.75, 1.5); Y < 0: e = 9, Y/512
+        if Y > 0:
+            e = math.floor(math.log2(Y / 0.75))
+            out[d], out[y & 7] = float(e), Y / 2.0 ** e
+        elif Y < 0:
+            out[d], out[y & 7] = 9.0, Y / 512
+        return f'r{d}, r{y & 7} = log2_split(r{y & 7})  (e, m)'
     if mode == 1:                                   # exp split: r(d) = e^floor(Y), Y = frac(Y)
         fl = math.floor(Y)
         out[d] = math.exp(fl)
@@ -168,6 +190,9 @@ def b_op(w, regs, imm, out):
     d, b, x, mode, y = w >> 12, (w >> 8) & 15, (w >> 6) & 7, (w >> 4) & 3, w & 15
     if d >= 8 and b == 0xF and (w >> 6) & 3 == 0:     # special-function unit (measured forms only)
         return sfu(w, regs, imm, out)
+    if d >= 8 and b == 0xF and (w & 0xFF) == 0x6C:   # f6c: rd = (rd + h4) mod 512 (delay address, §6.4)
+        out[d & 7] = (regs[d & 7] + HIDDEN[4]) % 512
+        return f'r{d & 7} = (r{d & 7} + h4) mod 512'
     if d >= 8 and b == 0xF:                          # ff70 / ef75 / ef74 (program start): no visible effect
         return f'B:{w:04x} (r{d & 7}: no visible effect, program-start form)'
     Y = raw_value(imm.take(mode)) if mode else (-regs[y & 7] if y & 8 else regs[y & 7])
@@ -176,9 +201,17 @@ def b_op(w, regs, imm, out):
     known = {
         (0, 0xc): (abs(X) + Y, f'|r{x}| + {ys}'), (0, 0xe): (Y - abs(X), f'{ys} - |r{x}|'),
         (1, 0x0): (min(X, Y), f'min(r{x}, {ys})'), (1, 0x4): (max(X, Y), f'max(r{x}, {ys})'),
+        (1, 0x2): (min(-X, Y), f'min(-r{x}, {ys})'), (1, 0x6): (max(-X, Y), f'max(-r{x}, {ys})'),   # 2026-10-16
         (1, 0x8): (abs(X), f'|r{x}|'), (1, 0xa): (abs(Y), f'|{ys}|'), (1, 0xe): (Y, ys),
     }
     k = (d >> 3, b & 0xE)                # odd b = same op with X in r4..r7 (measured: d150 d550 e190 e590)
+    if k == (1, 0xC):                    # frexp: X = m 2^e, m in [0.5, 1): r(d) = m, rY = e (0 -> 0, -31) [2026-10-16]
+        import math
+        m, e = math.frexp(X) if X else (0.0, -31)
+        out[d & 7] = m
+        if not mode:
+            out[y & 7] = float(e)
+        return f'r{d & 7}, {ys} = frexp(r{x})  (m in [0.5, 1), exponent)'
     if k in known:
         out[d & 7], txt = known[k]
         return f'r{d & 7} = {txt}'
@@ -195,6 +228,8 @@ def mac(w1, w2, regs, imm, out):
     Z = -regs[z & 7] if z & 8 else regs[z & 7]
     if op1 < 2:
         return 'mac nop'
+    if op2 == 3:
+        return f'r{d & 7} = mac op2=011 (unknown)'
     ys = f'#{Y:.7g}' if ym else f'r{y & 7}'
     cs = f'#{C:.7g}' if cm else f'r{c}'
     ws = f'#{W:.7g}' if wm else ('-' if wf & 8 else '') + f'r{wf & 7}'
@@ -205,9 +240,10 @@ def mac(w1, w2, regs, imm, out):
     if op2 == 0 and op1 >= 6:
         P1, P2, p1s, p2s = regs[x], Z, f'r{x}', zs
     r = (-P1 if op1 & 1 else P1) + (W if op1 & 2 else 0) + (P2 if op1 & 4 else 0)
-    out[d & 7] = r
+    out[d & 7] = r / 2 if d >= 8 else r            # D >= 8: r(D-8) = result / 2 (measured)
     terms = [('-' if op1 & 1 else '') + p1s] + ([ws] if op1 & 2 else []) + ([p2s] if op1 & 4 else [])
-    return f'r{d} = ' + ' + '.join(terms).replace('+ -', '- ')
+    body = ' + '.join(terms).replace('+ -', '- ')
+    return f'r{d - 8} = ({body}) / 2' if d >= 8 else f'r{d} = {body}'
 
 
 def run(ins, regs, mem=None):
@@ -264,12 +300,34 @@ def run(ins, regs, mem=None):
         elif k == 'B':
             imm.pos = 0
             text.append(b_op(w, regs, imm, out))
+        elif k == 'C' and w >> 8 == 0x40:     # 40TY: hidden register load (DSP_ISA_SPEC.md §9.0)
+            tg, m, y = 4 + ((w >> 6) & 3), (w >> 4) & 3, w & 15
+            if m == 0:
+                HIDDEN[tg] = regs[y & 7] % 512
+                text.append(f'h{tg} = r{y & 7} mod 512')
+            elif m == 3:
+                text.append(f'h{tg} = imm32 (reads 0)')
+            else:
+                rest = list(body[pos + 1 + y:]) + [0, 0]
+                v = (rest[0] << 16 | rest[1]) >> (32 - IMMBITS[m])
+                HIDDEN[tg] = v / 16384
+                text.append(f'h{tg} = {v:#x}/16384 = {v / 16384:g}')
         elif k == 'C':
             cc, neg, a_, b_ = (w >> 9) & 15, (w >> 8) & 1, (w >> 4) & 15, w & 15
             text.append(f'C: if {"!" if neg else ""}cond{cc} skip unit {a_ or "-"} else skip unit {b_ or "-"}')
         elif k == 'T':
             reg, slot, mode = w >> 12, (w & 15) >> 1, (w >> 4) & 0xFF
             addr = slots[slot] if slot < len(slots) else None
+            if mode == 0x28:                  # indexed: bank0[floor(h6 * 16384) + Y], ring-relative (§9.0)
+                ia = (int(HIDDEN[6] * 16384) + (w & 15)) & 0x7FF
+                if reg < 8:
+                    out[reg] = mem.get(ia, 0.0); text.append(f'r{reg} <- [h6+{w & 15}]')
+                else:
+                    mem[ia] = regs[reg - 8]; text.append(f'[h6+{w & 15}] <- r{reg - 8}')
+                continue
+            if mode == 0xA9:                  # delay-tap request at address rX, results to bank 2 [h5] (§9.1)
+                text.append(f'tap_request(r{reg & 7}) -> bank2[h5..h5+2]')
+                continue
             if mode != 0xFE or addr is None:
                 text.append(f'xfer.{mode:02x} r{reg & 7}{"->" if reg >= 8 else "<-"} slot {slot}'
                             + (f' [{addr:04x}]' if addr is not None else '') + '  (mode unknown, no effect on r0-r7)')
@@ -281,12 +339,43 @@ def run(ins, regs, mem=None):
     return out, mem, '; '.join(text)
 
 
+UNDECODED = ('unknown', '??', 'no visible effect', 'reads 0')
+
+
+def coverage(directory):
+    """fraction of corpus instructions whose disassembly has no undecoded part; top undecoded forms"""
+    import collections, glob, dspmc, dspdis
+    tot = ok = 0
+    bad = collections.Counter()
+    for f in sorted(glob.glob(os.path.join(directory, '*.bin'))):
+        for pos, ins in dspdis.instructions(dspmc.blob_words(f)):
+            tot += 1
+            try:
+                _, _, text = run(ins, [0.0] * 8)
+            except Exception as e:
+                text = f'?? {e}'
+            parts = [p for p in text.split('; ') if any(u in p for u in UNDECODED)]
+            if parts:
+                for p in parts:
+                    key = p.split('(')[0].strip()
+                    key = key if key.startswith('B:') else key.split(':')[0][:40]
+                    bad[key] += 1
+            else:
+                ok += 1
+    print(f'{ok} / {tot} instructions fully decoded ({100 * ok / tot:.1f} %)')
+    for k, n in bad.most_common(25):
+        print(f'  {n:6d}  {k}')
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('cmd', choices=['dis', 'sim'])
+    ap.add_argument('cmd', choices=['dis', 'sim', 'cov'])
     ap.add_argument('arg')
     ap.add_argument('--regs', default='0.5,0.25,0.125,-0.375,0.0625,-0.75,0.875,-0.0625')
     a = ap.parse_args()
+    if a.cmd == 'cov':
+        coverage(a.arg)
+        return
     if a.cmd == 'sim':
         ins = [int(x, 16) for x in a.arg.split()]
         regs = [float(x) for x in a.regs.split(',')]

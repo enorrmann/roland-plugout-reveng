@@ -294,6 +294,9 @@ X is 3 bits: the "B" nibble's low bit is X[2], so odd nibbles are the same ops w
 `clamp(x, 0, 1)`). Y may be an immediate (mode bits). The ops with D < 8 and op 0–5 return sign-dependent results with
 an unidentified format for negatives (`7ffxxxxx`) **[unknown]**. Some D ≥ 8 forms also change other registers.
 
+Also measured (2026-10-16, D ≥ 8, random operands): nibble 2 = min(−X, Y), 6 = max(−X, Y) (bit 1 negates X);
+nibble c = **frexp**: X = m·2^e, m ∈ [0.5, 1) → r(d) ← m, rY ← e (X = 0 → 0, −31).
+
 ### 6.4 Special-function unit (unit B, D = 8+d, nibble `f`, bits 7–6 = 00)
 
 Selected by the mode bits (5–4) and Y bit 3; Y register = Y & 7. **[measured, random inputs]**
@@ -305,7 +308,9 @@ Selected by the mode bits (5–4) and Y bit 3; Y register = Y & 7. **[measured, 
 | 10 | 1 | sign: r(d) ← ±1 | `8f29` |
 | 11 | 1 | negative mask: r(d) ← −1 if Y < 0 else 0 | `8f39` |
 | 11 | 0 | ceiling: r(d) ← ⌈Y⌉ | `cf36` |
-| 00 | 1, 10/0, 01/0 | other functions writing several registers | `8f09`, `cf26`, `cf16` **[unknown]** |
+| 01 | 0 | **sqrt split**: \|Y\| = m·4^−k, m ∈ [1, 4): rY ← m, r(d+1) ← ≈ 1/√m (~1 %), r7 ← sign(Y)·2^−k (seen with d = 4, Y = 6; r7 may be r(d+3) or r(Y+1)) → √\|x\| = r7·m·r(d+1) | `cf16`: 9 → m 2.25, r5 0.662, r7 2 [measured 2026-10-16] |
+| 10 | 0 | **log2 split**: Y = m·2^e, m ∈ [0.75, 1.5): rY ← m, r(d) ← e; Y < 0: r(d) ← 9, rY ← Y/512 | `cf26`: 9 → e 3, m 1.125; 0.375 → e −1, m 0.75 [measured] |
+| 00 | 1 | partly: x = rY > 0 → r(d) ← (x − 1)/2, rY ← a value in [1.82, 1.99]; x < 0 does not fit | `8f09` **[partial]** |
 
 `ff70`, `ef75`, `ef74` (bits 7–6 = 01; program start) have no visible effect on r0–r7.
 
@@ -321,7 +326,11 @@ P2 = c · Z          (c = rC or immediate per op2; Z = ±rZ)
 rD ← (op1 & 1 ? −P1 : P1) + (op1 & 2 ? W : 0) + (op1 & 4 ? P2 : 0)
 special case: op2 = 000 and op1 ∈ {6,7}: no products → rD ← ±rX + W + Z
 op1 ∈ {0,1}: no write
+D ≥ 8: r(D−8) ← result / 2                                   [measured 2026-10-16, random operands]
+op2 = 010: c = imm16 (modes of c: 00 rC, 01 imm16, 10 imm24, 11 imm32); op2 = 011: unknown (constant result)
 ```
+An A op with an immediate inside a MAC class (0x088) reads the MAC's N word as its immediate (measured): do not
+give it a constant of its own.
 
 Measured examples:
 
@@ -382,6 +391,13 @@ transfer observed]**.
   Truncated, mod 0x800, ring-relative like a normal reference; a reference word is not added; several per
   instruction (`1e04 0281 1282`). Usage (S-100): `r0 ← param`, `0b02 4080`, `0c02 0280`. Lets a program read tables
   from memory (wavetables) instead of immediates.
+
+* Indexed addresses are **ring-relative** (a counter kept with load [h6+1] / store [h6] counts every sample), so
+  `[S + k]` reads what was stored at S k samples ago: a variable delay of < 2048 samples on any DSP. A fixed table
+  cannot live in bank 0.
+* **Buses [measured, master]**: `[60nn]` = IOMD word nn (0x4113C000). MXM stores of DSP3: M → ARM window MXM2,
+  O → MXM3, Z and S → MXM5; DSP4 loads DSP3's Z/S stores from its O zone (`83nn` ← DSP3 `85nn`/`87nn`, same nn).
+  `X9bY` writes nothing visible in any of these windows.
 
 ### 9.1 Delay memory (bank-2 DMA) **[measured, master DSP4 slot 0xF7DC, 2026-10-16]**
 
@@ -583,8 +599,8 @@ time.
 
 ## 14. Open items (do not emit)
 
-Decoding coverage (2026-10-15): Roland's JX-3P SAW slot program 291 / 325 instructions (90 %), the whole corpus
-90.4 % (to recompute with the shared-immediate rule of 2026-10-16). The remainder: non-`fe` transfer modes (`X9bY` / `Xa9Y`, 5.1 % of the corpus), program start/end words,
+Decoding coverage (2026-10-16, `dspisa.py cov`): the whole corpus 17877 / 19095 = 93.6 %; the rest is mostly `X9bY`
+(3.4 %) and the program-start marker words (1.4 %). The remainder: non-`fe` transfer modes (`X9bY` / `Xa9Y`, 5.1 % of the corpus), program start/end words,
 unknown unit-B / SFU ops. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §11.
 
 
@@ -595,8 +611,7 @@ unknown unit-B / SFU ops. Per-model comparison of the oscillators: `CUSTOM_OSC.m
 3. (Solved §9.0: h4/h5 are the delay base / tap address, set by `40TY`.) h7 (`40c5`), mode-3 `40TY`, h6 readers
    other than mode `28`.
 4. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.
-5. MAC with D ≥ 8; MAC op2 mode 1 (imm16); a MAC and an A/B op with immediates in the same instruction (do they
-   share the bits like A/B ops do, §4.4?).
+5. (Solved §7: D ≥ 8 halves, op2 010 = imm16, an A op in a MAC class reads N.) MAC op2 = 011.
 6. A op D ≥ 8 inside multi-op classes.
 7. Classes not present in the corpus.
 9. Why an over-budget slot program leaves the slaves unstable until a power cycle; cost of MAC-class and

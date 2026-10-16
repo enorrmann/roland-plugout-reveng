@@ -6,6 +6,7 @@ marked with how sure it is. The history, raw evidence and dead ends are in `NOTE
 
 **This overview is behind the spec: where they differ, `DSP_ISA_SPEC.md` wins.** **Technical specification for assembler / compiler writers: `DSP_ISA_SPEC.md`** (bit layouts, all 118
 templates, immediate packing, execution semantics, encoding examples). This file is the short overview.
+**What the decoded operations are good for (delays, indexed delay lines, hidden registers…): `DSP_USOS.md`.**
 
 Tools: `re/dspisa.py` (decoder / disassembler / simulator), `re/dsp_templates.txt` + `re/dsp_units_ab.txt`
 (measured templates), `re/dspmc.py` (word order), `re/dspnum.py` (number format).

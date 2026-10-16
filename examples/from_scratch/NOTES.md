@@ -639,7 +639,8 @@ Documento técnico completo: `CUSTOM_OSC.md`.
 ## Próximos pasos del ISA (para seguir)
 Referencia: `DSP_ISA_SPEC.md` (especificación, manda), `DSP_ISA.md` (resumen), `DSP_ARM_SIDE.md` (mapa de bancos
 del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD/wavetables propios, laboratorio, presupuesto de tiempo).
-Estado al 2026-10-16: SAW de Roland 90 % decodificado, corpus 90,4 % (medido el 15/10; lo del 16/10 agrega
+`DSP_USOS.md`: para qué sirven las operaciones halladas (usos, secuencias mínimas, qué falta verificar).
+Estado al 2026-10-16 (noche): corpus 93.6 % (`dspisa.py cov`); antes: SAW de Roland 90 % decodificado, corpus 90,4 % (medido el 15/10; lo del 16/10 agrega
 semántica: inmediatos compartidos entre ops A/B, clases A+B y A+A+B, costo de 1 ciclo, presupuesto ≈ 940
 instrucciones por muestra).
 
@@ -665,14 +666,15 @@ Pendiente (ISA, próxima sesión):
    bajos, tamaño de la línea, cómo se configura una línea en otra ranura/DSP (¿plugout propio en los slaves, donde
    corren chorus de J60/JX?), y probarlo por audio.
 2. `X9bY` (escritura a "puertos" 1–3): descartados condiciones (también en el DSP4), h4–h6, línea de retardo y
-   banco 0 indexado. Quedan: MXM/IOMD, otro DSP, el h7 de `40c5`.
-3. Referencias con prefijo 3 (IOMD) y 4 (MXM): guardar desde el DSP3 y leer 0x4113C000 / 0x41531000 con el peek;
-   escribir desde el ARM y cargar en el DSP (§4.2).
-4. MAC + op A/B con inmediatos en una instrucción (¿comparten bits también?), MAC con D ≥ 8 y modo imm16.
-5. Qué fija los bits de condición de contexto; ops B/SFU sin decodificar (`cf16`, `cf26`, `8f09`, resultados
+   banco 0 indexado, y no aparece en ninguna ventana MXM/IOMD/bancos del ARM. Quedan: h7 (`40c5`), hardware
+   no mapeado (wave bus, ENV/MEVF), y probar en los slaves con su contexto de voz.
+3. (Hecho el 16/10: IOMD directo; MXM Z/S del DSP3 → zona O del DSP4.) Falta: latencia del bus, escritura desde el
+   ARM a MXM y lectura en el DSP, mapa completo en los slaves.
+4. (Hecho el 16/10: D ≥ 8 = mitad, op2 010 = imm16, A en clase MAC lee N.) Falta op2 = 011 y bit 9 de op2.
+5. Qué fija los bits de condición de contexto; ops B/SFU sin decodificar (`cf16`/`cf26` resueltos el 16/10; `8f09` parcial; resultados
    `7ffxxxxx`); (h4/h5 resueltos: registros del retardo) palabras de inicio/fin de programa; destino 3 (h7) de `40TY`.
 6. Por qué un programa que se pasa del presupuesto deja el equipo inestable (¿se puede detectar o evitar?).
-7. Recalcular la cobertura del corpus con `dspisa.py` corregido (inmediatos compartidos).
+7. (Hecho el 16/10: 93.6 %, `dspisa.py cov`.)
 
 ### Tomas de retardo `{8+d}f6c` / `Xa9Y` y bancos 2/4/5 (2026-10-16, maestro, `re/dsptap.py`)
 * **Persistencia por banco** (contador load W / store W en el DSP3): banco 0 anillo (load S+1, 96 000/s); **banco 2
@@ -722,6 +724,33 @@ Pendiente (ISA, próxima sesión):
   indexado del banco 0; el delay de Roland funciona sin sus `X9bY`.
 * Cuidado: un programa de prueba de ~1200 instrucciones (más que el presupuesto) en `f7dc` dio todo 0; el maestro
   siguió bien. Medir en tandas de ≤ 8 casos (`re/dsphreg.py`; indexado: `re/dspidx.py`).
+* **Indexado relativo al anillo** (`re/dspidxring.py`): contador con load `[h6+1]` / store `[h6]` cuenta 96 000/s,
+  con `[h6]`/`[h6]` no. Una tabla fija no puede vivir en el banco 0; en cambio `[S + k]` indexado = lo guardado en
+  S hace k muestras → **retardo variable < 2048 muestras en cualquier DSP** (chorus/flanger sin DMA). Usos en
+  `DSP_USOS.md`.
+* **Bancos 3 y 4 vistos desde el ARM y desde otro DSP** (`re/dspbus.py`, `re/dspbus2.py`, DSP3 del maestro):
+  * IOMD: `[60nn]` = palabra nn del bloque IOMD (0x4113C000 IEEE / 0x4113E000 RAW): confirmado.
+  * MXM, stores del DSP3: zona M (`81F0`) → ventana MXM2 (0x41430000), O (`83F0`) → MXM3, Z (`85F0`) y S (`87F0`)
+    → MXM5; cada una aparece en las palabras 0x1F0 y 0x3F0 de la ventana.
+  * **Entre DSP**: lo que el DSP3 guarda en Z o S lo lee el DSP4 (`f7dc`) en su zona O (`83F0`, misma palabra);
+    lo de M y O no le llega. Bus de audio propio entre DSP del maestro confirmado (latencia sin medir).
+* `X9bY` (puertos 1–3) con una marca única: **no aparece** en las 6 ventanas MXM, IOMD (3 vistas), bancos 0/1/2/5
+  del DSP3 ni banco 5 del DSP2 (`re/dspx9bscan.py`): su destino no está mapeado para el ARM.
+* **MAC, casos pendientes** (DSP3 del maestro, `re/dspprobe.py`, `re/dspmacfit.py` con registros aleatorios, exacto):
+  * **MAC con D ≥ 8: r(D−8) = resultado / 2** (`0803 8c0a 9281` = (r1 + r2·(r0 − r1))/2; `cc0a` → r4).
+  * **op2 = 010 → c = imm16** (`0804 0809 5480 3000` = r0·r1 + 1.0·r5): los modos de c son 00 rC, 01 imm16, 10 imm24,
+    11 imm32, como en las ops A. op2 = 011 da 0.0898 fijo con cualquier inmediato: sin decodificar.
+  * **MAC + op A con inmediato** (clase 0x088): la A **lee como inmediato la palabra N** de la MAC
+    (`1108 7522 6d10 0025 800d 0002 2222 3000` → r6 = r4 + RAW `00250000`); la MAC no cambia. No combinar una A con
+    constante propia en una instrucción MAC (en las clases con transferencias el inmediato sí saltea las R).
+* **SFU** (`re/dspmacfit.py --dump`, registros aleatorios y 2, 9, 1/64, 100, −2…): `cf16` = separación para raíz
+  (rY ← m ∈ [1,4) con |x| = m·4^−k, r5 ≈ 1/√m, r7 = signo·2^−k → √|x| = r7·m·r5); `cf26` = separación log2
+  (rY ← m ∈ [0.75,1.5), r4 ← e; negativo → r4 = 9, rY = x/512); `8f09` parcial (x > 0: r0 = (x−1)/2).
+* **Ops B con D ≥ 8** (`re/dspmacfit.py --dump`): `b242` = min(−X, Y), `b642` = max(−X, Y) (bit 1 del nibble niega
+  X); `bc42` = **frexp**: X = m·2^e, m ∈ [0.5, 1) → r(d) = m, rY = e (0 → 0, −31).
+* **Cobertura** (`python3 re/dspisa.py cov work/corpus`, con todo lo del 16/10 en `dspisa.py`): **17877 / 19095 =
+  93.6 %** (antes 90.4 %). Resto: `X9bY` ≈ 650 (3.4 %), marcadores `ff70`/`ef75`/`ef74` 262 (1.4 %, sin efecto
+  medible), ops B sueltas (`eda8`, `e7d2` con inmediato o X de r4–r7, `8c0f`…), `xfer.e0`.
 * WMEM (0x41300000, 128 K palabras, el tamaño del IDM) leída entera con el delay de Roland en silencio: todo 0.
   **Un segundo volcado con mi programa en `f7dc` colgó el maestro** (el peek dejó de responder; USB seguía): no
   volver a leer la WMEM con un programa propio en esa ranura (o leer de a poco).
