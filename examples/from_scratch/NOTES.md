@@ -626,25 +626,54 @@ Documento técnico completo: `CUSTOM_OSC.md`.
   ciclo** y el presupuesto es ≈ 925–945 instrucciones por muestra también en el maestro.
 * **Máximo**: en el borde, una DCO sola 310 puntos (733 instrucciones) y las dos 136 cada una; **recomendado con
   margen: una DCO sola ≤ 290 puntos (693 instrucciones, 3830 palabras), las dos ≤ 128 cada una**.
-* Preparado sin instalar (el equipo quedó inestable, hace falta apagarlo y prenderlo): C-WAVE v2
-  (`re/dspexp/own/wt2/`, DCO1 64…256 puntos) y `lab_pad4k.txt`.
-* Pendiente: un `lab_pad` que no se pase del presupuesto (programa corto + relleno **después** del final) y
+* **C-WAVE v2** (`re/dspexp/own/wt2/`, DCO1 64/96/128/160/208/224 puntos, DCO2 AKWF 32): instalado tras apagar y
+  prender el equipo; las 6 posiciones de DCO1 dan 6/6 notas (error ≤ 0,021), hasta 224 puntos con el DSP en 887
+  instrucciones. `wtcheck.py` normaliza ahora sobre los armónicos comparados (los "WRONG" de Ahhh en vivo eran del
+  script, no del oscilador).
+* **Laboratorio de 4096 palabras instalado** (`lab_pad4k.txt`: silencio y fin en 7 instrucciones, ceros después):
+  en vivo una tabla de **290 puntos** (3830 palabras, 693 instrucciones) suena igual a la tabla (armónicos 1–6
+  dentro del 3 %; arriba de ~500 Hz corta el filtro del patch). La carga tarda ~2 min.
+* (Hecho) un `lab_pad` que no se pase del presupuesto (programa corto + relleno **después** del final) y
   que reserve 4096 palabras (el máximo de la sombra de DSPLIVE) para probar tablas más grandes en vivo.
 
 ## Próximos pasos del ISA (para seguir)
 Referencia: `DSP_ISA_SPEC.md` (especificación, manda), `DSP_ISA.md` (resumen), `DSP_ARM_SIDE.md` (mapa de bancos
-del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD propios, laboratorio, comparación de osciladores §11).
-Estado al 2026-10-15: SAW de Roland 90 % decodificado, corpus 90,4 %.
+del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD/wavetables propios, laboratorio, presupuesto de tiempo).
+Estado al 2026-10-16: SAW de Roland 90 % decodificado, corpus 90,4 % (medido el 15/10; lo del 16/10 agrega
+semántica: inmediatos compartidos entre ops A/B, clases A+B y A+A+B, costo de 1 ciclo, presupuesto ≈ 940
+instrucciones por muestra).
 
-Estado del equipo al cerrar: slot 3 = plugin de laboratorio (DSPTEST + DSPLIVE + PEEK); en la ranura DCO2 quedó el
-último programa de prueba (`x9b_zero_big`): `python3 re/dspown.py restore` vuelve a `lab_pad`.
+Estado del equipo al cerrar (2026-10-16): slot 3 = laboratorio de 4096 palabras (DSPTEST + DSPLIVE + PEEK, nombre
+C-SAW, `lab_pad4k.txt`; `work/dsplive/state.json` = lab_pad4k). En la ranura DCO2 quedó la Fuzz Saw de 290 puntos
+(`re/dspexp/own/wt2/live_fuzz290.txt`). `python3 re/dspown.py restore` vuelve al silencio de `lab_pad4k`.
+C-WAVE v2 se reinstala con `NAME=C-WAVE WAVETABLE=1 OWN_PROGS=dco1_w0=…/wt2/dco1_w0.txt,… engine/build.sh` +
+`tools/plugout_tool.py install plugins/C-WAVE --slot 3`.
 
-Pendiente:
+Herramientas nuevas: `re/wav2dco.py` (WAV → programa, imprime instrucciones y lo que queda para la otra DCO),
+`re/wtcheck.py` (escala + armónicos contra la tabla), `re/dspbudget.py` (presupuesto de tiempo en el DSP3 del
+maestro, sin audio), `dspasm.aab()` (instrucción A/A/B).
+
+Reglas aprendidas (antes de cada sesión de medición):
+* Comprobar el SAW de referencia (`dspown.py load dspexp/own/saw_dco2.txt` + escala → armónicos 1/n). Si sale mal
+  (silencio, ruido, tono fijo) apagar y prender el equipo: un programa que se pasa del presupuesto deja los slaves
+  inestables y el reset MIDI no alcanza.
+* Contar instrucciones, no palabras: DSP2/3 ≈ 940 por muestra con main2/3 = 189 → las dos ranuras DCO ≈ 750.
+* Una sola herramienta MIDI a la vez; `dspmaster.py --restore` si se corta una sesión del maestro.
+
+Pendiente (ISA, próxima sesión):
 1. `Xa9Y` como toma de línea de retardo en el DSP3 del maestro: `[4000]` ← rampa, `bf6c` r3, `0001`, `3a90`,
-   leer `[4001]`–`[4003]` (`DSP_ARM_SIDE.md` §4.3).
-2. Referencias con prefijo 3 (IOMD) y 4 (MXM): guardar desde el DSP3 y leer 0x4113C000 / 0x41531000 con el peek;
+   leer `[4001]`–`[4003]` (`DSP_ARM_SIDE.md` §4.3). Objetivo: delays / chorus / reverb propios.
+2. `X9bY` (escritura a "puertos" 1–3): qué destino tienen (memoria de retardo, MXM, otro DSP).
+3. Referencias con prefijo 3 (IOMD) y 4 (MXM): guardar desde el DSP3 y leer 0x4113C000 / 0x41531000 con el peek;
    escribir desde el ARM y cargar en el DSP (§4.2).
-3. Qué fija los bits de condición de contexto; ops B/SFU sin decodificar (`cf16`, `cf26`, `8f09`, resultados
-   `7ffxxxxx`); valores ocultos h4/h5.
-4. Decisión del usuario: empezar el compilador / SDK (DSL embebido en Python: grafo, registros, estado, voces),
-   validado con el laboratorio.
+4. MAC + op A/B con inmediatos en una instrucción (¿comparten bits también?), MAC con D ≥ 8 y modo imm16.
+5. Qué fija los bits de condición de contexto; ops B/SFU sin decodificar (`cf16`, `cf26`, `8f09`, resultados
+   `7ffxxxxx`); valores ocultos h4/h5; palabras de inicio/fin de programa.
+6. Por qué un programa que se pasa del presupuesto deja el equipo inestable (¿se puede detectar o evitar?).
+7. Recalcular la cobertura del corpus con `dspisa.py` corregido (inmediatos compartidos).
+
+Pendiente (osciladores, cuando se retome):
+* `wav2dco.py` → plugout completo con N WAV elegidos, repartiendo puntos según el presupuesto de cada DSP.
+* Antialiasing por nota (apagar puntos / armónicos según el pitch) y morphing entre tablas.
+* Decisión del usuario: empezar el compilador / SDK (DSL embebido en Python: grafo, registros, estado, voces),
+  validado con el laboratorio.

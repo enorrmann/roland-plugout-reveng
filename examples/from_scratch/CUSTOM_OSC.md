@@ -233,7 +233,7 @@ python3 dspown.py notes NAME --notes 48 69 81           # measure
 python3 dspown.py restore                               # back to the lab program
 ```
 
-**`lab_pad4k.txt` (2026-10-16, prepared, not installed yet)**: silence + END after 7 instructions, then zeros up to
+**`lab_pad4k.txt` (2026-10-16, installed)**: silence + END after 7 instructions, then zeros up to
 4096 words (the DSPLIVE shadow size). It reserves twice the space of `lab_pad.txt` and, unlike it (2035 no-ops,
 over the time budget whenever PLG3 is selected), stays far below the per-sample budget. Install with `t0=$O/lab_pad4k.txt,t1=$O/lab_pad4k.txt`
 and put `lab_pad4k` in `work/dsplive/state.json` (`installed` and `words` of DSP 2 and 3).
@@ -332,10 +332,16 @@ oscillator (§4–§8 work without them).
   Cost: 6 words per point and voice; instructions = 2N + ~75 (32 points: 145 instructions / 622 words, was 208;
   256 points: 617 / 3394). Simulated error unchanged (0.0024). **On the device (lab, live): 32 points and 144
   points (2022 words, the most the lab's 2048-word registration allows) → 6/6 notes match the table.**
-* **C-WAVE v2 (built 2026-10-16, not installed)**: same AKWF in DCO2 (32 points, 145 instructions), DCO1 positions
+* **C-WAVE v2 (2026-10-16, installed and verified)**: same AKWF in DCO2 (32 points, 145 instructions), DCO1 positions
   64 / 96 / 128 / 160 / 208 / 224 points = 209 / 281 / 345 / 417 / 521 / 553 instructions (`re/dspexp/own/wt2/`).
   With main 189 + DCO2 145 the DSP totals are 543 … 887, all at least ~40 below the measured edge (position 6 was 256
   points = 951 first, reduced to 224 when the budget was known). Build: as C-WAVE with `wt2` instead of `wt`.
+  **Measured** (`wtcheck.py`, 6 notes, harmonics 1–5 / 1–8 normalised over the compared ones): all six DCO1
+  positions 6/6 notes, max harmonic error 0.021 / 0.009 / 0.010 / 0.014 / 0.011 / 0.012 — up to 224 points in
+  one slot with the DSP at 887 instructions per sample.
+* **Live with `lab_pad4k` (2026-10-16)**: Fuzz Saw frame 64, **290 points** (3830 words, 693 instructions, the
+  recommended maximum for one DCO) loaded in ~2 min; harmonics 1–6 = table within 3 % on all 6 notes and both
+  voices; above, a fixed ~500 Hz roll-off of the patch's filter (same frequency for every note).
 * **Cost of A/A/B measured** (master DSP3, `re/dspbudget.py`, no audio): single-op and A/A/B fillers hit the
   per-sample limit at the same count (≈ 925–945 instructions): **an A/A/B costs one cycle**. (The fused 705-
   instruction lab probe that failed was the moment the device became unstable; not a budget result.)

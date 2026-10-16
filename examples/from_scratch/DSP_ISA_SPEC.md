@@ -541,7 +541,7 @@ time.
 ## 14. Open items (do not emit)
 
 Decoding coverage (2026-10-15): Roland's JX-3P SAW slot program 291 / 325 instructions (90 %), the whole corpus
-90.4 %. The remainder: non-`fe` transfer modes (`X9bY` / `Xa9Y`, 5.1 % of the corpus), program start/end words,
+90.4 % (to recompute with the shared-immediate rule of 2026-10-16). The remainder: non-`fe` transfer modes (`X9bY` / `Xa9Y`, 5.1 % of the corpus), program start/end words,
 unknown unit-B / SFU ops. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §11.
 
 
@@ -550,7 +550,8 @@ unknown unit-B / SFU ops. Per-model comparison of the oscillators: `CUSTOM_OSC.m
    `X9bY` / `Xa9Y` "ports" (tests that ruled things out: §5.3). Next candidates: `Xa9Y` as a delay tap (`{8+d}f6c` then `3a90`, then a bank-2 `4001` load) and IOMD/MXM (prefix 3/4) references on master DSP3.
 3. Hidden values h4/h5 of A op 0 sub-codes 4/5 and how to set them.
 4. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.
-5. MAC with D ≥ 8; MAC op2 mode 1 (imm16).
+5. MAC with D ≥ 8; MAC op2 mode 1 (imm16); a MAC and an A/B op with immediates in the same instruction (do they
+   share the bits like A/B ops do, §4.4?).
 6. A op D ≥ 8 inside multi-op classes.
 7. Classes not present in the corpus.
 9. Why an over-budget slot program leaves the slaves unstable until a power cycle; cost of MAC-class and

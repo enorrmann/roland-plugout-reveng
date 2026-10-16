@@ -39,6 +39,10 @@ def measured(x, f0):
     return a / a.max()
 
 
+def norm(v):
+    return v / v.max() if v.max() > 0 else v
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('name')
@@ -49,17 +53,18 @@ def main():
     ap.add_argument('--notes', type=int, nargs=2, default=[48, 60])
     ap.add_argument('--harmonics', type=int, default=H, help='compare harmonics 1..HARMONICS (the patch filter damps the high ones)')
     a = ap.parse_args()
-    e = expected(table(a.wav, a.n, a.cycle, a.frame))
+    e = expected(table(a.wav, a.n, a.cycle, a.frame))[:a.harmonics]
+    e = e / e.max()               # compare shapes over the same harmonics (the patch filter damps the high ones)
     ok = 0
     for note in range(*a.notes):
         x = da.load(da.record(f'{a.name}_n{note}', note, 0, 2.0))[40000:150000, 0]
         x = x - x.mean()
         f0 = dspown.freq(x) if x.std() > 1e-5 else 0.0
         # the DCO range is not known here: take the octave (-3..+1) whose harmonics fit the table best
-        cands = [(np.abs(measured(x, 440 * 2 ** ((note - 69) / 12 + o)) - e)[:a.harmonics].max(), o) for o in range(-3, 2)] \
+        cands = [(np.abs(norm(measured(x, 440 * 2 ** ((note - 69) / 12 + o))[:a.harmonics]) - e).max(), o) for o in range(-3, 2)] \
             if x.std() > 1e-5 else [(1.0, 0)]
         err, o = min(cands)
-        m = measured(x, 440 * 2 ** ((note - 69) / 12 + o)) if x.std() > 1e-5 else np.zeros(H)
+        m = norm(measured(x, 440 * 2 ** ((note - 69) / 12 + o))[:a.harmonics]) if x.std() > 1e-5 else np.zeros(H)
         good = err < 0.05
         ok += good
         print(f'note {note}: f0 {f0:8.2f} oct {o:+d} rms {x.std():.4f} max harmonic error {err:.3f} {"OK" if good else "WRONG"}'
