@@ -64,19 +64,32 @@ static dspdesc_t empty_x[2] = { EMPTY(SLOT_X), EMPTY(SLOT_X) };              /* 
 static dspdesc_t empty_6[2] = { EMPTY(SLOT_DCO1), EMPTY(SLOT_DCO1) };        /* DSP4, DSP5 */
 /* DCO1 waveform 0 SAW, 1 SQR, 2 PULSE (= SAW program + flag), 3 FOLD (our wavefolder, re/dspasm.py fold),
    4.. PULSE again; DCO2 0 SAW, 1 SQR, 2 PULSE, 3.. NOISE; [0] DSP2, [1] DSP3 */
+#ifdef WAVETABLE
+/* wavetable PLUG-OUT (re/wav2dco.py): six own programs per DCO, one per waveform position */
+#define NW 6
+#define DCO1_PROGS { PROG(SLOT_DCO1, DCO1_W0), PROG(SLOT_DCO1, DCO1_W1), PROG(SLOT_DCO1, DCO1_W2), \
+                     PROG(SLOT_DCO1, DCO1_W3), PROG(SLOT_DCO1, DCO1_W4), PROG(SLOT_DCO1, DCO1_W5) }
+#define DCO2_PROGS { PROG(SLOT_DCO2, DCO2_W0), PROG(SLOT_DCO2, DCO2_W1), PROG(SLOT_DCO2, DCO2_W2), \
+                     PROG(SLOT_DCO2, DCO2_W3), PROG(SLOT_DCO2, DCO2_W4), PROG(SLOT_DCO2, DCO2_W5) }
+#ifdef DSPTEST
+#error WAVETABLE and DSPTEST exclude each other
+#endif
+#else
+#define NW 4
 #define DCO1_PROGS { PROG(SLOT_DCO1, DCO1_SAW), PROG(SLOT_DCO1, DCO1_SQR), PROG(SLOT_DCO1, DCO1_SAW), \
                      PROG(SLOT_DCO1, DCO1_FOLD) }
 #define DCO2_PROGS { PROG(SLOT_DCO2, DCO2_SAW), PROG(SLOT_DCO2, DCO2_SQR), PROG(SLOT_DCO2, DCO2_SAW), \
                      PROG(SLOT_DCO2, DCO2_NOISE) }
-static dspdesc_t dco1_prog[2][4] = { DCO1_PROGS, DCO1_PROGS };
+#endif
+static dspdesc_t dco1_prog[2][NW] = { DCO1_PROGS, DCO1_PROGS };
 #ifdef DSPTEST
 /* ISA test bench (re/dspaudio.py): no live swaps (they were unreliable from note events); the
    DCO2 slot of DSP2 runs test program t0, the one of DSP3 t1, whatever the waveform. Each test
    program has a voice A path (outputs [2221] [221d]) and a voice B path ([2229] [2225]). */
-static dspdesc_t dco2_prog[2][4] = { { PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0) },
-                                     { PROG(SLOT_DCO2, T1), PROG(SLOT_DCO2, T1), PROG(SLOT_DCO2, T1), PROG(SLOT_DCO2, T1) } };
+static dspdesc_t dco2_prog[2][NW] = { { PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0), PROG(SLOT_DCO2, T0) },
+                                      { PROG(SLOT_DCO2, T1), PROG(SLOT_DCO2, T1), PROG(SLOT_DCO2, T1), PROG(SLOT_DCO2, T1) } };
 #else
-static dspdesc_t dco2_prog[2][4] = { DCO2_PROGS, DCO2_PROGS };
+static dspdesc_t dco2_prog[2][NW] = { DCO2_PROGS, DCO2_PROGS };
 #endif
 #ifdef DSPLIVE
 #ifndef DSPTEST
@@ -97,8 +110,13 @@ static int live_dsp = 2, live_cur, live_last = -1;
 #endif
 #define D8 DATA(0x0008, 8)
 #define D10 DATA(0x0010, 8)
-static dspdesc_t dco1_data[2][4] = { { D8, D8, D8, D8 }, { D8, D8, D8, D8 } };
-static dspdesc_t dco2_data[2][4] = { { D10, D10, D10, D10 }, { D10, D10, D10, D10 } };
+#ifdef WAVETABLE
+static dspdesc_t dco1_data[2][NW] = { { D8, D8, D8, D8, D8, D8 }, { D8, D8, D8, D8, D8, D8 } };
+static dspdesc_t dco2_data[2][NW] = { { D10, D10, D10, D10, D10, D10 }, { D10, D10, D10, D10, D10, D10 } };
+#else
+static dspdesc_t dco1_data[2][NW] = { { D8, D8, D8, D8 }, { D8, D8, D8, D8 } };
+static dspdesc_t dco2_data[2][NW] = { { D10, D10, D10, D10 }, { D10, D10, D10, D10 } };
+#endif
 /* effect types 0 OD, 1 DS, 2 CHORUS, 3 FUZZ, 4 CRUSHER, 5 PHASER (DSP4) */
 static dspdesc_t fx_prog[6] = { PROG(SLOT_FX, FX_OD), PROG(SLOT_FX, FX_DS), PROG(SLOT_FX, FX_CH),
                                 PROG(SLOT_FX, FX_FZ), PROG(SLOT_FX, FX_CR), PROG(SLOT_FX, FX_PH) };
@@ -131,8 +149,14 @@ static int pidx(int id)            /* parameter index of an id, -1 if not in the
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+#ifdef WAVETABLE
+static int dco1_wave(int v) { return clampi(v, 0, NW - 1); }
+static int dco2_wave(int v) { return clampi(v, 0, NW - 1); }
+#else
 /* DCO1 waveform -> program index: 0 SAW, 1 SQR, 2 PULSE, 3 FOLD, 4 and 5 PULSE */
 static int dco1_wave(int v) { v = clampi(v, 0, 5); return v > 3 ? 2 : v; }
+static int dco2_wave(int v) { return clampi(v, 0, 3); }
+#endif
 
 /* ---- the model's byte code (ops as in expr.py) -------------------------------------- */
 
@@ -258,7 +282,7 @@ static void dco_levels(int id, float v, int ramp)     /* level of DCO1 (0x32) or
 static void swap_dco(engine_t *e, int which)
 {
     int id = which == 1 ? 0x32 : 0x33;
-    int w1 = dco1_wave(e->val[P_DCO1_WAVE]), w2 = clampi(e->val[P_DCO2_WAVE], 0, 3);
+    int w1 = dco1_wave(e->val[P_DCO1_WAVE]), w2 = dco2_wave(e->val[P_DCO2_WAVE]);
     dco_levels(id, 0.0f, 0);
     ((sync_fn)OS(0xC0))(3, 0, 0, 1);
     for (int d = 2; d <= 3; d++)
@@ -387,7 +411,7 @@ static void e_init(engine_t *e) { e->slave = slave_index(); e->first = 4 * e->sl
 static void e_load(engine_t *e)                                         /* vt+0x08 */
 {
     /* slots, then programs, then data, DSP by DSP (OS +0x28 / +0x40 / +0x58 + 4 * dsp) */
-    int w1 = dco1_wave(os_get(4, 0x6d4)), w2 = clampi(os_get(4, 0x6d9), 0, 3);
+    int w1 = dco1_wave(os_get(4, 0x6d4)), w2 = dco2_wave(os_get(4, 0x6d9));
     int fx = clampi(os_get(4, 0x748), 0, 5);
     static const uint16_t slots[6][3] = {
         { SLOT_MAIN, SLOT_X }, { SLOT_MAIN, SLOT_X }, { SLOT_MAIN, SLOT_DCO1, SLOT_DCO2 },

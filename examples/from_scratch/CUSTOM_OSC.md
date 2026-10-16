@@ -289,3 +289,24 @@ They differ in how many edges per voice they compute:
 The undecoded rest is the same everywhere: non-`fe` transfer modes (`X9bY`, `Xa9Y`: 5.1 % of the corpus), the
 program start/end words and a few unit-B / SFU ops (`cf16`, `cf26`, `8f09`). None of them is needed for an own
 oscillator (§4–§8 work without them).
+
+## Wavetable from a single-cycle WAV (2026-10-16) — `re/wav2dco.py`, `re/dspasm.py wavetable()`, C-WAVE
+
+* No indexed reads exist, so the N table points are hardcoded as immediates and every point is evaluated each
+  sample. Linear interpolation written as a sum of ramps: `out = c + Σ s_k · max(u, k)`, `u = N·(phase + 1)/2`,
+  `s_k` = change of slope at point k, `c = v0 − Σ s_k·k`. Per point and voice: unit B `max(r0, imm16 k)` (as
+  Roland's `d550`) + unit A op 3 `r3 += r2 · imm32 s_k` → **2 instructions**. Phase/pitch code = the SAW's.
+  Accumulator stays below ~4N + 3 (format limit 512) → N ≤ 120.
+* `python3 re/wav2dco.py cycle.wav [-n 32] [--cycle 2048 --frame K] -o prog.txt [--check]`; PCM and float WAV.
+  Cycle FFT-resampled to N points (band-limited), DC removed, peak = 0.9. Live: `python3 re/dspown.py load
+  prog.txt` (lab, DCO2 slot). Check on the device: `python3 re/wtcheck.py NAME cycle.wav -n N` (scale, harmonics
+  1–10 against the table).
+* **C-WAVE PLUG-OUT** (`NAME=C-WAVE WAVETABLE=1 OWN_PROGS=dco1_w0=…,dco2_w5=… engine/build.sh`): six own programs
+  per DCO, one per waveform position (`re/dspexp/own/wt/dco{1,2}_w{0..5}.txt`). DCO2: AKWF eorgan, epiano,
+  clavinet, hvoice, fmsynth, vgame (32 points). DCO1: Echo Sound Works frames with 32/48/64/84/100/120 points.
+* **Time budget, not memory**: the first version (one op per instruction, 5 per point) failed on **voice B** of
+  every DSP (the second half of the program; alternate notes of a scale sound something else) — live in the lab
+  above 401 instructions in DCO2 (DCO1 empty), installed already with DCO1 401 + DCO2 391. Roland's DSP2/3 load
+  is main 189 + DCO1 325 + DCO2 357 instructions, but with several ops per instruction. The 2-instruction version
+  measured on the device (C-WAVE, scale of 12 notes, all match within 0.02): DCO1 198 and 262 instructions with
+  DCO2 198. Larger positions: see NOTES.md.

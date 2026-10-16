@@ -59,13 +59,17 @@ def a(name, d, x=0, y=0, imm=None, bits=32):
     return [0x048 << 5 | (len(words) + 1)] + words
 
 
-def b(name, d, x, y):
+def b(name, d, x, y=0, imm=None):
     """unit B, measured forms only (DSP_ISA_SPEC.md §6.3), x in r0..r3, y register:
-    min / max (rd = min|max(rx, ry), D = 8 + d form), absadd (rd = |rx| + ry), subabs (rd = ry - |rx|)"""
+    min / max (rd = min|max(rx, ry), D = 8 + d form; imm: 16-bit immediate instead of ry, as Roland's
+    `d550` max(r5, 0)), absadd (rd = |rx| + ry), subabs (rd = ry - |rx|)"""
     if not 0 <= x <= 3:
         raise ValueError('unit B measured with X in r0..r3 only')
     if name in ('min', 'max'):
-        return [0x050 << 5 | 2, (8 + d) << 12 | {'min': 0, 'max': 2}[name] << 9 | x << 6 | y]
+        w = (8 + d) << 12 | {'min': 0, 'max': 2}[name] << 9 | x << 6
+        if imm is not None:
+            return [0x050 << 5 | 3, w | 1 << 4] + imm_words(imm, 16)
+        return [0x050 << 5 | 2, w | y]
     nib = {'absadd': 0xC, 'subabs': 0xE}[name]
     return [0x050 << 5 | 2, d << 12 | nib << 8 | x << 6 | y]
 
@@ -187,6 +191,54 @@ def fold(slot, fs=96000.0, lfo_hz=0.25, gmin=1.0, gmax=4.5, level=0.9):
         if level != 1.0:
             P.append(a('mul', 0, 0, imm=level))
         P += [st(0, outs[0]), st(0, outs[1])]
+    P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
+    for ins in P:
+        if dspisa.template(ins) is None:
+            raise AssertionError(f'no template for {ins}')
+    return P
+
+
+def wavetable(slot, table, fs=96000.0, level=1.0):
+    """single-cycle wavetable oscillator with the table hardcoded in the program (no indexed reads exist):
+    linear interpolation between the N points (v[N] = v[0]) written as a sum of ramps,
+        out = c + sum_k s_k * max(u, k),   u = N * (phase + 1) / 2 in [0, N),
+    s_k = change of slope at point k, c = v[0] - sum_k s_k * k. Two instructions per point: unit B
+    max(r0, imm k) and unit A op 3 (acc += r2 * imm s_k). Every point is evaluated each sample.
+    The accumulator stays below ~4N + 3 (format limit 512): N <= 120."""
+    N = len(table)
+    if N < 2 or N > 120:
+        raise ValueError('table of 2..120 points')
+    K = 2 * 440.0 / fs
+    v = [float(x) for x in table]
+    d = [v[(k + 1) % N] - v[k] for k in range(N)]
+    s = [d[k] - (d[k - 1] if k else 0.0) for k in range(N)]
+    c = v[0] - sum(s[k] * k for k in range(N))
+    P = [[0x0A02, 0xFF70],
+         a('move', 5, imm=0.0, bits=16), a('move', 6, imm=1.0, bits=16)]
+    for voice in 'AB':
+        pin, outs, state = SLOTS[slot][voice]
+        P += [ld(1, state + 1), ld(0, pin),
+              a('add', 0, 0, imm=-4.75), a('mul', 2, 0, imm=math.log(2) / 16), a('move', 3, imm=1 / 24),
+              a('ymacd', 3, 2, imm=1 / 6), a('ymacd', 3, 2, imm=0.5),
+              a('ymacd', 3, 2, imm=1.0), a('ymacd', 3, 2, imm=1.0)]
+        P += [a('mul', 3, 3, 3)] * 4
+        P += [a('mul', 3, 3, imm=K), a('add', 1, 3, 1)]
+        P += wrap(1, 2)
+        P += [st(1, state)]
+        P += [a('mul', 0, 1, imm=N / 2.0),                  # r0 = u = N/2 * phase + N/2
+              a('add', 0, 0, imm=N / 2.0),
+              a('move', 3, imm=c)]                          # r3 = accumulator
+        for k in range(N):
+            if s[k] == 0:
+                continue
+            if k == 0:
+                P.append(a('mac', 3, 0, imm=s[0]))          # max(u, 0) = u
+                continue
+            P += [b('max', 2, 0, imm=float(k)),             # r2 = max(u, k)
+                  a('mac', 3, 2, imm=s[k])]                 # acc += s_k * r2
+        if level != 1.0:
+            P.append(a('mul', 3, 3, imm=level))
+        P += [st(3, outs[0]), st(3, outs[1])]
     P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
     for ins in P:
         if dspisa.template(ins) is None:
