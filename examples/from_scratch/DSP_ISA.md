@@ -168,6 +168,10 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
   the read; `[4301..4303]` = two adjacent samples + fraction; delay = 16384·(rd − 324) + 2–3 samples. Bank 2 = two
   pages alternating per sample, bank 5 plain memory. Details: `DSP_ISA_SPEC.md` §9.1.
 
+* **Hidden registers / indexed loads (2026-10-16)**: a C-position word `40TY` loads h4..h7 (T = bits 7–6) from rY or
+  an immediate (integer·16384); h4 = delay base, h5 = tap-result address (these were the "hidden values" of A op 0
+  sub 4/5), h6 = index: `X28Y` loads/stores bank0[h6 + Y] (tables in memory). `DSP_ISA_SPEC.md` §9.0.
+
 ## 9. Open
 
 1. What sets the 16 context condition bits (ARM side); the second word of C instructions in the slot array.

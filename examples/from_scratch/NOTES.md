@@ -664,12 +664,13 @@ Pendiente (ISA, próxima sesión):
 1. (Hecho el 16/10, ver "Tomas de retardo") `Xa9Y` = pedido de toma. Falta: palabras `40xx` con otros bytes
    bajos, tamaño de la línea, cómo se configura una línea en otra ranura/DSP (¿plugout propio en los slaves, donde
    corren chorus de J60/JX?), y probarlo por audio.
-2. `X9bY` (escritura a "puertos" 1–3): qué destino tienen (memoria de retardo, MXM, otro DSP).
+2. `X9bY` (escritura a "puertos" 1–3): descartados condiciones (también en el DSP4), h4–h6, línea de retardo y
+   banco 0 indexado. Quedan: MXM/IOMD, otro DSP, el h7 de `40c5`.
 3. Referencias con prefijo 3 (IOMD) y 4 (MXM): guardar desde el DSP3 y leer 0x4113C000 / 0x41531000 con el peek;
    escribir desde el ARM y cargar en el DSP (§4.2).
 4. MAC + op A/B con inmediatos en una instrucción (¿comparten bits también?), MAC con D ≥ 8 y modo imm16.
 5. Qué fija los bits de condición de contexto; ops B/SFU sin decodificar (`cf16`, `cf26`, `8f09`, resultados
-   `7ffxxxxx`); valores ocultos h4/h5; palabras de inicio/fin de programa.
+   `7ffxxxxx`); (h4/h5 resueltos: registros del retardo) palabras de inicio/fin de programa; destino 3 (h7) de `40TY`.
 6. Por qué un programa que se pasa del presupuesto deja el equipo inestable (¿se puede detectar o evitar?).
 7. Recalcular la cobertura del corpus con `dspisa.py` corregido (inmediatos compartidos).
 
@@ -703,6 +704,24 @@ Pendiente (ISA, próxima sesión):
   audio en 0, `--d3` fuerza el retardo, `--drop`/`--remove` bisecan instrucciones). Salidas por el **banco 5**
   (`A3C0..`, DPC4 RAW 0x41126000): el ARM lo lee coherente (las lecturas sueltas del banco 0 caen en otras
   referencias por el anillo).
+* **Registros ocultos h4–h7 y palabras `40TY`** (DSP4 `f7dc` y DSP3, salidas por el banco 5): una palabra en
+  posición de C con byte alto `0x40` **carga un registro oculto**: bits 7–6 = destino (0 → h4, 1 → h5, 2 → h6,
+  3 → h7?), bits 5–4 = modo (0: rY, guardado mod 512; 1: imm16; 2: imm24; 3: imm32 → 0), bits 3–0 = Y (registro, o
+  **cuántas palabras del flujo de inmediatos saltear**: `4022` en `1d06 4022 7fe0 c1fc 5100 0000` saltea `7fe0 c1fc`).
+  Los inmediatos son enteros = valor × 16384 (direcciones: `0x510000` → 324, `0x0301` → 0x301).
+  * **h4 = base de `f6c`** y lo que suma la op A 0 sub 4 (los "valores ocultos" de antes): 288 en el DSP4.
+  * **h5 = destino de los resultados de la toma** en el banco 2 (`4050 0301`), lo que suma la op A 0 sub 5.
+  * **h6 = índice de la carga indexada** (`4080` = h6 ← r0, como el S-100 antes de `0c02 0280`).
+* **Direccionamiento indexado (DSP3 del maestro, exacto)**: modo de transferencia `28`: `X28Y` con X 0–7 = rX ←
+  banco0[⌊h6⌋ + Y], X 8–15 = banco0[⌊h6⌋ + Y] ← r(X−8) (`8280` escribió 7 y se releyó). Índice en unidades de
+  r·16384, truncado, módulo 0x800 (sólo banco 0, relativo al anillo como cualquier referencia); la palabra R no se
+  suma; varias por instrucción (`1e04 0281 1282` → r0 = [h6+1], r1 = [h6+2]). **Sirve para wavetables en memoria**
+  (tabla en el banco 0 + índice de la fase) en vez de inmediatos.
+* `X9bY` sigue sin decodificar: en `f7dc` tampoco fija condiciones (grupos `TTTF` con o sin escritura; la primera
+  línea base distinta fue de la primera carga), no cambia h4/h5/h6, no escribe la línea de retardo, no es un store
+  indexado del banco 0; el delay de Roland funciona sin sus `X9bY`.
+* Cuidado: un programa de prueba de ~1200 instrucciones (más que el presupuesto) en `f7dc` dio todo 0; el maestro
+  siguió bien. Medir en tandas de ≤ 8 casos (`re/dsphreg.py`; indexado: `re/dspidx.py`).
 * WMEM (0x41300000, 128 K palabras, el tamaño del IDM) leída entera con el delay de Roland en silencio: todo 0.
   **Un segundo volcado con mi programa en `f7dc` colgó el maestro** (el peek dejó de responder; USB seguía): no
   volver a leer la WMEM con un programa propio en esa ranura (o leer de a poco).

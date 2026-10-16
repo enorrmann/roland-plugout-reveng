@@ -29,11 +29,13 @@ REQ = {'0c02': lambda d: [0x060 << 5 | 2, d << 12 | 0xA90],                    #
 REQFORM = os.environ.get('TAPREQ', '0c02')
 TWO = os.environ.get('TAPTWO') == '1'
 DEST = os.environ.get('TAPDEST', '1') == '1'
+_wp = os.environ.get('TAPWRITE')            # e.g. 9b1: write the input with X9bY (port 1) instead of [W] <- x
+WRITE = (lambda r, W: [0x1803, 0x0040, (8 + r) << 12 | int(_wp, 16) << 0 | 0x000]) if _wp else A.st
 
 
 def program(D, mode, W=0x4000, pads=1, dreg=3, base=None):
     P = [A.ld(1, S + 1), NOP, A.a('add', 1, 1, imm=INC)] + A.wrap(1, 2) + [A.st(1, S)]
-    P += [A.st(1, W), NOP]
+    P += [WRITE(1, W), NOP]
     if base is not None:     # set the f6c base (Roland: `1d06 4022 7fe0 c1fc <imm32>`, base = imm >> 22)
         P += [[0x1D06, 0x4022, 0x7FE0, 0xC1FC, (base << 6) & 0xFFFF, 0]]
     P += [A.a('move', dreg, imm=D)]

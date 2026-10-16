@@ -369,6 +369,20 @@ transfer observed]**.
 * Bank 0 can be read by the ARM (RAW view) but ARM writes to bank 0 do not stay; bank 5 is ARM-writable
   **[measured]**.
 
+### 9.0 Hidden registers and indexed transfers **[measured, master DSP3 / DSP4, 2026-10-16]**
+
+* **`40TY` in a C position** (classes 0x058, 0x0E8, …) loads a hidden register: T = bits 7–6 (0 → h4, 1 → h5,
+  2 → h6, 3 → h7 (unread)), mode = bits 5–4 (0: rY, kept mod 512; 1: imm16; 2: imm24; 3: imm32 reads 0), Y = bits
+  3–0 = register, or for immediates the number of words of the instruction's immediate stream to skip. Immediate
+  values are integers = value·16384 (addresses): `0b03 4050 0301` → h5 = 0x301; `1d06 4022 7fe0 c1fc 5100 0000` →
+  h4 = 0x510000/16384 = 324; `0b02 4080` → h6 = r0.
+* h4 = delay base (`f6c`, §6.4) and the value A op 0 sub 4 adds; h5 = tap-result address (§9.1), added by A op 0
+  sub 5. Defaults on master DSP4: h4 = 288, h5 = 0x105/16384.
+* **Indexed transfer, mode byte `28`**: `X28Y`, X 0–7 → rX ← bank0[⌊h6·16384⌋ + Y]; X 8–15 → bank0[…] ← r(X−8).
+  Truncated, mod 0x800, ring-relative like a normal reference; a reference word is not added; several per
+  instruction (`1e04 0281 1282`). Usage (S-100): `r0 ← param`, `0b02 4080`, `0c02 0280`. Lets a program read tables
+  from memory (wavetables) instead of immediates.
+
 ### 9.1 Delay memory (bank-2 DMA) **[measured, master DSP4 slot 0xF7DC, 2026-10-16]**
 
 Only where the ARM connected the task's bank-2 window to the delay memory (master DSP4 global-delay slot 0xF7DC,
@@ -578,7 +592,8 @@ unknown unit-B / SFU ops. Per-model comparison of the oscillators: `CUSTOM_OSC.m
 2. (`Xa9Y` = delay-tap request, §9.1.) `40xx` control words other than `4022`/`4050`; line length; how the ARM sets
    up a delay window for another slot/DSP. Transfer modes other than `fe`; odd transfer slot fields; the target of the
    `X9bY` / `Xa9Y` "ports" (tests that ruled things out: §5.3). Next candidates: `Xa9Y` as a delay tap (`{8+d}f6c` then `3a90`, then a bank-2 `4001` load) and IOMD/MXM (prefix 3/4) references on master DSP3.
-3. Hidden values h4/h5 of A op 0 sub-codes 4/5 and how to set them.
+3. (Solved §9.0: h4/h5 are the delay base / tap address, set by `40TY`.) h7 (`40c5`), mode-3 `40TY`, h6 readers
+   other than mode `28`.
 4. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.
 5. MAC with D ≥ 8; MAC op2 mode 1 (imm16); a MAC and an A/B op with immediates in the same instruction (do they
    share the bits like A/B ops do, §4.4?).
