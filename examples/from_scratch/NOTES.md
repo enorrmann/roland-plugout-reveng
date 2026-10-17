@@ -759,8 +759,9 @@ Pendiente (ISA):
     **B nibble e bits 7–6 = 11**: funciones de fase (± / abs / clamp / wrap / triángulo / fase 0–1 / −Y,
     `re/dspshape.py`); **B nibble c modos 1–3**: corrimientos X·2^±Y; **MAC op2 bit 9**: habilita productos en
     modo W.
-  * Regresión al azar sobre todo el corpus (instrucciones sin saltos ni transferencias especiales): resultado
-    final abajo.
+  * Regresión al azar sobre todo el corpus (100 instrucciones sin saltos ni transferencias especiales, 2 casos al
+    azar cada una): **100 / 100 coinciden** con el simulador final; plantillas inferidas 19 / 20 (0x56a: sólo su
+    C fuera de rango).
 * **Marcadores `ef75`/`ef74` medidos**: no cambian registros, banderas ni direccionamiento (bancos 0/5); una SAW
   con secciones de voz al estilo Roland suena idéntica en los slaves (`dspexp/own/saw_sections.txt`); cuestan 1
   ciclo cada uno (`dspbudget.py marker`); ningún código ARM los busca. Son opcionales para un programa propio.

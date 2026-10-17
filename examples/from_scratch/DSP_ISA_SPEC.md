@@ -724,7 +724,7 @@ T between neighbouring classes) and are marked `inferred` in `re/dsp_templates.t
 registers and flags, registers and written memory compared with `dspisa.run`); `re/dspslots.py` position maps
 for 0x240, 0x248, 0x250, 0x478, 0x47a, 0x4aa, 0x4da. 19 of 20 agree in every trial (0x56a: only its out-of-range
 C field, §5.4); the hand-fixed templates 0x090, 0x098, 0x130, 0x178, 0x208, 0x240, 0x572, 0x592 agree too.
-Random regression over the whole corpus (100 instructions without jumps / special transfer modes): see NOTES.md.
+Random regression over the whole corpus (100 instructions without jumps / special transfer modes, 2 random cases each): **100 / 100 agree** with `dspisa.py`.
 
 Coverage (`python3 re/dspisa.py cov DIR`): old corpus 98.6 %, new programs 97.8 %, SYSTEM-1 98.6 %; **the only
 words left are the section markers `ff70`/`ff71`/`ef75`/`ef74`** (no visible effect).
