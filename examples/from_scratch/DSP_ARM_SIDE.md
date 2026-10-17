@@ -9,6 +9,11 @@ decoded with `re/dspisa.py`/`dspdis.py`. Nothing was run on the device.
 > changed. The correlation in the corpus is kept below as data. Everything else here is static analysis, not yet
 > verified on the hardware. Paths under `work/` are local (not in git).
 
+> **Status note (2026-10-17)**: §3.2's hypothesis was right after all: `X9bY` writes the condition flags of group
+> X−8 from unit Y (measured; the earlier "rejection" used an op with a constant result). Bus behaviour was measured
+> on the master (MXM latched per sample, 1-sample latency, point-to-point; IOMD = owned I/O words). Current,
+> consolidated reference: `DSP_HARDWARE.md`. This file stays as the static analysis of the ARM side.
+
 ## TL;DR
 
 1. **The reference-word prefix is a 3-bit bank number** (bits 15–13) and the ARM driver's bank table uses the same
@@ -278,7 +283,7 @@ with a bound check. **This is the same numbering as the microcode reference pref
 * IOMD: DSP0 loads `E0–E2` (IOMD2 area), DSP4 loads `00–06` and stores `20–24`, `60–66`, DSP5 loads `10–17` and
   stores `B0–B7` (IOMD0 area). These are the slave's outputs to the wave bus and its inputs from it.
 
-### 3.2 `X9bY` = write register r(X−8) to condition group Y (REJECTED on hardware, see status note)
+### 3.2 `X9bY` = condition flags (CONFIRMED 2026-10-17: group X−8 ← flags of unit Y; see DSP_ISA_SPEC.md §8)
 * Occurrences: `99b1` 377, `b9b2` 221, `b9b1` 191, `a9b2` 134, `b9b3` 109, `c9b1/2/3` 35, `99b2` 9, `d9b1` 1, plus
   `b9b4`, `89ba`, `99bc` in a single JX effect. X is always ≥ 8 (store form), Y = 1..3 (4, A, C rare), and no slot
   is used.

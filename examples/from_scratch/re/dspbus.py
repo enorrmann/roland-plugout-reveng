@@ -35,8 +35,13 @@ def main():
             m = marker(refs[g] + k)
             enc[struct.unpack('<I', struct.pack('<f', m))[0]] = (refs[g] + k, 'IEEE')
             enc[A.raw(m)] = (refs[g] + k, 'RAW')
-    dspmaster.CONTEXT = 'dsp3'
-    with dspmaster.Session(Peek(), size=128) as ses:
+    if os.environ.get('BUSDSP') == '4':          # 2026-10-17: writer = master DSP4 slot 0xF7DC
+        dspmaster.CONTEXT = 'efdc'
+        sess = dspmaster.Session(Peek(), 4, 0xF7DC, size=256)
+    else:
+        dspmaster.CONTEXT = 'dsp3'
+        sess = dspmaster.Session(Peek(), size=400)
+    with sess as ses:
         ses.load(prog(refs)); time.sleep(0.3)
         for name, base, size in REGIONS:
             words = []

@@ -179,6 +179,23 @@ def a_op(w, regs, imm, out):
     return f'r{d} = {s}'
 
 
+# seed ROMs measured bit-exact 2026-10-17 (re/dspseed.py, DSP_HARDWARE.md §5.3)
+RSQRT_Q = [252, 245, 238, 232, 226, 221, 216, 211, 207, 203, 199, 195, 192, 188, 185, 182, 179, 177, 174, 172, 169,
+           167, 165, 163, 161, 159, 157, 155, 153, 152, 150, 148, 147, 145, 144, 142, 141, 140, 138, 137, 136, 135,
+           134, 133, 131, 130, 129, 128]
+
+
+def recip_seed(m):
+    """m in [0.5, 1): 64-entry ROM indexed by the 6 bits after the leading 1"""
+    k = min(63, int((m - 0.5) * 128))
+    return math.floor(4096 / (0.5 + (2 * k + 1) / 256) + 0.5) / 4096
+
+
+def rsqrt_seed(m):
+    """m in [1, 4): 48-entry ROM"""
+    return RSQRT_Q[min(47, int((m - 1) * 16))] / 256
+
+
 def sfu(w, regs, imm, out):
     """unit B, D >= 8 and nibble f: special functions selected by the mode bits (DSP_ISA_SPEC.md §6.4)"""
     d, mode, y = (w >> 12) - 8, (w >> 4) & 3, w & 15
@@ -190,20 +207,20 @@ def sfu(w, regs, imm, out):
             m, e = math.frexp((X + 1) / 2)
             k = 2.0 ** -e
             out[d], out[y & 7] = (X - 1) / 2 * k, m
-            out[(d + 1) & 7] = 1 / m
+            out[(d + 1) & 7] = recip_seed(m)
         return f'r{d}, r{y & 7}, r{d + 1} = atanh_split(r{y & 7})  ((x-1)/(x+1) = r{d} * r{d + 1})'
     if mode == 0 and not y & 8:                     # reciprocal seed: r(d) = sign * 2^-e, r(d+1) ~ 1/m (|Y| = 2^e m)
         if Y:
             m, e = math.frexp(abs(Y))
             out[d] = math.copysign(2.0 ** -e, Y)
-            out[(d + 1) & 7] = 1 / m                 # hardware seed is within ~1 %
+            out[(d + 1) & 7] = recip_seed(m)         # ROM seed (exact)
         return f'r{d}, r{d + 1} = recip_seed(r{y & 7})'
     if mode == 1 and not y & 8:                     # sqrt split: |Y| = m 4^-k, m in [1, 4) (DSP_ISA_SPEC.md §6.4)
         if Y:
             m, k = abs(Y), 0
             while m >= 4: m, k = m / 4, k - 1
             while m < 1: m, k = m * 4, k + 1
-            out[y & 7], out[(d + 1) & 7], out[7] = m, 1 / math.sqrt(m), math.copysign(2.0 ** -k, Y)
+            out[y & 7], out[(d + 1) & 7], out[7] = m, rsqrt_seed(m), math.copysign(2.0 ** -k, Y)
         return f'r{y & 7}, r{d + 1}, r7 = sqrt_split(r{y & 7})  (m, ~1/sqrt m, sign 2^-k)'
     if mode == 2 and not y & 8:                     # log2 split: Y = m 2^e, m in [0.75, 1.5); Y < 0: e = 9, Y/512
         if Y > 0:

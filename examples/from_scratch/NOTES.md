@@ -765,6 +765,21 @@ Pendiente (ISA):
 * **Marcadores `ef75`/`ef74` medidos**: no cambian registros, banderas ni direccionamiento (bancos 0/5); una SAW
   con secciones de voz al estilo Roland suena idéntica en los slaves (`dspexp/own/saw_sections.txt`); cuestan 1
   ciclo cada uno (`dspbudget.py marker`); ningún código ARM los busca. Son opcionales para un programa propio.
+* **Referencia consolidada del hardware: `DSP_HARDWARE.md`** (17/10, noche). Mediciones nuevas para el
+  emulador:
+  * Aritmética **exacta y truncada hacia cero** una sola vez (`re/dspexact.py`, 48/48 en suma, resta, producto,
+    D + X·Y, MAC, MAC/2); desborde = magnitud mod 512.
+  * ROM de semillas (`re/dspseed.py`): 1/x = 64 entradas, R[k] = round(4096/(0.5 + (2k+1)/256))/4096 (64/64);
+    1/√x = 48 entradas, tabla literal (en la spec §6.4). La separación atanh usa la ROM de 1/x.
+  * **Costo: 1 ciclo por instrucción siempre** (1 o 2 MAC, 4 o 6 transferencias; `dspbudget.py mac|mac2|xfer4|
+    xfer6`); salto tomado +1.
+  * VST3 (los 9): `CDspSim` + modelo float por sintetizador; **sin microcódigo ni intérprete del ISA** → no sirve
+    de referencia bit a bit.
+  * **Buses** (maestro, DSP3 ↔ DSP4): MXM congelado por muestra, **latencia 1 muestra** (reloj común = posición
+    del retardo), punto a punto (DSP3 Z/S → DSP4 O, DSP4 O → DSP3 S), gana la última escritura, no suma, no
+    guarda (`dspbussync.py`, `dspbusclk.py`, `dspmxm.py`, `dspmxsum.py`). IOMD = palabras de E/S con DSP dueño,
+    persistentes, con datos vivos en el maestro (`dspiomd.py`). Los efectos del maestro no usan MXM/IOMD: banco 5
+    `a1fe`/`a2fe` con su programa principal.
 * Plugouts nuevos desempaquetados en `work/unpack/{JUPITER-8,SH-2,PROMARS}` (+ `*_S1_Code*` del SYSTEM-1).
 * Clase 0x098: la 2.ª palabra es una C (`1610` = if cond11), no N: las "MAC op2 = 011" del corpus eran eso.
 * Plantillas corregidas (C que eran inmediatos/N o una T que era B): 0x098, 0x0e0, 0x130, 0x178, 0x1d8, 0x208, 0x240, 0x572,

@@ -57,6 +57,9 @@ value = (-1)^sign * M / 2^(32 - 4*s)
 Encoding (what Roland's constants and the hardware use): take the **smallest s** with M = |v|·2^(32−4s) < 2^29,
 M = round(...). Examples: 1.0 = `30000000`, 0.5 = `28000000`, 0.25 = `24000000`, −1.0 = `b0000000`,
 2.0 = `42000000`, 100 = `66400000`, 1/192 = `01555555`, π/2 = `3921fb54`, ln 2 = `2b17217f`. Zero = `00000000`.
+**Arithmetic is exact, then truncated toward zero** [exact, 2026-10-17, `re/dspexact.py`: 48/48 random
+full-precision cases each for add, sub, mul, D + X·Y, the MAC (two products + W) and the MAC D ≥ 8 (/2)]: the
+exact rational result is encoded once (no intermediate rounding) with the smallest s, M = ⌊|v|·2^(32−4s)⌋.
 Results ≥ 512 are not representable (A sums wrap mod 512, §10). Words of the form `7ffxxxxx` are values just
 below 512: negative results of the unit-B bit operations, shown modulo 512 (§6.3) [measured 2026-10-17].
 
@@ -376,6 +379,13 @@ Selected by the mode bits (5–4) and Y bit 3; Y register = Y & 7. **[measured, 
 | 10 | 0 | **log2 split**: Y = m·2^e, m ∈ [0.75, 1.5): rY ← m, r(d) ← e; Y < 0: r(d) ← 9, rY ← Y/512 | `cf26`: 9 → e 3, m 1.125; 0.375 → e −1, m 0.75 [measured] |
 | 00 | 1 | **atanh split** (for logarithms): x = rY, 2^k such that (x+1)/(2·2^k) ∈ [0.5, 1): r(d) ← (x−1)/(2·2^k), rY ← (x+1)/(2·2^k), r(d+1) ≈ 1/rY (~1 %) → r(d)·r(d+1) refined by Newton = (x−1)/(x+1); ln x = 2·atanh of it | `9f0d` after `8f25` log2 split, then `0902 1085` Newton (base engine, JUPITER-8) [measured 2026-10-17]; `8f09` same op |
 
+**Seed ROMs [exact, 2026-10-17, `re/dspseed.py`]**: reciprocal seed (`cf06`, also used by the atanh split
+`9f0d`): 64 entries, k = the 6 mantissa bits after the leading 1 of m ∈ [0.5, 1), R[k] = round(4096 / (0.5 +
+(2k+1)/256)) / 4096 (64/64). Reciprocal square root seed (`cf16`): 48 entries, j = ⌊(m − 1)·16⌋ for m ∈ [1, 4),
+value = Q[j]/256, Q = 252 245 238 232 226 221 216 211 207 203 199 195 192 188 185 182 179 177 174 172 169 167 165
+163 161 159 157 155 153 152 150 148 147 145 144 142 141 140 138 137 136 135 134 133 131 130 129 128 (literal table;
+no simple formula fits).
+
 **Nibble `f`, bits 7–6 = 01** (sub-op in bits 5–4) **[measured 2026-10-17, master DSP3/DSP4, `re/dsphops.py`,
 `re/dspf5.py`]**:
 
@@ -504,6 +514,12 @@ true, op 2 if false) or whether a **jump** (§5.4b) is taken: if/else, switch, a
 * Indexed addresses are **ring-relative** (a counter kept with load [h6+1] / store [h6] counts every sample), so
   `[S + k]` reads what was stored at S k samples ago: a variable delay of < 2048 samples on any DSP. A fixed table
   cannot live in bank 0.
+* **MXM timing and semantics [measured 2026-10-17, `re/dspbussync.py`, `re/dspbusclk.py`, `re/dspmxm.py`,
+  `re/dspmxsum.py`]**: latched once per sample (a reader sees one value for its whole program), latency exactly
+  1 sample (checked with the common delay-position clock), last write in a sample wins (no summing), not kept
+  (0 when nobody wrote that sample). DSP3 Z/S → DSP4 O; DSP4 O → DSP3 S. IOMD (`re/dspiomd.py`): I/O words with an
+  owner DSP; non-owner writes vanish; owner writes persist; the master block holds live inputs. See
+  `DSP_HARDWARE.md` §8.
 * **Buses [measured, master]**: `[60nn]` = IOMD word nn (0x4113C000). MXM stores of DSP3: M → ARM window MXM2,
   O → MXM3, Z and S → MXM5; DSP4 loads DSP3's Z/S stores from its O zone (`83nn` ← DSP3 `85nn`/`87nn`, same nn).
   `X9bY` writes nothing visible in any of these windows.
@@ -731,25 +747,7 @@ words left are the section markers `ff70`/`ff71`/`ef75`/`ef74`** (no visible eff
 
 ## 14. Open items (do not emit)
 
-Decoding coverage (2026-10-17, `python3 re/dspisa.py cov work/corpus`): 18821 / 19095 = **98.6 %** (16/10: 93.6 %;
-flags, jumps, nibble-f family, template fixes for classes 0x098, 0x0e0, 0x130, 0x178, 0x1d8, 0x208, 0x240, 0x572,
-0x592). The rest: program-start marker words `ff70`/`ef75`/`ef74` 262 (1.4 %, no measurable
-effect), a few unit-B forms (`eda8`, `e7d2`, `8c0f`, `fde8`, `8c30`: nibbles c/6 with an immediate or X in r4–r7),
-transfer mode `e0`. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §11.
-
-1. (Solved 2026-10-17: `X9bY` = set flags of groups 1–5, §8; units 3–4, MAC, SFU and min flags measured; jumps
-   §5.4b.) Left: `89ba` (X = 8, Y = 10), unit B nibble e bits 10, `f5Y` Y ≠ c on the slaves, `00cY`, C words with
-   bits 15–14 = 11 (`c012` in class 0x190).
-2. Delay memory (§9.1): line length (u = 100 reads nothing), how the ARM sets up a window for another slot / DSP
-   (slaves: J60/JX chorus), number of taps per sample, fraction resolution; no audio test yet.
-3. Hidden registers (§9.0): h7 (`40c5`), mode-3 `40TY` (reads 0), readers of h6 other than mode `28`; a non-ring
-   indexed target (bank 5?) for fixed tables.
-4. Buses (§9): MXM latency, routing on the slaves, ARM writes to MXM read by a DSP.
-5. MAC op2 = 011 (constant result); `8f09` (partial, §6.4); unit-B forms listed above; exact reciprocal / rsqrt seed
-   tables.
-6. Condition target codes beyond `x10`/`x11`/`x12`.
-7. A op D ≥ 8 inside multi-op classes; classes not present in the corpus.
-8. Why an over-budget program leaves the slaves unstable until a power cycle; cost of MAC-class and
-   transfer-heavy instructions (only single-op A and A/A/B measured: 1 cycle each).
-9. Ring size per DSP / context, and whether some reference ranges (mailbox `22nn`, parameters `C0nn`) bypass the
-   ring.
+Clean, current list: `DSP_HARDWARE.md` §11 (2026-10-17). Everything decoded in the corpus of all Roland programs
+(212 SYSTEM-8 + 4 SYSTEM-1) except the section markers, which have no effect (§6.4). Timing: every instruction
+costs one cycle whatever it contains (1 or 2 MACs, up to 6 transfers; `re/dspbudget.py mac|mac2|xfer4|xfer6`),
+a taken jump one more.

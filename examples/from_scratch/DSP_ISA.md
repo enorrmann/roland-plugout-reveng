@@ -191,6 +191,8 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
 * **All Roland programs decoded (2026-10-17)**: 212 SYSTEM-8 programs (base engine, OS, 9 PLUG-OUTs) + 4 SYSTEM-1;
   unit B D < 8 nibbles 0–a = bit ops (AND, ANDN, OR, ORN, XOR, XNOR; two's complement, mod 512); `9f0d` = atanh
   split for logs; only the section markers `ff70`/`ff71`/`ef75`/`ef74` remain without a visible effect.
+* **Consolidated hardware reference: `DSP_HARDWARE.md`** (2026-10-17): bit-exact arithmetic (exact result,
+  truncated toward zero), seed ROM tables, 1 cycle per instruction, MXM latched per sample with 1-sample latency.
 * **Measured on the hardware (2026-10-17, `re/dspverify.py`)**: all inferred templates verified; immediates
   start **Y bytes** into the slot array (MAC: Y and W by field, C after Y skipping references); read ports: bank 0
   = 2 loads per instruction, bank 5 = 1; C field acts only if bit 3 of the other field is 0; unit B nibble e

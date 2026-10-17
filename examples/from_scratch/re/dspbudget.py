@@ -44,7 +44,12 @@ def program(kind, k):
         P += [A.ld(1, S + 1), [0x0001], A.a('add', 1, 1, imm=INC)] + A.wrap(1, 2) + [A.st(1, S)]
         P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
         return [w for ins in P for w in ins]
-    fill = {'single': A.a('move', 4, y=5),
+    fill = {'mac': [0x0803, 0x4C01, 0x3305],                                  # MAC r4 = r0*r1 + r3*r4 + r5
+            'mac2': [0x1005, 0x4C01, 0x7C01, 0x3305, 0x3305],                # two MACs (class 0x080)
+            'xfer4': [0x7809, 0x4FE0, 0x7FE2, 0x8FE4, 0x8FE6, 0x0700, 0x0701, 0x0704, 0x0705],   # 2 ld + 2 st
+            'xfer6': [0xE44D, 0x4FE0, 0x7FE2, 0x8FE4, 0x8FE6, 0x8FE8, 0x8FEA, 0x0700, 0x0701, 0x0704, 0x0705,
+                      0x0706, 0x0707],                                       # 2 ld + 4 st (class 0x722)
+            'single': A.a('move', 4, y=5),
             'aab': A.aab(A.a('move', 4, y=5), A.a('move', 3, y=5), A.b('max', 2, 1, 5))}[kind]
     P = [[0x0A02, 0xFF70], A.a('move', 5, imm=0.0, bits=16), A.a('move', 6, imm=1.0, bits=16)] + [fill] * k
     P += [A.ld(1, S + 1), [0x0001], A.a('add', 1, 1, imm=INC)] + A.wrap(1, 2) + [A.st(1, S)]
@@ -62,7 +67,7 @@ def rate(ses, gap=0.6):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('kind', choices=['single', 'aab', 'skip', 'loop', 'marker'])
+    ap.add_argument('kind', choices=['single', 'aab', 'skip', 'loop', 'marker', 'mac', 'mac2', 'xfer4', 'xfer6'])
     ap.add_argument('k', type=int, nargs='+')
     a = ap.parse_args()
     longest = max(len(dspmaster.adapt(program(a.kind, k))) for k in a.k)
