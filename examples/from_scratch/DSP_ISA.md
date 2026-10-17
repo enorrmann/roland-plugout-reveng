@@ -181,6 +181,13 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
   op2 010 = imm16, an A op inside a MAC class reads N; SFU `cf16` sqrt split, `cf26` log2 split; unit B nibble 2/6 =
   min/max(−X, Y), c = frexp. Coverage tool: `python3 re/dspisa.py cov work/corpus` (93.6 %).
 
+* **Jumps and loops (2026-10-17)**: a word `009Y` in a C position is a jump by the signed 16-bit word number
+  Y >> 1 of the immediate/slot stream, in words from the end of the instruction; it is a unit for the C words
+  (conditional jumps). Backward jumps make loops (measured on the master; a 4-iteration loop and forward jumps
+  verified by audio on the slaves). Load programs with an empty program first: a torn program with a backward
+  jump hangs the DSP. Unit-B nibble f bits 7–6 = 01: `f4Y` move, `f5c` delay write position, `f6Y` + h(Y−8),
+  `f7Y` markers. Coverage 98.6 %.
+
 ## 9. Open (full list: `DSP_ISA_SPEC.md` §14)
 
 0. (Solved 2026-10-17) `X9bY` = set flags. Left: group 0 / `c9bY`, units 3–4, flags of MAC/SFU results.

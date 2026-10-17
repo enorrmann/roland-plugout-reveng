@@ -18,6 +18,9 @@ def words_of(path):
     return [int(t, 16) for line in open(path) for t in line.split('#')[0].split()]
 
 
+EMPTY = [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001, 0x0000]     # slot program that returns at once
+
+
 def load(path):
     w = words_of(path)
     if len(w) > 2 * 0x800:
@@ -25,11 +28,17 @@ def load(path):
     st = L.load_state()
     link = L.Link()
     for d in (2, 3):
-        # tail first, head last: the old program keeps its end until the new one is complete
-        for start in range(len(w) - len(w) % 32, -1, -32):
-            chunk = w[start:start + 32]
+        # an empty program first (start + return), then the body tail first, the head last: the DSP never runs a
+        # mix of old and new code. (2026-10-17: a torn program with a backward jump hung the slaves until a power
+        # cycle; forward-only code only glitches.)
+        link.write(d, 0, EMPTY)
+        body = w[len(EMPTY):]
+        for start in range(len(body) - len(body) % 32, -1, -32):
+            chunk = body[start:start + 32]
             if chunk:
-                link.write(d, start, chunk)
+                link.write(d, len(EMPTY) + start, chunk)
+        for i in range(len(EMPTY) - 2, -1, -2):       # head: one 32-bit word at a time, the start word last
+            link.write(d, i, w[i:i + 2])
         st['words'][str(d)] = w
     link.center()
     st['own'] = os.path.abspath(path)

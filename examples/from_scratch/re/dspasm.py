@@ -313,16 +313,30 @@ def simulate(words, pitch, n, slot='dco2'):
     ins_list = [ins for _, ins in __import__('dspdis').instructions(words)]
     mem = {SLOTS[slot]['A'][0]: pitch, SLOTS[slot]['B'][0]: pitch}
     ring = [SLOTS[slot][v][2] for v in 'AB'] + [FOLD_SLOTS.get(slot, {}).get(v, (0, 0, 0, None))[3] for v in 'AB']
+    pos = {}
+    p = 0
+    for i, ins in enumerate(ins_list):
+        pos[p] = i
+        p += len(ins)
+    starts = sorted(pos)
     out = []
     for _ in range(n):
         for st_ in ring:                      # ring memory: what was stored at S is read at S + 1 next sample
             if st_ is not None and st_ in mem:
                 mem[st_ + 1] = mem[st_]
         regs = [0.0] * 8
-        for ins in ins_list:
-            if tuple(ins) in ((0x0A02, 0xFF70), (0x0B02, 0x00F8), (0x0001,)):
-                continue                      # program start / end words (unit-B / C forms we do not simulate)
+        i, steps = 0, 0
+        while i < len(ins_list):
+            ins = ins_list[i]
+            steps += 1
+            if steps > 100000:
+                raise RuntimeError('endless loop in the simulation')
+            dspisa.JUMP = None                # every instruction runs (no-ops advance the flag latency)
             regs, mem, _ = dspisa.run(list(ins), regs, mem)
+            if dspisa.JUMP is not None:       # jumps (2026-10-17): words from the end of the instruction
+                i = pos[starts[i] + len(ins) + dspisa.JUMP]
+            else:
+                i += 1
         out.append(mem.get(SLOTS[slot]['A'][1][0], 0.0))
     return out
 

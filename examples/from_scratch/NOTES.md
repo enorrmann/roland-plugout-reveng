@@ -714,6 +714,25 @@ Pendiente (ISA):
 * `dspisa.py` simula banderas (estado persistente, latencia 1, `sim` las imprime). Cobertura del corpus:
   **98.4 %** (antes 93.6 %); queda sobre todo `ff70`/`ef75`/`ef74` (262).
 * Consecuencia: **selección dependiente de los datos** posible (if/else con C `x12`), ver `DSP_USOS.md` §5c.
+* Más (tarde del 17/10): Y = 3 y 4 medidos (Y = Y-ésima op, MAC incluida); banderas de MAC, SFU y min medidas.
+* **Saltos** `009Y` (en posición de C, cuenta como unidad para las C): desplazamiento con signo = palabra Y>>1 del
+  flujo de inmediatos/slots, en palabras desde el final de la instrucción. Hallados en el corpus (JX: if/else y un
+  `switch` de 4 ramas en `JX_b000_60a24bc8`), medidos en el maestro (`re/dspjump.py`) y **bucles** con saltos
+  hacia atrás (3/8/16 vueltas exactas). **Audio en los slaves** (`re/dspflagsaw.py` → `dspexp/own/fsaw_*.txt`):
+  SAW con wrap por banderas + C (`sel`), por salto (`jmp`) y con bucle de 4 vueltas (`loop4`) = idénticas a la
+  referencia (65.897 / 221.677 Hz, armónicos 1/n). Ojo: el panel estaba una octava abajo +13 cents en todas.
+* **Cuelgue de los slaves** por cargar en vivo un programa con salto hacia atrás: mientras se escribe, el DSP
+  corre un programa mezclado y el salto cae dentro de código viejo → bucle infinito → hubo que apagar y prender.
+  `dspown.load` ahora escribe primero un programa vacío y la cabeza al final. Los programas de Roland no tienen
+  saltos hacia atrás.
+* Familia nibble f, bits 7–6 = 01 (`re/dsphops.py`, `re/dspf5.py`): `f4Y` = mover r(Y&7), `f5c` = posición de
+  escritura del retardo (−1/16384 por muestra), `f6Y` = rd + h(Y−8) mod 512 (Y = c–f), `f7Y` = marcadores.
+* Costo (`re/dspbudget.py skip|loop`, maestro DSP3): lo salteado por un salto no cuesta (1500 instrucciones
+  salteadas y el contador sigue); bucle de 4 instrucciones: 180 vueltas sí, 185 no → ≈ 5 ciclos por vuelta (un
+  salto tomado ≈ 1 ciclo extra).
+* Clase 0x098: la 2.ª palabra es una C (`1610` = if cond11), no N: las "MAC op2 = 011" del corpus eran eso.
+* Plantillas corregidas (C que eran inmediatos/N o una T que era B): 0x098, 0x0e0, 0x130, 0x178, 0x1d8, 0x208, 0x240, 0x572,
+  0x592. Cobertura 98.6 %; queda casi sólo `ff70`/`ef75`/`ef74`.
 
 ### Tomas de retardo `{8+d}f6c` / `Xa9Y` y bancos 2/4/5 (2026-10-16, maestro, `re/dsptap.py`)
 * **Persistencia por banco** (contador load W / store W en el DSP3): banco 0 anillo (load S+1, 96 000/s); **banco 2

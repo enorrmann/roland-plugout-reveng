@@ -229,6 +229,33 @@ true, op 2 if false" is a select between two results written to the same registe
 Class 0x570 (three ops + transfer) follows the same rule for fields 1–3 but skips **all** ops for field 0 and runs
 all of them for some fields ≥ 8 when the condition is false **[measured, unexplained]**.
 
+### 5.4b Jump (a unit in a C position) **[measured 2026-10-17, master DSP3 / DSP4 `efdc`, slaves by audio]**
+
+```
+009Y   jump by the signed 16-bit word number (Y >> 1) of the immediate stream / free slots (§4.3, §4.4),
+       counted in 16-bit words from the END of the instruction (forward and backward)
+```
+
+* A jump word sits where templates put C words, and **counts as a unit** (ops, jumps, then transfers) for the C
+  words of its instruction: `1c04 0090 1a10 0003` = "jump +3 unless cond13 (if cond13 skip unit 1)";
+  `3b06 0090 0092 1812 0001 00cd` = two jumps (offsets in slots 0 and 1), cond12 picks one; `7106 fe08 0090 1820
+  b9b1 0080` = cmp (unit 1), jump (unit 2) under cond12, flags (unit 3, transfer).
+* Corpus: every Roland offset lands on an instruction boundary (JX main and DCO2 programs; a 4-way `switch` in
+  `JX_b000_60a24bc8` whose branches all jump to one merge point). Roland only jumps forward.
+* Measured: `0b03 0090 0003` skips the next 3-word instruction; offset 0 = no-op; a C word skips/keeps the jump
+  by the flags. **Backward jumps work: loops** (`1c04 0090 1a10 fff5`: 3, 8, 16 iterations exactly; the
+  offset is end-relative — an instruction placed right before the loop body ran once). On the slaves (DCO2 slot,
+  audio, `re/dspflagsaw.py`) forward jumps and a 4-iteration loop give a SAW identical to the reference.
+* **Cost** (master DSP3, `re/dspbudget.py skip|loop`): instructions jumped over cost **nothing** (a jump over
+  1500 fillers, far beyond the ~930-instruction budget, kept the counter running); a loop of 4 instructions per
+  iteration fits 180 iterations, not 185, with ~25 other instructions → **≈ 5 cycles per iteration: a taken jump
+  costs about one extra cycle**. Untaken branches are free, so if/else costs only the branch executed.
+* **Hazard**: a backward jump in a program that is being rewritten while it runs can land inside old code and loop
+  forever (the slaves hung until a power cycle, 2026-10-17). Always switch to an empty program (start + `0b02 00f8`)
+  first, write the body, the head last (`dspmaster.Session`, `dspown.load`).
+* `0b02 00f8` (slot program end) in the middle of a DSP3 main program had no effect; `00c1`/`00c2` (S100, under C
+  words) changed nothing visible **[unknown]**.
+
 ### 5.5 Reference word (R)
 
 16-bit data address. **[exact]** for 0x0000–0x07FF = bank 0 word index. Prefixes seen in the corpus
@@ -321,11 +348,16 @@ Selected by the mode bits (5–4) and Y bit 3; Y register = Y & 7. **[measured, 
 | 10 | 0 | **log2 split**: Y = m·2^e, m ∈ [0.75, 1.5): rY ← m, r(d) ← e; Y < 0: r(d) ← 9, rY ← Y/512 | `cf26`: 9 → e 3, m 1.125; 0.375 → e −1, m 0.75 [measured] |
 | 00 | 1 | partly: x = rY > 0 → r(d) ← (x − 1)/2, rY ← a value in [1.82, 1.99]; x < 0 does not fit | `8f09` **[partial]** |
 
-`ff70`, `ef75`, `ef74` (bits 7–6 = 01; program start) have no visible effect on r0–r7.
+**Nibble `f`, bits 7–6 = 01** (sub-op in bits 5–4) **[measured 2026-10-17, master DSP3/DSP4, `re/dsphops.py`,
+`re/dspf5.py`]**:
 
-`{8+d}f6c` (bits 7–6 = 01, mode 10, Y = `c`): **rd ← (rd + base) mod 512**, base = a per-task delay base register
-(0 on master DSP3, 288 left by the other tasks of master DSP4, set by `40xx` words, §9.1) **[measured]**. Used to
-turn a delay into a delay-memory read address (§9.1).
+| form | function |
+|---|---|
+| `{8+d}f4Y` | rd ← r(Y & 7) (sign bit of Y ignored). Roland also uses it as rd ← rd (`bf4b`, `df4d`, `ff4f`, with `89ba`): no other effect found on the master |
+| `{8+d}f5c` | rd ← **delay-ring write position**: counts down 1/16384 per sample (96 000 samples/s), mod 512, own value per DSP; independent of rd and h4. Not used by Roland |
+| `{8+d}f5Y`, Y ≠ c | reads 0 on the master (`9f5d`: a per-DSP constant, 0.0007 on DSP3, 1.8746 on DSP4). Roland uses `cf54` once (JX DCO2 slot, as a weight): slave meaning unknown |
+| `{8+d}f6Y`, Y = c–f | **rd ← (rd + h(Y − 8)) mod 512**: `f6c` + h4 (delay base, §9.1), `f6d` + h5, `f6e` + h6, `f6f` + h7 (JX: `af6f` = index + h7, wrapped at 8 with cmp/C). Y < 8: no change |
+| `{8+d}f7Y` | no visible effect: the program-start markers `ff70`, `ef75`, `ef74` |
 
 ## 7. MAC semantics **[exact on the measured cases]**
 
@@ -372,8 +404,13 @@ cond 4g+3 = N or Z    (result ≤ 0)
   (max(−0.25, 0) = 0 gives "≠ 0"; max(−0.5, −0.5) gives `0011` = Z and N).
 * Unit B nibble e with D ≥ 8 and bits 7–6 = 00 (`8e09`, `be0c`, `ae10`…) is a **compare**: flags of r(d) + Y,
   no register written (`be0c` = r3 − r4, `be04` = r3 + r4, `9e0c` = r1 − r4) — the usual partner of `X9bY`.
-* Units: Y = 1, 2 measured (class 0x328 `6505 7c0f be0c 99b1 b9b2`: unit 1 = A, unit 2 = B). Y = 3, 4 are used by
-  Roland (assumed the same rule).
+* Units: Y = Y-th op of the instruction in position order (A, B, M and jumps count): Y = 1, 2 (class 0x328
+  `6505 7c0f be0c 99b1 b9b2`), 3 (`b48b 06c7 1505 ae0e b9b3 …`) and 4 (`904a 0cc0 0cca 6062 be0f 1a12 b9b4 …`,
+  after a MAC and two A ops) measured.
+* MAC results set flags like A results (`8f09 4448 5448 99b1 a9b2`: two MACs → groups 1 and 2); SFU too (`8f39`:
+  flags of the written r(d)); min like max (Z = operands equal).
+* **Confirmed on the slaves** by audio (DCO2 slot, 2026-10-17): a SAW whose wrap is `cmp r1 − 1` + `b9b1` + a C
+  select (or a conditional jump) is identical to the min/max reference.
 * **Latency: one instruction** (as loads): a C word in the instruction right after the `X9bY` still reads the old
   flags; from the second instruction on it reads the new ones. Roland always leaves one instruction in between.
 * **Persistence**: flags are not reset between samples, programs or test sessions; a group keeps its value until
@@ -385,10 +422,9 @@ cond 4g+3 = N or Z    (result ≤ 0)
 * Old tests missed this because they used `1803 0040 b9bP` (unit 1 = `r0 = r0` with r0 = 0) and read groups that
   did not match X.
 
-Consequences for a compiler: **data-dependent selects are possible**: compute (or `cmp`) a value, `X9bY` it into a
+Consequences for a compiler: **data-dependent control is possible**: compute (or `cmp`) a value, `X9bY` it into a
 group, one instruction of distance, then a C word picks which op of an instruction runs (e.g. `x12`: skip op 1 if
-true, op 2 if false). Still no jumps or loops: every instruction executes once per execution **[inferred: no
-control transfer observed]**.
+true, op 2 if false) or whether a **jump** (§5.4b) is taken: if/else, switch, and loops (backward jumps).
 
 ## 9. Transfers and memory
 
@@ -633,13 +669,15 @@ time.
 
 ## 14. Open items (do not emit)
 
-Decoding coverage (2026-10-17, `python3 re/dspisa.py cov work/corpus`): 18785 / 19095 = **98.4 %** (16/10: 93.6 %,
-before `X9bY` = flags). The rest: program-start marker words `ff70`/`ef75`/`ef74` 262 (1.4 %, no measurable
+Decoding coverage (2026-10-17, `python3 re/dspisa.py cov work/corpus`): 18821 / 19095 = **98.6 %** (16/10: 93.6 %;
+flags, jumps, nibble-f family, template fixes for classes 0x098, 0x0e0, 0x130, 0x178, 0x1d8, 0x208, 0x240, 0x572,
+0x592). The rest: program-start marker words `ff70`/`ef75`/`ef74` 262 (1.4 %, no measurable
 effect), a few unit-B forms (`eda8`, `e7d2`, `8c0f`, `fde8`, `8c30`: nibbles c/6 with an immediate or X in r4–r7),
 transfer mode `e0`. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §11.
 
-1. (Solved 2026-10-17: `X9bY` = set flags, §8.) Left: group 0 / `c9bY`, units Y = 3–4, flags of MAC / SFU
-   results and of min (only max measured), whether Z of other B ops is "operands equal", unit B nibble e bits 10.
+1. (Solved 2026-10-17: `X9bY` = set flags, §8; units 3–4, MAC, SFU and min flags measured; jumps §5.4b.) Left:
+   group 0 / `c9bY` / `d9bY` / `89ba` (no effect on the master), unit B nibble e bits 10, `f5Y` Y ≠ c on the
+   slaves, `00cY`.
 2. Delay memory (§9.1): line length (u = 100 reads nothing), how the ARM sets up a window for another slot / DSP
    (slaves: J60/JX chorus), number of taps per sample, fraction resolution; no audio test yet.
 3. Hidden registers (§9.0): h7 (`40c5`), mode-3 `40TY` (reads 0), readers of h6 other than mode `28`; a non-ring

@@ -233,6 +233,10 @@ python3 dspown.py notes NAME --notes 48 69 81           # measure
 python3 dspown.py restore                               # back to the lab program
 ```
 
+**Live loads (2026-10-17)**: `dspown.load` first writes an empty program (start + `0b02 00f8`), then the body,
+the head last. Writing tail-first over a running program made a torn program whose backward jump (loop) hung the
+slaves until a power cycle. Flags, C selects, jumps and loops work in own slot code (`re/dspflagsaw.py`).
+
 **`lab_pad4k.txt` (2026-10-16, installed)**: silence + END after 7 instructions, then zeros up to
 4096 words (the DSPLIVE shadow size). It reserves twice the space of `lab_pad.txt` and, unlike it (2035 no-ops,
 over the time budget whenever PLG3 is selected), stays far below the per-sample budget. Install with `t0=$O/lab_pad4k.txt,t1=$O/lab_pad4k.txt`

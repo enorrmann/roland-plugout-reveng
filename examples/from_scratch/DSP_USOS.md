@@ -153,6 +153,13 @@ ARM; las lecturas sueltas del banco 0 caen en otras referencias por el anillo.
   comparadores de envolvente (ataque / release distintos), sample & hold disparado por un cruce, contadores con
   reset (divisores, secuenciadores), detección de overflow de una fase (c2), elegir entre dos ramas de un
   waveshaper por tramos.
+* **Saltos y bucles** (`009Y`, desplazamiento con signo en palabras desde el final de la instrucción; la C lo
+  hace condicional): saltear bloques enteros (ahorra presupuesto: una rama no cuesta tiempo), `switch` por modo
+  (como el JX), bucles para filtros/órdenes variables, sumar N muestras/voces, iterar Newton hasta converger,
+  polinomios de grado variable. Confirmado por audio en los slaves (SAW con bucle de 4 vueltas idéntica).
+  Cuidado: cargar con programa vacío primero (`dspown.load` ya lo hace).
+* `f5c` = posición de escritura de la línea de retardo (cuenta 1/16384 por muestra): direcciones de retardo sin
+  depender de h4; también sirve de reloj de muestras libre (87 s de período).
 * Secuencia mínima: `cmp` (o cualquier op en la unidad Y) + `X9bY` → una instrucción cualquiera → instrucción con C.
   Cuidado: el grupo queda escrito para los programas siguientes del mismo DSP (Roland lo reescribe antes de usarlo).
 

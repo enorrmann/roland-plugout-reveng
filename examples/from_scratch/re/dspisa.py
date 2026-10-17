@@ -42,6 +42,7 @@ CONTEXT = 'dco'
 # the result of unit Y of its instruction; they persist (also across samples) until the next X9bY on that group.
 # Per group: c0 = !Z, c1 = !N, c2 = !V (|result| >= 512), c3 = N or Z. Group 0 (c9bY) did not change on the master.
 FLAGS = None
+JUMP = None                      # set by run() when a jump executes (offset in words from the instruction end)
 PENDING = {}                     # one instruction of latency: the next instruction still sees the old flags
 FLAG_GROUP = {0x9: 1, 0xA: 2, 0xB: 3, 0xC: 0}
 _res = [None]                    # (value, Z) of the op just simulated, for X9bY
@@ -207,9 +208,21 @@ def b_op(w, regs, imm, out):
     d, b, x, mode, y = w >> 12, (w >> 8) & 15, (w >> 6) & 7, (w >> 4) & 3, w & 15
     if d >= 8 and b == 0xF and (w >> 6) & 3 == 0:     # special-function unit (measured forms only)
         return sfu(w, regs, imm, out)
-    if d >= 8 and b == 0xF and (w & 0xFF) == 0x6C:   # f6c: rd = (rd + h4) mod 512 (delay address, §6.4)
-        out[d & 7] = (regs[d & 7] + HIDDEN[4]) % 512
-        return f'r{d & 7} = (r{d & 7} + h4) mod 512'
+    if d >= 8 and b == 0xF and (w >> 6) & 3 == 1:    # bits 7-6 = 01: sub-op in bits 5-4 (measured 2026-10-17)
+        sub, yy = (w >> 4) & 3, w & 15
+        if sub == 0:                                  # f4Y: rd = r(Y & 7) (sign bit ignored)
+            out[d & 7] = regs[yy & 7]
+            return f'r{d & 7} = r{yy & 7}  (f4)'
+        if sub == 2 and yy >= 12:                     # f6Y: rd = (rd + h(Y-8)) mod 512 (f6c = delay base h4)
+            out[d & 7] = (regs[d & 7] + HIDDEN[yy - 8]) % 512
+            return f'r{d & 7} = (r{d & 7} + h{yy - 8}) mod 512'
+        if sub == 1 and yy == 12:                     # f5c: delay-ring write position (counts down 1/16384 per sample)
+            return f'r{d & 7} = delay_write_pos  (time-varying, mod 512)'
+        if sub == 1:
+            out[d & 7] = 0.0
+            return f'r{d & 7} = counter f5{yy:x}  (reads 0 on the master; slave meaning unknown)'
+        if sub == 3:
+            return f'B:{w:04x} (r{d & 7}: no visible effect, program-start form)'
     if d >= 8 and b == 0xF:                          # ff70 / ef75 / ef74 (program start): no visible effect
         return f'B:{w:04x} (r{d & 7}: no visible effect, program-start form)'
     Y = raw_value(imm.take(mode)) if mode else (-regs[y & 7] if y & 8 else regs[y & 7])
@@ -296,6 +309,9 @@ def run(ins, regs, mem=None):
         for i in range(len(tail)):
             tail[i] = 'N' if i < nN else 'S'
         t = t[:last_t + 1] + ''.join(tail)
+    # jumps (2026-10-17): a word 009Y in a C position is a unit: jump by the signed 16-bit word number Y >> 1 of
+    # the immediate stream / free slots, counted in words from the end of the instruction
+    t = ''.join('J' if k == 'C' and w & 0xFFF0 == 0x0090 else k for w, k in zip(body, t)) + t[len(body):]
     slot_words = [w for w, k in zip(body, t) if k in 'NS']
     used = set()
     for w, k in zip(body, t):
@@ -310,7 +326,7 @@ def run(ins, regs, mem=None):
     n_words = iter([w for w, k in zip(body, t) if k == 'N'])
     text = []
     # predication: units = ops (A/B/M) then transfers, numbered from 1 in position order (DSP_ISA_SPEC.md §8)
-    units = [i for i, k in enumerate(t) if k in 'ABM'] + [i for i, k in enumerate(t) if k == 'T']
+    units = [i for i, k in enumerate(t) if k in 'ABMJ'] + [i for i, k in enumerate(t) if k == 'T']
     global FLAGS
     if FLAGS is None:
         FLAGS = CONTEXT_BITS[CONTEXT]
@@ -332,7 +348,6 @@ def run(ins, regs, mem=None):
                 next(n_words)
             continue
         _res[0] = None
-        before = list(out)
         if k == 'A':
             imm.pos = 0           # every A/B op reads its immediate from the start of the stream (measured
             text.append(a_op(w, regs, imm, out))   # 2026-10-16: two ops with imm16/imm32 get the same bits)
@@ -342,11 +357,16 @@ def run(ins, regs, mem=None):
             imm.pos = 0
             text.append(b_op(w, regs, imm, out))
         if k in 'ABM':
-            if _res[0] is None:
-                ch = [r for r in range(8) if out[r] != before[r]]
+            if _res[0] is None:          # flags of the op's destination r(D & 7) (MAC measured 2026-10-17)
                 dest = (w >> 12) & 7
-                _res[0] = (out[dest], out[dest] == 0) if not ch or dest in ch else (out[ch[0]], out[ch[0]] == 0)
+                _res[0] = (out[dest], out[dest] == 0)
             unit_res[units.index(pos) + 1] = _res[0]
+        elif k == 'J':
+            n = imm_words[(w & 15) >> 1] if (w & 15) >> 1 < len(imm_words) else 0
+            n = n - 0x10000 if n & 0x8000 else n
+            global JUMP
+            JUMP = n
+            text.append(f'jump {n:+d} words')
         elif k == 'C' and w >> 8 == 0x40:     # 40TY: hidden register load (DSP_ISA_SPEC.md §9.0)
             tg, m, y = 4 + ((w >> 6) & 3), (w >> 4) & 3, w & 15
             if m == 0:
@@ -453,6 +473,10 @@ def main():
             _, _, text = run(ins, regs)
         except Exception as e:
             text = f'?? {e}'
+        global JUMP
+        if JUMP is not None:
+            text += f'  -> {pos + len(ins) + JUMP}'
+            JUMP = None
         print(f'{pos:5d}  {" ".join(f"{x:04x}" for x in ins):48s} {text}')
 
 
