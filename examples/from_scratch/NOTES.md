@@ -636,6 +636,29 @@ Documento técnico completo: `CUSTOM_OSC.md`.
 * (Hecho) un `lab_pad` que no se pase del presupuesto (programa corto + relleno **después** del final) y
   que reserve 4096 palabras (el máximo de la sombra de DSPLIVE) para probar tablas más grandes en vivo.
 
+## Posibles próximos pasos: emulador (2026-10-17, decidido dejarlo para otra sesión)
+Idea del usuario: correr los binarios ARM originales en un emulador de CPU y escribir en C sólo el DSP.
+* **Ya resuelto**: núcleos Cortex-M Thumb-2 → Unicorn (ya usado: `re/emu0.py` región 0, `re/emu1.py` región 1,
+  `tools/engine_emu.py` motor base, con los servicios del OS atrapados); binarios descifrados (OS maestro núcleos
+  0/1, `s_boot`/`s_data`, regiones de todos los plugouts, STM32); ISA del DSP documentado (`DSP_HARDWARE.md`).
+* **Lo difícil son los periféricos del BMC** (`BASE_FIRMWARE.md` §8.8): bloques de control DSP `0x411xxxxx` (media,
+  es la interfaz con el emulador de DSP), NVIC/SysTick e interrupciones (Unicorn no los tiene), DMA, mailbox entre
+  núcleos `0x40054000`, **enlace maestro↔slaves por USB host interno** (EHCI/OHCI "BMCBulk": interceptar el driver
+  en vez de emularlo), `0x40026000`/`0x40080000` sin identificar, SD, QSPI, UART al panel, USB al PC, códec, IOMD /
+  bus de onda. El cargador de arranque está cifrado: arrancar el OS en el estado que deja el cargador.
+* **Niveles**: (1) plugout = región 1 (+ región 0) en Unicorn + emulador de DSP en C → audio del plugout con el
+  código y microcódigo reales de Roland, validable contra la captura USB del equipo (`dspaudio.py`); (2) slave
+  completo (`s_boot`/`s_data` + periféricos, enlace atrapado a nivel de driver); (3) SYSTEM-8 entero (mucho
+  trabajo, poco aporte al sonido). Estrategia híbrida: código de Roland donde está el sonido, OS/periféricos
+  reemplazados respetando su interfaz.
+* **Rendimiento**: 18 DSP × ~930 instr × 96 kHz ≈ 1.6 G instr/s en el peor caso → no alcanza un intérprete en un
+  núcleo: traducir cada programa a código nativo una vez (JIT o generación de C; casi no hay saltos) y paralelizar
+  (MXM se congela por muestra → los DSP de una muestra son independientes, un hilo por DSP); saltear DSP sin voces.
+* **Prototipo propuesto (nivel 1)**: emulador de DSP en C (intérprete, después JIT) como biblioteca llamable desde
+  Python; conectarlo al motor del JX-3P en Unicorn; render de una nota a WAV y comparación con la captura del equipo.
+* Pendiente antes de pruebas de audio: el usuario puso el fine tune en 0 (verificar en la próxima tanda; la
+  referencia ya dio 440.15 Hz).
+
 ## Próximos pasos del ISA (para seguir)
 Referencia: `DSP_ISA_SPEC.md` (especificación, manda), `DSP_ISA.md` (resumen), `DSP_ARM_SIDE.md` (mapa de bancos
 del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD/wavetables propios, laboratorio, presupuesto de tiempo).
