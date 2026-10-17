@@ -13,7 +13,7 @@ Slots (for transfers XfeY: slot Y/2) are counted from the first position after t
 first, then R words. Operand modes 1/2/3 take 16/24/32 bits from the immediate bit stream: MAC operands in order,
 every A/B op from the start of the stream (two A/B ops with immediates share the same bits, measured 2026-10-16).
 """
-import argparse, os, struct, sys
+import argparse, math, os, struct, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -38,6 +38,18 @@ IMMBITS = {1: 16, 2: 24, 3: 32}
 # context condition bits (condition 0 first) tested by C words; default = slave DCO slots (measured by audio)
 CONTEXT_BITS = {'dco': '0011011001100110', 'master_dsp3': '0111111011101110', 'master_dsp4_efdc': '0111101111100111'}
 CONTEXT = 'dco'
+# the condition bits are FLAGS (2026-10-17): X9bY (X = 9/a/b -> group 1/2/3, conds 4g..4g+3) stores the flags of
+# the result of unit Y of its instruction; they persist (also across samples) until the next X9bY on that group.
+# Per group: c0 = !Z, c1 = !N, c2 = !V (|result| >= 512), c3 = N or Z. Group 0 (c9bY) did not change on the master.
+FLAGS = None
+PENDING = {}                     # one instruction of latency: the next instruction still sees the old flags
+FLAG_GROUP = {0x9: 1, 0xA: 2, 0xB: 3, 0xC: 0}
+_res = [None]                    # (value, Z) of the op just simulated, for X9bY
+
+
+def flag_bits(v, z):
+    n, ov = v < 0, abs(v) >= 512
+    return ''.join('1' if b else '0' for b in (not z, not n, not ov, n or z))
 # hidden registers (DSP_ISA_SPEC.md §9.0), loaded by C-position words 40TY: h4 = delay base (f6c, A op 0 sub 4),
 # h5 = tap-result address (A op 0 sub 5), h6 = index of mode-28 transfers, h7 = unknown. Defaults: master DSP4.
 HIDDEN = {4: 288.0, 5: 0x105 / 16384, 6: 0.0, 7: 0.0}
@@ -124,6 +136,7 @@ def a_op(w, regs, imm, out):
     D, X = regs[d & 7], regs[x]
     if d >= 8:                    # r(D-8) = X + Y + r[op] (exact in the single-op class, DSP_ISA.md §4)
         out[d - 8] = X + Y + regs[op]
+        _res[0] = (out[d - 8], out[d - 8] == 0)
         return f'r{d - 8} = r{x} + {ys} + r{op}'
     if op == 0:
         if x == 1:
@@ -140,6 +153,10 @@ def a_op(w, regs, imm, out):
     s = {1: f'r{d} + r{x} + {ys}', 2: f'r{x} * {ys}', 3: f'r{d} + r{x} * {ys}', 4: f'{ys} + r{x} * r{d}',
          5: f'{ys} - r{x} * r{d}', 6: f'r{x} + {ys}', 7: f'{ys} - r{x}'}[op]
     out[d] = {1: D + X + Y, 2: X * Y, 3: D + X * Y, 4: Y + X * D, 5: Y - X * D, 6: X + Y, 7: Y - X}[op]
+    if abs(out[d]) >= 512:        # wraps: magnitude mod 512, sign kept (measured r2 + r2: 600 -> 88, 1022 -> 510)
+        _res[0] = (out[d], False)
+        out[d] = math.copysign(abs(out[d]) % 512, out[d])
+        _res[0] = (_res[0][0], out[d] == 0)
     return f'r{d} = {s}'
 
 
@@ -198,6 +215,21 @@ def b_op(w, regs, imm, out):
     Y = raw_value(imm.take(mode)) if mode else (-regs[y & 7] if y & 8 else regs[y & 7])
     ys = f'#{Y:.7g}' if mode else ('-' if y & 8 else '') + f'r{y & 7}'
     X = regs[x]
+    if d >= 8 and b == 0xE:              # 2026-10-17, bits 7-6: 0 = flags of r(d) + Y only (CMP/TST, no write),
+        D = regs[d & 7]                  # 1 = r(d) = Y, 3 = r(d) = r(d) + Y, 2 = writes r(d) and r(d+1) (unknown)
+        sub = (w >> 6) & 3
+        if sub == 0:
+            _res[0] = (D + Y, D + Y == 0)
+            return f'cmp r{d & 7} + {ys}'
+        if sub == 1:
+            out[d & 7] = Y
+            return f'r{d & 7} = {ys}'
+        if sub == 3:
+            out[d & 7] = D + Y
+            return f'r{d & 7} = r{d & 7} + {ys}'
+        return f'B:{w:04x} (r{d & 7}, r{(d + 1) & 7}: unknown)'
+    if d >= 8 and b & 0xE in (0, 2, 4, 6):   # min/max: Z = operands equal, N = sign of the result (measured max)
+        _res[0] = None
     known = {
         (0, 0xc): (abs(X) + Y, f'|r{x}| + {ys}'), (0, 0xe): (Y - abs(X), f'{ys} - |r{x}|'),
         (1, 0x0): (min(X, Y), f'min(r{x}, {ys})'), (1, 0x4): (max(X, Y), f'max(r{x}, {ys})'),
@@ -214,6 +246,8 @@ def b_op(w, regs, imm, out):
         return f'r{d & 7}, {ys} = frexp(r{x})  (m in [0.5, 1), exponent)'
     if k in known:
         out[d & 7], txt = known[k]
+        if k[0] == 1 and k[1] in (0, 2, 4, 6):
+            _res[0] = (out[d & 7], (-X if k[1] & 2 else X) == Y)
         return f'r{d & 7} = {txt}'
     return f'B:{w:04x} (r{d & 7}, op {b:x}: unknown)'
 
@@ -277,7 +311,12 @@ def run(ins, regs, mem=None):
     text = []
     # predication: units = ops (A/B/M) then transfers, numbered from 1 in position order (DSP_ISA_SPEC.md §8)
     units = [i for i, k in enumerate(t) if k in 'ABM'] + [i for i, k in enumerate(t) if k == 'T']
-    bits = CONTEXT_BITS[CONTEXT]
+    global FLAGS
+    if FLAGS is None:
+        FLAGS = CONTEXT_BITS[CONTEXT]
+    bits = FLAGS
+    unit_res = {}
+    upd = {}
     skip = set()
     for w, k in zip(body, t):
         if k == 'C':
@@ -292,6 +331,8 @@ def run(ins, regs, mem=None):
             if k == 'M':
                 next(n_words)
             continue
+        _res[0] = None
+        before = list(out)
         if k == 'A':
             imm.pos = 0           # every A/B op reads its immediate from the start of the stream (measured
             text.append(a_op(w, regs, imm, out))   # 2026-10-16: two ops with imm16/imm32 get the same bits)
@@ -300,6 +341,12 @@ def run(ins, regs, mem=None):
         elif k == 'B':
             imm.pos = 0
             text.append(b_op(w, regs, imm, out))
+        if k in 'ABM':
+            if _res[0] is None:
+                ch = [r for r in range(8) if out[r] != before[r]]
+                dest = (w >> 12) & 7
+                _res[0] = (out[dest], out[dest] == 0) if not ch or dest in ch else (out[ch[0]], out[ch[0]] == 0)
+            unit_res[units.index(pos) + 1] = _res[0]
         elif k == 'C' and w >> 8 == 0x40:     # 40TY: hidden register load (DSP_ISA_SPEC.md §9.0)
             tg, m, y = 4 + ((w >> 6) & 3), (w >> 4) & 3, w & 15
             if m == 0:
@@ -325,6 +372,14 @@ def run(ins, regs, mem=None):
                 else:
                     mem[ia] = regs[reg - 8]; text.append(f'[h6+{w & 15}] <- r{reg - 8}')
                 continue
+            if mode == 0x9B:                  # set flags of group X from unit Y (2026-10-17)
+                g, u = FLAG_GROUP.get(reg), w & 15
+                if g is None or u not in unit_res:
+                    text.append(f'flags.{reg:x} <- unit {u}  (no effect measured)')
+                else:
+                    upd[g] = flag_bits(*unit_res[u])
+                    text.append(f'flags{g} <- unit {u}')
+                continue
             if mode == 0xA9:                  # delay-tap request at address rX, results to bank 2 [h5] (§9.1)
                 text.append(f'tap_request(r{reg & 7}) -> bank2[h5..h5+2]')
                 continue
@@ -336,6 +391,11 @@ def run(ins, regs, mem=None):
                 out[reg] = mem.get(addr, 0.0); text.append(f'r{reg} <- [{addr:04x}]')
             else:
                 mem[addr] = regs[reg - 8]; text.append(f'[{addr:04x}] <- r{reg - 8}')
+    global PENDING
+    f = list(FLAGS)
+    for g, b4 in PENDING.items():
+        f[4 * g:4 * g + 4] = b4
+    FLAGS, PENDING = ''.join(f), upd
     return out, mem, '; '.join(text)
 
 
@@ -382,6 +442,8 @@ def main():
         out, mem, text = run(ins, regs)
         print(text)
         print(' '.join(f'r{i}={v:+.6g}' for i, v in enumerate(out) if v != regs[i]) or 'no change')
+        run([0x0001], out)              # one more instruction (a no-op) for the flag latency
+        print('flags (cond 0..15):', ' '.join(FLAGS[i:i + 4] for i in range(0, 16, 4)))
         return
     import dspmc, dspdis
     w = dspmc.blob_words(a.arg) if a.arg.endswith('.bin') else [int(t, 16) for l in open(a.arg) for t in l.split('#')[0].split()]

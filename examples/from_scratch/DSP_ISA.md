@@ -125,7 +125,8 @@ Transfer `X mm Y` at a T position: mode byte mm = `fe`: X 0–7 loads rX ← [sl
 | other memory | `e0`, `e1`, `db`, `ed`, `be`, `8e`, `ee`, `de`, `ce`, `7e`, `fc`, `fd`, `f0` | loads 0 (not the word) |
 | indexed | `28` | rX ← bank0[h6 + Y] (ring-relative; see §9) |
 | delay-tap request | `a9` | results to bank 2 [h5..] (see §9) |
-| no load into rX | `9b`, `9e` | r3 unchanged; `X9bY` target still unknown |
+| set flags | `9b` | `X9bY`: condition group X−8 ← flags of unit Y (2026-10-17, §8) |
+| no load into rX | `9e` | r3 unchanged |
 
 Seen as two nibbles (a, b) with b = `e`: a ∈ {f, 3, 0} same address, a ∈ {b, 8, e, d, c, 7} elsewhere, a = 9 no load.
 Hypothesis: a selects an address (offset) register — delay-line addressing — and `9b`/`a9` load an address register
@@ -140,11 +141,11 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
 * A C word predicates the A/B ops of its instruction. Low byte = which op and how (`x10`, `x11` → op 1,
   `x12` → op 2; `x00`, `x18`, `x30` → none). High byte = condition code: **bit 0 negates**, bits 4–1 select
   **one of 16 conditions**.
-* The 16 conditions are **static context bits**, not result flags: no A or B op changed them, they do not change over
-  time, and they differ per context: DSP3 main program `0111111011101110`, DSP4 slot `0xEFDC` `0111101111100111`
-  (condition 0 first). Probably set per task by the ARM (the OS program swap takes a "task" argument, 2 or 3).
-  Roland's code uses them to specialise shared code per slot / voice; **data-dependent choices use min / max / abs
-  (unit B)**, not C.
+* **(Corrected 2026-10-17)** The 16 conditions are **flags**, 4 groups of 4, written by `X9bY`: group X−8 (X = 9/a/b
+  → conds 4–7/8–11/12–15) ← flags of unit Y of the same instruction; per group c0 = ≠0, c1 = ≥0, c2 = no overflow
+  (|x| < 512), c3 = ≤0. One instruction of latency; they persist until rewritten (that is why they looked static).
+  Partner op: unit B nibble e, D ≥ 8, bits 7–6 = 00 = **compare** (flags of r(d) + Y, nothing written). Group 0
+  stays `0111` on the master. Details `DSP_ISA_SPEC.md` §8.
 * The earlier "varies over time" on DSP4 came from reads with a zeroed word and from other tasks; with a private
   context the result is stable.
 
@@ -159,8 +160,8 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
 * Unit B: odd nibble = X from r4–r7 (clamps `d150`/`d550`/`e190`/`e590`); SFU ops (`cf06` reciprocal seed, `8f19`
   exp split, `8f29` sign, `8f39` negative mask, `cf36` ceil).
 * DCO2 slot inputs `2209`–`220c` (sync, METAL, sync pulse train), written by the main program.
-* `X9bY` does **not** set condition bits (hypothesis from the corpus tested on DSP3 and the slaves, rejected).
-  Bank numbering of reference prefixes and the inter-DSP routing (static analysis): `DSP_ARM_SIDE.md`.
+* ~~`X9bY` does not set condition bits~~ — wrong: it does (2026-10-17, see §8); the old test used an op whose
+  result was always 0. Bank numbering of reference prefixes and the inter-DSP routing (static analysis): `DSP_ARM_SIDE.md`.
 * First own microcode (SAW, FOLD) plays on the hardware: `CUSTOM_OSC.md`.
 * Multi-op classes 0x0B0 (A, B) and 0x160 (A, A, B): all ops read before writing; an A/A/B costs **one cycle**,
   like a single op. Per-sample budget ≈ 925–945 instructions on every DSP (main2/3 of the slaves = 189).
@@ -182,8 +183,8 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
 
 ## 9. Open (full list: `DSP_ISA_SPEC.md` §14)
 
-0. `X9bY` (ruled out: condition bits, h4–h6, delay write, indexed store, every ARM-visible window).
-1. What sets the 16 context condition bits (ARM side); the second word of C instructions in the slot array.
+0. (Solved 2026-10-17) `X9bY` = set flags. Left: group 0 / `c9bY`, units 3–4, flags of MAC/SFU results.
+1. The second word of C instructions in the slot array.
 2. (solved) The DSP runs at 96 kHz; data memory is a ring (state: load S + 1, store S); a load has one instruction
    of latency. See `DSP_ISA_SPEC.md` §9–§10.
 3. Unit B ops returning `7ffxxxxx`; odd B nibbles; (hidden values solved: h4/h5); D ≥ 8 inside multi-op classes.

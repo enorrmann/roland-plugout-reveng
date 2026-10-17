@@ -27,7 +27,7 @@ Everything here comes from **measurements on the hardware** (exact register/memo
 | bank 0 (DT0) | data memory, 0x800 32-bit words per DSP, a **ring** addressed relative to a pointer that advances every sample (§9) | [measured] |
 | other memories | reference prefix = bank (bits 15–13): bank 2 (`4nnn`) two pages alternating per sample, DMA window of the delay memory where the ARM wired it (§9.1); bank 3 (`60nn`) IOMD, not read back; bank 4 (`8nnn`) MXM inter-DSP bus, not kept to the next sample; bank 5 (`Annn`) plain persistent memory; bank 6 (`Cnnn`) parameters; bank 1 (`22nn`) mailbox (§9) | [measured] / bank 1, 6 [inferred] |
 | delay memory | a ring advancing one sample per sample, addresses in units of 16384 samples; reached only through the bank-2 DMA (§9.1) | [measured] |
-| condition bits | 16 static bits per execution context, tested by C words (§8) | [measured] |
+| condition bits (flags) | 16 bits = 4 groups of 4 flags, **set by `X9bY`** from the result of an op (§8), tested by C words; they persist (across programs and samples) until rewritten | [measured 2026-10-17] |
 | program memory | per DSP, ARM address 0x41480000 + n·0x100000 + slot byte address | [exact] |
 | time budget | slave DSP2/3: ≈ 930–950 single-op instructions per sample for main + both oscillator slots (main2/3 = 189): a DCO2 slot of 733 instructions ran, 753 did not (DCO1 slot 6). Master DSP3 (idle, `re/dspbudget.py`: K fillers before a ring counter): the counter runs with 900 fillers + 22 and stops with 920–950 → **≈ 925–945 instructions per sample on every DSP**. **An A/A/B instruction (class 0x160) costs the same as a single-op one** (same edge with A/A/B fillers, 3654 halfwords; not a memory limit). Over budget the end of the program (voice B) is lost; afterwards the device can stay unstable (wrong / no sound, LFO-like garbage) until a **power cycle** (seen twice on the slaves) | [measured] |
 
@@ -208,7 +208,9 @@ w2:  Z[15:12]  op2[11:9]  C[8:6]  mW[5:4]  W[3:0]
 | `e0` `e1` `db` `ed` `be` `8e` `ee` `de` `ce` `7e` `fc` `fd` `f0` | other memory (reads 0 where `fe` reads the word; writes not found in banks 0/1/2/4/5) | [unknown] |
 | `28` | **indexed**: rX ← bank0[⌊h6·16384⌋ + Y] (X 8–15: store); Y is an offset, no reference slot; ring-relative (§9.0) | [exact] |
 | `a9` | **delay-tap request** with the read address in rX; results to bank 2 [h5..h5+2] (§9.1) | [measured] |
-| `9b` `9e` | no data register loaded. `X9bY` (write r(X−8) to "port" Y; Roland uses Y = 1–3, usually in the same instruction as a unit-B op) does **not**: change r0–r7, change the condition bits (hypothesis from corpus statistics "port 1/2/3 → condition groups 4–7/8–11/12–15, read by a C word 2 instructions later": tested on master DSP3 with values ±0.5, 0, ±2, ±1/16, raw patterns 1/2/4/8/F, 0x000F0000, 0x7fffffff, 0xF0000000, distance 1–3, inside a unit-B instruction, and across the sample boundary; and on the slave DCO2 slot by audio — the groups never changed), change what `fe` loads read afterwards, redirect the result of the unit-B op of its instruction, set the hidden values of A op 0 sub 4/5, or reach the slot's audio output (noise written to ports 0–7 on the slaves: silence). `Xa9Y` loads nothing (ports 0–7 read back nothing, also with Roland's SAW running in the other slot). Also ruled out on 2026-10-16 (master DSP4 slot 0xF7DC and DSP3): condition bits in a context with delay hardware, h4–h6, delay-memory write, indexed bank-0 store; a unique marker written with `b9b1..3` is not found in any MXM window, IOMD (3 views), banks 0/1/2/5 of DSP3 or bank 5 of DSP2. Target not visible from the ARM | [unknown] |
+| `9b` | **set flags** (2026-10-17, master DSP3/DSP4, `re/dspx9bflags.py`): `X9bY` stores the flags of the result of **unit Y** of its own instruction into **condition group X−8** (X = 9/a/b → group 1/2/3 = conds 4–7/8–11/12–15; X = c is used by Roland before `cond0–3` but changed nothing on the master; X = 0–8, d–f: no effect). Semantics in §8. No register or memory written | [measured] |
+| `9e` | no data register loaded, effect unknown | [unknown] |
+| (history) | Before 2026-10-17 `X9bY` was read as "write r(X−8) to port Y"; Roland uses Y = 1–3, usually in the same instruction as a unit-B op) does **not**: change r0–r7, change the condition bits (hypothesis from corpus statistics "port 1/2/3 → condition groups 4–7/8–11/12–15, read by a C word 2 instructions later": tested on master DSP3 with values ±0.5, 0, ±2, ±1/16, raw patterns 1/2/4/8/F, 0x000F0000, 0x7fffffff, 0xF0000000, distance 1–3, inside a unit-B instruction, and across the sample boundary; and on the slave DCO2 slot by audio — the groups never changed), change what `fe` loads read afterwards, redirect the result of the unit-B op of its instruction, set the hidden values of A op 0 sub 4/5, or reach the slot's audio output (noise written to ports 0–7 on the slaves: silence). `Xa9Y` loads nothing (ports 0–7 read back nothing, also with Roland's SAW running in the other slot). Also ruled out on 2026-10-16 (master DSP4 slot 0xF7DC and DSP3): condition bits in a context with delay hardware, h4–h6, delay-memory write, indexed bank-0 store; a unique marker written with `b9b1..3` is not found in any MXM window, IOMD (3 views), banks 0/1/2/5 of DSP3 or bank 5 of DSP2. (All those tests used an op whose result was constant, or read the wrong group.) | [superseded] |
 
 ### 5.4 Condition word (C)
 
@@ -291,7 +293,10 @@ Same word layout. **[exact unless noted]**
 | D = 8+d, op 2 | max(rX, Y) |
 | D = 8+d, op 4 | \|rX\| |
 | D = 8+d, op 5 | \|Y\| |
-| D = 8+d, op 7 (nibble e) | Y |
+| D = 8+d, nibble e, bits 7–6 = 00 | **nothing written**: flags of r(d) + Y (CMP / TST, for `X9bY`; `8e09` = cmp r0 − r1, `ae10` = cmp r2 with imm) [measured 2026-10-17] |
+| D = 8+d, nibble e, bits 7–6 = 01 | Y (r(d) ← ±rY) [fitted] |
+| D = 8+d, nibble e, bits 7–6 = 11 | r(d) + Y [fitted] |
+| D = 8+d, nibble e, bits 7–6 = 10 | writes r(d) and r(d+1) (r(d+1) ≈ 1.7–1.98, recip-seed-like); never used by Roland [unknown] |
 
 X is 3 bits: the "B" nibble's low bit is X[2], so odd nibbles are the same ops with X in r4–r7 (measured
 `d150` = min(r5, imm 1.0), `d550` = max(r5, 0), `e590` = max(r6, 0), `e190` = min(r6, 1.0): Roland's
@@ -348,19 +353,42 @@ Measured examples:
 
 ## 8. Predication
 
-A C word enables/disables an A/B op of its instruction according to one of 16 **context condition bits**
-(§5.4). The bits are fixed per execution context (set by the ARM side, not by any DSP instruction) **[measured]**:
+A C word enables/disables an A/B op of its instruction according to one of 16 **condition bits** (§5.4). The
+bits are **flags**, 4 groups of 4, written by `X9bY` transfers **[measured 2026-10-17, master DSP3 main and DSP4
+`efdc`, `re/dspx9bflags.py`]**:
 
-| context | condition bits 0..15 |
-|---|---|
-| master DSP3 main program | `0111111011101110` |
-| master DSP4 slot 0xEFDC | `0111101111100111` |
-| slave DSP2 and DSP3, DCO2 slot (both voices) | `0011011001100110` (true: 2 3 5 6 9 10 13 14) — measured by audio, two installs with the bits rotated over DSP and voice |
+```
+X9bY   (transfer word, mode byte 9b): group g = X − 8 (X = 9, a, b → g = 1, 2, 3), Y = unit (1-based, ops first)
+       flags of group g ← flags of the result of unit Y of the SAME instruction
+cond 4g+0 = !Z        (result ≠ 0)
+cond 4g+1 = !N        (result ≥ 0)
+cond 4g+2 = !V        (|result| < 512, no overflow)
+cond 4g+3 = N or Z    (result ≤ 0)
+```
 
-Consequences for a compiler: C words specialise code per context (e.g. per slot / voice); they are **not** a
-data-dependent branch or select. Data-dependent choices must be built from min / max / |x| (unit B) and
-arithmetic. There are no jumps or loops: every instruction executes once per execution **[inferred: no control
-transfer observed]**.
+* Z, N for an A op: of the written result (r0 = r2 + r2 with r2 = 256 → 512 wraps to 0 → Z and V). A results
+  **wrap**: magnitude mod 512, sign kept (300 + 300 → 88, −300·2 → −88, 511·2 → 510) **[measured]**.
+* Unit B min/max (measured `b4c0` = max(r3, r0)): N = sign of the result, but **Z = the two operands are equal**
+  (max(−0.25, 0) = 0 gives "≠ 0"; max(−0.5, −0.5) gives `0011` = Z and N).
+* Unit B nibble e with D ≥ 8 and bits 7–6 = 00 (`8e09`, `be0c`, `ae10`…) is a **compare**: flags of r(d) + Y,
+  no register written (`be0c` = r3 − r4, `be04` = r3 + r4, `9e0c` = r1 − r4) — the usual partner of `X9bY`.
+* Units: Y = 1, 2 measured (class 0x328 `6505 7c0f be0c 99b1 b9b2`: unit 1 = A, unit 2 = B). Y = 3, 4 are used by
+  Roland (assumed the same rule).
+* **Latency: one instruction** (as loads): a C word in the instruction right after the `X9bY` still reads the old
+  flags; from the second instruction on it reads the new ones. Roland always leaves one instruction in between.
+* **Persistence**: flags are not reset between samples, programs or test sessions; a group keeps its value until
+  the next `X9bY` on it. The "static context bits" measured before (DSP3 `0111111011101110`, DSP4 `efdc`
+  `0111101111100111`, slaves DCO2 `0011011001100110`) were simply the last flags left by Roland's code.
+* **Group 0** (conds 0–3) read `0111` (the flags of a zero: cond 1/2/3 true, cond 0 false) in every master test;
+  `c9bY` (Roland, before C words on cond 1) changed nothing there **[unknown]**. Usable as constants: cond 1–3 =
+  always, !cond 1–3 = never (on the master).
+* Old tests missed this because they used `1803 0040 b9bP` (unit 1 = `r0 = r0` with r0 = 0) and read groups that
+  did not match X.
+
+Consequences for a compiler: **data-dependent selects are possible**: compute (or `cmp`) a value, `X9bY` it into a
+group, one instruction of distance, then a C word picks which op of an instruction runs (e.g. `x12`: skip op 1 if
+true, op 2 if false). Still no jumps or loops: every instruction executes once per execution **[inferred: no
+control transfer observed]**.
 
 ## 9. Transfers and memory
 
@@ -434,6 +462,8 @@ line). Roland's global delay: `m1_tcm_f7dc_01134238`, two taps (`[4301..]`, `[43
 | op + load in one instruction | the op reads the **old** value; the load result is visible to the next instruction |
 | op and load writing the same register in one instruction | the register received the **sum** (seen once; avoid) |
 | ALU op → next instruction | the result is visible (no latency) |
+| `X9bY` → C word | **one instruction of latency** (like a load) [measured 2026-10-17] |
+| A op overflow | magnitude wraps mod 512, sign kept; flag V set (§8) |
 | **load → ALU op** | **one instruction of latency**: an op in the instruction right after the load still sees the old register; from the second instruction on it sees the loaded value (a no-op or any unrelated instruction in between is enough) |
 | load → store of the loaded register | not characterised; keep one instruction in between |
 
@@ -603,13 +633,13 @@ time.
 
 ## 14. Open items (do not emit)
 
-Decoding coverage (2026-10-16, `python3 re/dspisa.py cov work/corpus`): 17877 / 19095 = **93.6 %**. The rest:
-`X9bY` ≈ 650 instructions (3.4 %), program-start marker words `ff70`/`ef75`/`ef74` 262 (1.4 %, no measurable
+Decoding coverage (2026-10-17, `python3 re/dspisa.py cov work/corpus`): 18785 / 19095 = **98.4 %** (16/10: 93.6 %,
+before `X9bY` = flags). The rest: program-start marker words `ff70`/`ef75`/`ef74` 262 (1.4 %, no measurable
 effect), a few unit-B forms (`eda8`, `e7d2`, `8c0f`, `fde8`, `8c30`: nibbles c/6 with an immediate or X in r4–r7),
 transfer mode `e0`. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §11.
 
-1. `X9bY` (§5.3: everything ruled out so far). Candidates left: h7, hardware not mapped for the ARM (wave bus,
-   ENV/MEVF), slave voice contexts.
+1. (Solved 2026-10-17: `X9bY` = set flags, §8.) Left: group 0 / `c9bY`, units Y = 3–4, flags of MAC / SFU
+   results and of min (only max measured), whether Z of other B ops is "operands equal", unit B nibble e bits 10.
 2. Delay memory (§9.1): line length (u = 100 reads nothing), how the ARM sets up a window for another slot / DSP
    (slaves: J60/JX chorus), number of taps per sample, fraction resolution; no audio test yet.
 3. Hidden registers (§9.0): h7 (`40c5`), mode-3 `40TY` (reads 0), readers of h6 other than mode `28`; a non-ring
@@ -617,7 +647,7 @@ transfer mode `e0`. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §1
 4. Buses (§9): MXM latency, routing on the slaves, ARM writes to MXM read by a DSP.
 5. MAC op2 = 011 (constant result); `8f09` (partial, §6.4); unit-B forms listed above; exact reciprocal / rsqrt seed
    tables.
-6. Condition target codes beyond `x10`/`x11`/`x12`; what sets the context condition bits.
+6. Condition target codes beyond `x10`/`x11`/`x12`.
 7. A op D ≥ 8 inside multi-op classes; classes not present in the corpus.
 8. Why an over-budget program leaves the slaves unstable until a power cycle; cost of MAC-class and
    transfer-heavy instructions (only single-op A and A/A/B measured: 1 cycle each).

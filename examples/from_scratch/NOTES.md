@@ -684,16 +684,36 @@ Pendiente (ISA):
 1. (Hecho el 16/10, ver "Tomas de retardo") `Xa9Y` = pedido de toma. Falta: palabras `40xx` con otros bytes
    bajos, tamaño de la línea, cómo se configura una línea en otra ranura/DSP (¿plugout propio en los slaves, donde
    corren chorus de J60/JX?), y probarlo por audio.
-2. `X9bY` (escritura a "puertos" 1–3): descartados condiciones (también en el DSP4), h4–h6, línea de retardo y
-   banco 0 indexado, y no aparece en ninguna ventana MXM/IOMD/bancos del ARM. Quedan: h7 (`40c5`), hardware
-   no mapeado (wave bus, ENV/MEVF), y probar en los slaves con su contexto de voz.
+2. (Hecho el 17/10, ver "Banderas `X9bY`") `X9bY` = fijar banderas. Falta: grupo 0 / `c9bY`, unidades Y = 3–4,
+   banderas de resultados MAC/SFU y de min, probarlo en los slaves.
 3. (Hecho el 16/10: IOMD directo; MXM Z/S del DSP3 → zona O del DSP4.) Falta: latencia del bus, escritura desde el
    ARM a MXM y lectura en el DSP, mapa completo en los slaves.
 4. (Hecho el 16/10: D ≥ 8 = mitad, op2 010 = imm16, A en clase MAC lee N.) Falta op2 = 011 y bit 9 de op2.
-5. Qué fija los bits de condición de contexto; ops B/SFU sin decodificar (`cf16`/`cf26` resueltos el 16/10; `8f09` parcial; resultados
+5. (Bits de condición: resuelto el 17/10, son banderas.) Ops B/SFU sin decodificar (`cf16`/`cf26` resueltos el 16/10; `8f09` parcial; resultados
    `7ffxxxxx`); (h4/h5 resueltos: registros del retardo) palabras de inicio/fin de programa; destino 3 (h7) de `40TY`.
 6. Por qué un programa que se pasa del presupuesto deja el equipo inestable (¿se puede detectar o evitar?).
 7. (Hecho el 16/10: 93.6 %, `dspisa.py cov`.)
+
+### Banderas `X9bY` (2026-10-17, maestro DSP3 y DSP4 `efdc`, `re/dspx9bflags.py`)
+* Pista del corpus: cada `X9bY` va seguido (a 2 instrucciones) de C words sobre el grupo X−8, y su instrucción
+  tiene una op en la unidad Y. Las pruebas viejas fallaban porque usaban `1803 0040 b9bP` (unidad 1 = `r0 = r0` con
+  r0 = 0: resultado siempre 0) y leían grupos que no correspondían a X.
+* **`X9bY`: grupo X−8 (9/a/b → cond 4–7 / 8–11 / 12–15) ← banderas del resultado de la unidad Y de la misma
+  instrucción.** Por grupo: c0 = ≠0, c1 = ≥0, c2 = sin overflow (|x| < 512), c3 = ≤0. Patrones: positivo `1110`,
+  negativo `1011`, cero `0111`, overflow positivo `1100`, negativo `1001`, 512 → 0 `0101`.
+* X = 0–8, d–f: nada. X = c (Roland lo usa antes de cond 0–3): en el maestro no cambió el grupo 0, que siempre lee
+  `0111` (banderas de un cero).
+* Y = unidad (1 = A, 2 = B medido en la clase 0x328 `6505 7c0f be0c 99b1 b9b2`).
+* **Latencia de una instrucción** (como las cargas); **persisten** entre muestras, programas y sesiones: los "bits
+  fijos por contexto" eran las últimas banderas que dejó el código de Roland.
+* Op B max (`b4c0`): N = signo del resultado, pero Z = operandos iguales.
+* **Op B nibble e con D ≥ 8** (bits 7–6): 00 = **compara** (banderas de r(d) + Y, no escribe nada: `be0c` = r3 − r4,
+  `8e09` = r0 − r1, `ae10` = r2 vs inmediato), 01 = r(d) ← Y, 11 = r(d) ← r(d) + Y, 10 = escribe r(d) y r(d+1)
+  raro, nunca usado. El desensamblador antes mostraba todas como `r(d) = Y` (mal para 00 y 11).
+* Las sumas A **se envuelven**: magnitud mod 512, se conserva el signo (300 + 300 → 88; 511·2 → 510) y fija V.
+* `dspisa.py` simula banderas (estado persistente, latencia 1, `sim` las imprime). Cobertura del corpus:
+  **98.4 %** (antes 93.6 %); queda sobre todo `ff70`/`ef75`/`ef74` (262).
+* Consecuencia: **selección dependiente de los datos** posible (if/else con C `x12`), ver `DSP_USOS.md` §5c.
 
 ### Tomas de retardo `{8+d}f6c` / `Xa9Y` y bancos 2/4/5 (2026-10-16, maestro, `re/dsptap.py`)
 * **Persistencia por banco** (contador load W / store W en el DSP3): banco 0 anillo (load S+1, 96 000/s); **banco 2

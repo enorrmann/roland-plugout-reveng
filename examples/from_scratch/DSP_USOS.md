@@ -144,6 +144,18 @@ ARM; las lecturas sueltas del banco 0 caen en otras referencias por el anillo.
   (p. ej. delay en uno, reverb en otro), mandar un LFO o una señal de modulación a otro DSP, sumar voces.
 * Cuidado: la latencia del bus no está medida; el mapa en los slaves y la escritura desde el ARM tampoco.
 
+## 5c. Banderas: `X9bY` + C — *medido: maestro DSP3 y DSP4 `efdc` (2026-10-17, `re/dspx9bflags.py`)*
+* `X9bY` copia las banderas del resultado de la unidad Y de su instrucción al grupo X−8 (9/a/b → cond 4–7 / 8–11 /
+  12–15): c0 = ≠0, c1 = ≥0, c2 = sin overflow, c3 = ≤0. Una instrucción de latencia; persisten hasta que se
+  reescriben. La op B `{8+d}e{0Y}` (bits 7–6 = 00) **compara** (banderas de r(d) + Y) sin escribir registros.
+* Usos: **selección dependiente de los datos** con una sola instrucción (`x12`: corre op 1 u op 2 según la
+  condición): if/else en el DSP sin min/max, histéresis (Schmitt trigger para sync o detección de cruces),
+  comparadores de envolvente (ataque / release distintos), sample & hold disparado por un cruce, contadores con
+  reset (divisores, secuenciadores), detección de overflow de una fase (c2), elegir entre dos ramas de un
+  waveshaper por tramos.
+* Secuencia mínima: `cmp` (o cualquier op en la unidad Y) + `X9bY` → una instrucción cualquiera → instrucción con C.
+  Cuidado: el grupo queda escrito para los programas siguientes del mismo DSP (Roland lo reescribe antes de usarlo).
+
 ## 6. Hallazgos anteriores, en una línea
 
 * **min / max / |x| (unidad B)**: selección sin saltos, clamps, wrap de fase (`dspasm.wrap`), rectificación,
