@@ -481,8 +481,9 @@ true, op 2 if false) or whether a **jump** (§5.4b) is taken: if/else, switch, a
 * Load: `rR ← mem[slot]`; store: `mem[slot] ← r(R−8)` with mode `fe` **[exact]**.
 * Up to 6 transfers per instruction (classes 0x060…0x722) **[exact]**.
 * **Read ports per bank [measured 2026-10-17]**: bank 0 serves **2 loads** per instruction (with 3 or more only
-  the last one is done); bank 5 serves **1** (with 2 or more none is done); stores are not limited by this
-  (2 stores + 2 loads work). Roland's code respects it (0x47a: 2 loads from bank 0 + 2 from bank 6).
+  the last one is done); bank 5 serves **1** (with 2 or more none is done); bank-0 stores are not limited by this
+  (2 stores + 2 loads work). **Bank 5 also takes only ONE store per instruction** (2 or 6 → none stored; one to
+  bank 5 + one to bank 0 works) [measured 2026-10-17, master DSP3]. Roland's code respects it (0x47a: 2 loads from bank 0 + 2 from bank 6).
 * An op and a load writing the same register in one instruction: the values are **added** (A `r7 = 0.5` + load
   0.375 → 0.875; measured again 2026-10-17). Avoid.
 * **Ring addressing [measured]**: a reference R addresses physical word (R + ptr) mod ring, and ptr moves by one

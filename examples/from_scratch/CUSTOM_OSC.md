@@ -359,3 +359,41 @@ oscillator (§4–§8 work without them).
   equal: ≈ 70 points each. Memory: 14 words per point (both voices) → 150 points ≈ 2400 words: installed only
   (the lab registers 2048 words: ≤ 125 points live). The WAV length does not matter (resampled to N points; N
   points carry harmonics up to N/2).
+
+## Wavetable verdadera en el banco 5 (2026-10-17) — `re/wt5.py`
+
+Un solo script convierte el WAV y lo envía en vivo; la tabla queda en el banco 5 de DSP2/DSP3 de los dos slaves y el
+oscilador la lee con índice (no hay un punto por instrucción como en la versión de inmediatos de abajo).
+
+```
+python3 re/wt5.py send TABLA.wav                          # 1 cuadro (el primero), tamaño máximo: 437 puntos
+python3 re/wt5.py send TABLA.wav --frames 2 --frame 1     # 2 cuadros de 218, suena el último
+python3 re/wt5.py send TABLA.wav --frames 8 --frame 3.5   # 8 × 53, morph fijo entre los cuadros 3 y 4
+python3 re/wt5.py send TABLA.wav --frames 8 --scan 0.25   # LFO que recorre los cuadros (sin verificar por audio)
+python3 re/wt5.py send TABLA.wav --points 256             # menos puntos que el máximo
+python3 re/wt5.py info TABLA.wav                          # cuadros del archivo y cuáles se usarían
+python3 re/wt5.py send TABLA.wav --dry                    # sólo escribe los programas en work/wt5/
+```
+
+Requisitos: laboratorio de los slaves instalado (slot 3, DSPLIVE) con PLG3 elegido; ninguna otra herramienta MIDI
+corriendo. Tarda ~10 s (3 programas de llenado + el reproductor). `python3 re/dspown.py restore` vuelve al silencio.
+
+* **Entrada**: WAV PCM 8/16/24/32 o float 32/64 (`wav2dco.read_wav`); tablas tipo Serum (chunk `clm ` con el
+  tamaño de cuadro, 2048 por defecto) o un ciclo suelto. Cuadros elegidos parejos en el archivo, remuestreo FFT a N
+  puntos (limitado en banda), sin DC, pico común 0.9.
+* **Espacio**: banco 5 0x048–0x1FD = 438 palabras (Roland usa A000–A047, A200–A205, A300–A303). Cada cuadro ocupa
+  N + 1 (copia del punto 0 para interpolar): K·(N+1) ≤ 438 → 1 × 437, 2 × 218, 4 × 108, 8 × 53, 16 × 26.
+* **Transferencia**: el ARM no llega al banco 5 de los slaves, así que la tabla viaja como código: programas de
+  llenado (`move imm32` + `store` por punto — el banco 5 acepta **un solo store por instrucción**) de `--chunk` = 200
+  puntos (500 instrucciones) que corren junto con el reproductor, y al final el reproductor solo (100 instrucciones
+  con 1 cuadro, 114 con LFO). La tabla persiste (memoria simple).
+* **Reproductor por voz** (~45 instrucciones, sin importar N): fase de la SAW → pos ∈ [0, N), idx = ⌈pos⌉ − 1,
+  frac = pos − idx (techo `cf36`), h6 = cuadro k, h7 = cuadro k+1, 4 cargas `0daY`/`0dbY`, interpolación lineal en
+  el cuadro y entre cuadros (A `sub` + `mac`). Posición de cuadro fija (`--frame`) o LFO triangular (`--scan`, fase
+  en A1FE).
+* **Verificado** (2026-10-17): simulador exacto (error 1e-9, 1 × 437 y 8 × 53 con morph 3.5); en el maestro las
+  cuentas del reproductor exactas contra el cálculo; en los slaves por audio "Sine to Saw" (Echo Sound Works Core
+  Tables/Basics): cuadro 0 = seno de 437 puntos (armónicos ≤ 1 %), notas 48/60/72; último cuadro (2 × 218) = sierra
+  de la tabla (1, 0.76, 0.50, 0.34…). `--scan` suena pero la medición no lo validó (sin verificar).
+* Pendiente: verificar `--scan`; morph por un parámetro del panel (hoy LFO interno); antialiasing por octava
+  (menos puntos/cuadros limitados en banda según la nota); tablas más grandes en la EDM (NOTES.md "Muestras largas").

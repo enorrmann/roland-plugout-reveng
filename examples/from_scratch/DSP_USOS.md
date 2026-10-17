@@ -119,7 +119,10 @@ parámetro).
 * **1024 palabras persistentes**: índice mod 0x400 (0x800, 0xC00, 0x1000… son alias; `re/dspb5alias.py`). Con el
   bit 10 (0x400–0x7FF) lo guardado se lee sólo en la misma muestra y no queda: Roland usa A400–A427 como temporales.
   El ARM ve 0x000–0x3FF (DPC*n* RAW) y puede escribirlo (en el maestro).
-* Límite del banco 5: **1 carga por instrucción** (dos lecturas vecinas para interpolar = dos instrucciones).
+* Límite del banco 5: **1 carga y 1 store por instrucción** (con 2 o más stores no queda ninguno): dos lecturas
+  vecinas para interpolar = dos instrucciones; llenar una tabla = `move` + `store` por punto.
+* **Herramienta lista: `re/wt5.py`** (WAV → tabla → envío en vivo a los slaves → reproductor con interpolación y
+  morph), ver `CUSTOM_OSC.md` "Wavetable verdadera en el banco 5".
 * `d8`/`d9`/`dc`/`dd` leen direcciones que cambian con el tiempo: [desconocido], no usar. Otros modos (`80`–`8f`,
   `b0`–`bf`, `c0`–`cf`, `f0`–`ff`, `e0`–`ef`) leen otras cosas, `90`–`af` y `f5`–`f7` no cargan (`re/dspmodescan.py`).
 

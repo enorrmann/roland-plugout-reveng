@@ -240,8 +240,9 @@ Estado entre muestras: cargar de S + 1, guardar en S. Retardo variable: transfer
 (bank0[⌊h6·16384⌋ + Y], también relativas al anillo).
 
 ### 7.3 Reglas de acceso **[medido]**
-* Cargas por instrucción: banco 0 ≤ 2 (con más, sólo vale la última), banco 5 ≤ 1 (con más, ninguna). Los stores
-  no cuentan.
+* Cargas por instrucción: banco 0 ≤ 2 (con más, sólo vale la última), banco 5 ≤ 1 (con más, ninguna). **Stores al
+  banco 5: también ≤ 1 por instrucción** (con 2 o 6 no queda ninguno; 1 al banco 5 + 1 al banco 0 sí) **[medido
+  2026-10-17]**; los stores al banco 0 no cuentan.
 * Latencia de carga: una instrucción (la op de la instrucción siguiente todavía ve el valor viejo).
 * Una op y una carga al mismo registro en la misma instrucción se **suman**.
 * Hasta 6 transferencias por instrucción.
@@ -299,7 +300,9 @@ inferido]**
 Escritura `[4300] ← x`; base con `40TY` + `f6c`; destino de resultados `0b03 4050 <a>` (sin esto el pedido se
 ignora); pedido `Xa9Y`; en la misma muestra `[a]`, `[a+1]`, `[a+2]` = dos muestras vecinas + fracción para
 interpolar. Unidad de dirección = 16384 muestras. **Fracción de 6 bits (1/64), truncada; ≥ 24 pedidos por
-muestra** (cada uno con su destino) **[medido 2026-10-17]**. Sólo funciona donde el ARM conectó la ventana. Detalles:
+muestra** (cada uno con su destino) **[medido 2026-10-17]**. Línea de `f7dc` = EDM 0x110000–0x1FFFFF (983 040 palabras, 10.24 s); la EDM tiene 0x200000
+palabras por BMC, legible por el ARM con un puerto indirecto (sys+0x40/+0x44, 0x41158000), escritura del ARM sin
+lograr; el DMA escribe `[4300]` cada muestra aunque el programa no guarde (refrescar como loop) **[medido 2026-10-17]**. Sólo funciona donde el ARM conectó la ventana. Detalles:
 `DSP_ISA_SPEC.md` §9.1.
 
 ### 8.5 ARM ↔ DSP

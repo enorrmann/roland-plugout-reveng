@@ -680,6 +680,35 @@ Idea del usuario: correr los binarios ARM originales en un emulador de CPU y esc
 * SAW de referencia comprobado al empezar (1/n). Al cerrar: `dspown.py restore` (ranura DCO2 = silencio de `lab_pad4k`); el maestro quedó con sus programas originales (las sesiones restauran).
 * Simulador: `dspisa.py` ejecuta `da`/`de`/`db`/`df`/`d0`–`d7` (banco 5, mod 0x400).
 
+## Muestras largas: dónde guardarlas y cómo llegan al DSP (2026-10-17, noche)
+* **Lado ARM (plugout)**: 2 MiB de flash por ranura = región 0 (maestro) ≤ 1 MiB comprimida + región 1 (slaves) ≤ 1 MiB
+  comprimida; cada una se descomprime en una ventana de 2 MiB de SDRAM. El LZSS del contenedor **agranda** el audio
+  (PCM 16 bits: ratio 1.114) → ≈ 0.94 MB de PCM por región (≈ 470 K muestras de 16 bits). Con códec propio en el
+  ARM (8 bits / ADPCM 4 bits) ×2 / ×4. Región 1 ya ocupa 200–280 KiB de código.
+* **Lado DSP**: banco 5 = 1024 palabras por DSP (ciclos, LUT). **EDM = 0x200000 palabras por BMC** (el driver la
+  borra entera al iniciar, también `s_boot` en los slaves). La línea de `f7dc` ocupa **EDM 0x110000–0x1FFFFF =
+  983 040 palabras = 60 unidades = 10.24 s a 96 kHz** (por eso u = 100 no devolvía nada); 0x000000–0x10FFFF en 0
+  (¿otras ventanas?). WMEM 0x41300000 (IDM, 128 K) queda en 0 con nuestra línea: no es la memoria de retardo.
+* **ARM ↔ EDM** (`re/dspedm.py`): lectura por puerto indirecto OK desde el maestro (dir → sys+0x40, `0xA0000000` →
+  sys+0x44, dato en 0x41158000 IEEE / +8 RAW; driver `s_boot` 0x01112150). **Escritura con la secuencia del driver
+  (dir, dato a +0/+4/+8; 0x01111D8C / 0x01111DE0 / 0x0111210A) no queda**, tampoco con comandos `8/9/B/C/D/E0000001`
+  en sys+0x44. Ojo: tras `D0000001` el bit 28 de sys+0x44 quedó en 1 (`0x18000000`), el delay siguió andando.
+  Hay una interfaz de objeto en `s_boot` 0x01114560.. (cfg, wr float/int/raw, rd) que llama a esas funciones.
+* **El DMA escribe `[4300]` en la línea cada muestra aunque no haya store** (repite el último valor): una tabla en
+  la EDM hay que refrescarla. **Loop**: escribir de vuelta la toma de edad a → la línea guarda un loop de ≈ a
+  muestras (`re/dspedmloop.py`: toma(a) = toma(2a) 45 s, a = 409 602; diferencia estable de pocas muestras = latencia).
+* Tomas de retardo en los slaves: programas del motor del SYSTEM-8 `p0s_004a404`, `p0s_004abd8`, `p0s_005085c`,
+  `p0s_0051140` (4 pedidos cada uno) → los slaves tienen ventana de retardo en alguna ranura (sin ubicar).
+
+## Wavetable verdadera en el banco 5: `re/wt5.py` (2026-10-17, noche)
+* Script todo en uno: `python3 re/wt5.py send TABLA.wav [--frames K] [--points N] [--frame F | --scan HZ]`
+  (conversión + envío en vivo + reproductor). Detalle y línea de comandos: `CUSTOM_OSC.md` "Wavetable verdadera en el
+  banco 5".
+* **Banco 5: un solo store por instrucción** (con 2 o 6 no queda ninguno; 1 al banco 5 + 1 al banco 0 sí): el
+  primer intento con stores de a 6 (clase 0x722) dejó la tabla vacía (sonó basura). El simulador no lo modela.
+* Oído en los slaves: seno de 437 puntos limpio; sierra (2 × 218) bien. `--scan` sin validar. Al cerrar quedó
+  sonando la tabla de 8 cuadros con `--scan 0.25` en la ranura DCO2.
+
 ## Próximos pasos del ISA (para seguir)
 Referencia: `DSP_ISA_SPEC.md` (especificación, manda), `DSP_ISA.md` (resumen), `DSP_ARM_SIDE.md` (mapa de bancos
 del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD/wavetables propios, laboratorio, presupuesto de tiempo).
