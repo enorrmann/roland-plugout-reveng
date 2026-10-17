@@ -70,3 +70,23 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+def build_group(slot, xword, cc, v, fs=96000.0):
+    """reference SAW (jmp wrap) whose output level is chosen by condition cc after `cmp r5 + v` stored with the
+    transfer xword (e.g. 0xC9B1 = group 0?): cond true -> out = r1 / 4, false -> out = r1 (audio test of a group)"""
+    P = build(slot, 'jmp', fs)
+    out = []
+    for ins in P[:-3]:
+        if ins == A.st(1, A.SLOTS[slot]['A'][1][0]) or ins == A.st(1, A.SLOTS[slot]['B'][1][0]):
+            r = 'A' if ins == A.st(1, A.SLOTS[slot]['A'][1][0]) else 'B'
+            o = A.SLOTS[slot][r][1]
+            out += [A.a('move', 5, imm=0.0, bits=16), A.a('move', 7, imm=0.25, bits=16),
+                    [0x0D8 << 5 | 4, 0xDE10, xword, imm16(v)], NOP, NOP,
+                    [0x168 << 5 | 4, 0x2041, 0x2447, cc << 9 | 0x12],      # cond ? r2 = r1 * r7 : r2 = r1
+                    A.st(2, o[0]), A.st(2, o[1])]
+        elif ins == A.st(1, A.SLOTS[slot]['A'][1][1]) or ins == A.st(1, A.SLOTS[slot]['B'][1][1]):
+            continue
+        else:
+            out.append(ins)
+    return out + P[-3:]

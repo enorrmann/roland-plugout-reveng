@@ -24,7 +24,7 @@
 0x0168  6 AA???          AACII          2d06 1050 1052 0e12 3000 0000
 0x02a0  8 MATT???        MATTNRR        5408 6d89 8ec5 8fe2 5fe4 0280 022f 0230
 0x03c0  9 TTTT????       TTTTRRRR       7809 afe0 bfe2 0fe4 1fe6 0210 0211 020e 020f
-0x0090  6 MA???          MANCI          1206 6622 ced4 0005 2800 0000
+0x0090  6 MA???          MBNII          1206 6622 ced4 0005 2800 0000
 0x01d0  6 ATT??          ATTRR          3a06 8e10 b9b1 0fe2 0000 0210
 0x0058  2 ?              C              0b02 00f8
 0x05c0  9 AATTT???       AATTTRRR       b809 1446 2487 afe0 6fe2 7fe4 020a c026 c023
@@ -116,3 +116,25 @@
 0x05a6 12 AAATTTTT???    AAATTTTTRRR    b4cc 6d83 2d4a 8ec1 ffe0 99b1 a9b2 3fe2 1fe4 0223 0228 0224
 0x0320  7 AA?T??         AACTRI         6407 5050 ded9 0a12 3fe2 0000 a021
 0x00c8  4 AA?            AAI            1904 ef75 8410 0000
+# 2026-10-17: classes of the SYSTEM-8 base engine (base-engine/up/*.bin), inferred from the instances (fe slots,
+# b9bY units, C words) and the neighbouring classes (+2 per extra T); verified on the hardware 2026-10-17 (dspverify.py)
+0x045a 15 verified       MMBTTTNNIIIRRR 8b4f 3454 2518 eee6 dfea 1fec 5fee 0016 0002 800d 0222 3000 040d 0442 043a
+0x0250 11 verified       MABCNIIIII     4a0b 04f4 54c2 9e52 1a30 0038 3000 8000 006b 0000 2e3b
+0x0248 11 verified       MABBNIIIII     490b 1462 6d40 bee3 f1e8 0025 ae66 6600 0000 a999 9900
+0x04c4 13 verified       MABTTTTNRRRR   988d 640f 5902 ceee bfe2 9fe4 1fe6 2fe8 0006 043c 043a 0440 0417
+0x0608  8 verified       ABCTTRR        c108 0041 aef2 1310 1fe0 3fe2 060f 061b
+0x01b0  4 verified       BBC            3604 8ee1 8ee0 0812
+0x04aa 12 verified       MABBTTNIRII    954c 2476 3cc0 ce12 eee6 b9b3 4fe4 0002 a800 040f 0000 0000
+0x04da 14 verified       MACTTTNIRRRII  9b4e 253a 3052 1820 dfe4 1fe6 4fe8 0002 b000 0405 0411 0412 0000 0000
+0x059e 16 verified       AABCTTTTRRRIIII b3d0 4539 3066 ee0f 1820 dfe0 5fe2 b9b3 efe4 0402 0438 040b 3000 0000 0000 0000
+0x0514 16 verified       MBBTTTTNRRRIIII a290 2d78 bee3 9e0c 5fe2 6fe4 b9b3 9fe6 6f02 0611 0612 060a 0000 0000 0000 0000
+0x0632 11 verified       ACTTTTRRRR     c64b 3041 1a10 afe0 afe2 5fe4 4fe6 0611 0613 060b 0608
+0x0630  8 verified       ACTTTRR        c608 4d4c 0a20 2fe0 99b1 5fe2 02c8 02c4
+0x056a 11 verified       AAACCTIIIR     ad4b 6d50 6f52 7054 0b12 1a35 7fe6 3000 3000 2800 0603
+0x05ee 13 verified       ABBCTTTTIRRR   bdcd 5050 bee3 ee0f 1f14 5fe2 9fe4 b9b3 efe6 2800 0405 040f 040c
+0x0550 12 verified       MCTTTNRRRII    aa0c 158f 4028 9fe2 7fe4 3fe6 0002 0409 0411 0412 0020 0000
+0x0586 13 verified       AABBCTTTIIRR   b0cd 5050 5052 bee3 ee0f 1f12 9fe4 b9b4 efe6 2400 0000 040f 040c
+0x047a 14 verified       MMTTTTNNRRRR   8f4e 140f 6d00 2fe6 5fe8 7fea 4fec 0002 b014 b000 0612 0613 c3e2 c3e4
+0x0148  7 verified       MCCNII         2907 0c0f 00c1 1e20 f494 3000 3000
+0x0510 11 verified       MBBTTNIIII     a20b 79a4 ae12 8ee0 b9b2 c9b3 79c0 0000 3000 0000 0000
+0x060a 13 verified       ABCTTTIRRRII   c14d 4078 be10 1810 afe2 5fe4 6fe6 c200 00f2 00ec c05b 2400 0000

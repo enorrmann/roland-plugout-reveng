@@ -85,7 +85,8 @@ D ≥ 8: r(D−8) = X + Y + r[op] (the op field becomes the index of a third reg
 
 Measured with even B nibble, X = r1, Y = r2 *(exact, 7 probes)*: `3c42` |X| + Y; `3e42` Y − |X|; `b042`
 **min(X, Y)**; `b442` **max(X, Y)**; `b842` |X|; `ba42` |Y|; `be42` Y. The other B ops return saturated-looking
-bit patterns (`7ffxxxxx`): comparisons or integer conversions, **not decoded**. Raw grids on master DSP3 (X = r1,
+bit patterns (`7ffxxxxx`): **(2026-10-17) bit operations** (AND/ANDN/OR/ORN/XOR/XNOR in two's complement,
+negative results shown modulo 512, see §9). Raw grids on master DSP3 (X = r1,
 Y = r2, D = r3 = −0.375; result word):
 
 | op | (.25,.5) | (.5,.25) | (−.25,.5) | (.25,−.5) | (1.5,.125) | (0,.5) | (.5,0) | (−.25,−.5) | (.25,.75) | (−.25,.75) |
@@ -187,6 +188,16 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
   verified by audio on the slaves). Load programs with an empty program first: a torn program with a backward
   jump hangs the DSP. Unit-B nibble f bits 7–6 = 01: `f4Y` move, `f5c` delay write position, `f6Y` + h(Y−8),
   `f7Y` markers. Coverage 98.6 %.
+* **All Roland programs decoded (2026-10-17)**: 212 SYSTEM-8 programs (base engine, OS, 9 PLUG-OUTs) + 4 SYSTEM-1;
+  unit B D < 8 nibbles 0–a = bit ops (AND, ANDN, OR, ORN, XOR, XNOR; two's complement, mod 512); `9f0d` = atanh
+  split for logs; only the section markers `ff70`/`ff71`/`ef75`/`ef74` remain without a visible effect.
+* **Measured on the hardware (2026-10-17, `re/dspverify.py`)**: all inferred templates verified; immediates
+  start **Y bytes** into the slot array (MAC: Y and W by field, C after Y skipping references); read ports: bank 0
+  = 2 loads per instruction, bank 5 = 1; C field acts only if bit 3 of the other field is 0; unit B nibble e
+  bits 7–6 = 11 = phase shaping (±, abs, clamp, wrap, triangle, phase 0–1, −Y), nibble c modes 1–3 = shifts;
+  `ef75`/`ef74` = no effect, 1 cycle each (optional).
+* **C condition field = 5 bits** (cond 0–31): `c9bY` → group 4 (cond 16–19), `d9bY` → group 5 (cond 20–23),
+  verified on the master and by audio on the slaves. Group 0 = constant `0111`, cond 24–31 = always true.
 
 ## 9. Open (full list: `DSP_ISA_SPEC.md` §14)
 
@@ -194,7 +205,7 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
 1. The second word of C instructions in the slot array.
 2. (solved) The DSP runs at 96 kHz; data memory is a ring (state: load S + 1, store S); a load has one instruction
    of latency. See `DSP_ISA_SPEC.md` §9–§10.
-3. Unit B ops returning `7ffxxxxx`; odd B nibbles; (hidden values solved: h4/h5); D ≥ 8 inside multi-op classes.
+3. (Solved 2026-10-17: unit B ops returning `7ffxxxxx` = bit ops; odd nibbles = X in r4–r7.) (hidden values solved: h4/h5); D ≥ 8 inside multi-op classes.
 4. Transfer modes other than `fe`, `28`, `a9`.
 
 ## Method

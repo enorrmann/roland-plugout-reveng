@@ -730,6 +730,41 @@ Pendiente (ISA):
 * Costo (`re/dspbudget.py skip|loop`, maestro DSP3): lo salteado por un salto no cuesta (1500 instrucciones
   salteadas y el contador sigue); bucle de 4 instrucciones: 180 vueltas sí, 185 no → ≈ 5 ciclos por vuelta (un
   salto tomado ≈ 1 ciclo extra).
+* **El campo de condición de la C tiene 5 bits** (cond 0–31; el desensamblador enmascaraba con & 15): `c9bY` →
+  grupo 4 (cond 16–19), `d9bY` → grupo 5 (cond 20–23); medido en el maestro (`dspx9bflags.py --high`) y por
+  audio en los slaves (`dspflagsaw.build_group`: nivel de la SAW según la condición; `grp_*.txt`). Grupo 0 =
+  `0111` constante, cond 24–31 = `1111`. X = 8, e, f: nada. Con & 15 los `2310`/`2a10` de Roland parecían cond 1/5.
+* `dspown.freq` elegía a veces dos períodos (autocorrelación): ahora toma el primer pico ≥ 90 % del máximo.
+  El panel tenía DCO2 en 16' (el usuario lo pasó a 8'); queda un +13 cents uniforme (fine/master tune).
+* `f5Y` en los slaves por audio (SAW × valor, `dspexp/own/f5s_*.txt`): `cf54`/`cf55` = 0 (silencio), `cf5c` ≠ 0
+  (posición del retardo). La salida bloquea la continua: medir siempre con una señal multiplicada.
+* **Todos los binarios DSP de Roland** (`re/dsp_corpus_all.py`, `re/dsp_s1.py`): 212 programas únicos del SYSTEM-8
+  (motor base 116 nuevos, plugouts nuevos JUPITER-8/PROMARS/SH-2 12 nuevos; región 0 de los plugouts sin DSP) +
+  4 del SYSTEM-1 (mismo ISA, marcador `ff71`). 20 clases nuevas: plantillas inferidas (`inferred` en
+  `dsp_templates.txt`). Decodificado todo salvo los marcadores de sección (`ef75` abre / `ef74` cierra la sección
+  de cada voz). Nuevo: **ops lógicas** B con D < 8 (`0` AND, `2` ANDN, `4` OR, `6` ORN, `8` XOR, `a` XNOR,
+  complemento a 2, resultado mod 512 = el formato `7ffxxxxx`; `re/dspbits.py`), **`9f0d`/`8f09` = separación
+  atanh** para logaritmos ((x−1)/(x+1) con semilla de 1/x).
+* **Verificación en el equipo de lo inferido (17/10, tarde)** — `re/dspverify.py` ejecuta una instrucción real en el
+  DSP3 del maestro (referencias movidas a palabras libres del mismo banco y precargadas, registros y banderas al
+  azar) y compara registros y memoria con `dspisa.run`:
+  * Las 20 plantillas inferidas + las corregidas a mano: todas coinciden salvo 0x56a en un caso de C fuera de
+    rango. Marcadas `verified` en `dsp_templates.txt`. Mapas de posiciones (`dspslots.py`) de 0x240/0x248/0x250/
+    0x478/0x47a/0x4aa/0x4da coinciden con las plantillas.
+  * Reglas nuevas que salieron de las diferencias: **inmediato = Y bytes dentro del área de slots** (no "desde el
+    principio"; vale para A/B; en la MAC Y y W por su campo, C a continuación de Y salteando referencias);
+    **puertos de lectura**: banco 0 = 2 cargas por instrucción (con más, sólo la última), banco 5 = 1 (con más,
+    ninguna); **C**: el campo elegido actúa sólo si el bit 3 del otro campo es 0; campo 0/fuera de rango anula
+    todas las ops sólo en clases de 3 ops A con una sola C (Roland no lo usa); clase 0x190: campo 2 = la op;
+    **B nibble e bits 7–6 = 11**: funciones de fase (± / abs / clamp / wrap / triángulo / fase 0–1 / −Y,
+    `re/dspshape.py`); **B nibble c modos 1–3**: corrimientos X·2^±Y; **MAC op2 bit 9**: habilita productos en
+    modo W.
+  * Regresión al azar sobre todo el corpus (instrucciones sin saltos ni transferencias especiales): resultado
+    final abajo.
+* **Marcadores `ef75`/`ef74` medidos**: no cambian registros, banderas ni direccionamiento (bancos 0/5); una SAW
+  con secciones de voz al estilo Roland suena idéntica en los slaves (`dspexp/own/saw_sections.txt`); cuestan 1
+  ciclo cada uno (`dspbudget.py marker`); ningún código ARM los busca. Son opcionales para un programa propio.
+* Plugouts nuevos desempaquetados en `work/unpack/{JUPITER-8,SH-2,PROMARS}` (+ `*_S1_Code*` del SYSTEM-1).
 * Clase 0x098: la 2.ª palabra es una C (`1610` = if cond11), no N: las "MAC op2 = 011" del corpus eran eso.
 * Plantillas corregidas (C que eran inmediatos/N o una T que era B): 0x098, 0x0e0, 0x130, 0x178, 0x1d8, 0x208, 0x240, 0x572,
   0x592. Cobertura 98.6 %; queda casi sólo `ff70`/`ef75`/`ef74`.

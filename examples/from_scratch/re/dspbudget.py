@@ -24,6 +24,12 @@ INC = 2 ** -16          # 1.46 per second at 96 kHz; the counter wraps in [-1, 1
 
 
 def program(kind, k):
+    if kind == 'marker':                 # k section markers, ef75 / ef74 alternating (2026-10-17)
+        P = [[0x0A02, 0xFF70], A.a('move', 5, imm=0.0, bits=16), A.a('move', 6, imm=1.0, bits=16)]
+        P += [[0x0A02, 0xEF75 if i % 2 == 0 else 0xEF74] for i in range(k)]
+        P += [A.ld(1, S + 1), [0x0001], A.a('add', 1, 1, imm=INC)] + A.wrap(1, 2) + [A.st(1, S)]
+        P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
+        return [w for ins in P for w in ins]
     if kind in ('skip', 'loop'):
         P = [[0x0A02, 0xFF70], A.a('move', 5, imm=0.0, bits=16), A.a('move', 6, imm=1.0, bits=16)]
         if kind == 'skip':
@@ -56,7 +62,7 @@ def rate(ses, gap=0.6):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('kind', choices=['single', 'aab', 'skip', 'loop'])
+    ap.add_argument('kind', choices=['single', 'aab', 'skip', 'loop', 'marker'])
     ap.add_argument('k', type=int, nargs='+')
     a = ap.parse_args()
     longest = max(len(dspmaster.adapt(program(a.kind, k))) for k in a.k)

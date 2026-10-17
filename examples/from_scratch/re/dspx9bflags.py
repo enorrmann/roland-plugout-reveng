@@ -16,15 +16,16 @@ OUT = 0x200
 
 
 REG = 1
+HALVES = (0, 1)          # conditions 8*h .. 8*h+7 (--high: 16-31)
 
 
 def block(k, v, ins, pads, pre):
     P = [A.a('move', 0, imm=0.0, bits=16), A.a('move', REG, imm=v)] + [words_of(p) for p in pre] + [[1]]
     P += [words_of(ins)] + [[1]] * pads
-    for half in (0, 1):
+    for half in HALVES:
         for r in range(8):
-            P.append(words_of(f'2d06 {r:x}050 {r:x}052 {2 * (8 * half + r):02x}12 0000 3000'))
-        P += [A.st(r, 0xA000 + OUT + 16 * k + 8 * half + r) for r in range(8)]
+            P.append(words_of(f'2d06 {r:x}050 {r:x}052 {(8 * half + r) << 9 | 0x12:04x} 0000 3000'))
+        P += [A.st(r, 0xA000 + OUT + 16 * k + 8 * (half % 2) + r) for r in range(8)]
     return P
 
 
@@ -43,8 +44,10 @@ def main():
     ap.add_argument('--pads', type=int, default=1)
     ap.add_argument('--values', type=float, nargs='+', default=[0.5, -0.5, 0.0, 2.0, -2.0, 0.0625, -0.0625, 1e-6])
     ap.add_argument('--reg', type=int, default=1, help='register that gets v')
+    ap.add_argument('--high', action='store_true', help='conditions 16-31 instead of 0-15')
     a = ap.parse_args()
-    global REG
+    global REG, HALVES
+    HALVES = (2, 3) if a.high else (0, 1)
     REG = a.reg
     with Session(Peek(), size=400 if os.environ.get('DSPCTX', 'dsp3') == 'dsp3' else 256) as ses:
         for b in range(0, len(a.values), 3):
@@ -55,7 +58,7 @@ def main():
             for k, v in enumerate(vals):
                 rows = {''.join('1' if raw_value(r[16 * k + c]) == 1.0 else '0' if r[16 * k + c] == 0 else '?'
                                 for c in range(16)) for r in reads}
-                print(f'r{REG} = {v:+g}: bits 0..15 = {" / ".join(" ".join(p[i:i + 4] for i in range(0, 16, 4)) for p in sorted(rows))}',
+                print(f'r{REG} = {v:+g}: bits {16 if a.high else 0}..{31 if a.high else 15} = {" / ".join(" ".join(p[i:i + 4] for i in range(0, 16, 4)) for p in sorted(rows))}',
                       flush=True)
 
 

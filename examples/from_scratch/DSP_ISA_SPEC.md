@@ -57,8 +57,8 @@ value = (-1)^sign * M / 2^(32 - 4*s)
 Encoding (what Roland's constants and the hardware use): take the **smallest s** with M = |v|·2^(32−4s) < 2^29,
 M = round(...). Examples: 1.0 = `30000000`, 0.5 = `28000000`, 0.25 = `24000000`, −1.0 = `b0000000`,
 2.0 = `42000000`, 100 = `66400000`, 1/192 = `01555555`, π/2 = `3921fb54`, ln 2 = `2b17217f`. Zero = `00000000`.
-Results ≥ 512 are not representable; some unit-B ops return words of the form `7ffxxxxx` whose meaning is
-[unknown] (§6.3).
+Results ≥ 512 are not representable (A sums wrap mod 512, §10). Words of the form `7ffxxxxx` are values just
+below 512: negative results of the unit-B bit operations, shown modulo 512 (§6.3) [measured 2026-10-17].
 
 The ARM side sees the same memory through three views (bank 0: IEEE float at +0, Q31 "SD31" at +0x2000, RAW at
 +0x4000); the DSP itself only works in RAW.
@@ -136,7 +136,17 @@ most frequent instance; an assembler places references and immediates by this ru
 * If the instruction is too short, the hardware keeps reading into the **next instruction's words**
   (`0903 3060 2800` reads 8 bits of the next header) **[exact]**. An assembler must always emit
   `ceil(total_bits / 16)` I words, padding the last one with zeros.
-* Consumption order **[exact for the measured cases]**: within an A/B op: Y. Within a MAC: Y (w1), then c (w2
+* **Where an immediate starts (2026-10-17, measured against the hardware with `re/dspverify.py`; supersedes the
+  two bullets below)**: the immediate stream is the **slot array** (N words first, references included; classes
+  without transfers: the N and I words). An A/B op with an immediate reads it starting **Y bytes** into that array
+  (Y = its 4-bit Y field): `2c25` (Y = 5) reads imm24 `43 00 00` = 3.0 from the middle of `eb43 0000`; `7054`
+  (Y = 4) reads the third word; `f1e8` (Y = 8) the fifth. Y = 0 = the start, which is why "every op reads from the
+  start" held in the earlier tests. A MAC: **Y at byte Y, W at byte W** (their fields), **C right after Y's
+  immediate** (or at byte c when Y is a register). Reading past the first word skips the words that a transfer
+  uses as a reference (`540c … 7a2b 3000 0638 063d 2333 33c4 c008`: Y = `3000`, C = `233333` = 0.2 after
+  skipping the two references, W at byte 11 = `c4c008` = −4.75 → r1 = r0 + 0.2·r7 − 4.75, exact). Verified on
+  ~100 random Roland instructions (§13b).
+* Consumption order (old, before the byte rule): within an A/B op: Y. Within a MAC: Y (w1), then c (w2
   op2 mode), then W (w2).
 * **Several A/B ops of one instruction share the immediate [exact, 2026-10-16, master DSP3]**: every A/B op that
   takes an immediate reads it from the **start** of the bit stream, each with its own width. Measured: AB
@@ -215,12 +225,13 @@ w2:  Z[15:12]  op2[11:9]  C[8:6]  mW[5:4]  W[3:0]
 ### 5.4 Condition word (C)
 
 ```
- 15         9  8     7     4  3     0
-+-------------+-----+--------+--------+
-|  cc (4 bits) | neg |  skipT |  skipF |
-+-------------+-----+--------+--------+
-cond = context_bit[cc] XOR neg
+ 15 14 13        9  8     7     4  3     0
++-----+-----------+-----+--------+--------+
+| 0 0 | cc (5 b)  | neg |  skipT |  skipF |
++-----+-----------+-----+--------+--------+
+cond = flag[cc] XOR neg          (cc = 0..31, §8; 2026-10-17: the field is 5 bits, not 4)
 if cond: unit skipT does not execute, else unit skipF does not execute  (0 / out of range: none)
+bit 14 set (`40TY`): hidden-register load (§9.0); `009Y`: jump (§5.4b)
 ```
 
 **Units** are numbered from 1 in position order: first the ops (A, B, M), then the transfers **[measured, classes
@@ -228,6 +239,16 @@ if cond: unit skipT does not execute, else unit skipF does not execute  (0 / out
 true, op 2 if false" is a select between two results written to the same register (`2d06 1050 1052 0e12 3000 0000`).
 Class 0x570 (three ops + transfer) follows the same rule for fields 1–3 but skips **all** ops for field 0 and runs
 all of them for some fields ≥ 8 when the condition is false **[measured, unexplained]**.
+
+**Field details (2026-10-17, `re/dspcsweep.py`, `re/dspcreal.py` with real flags):**
+* The chosen field (high nibble if the condition holds, low nibble if not) acts **only if bit 3 of the other
+  field is 0** (`00c1` in class 0x148: cond0 false, but the high field c ≥ 8 cancels "skip unit 1").
+* Field 0 / out of range: no effect in classes with 1–2 ops and in Roland's multi-C instructions, but in classes
+  with **three A-unit ops and a single C** (0x2c8 AAAC, 0x570 AAACT, 0x240 MAAC) it **cancels all ops**. Roland's
+  code never uses that case (checked on `b247…1220 0e14`, `b307…0930`, `ad08…0e12 1f30`).
+* Out-of-range unit numbers are class-specific "slots": class 0x190 (A C C) field 2 also skips its only op
+  (Roland: `3204 5044 2610 1f20`, 56 uses); in 0x56a (AAACCT) field 4 skipped ops 1–2 and fields 5/6/0 suppressed
+  the load that writes the same register as op 3. Fewer than 0.5 % of Roland's instructions have such fields.
 
 ### 5.4b Jump (a unit in a C position) **[measured 2026-10-17, master DSP3 / DSP4 `efdc`, slaves by audio]**
 
@@ -314,6 +335,12 @@ Same word layout. **[exact unless noted]**
 
 | word form | rD ← |
 |---|---|
+| `D 0 X Y` (D < 8) | **rX AND Y** — bit ops on two's-complement fixed point, result **mod 512** (a negative result reads as 512 + x: the old "`7ffxxxxx`" format) [measured 2026-10-17, `re/dspbits.py`] |
+| `D 2 X Y` (D < 8) | (NOT rX) AND Y |
+| `D 4 X Y` (D < 8) | rX OR Y |
+| `D 6 X Y` (D < 8) | (NOT rX) OR Y |
+| `D 8 X Y` (D < 8) | rX XOR Y |
+| `D a X Y` (D < 8) | NOT (rX XOR Y) |
 | `D c X Y` (op 6, D < 8) | \|rX\| + Y |
 | `D e X Y` (op 7, D < 8) | Y − \|rX\| |
 | D = 8+d, op 0 | min(rX, Y) |
@@ -322,13 +349,14 @@ Same word layout. **[exact unless noted]**
 | D = 8+d, op 5 | \|Y\| |
 | D = 8+d, nibble e, bits 7–6 = 00 | **nothing written**: flags of r(d) + Y (CMP / TST, for `X9bY`; `8e09` = cmp r0 − r1, `ae10` = cmp r2 with imm) [measured 2026-10-17] |
 | D = 8+d, nibble e, bits 7–6 = 01 | Y (r(d) ← ±rY) [fitted] |
-| D = 8+d, nibble e, bits 7–6 = 11 | r(d) + Y [fitted] |
+| D = 8+d, nibble e, bits 7–6 = 11 | **bits 5–4 select the function, Y bit 3 the variant** (no immediate) [measured 2026-10-17, `re/dspshape.py`]: 00: r(d) ± rY; 01: \|rY\| / clamp(rY, −1, 1); 10: wrap(rY) into [−1, 1) / triangle 1 − 2\|wrap(−rY − 1.5)\|; 11: (rY mod 2)/2 (phase 0..1) / −rY |
+| D = 8+d, nibble c, modes 1–3 | **shifts** [measured 2026-10-17]: mode 1 r(d) ← X·2^Y, mode 2 X·2^−Y, mode 3 X·2^−(16+Y) (Y = the 4-bit field, not a register); mode 0 = frexp |
 | D = 8+d, nibble e, bits 7–6 = 10 | writes r(d) and r(d+1) (r(d+1) ≈ 1.7–1.98, recip-seed-like); never used by Roland [unknown] |
 
 X is 3 bits: the "B" nibble's low bit is X[2], so odd nibbles are the same ops with X in r4–r7 (measured
 `d150` = min(r5, imm 1.0), `d550` = max(r5, 0), `e590` = max(r6, 0), `e190` = min(r6, 1.0): Roland's
-`clamp(x, 0, 1)`). Y may be an immediate (mode bits). The ops with D < 8 and op 0–5 return sign-dependent results with
-an unidentified format for negatives (`7ffxxxxx`) **[unknown]**. Some D ≥ 8 forms also change other registers.
+`clamp(x, 0, 1)`). Y may be an immediate (mode bits). The ops with D < 8 and nibbles 0–a are bit operations (table above; the
+"`7ffxxxxx`" values were negative results shown modulo 512) **[measured 2026-10-17]**. Some D ≥ 8 forms also change other registers.
 
 Also measured (2026-10-16, D ≥ 8, random operands): nibble 2 = min(−X, Y), 6 = max(−X, Y) (bit 1 negates X);
 nibble c = **frexp**: X = m·2^e, m ∈ [0.5, 1) → r(d) ← m, rY ← e (X = 0 → 0, −31).
@@ -346,7 +374,7 @@ Selected by the mode bits (5–4) and Y bit 3; Y register = Y & 7. **[measured, 
 | 11 | 0 | ceiling: r(d) ← ⌈Y⌉ | `cf36` |
 | 01 | 0 | **sqrt split**: \|Y\| = m·4^−k, m ∈ [1, 4): rY ← m, r(d+1) ← ≈ 1/√m (~1 %), r7 ← sign(Y)·2^−k (seen with d = 4, Y = 6; r7 may be r(d+3) or r(Y+1)) → √\|x\| = r7·m·r(d+1) | `cf16`: 9 → m 2.25, r5 0.662, r7 2 [measured 2026-10-16] |
 | 10 | 0 | **log2 split**: Y = m·2^e, m ∈ [0.75, 1.5): rY ← m, r(d) ← e; Y < 0: r(d) ← 9, rY ← Y/512 | `cf26`: 9 → e 3, m 1.125; 0.375 → e −1, m 0.75 [measured] |
-| 00 | 1 | partly: x = rY > 0 → r(d) ← (x − 1)/2, rY ← a value in [1.82, 1.99]; x < 0 does not fit | `8f09` **[partial]** |
+| 00 | 1 | **atanh split** (for logarithms): x = rY, 2^k such that (x+1)/(2·2^k) ∈ [0.5, 1): r(d) ← (x−1)/(2·2^k), rY ← (x+1)/(2·2^k), r(d+1) ≈ 1/rY (~1 %) → r(d)·r(d+1) refined by Newton = (x−1)/(x+1); ln x = 2·atanh of it | `9f0d` after `8f25` log2 split, then `0902 1085` Newton (base engine, JUPITER-8) [measured 2026-10-17]; `8f09` same op |
 
 **Nibble `f`, bits 7–6 = 01** (sub-op in bits 5–4) **[measured 2026-10-17, master DSP3/DSP4, `re/dsphops.py`,
 `re/dspf5.py`]**:
@@ -355,9 +383,9 @@ Selected by the mode bits (5–4) and Y bit 3; Y register = Y & 7. **[measured, 
 |---|---|
 | `{8+d}f4Y` | rd ← r(Y & 7) (sign bit of Y ignored). Roland also uses it as rd ← rd (`bf4b`, `df4d`, `ff4f`, with `89ba`): no other effect found on the master |
 | `{8+d}f5c` | rd ← **delay-ring write position**: counts down 1/16384 per sample (96 000 samples/s), mod 512, own value per DSP; independent of rd and h4. Not used by Roland |
-| `{8+d}f5Y`, Y ≠ c | reads 0 on the master (`9f5d`: a per-DSP constant, 0.0007 on DSP3, 1.8746 on DSP4). Roland uses `cf54` once (JX DCO2 slot, as a weight): slave meaning unknown |
+| `{8+d}f5Y`, Y ≠ c | reads 0 on the master (`9f5d`: a per-DSP constant, 0.0007 on DSP3, 1.8746 on DSP4) and on the slaves' DCO2 slot (`cf54`, `cf55`: SAW × value = silence, by audio). Roland uses `cf54` (JX DCO2 slot, as a weight): probably set up by Roland's own main program **[unknown]**. `cf5c` is non-zero on the slaves too |
 | `{8+d}f6Y`, Y = c–f | **rd ← (rd + h(Y − 8)) mod 512**: `f6c` + h4 (delay base, §9.1), `f6d` + h5, `f6e` + h6, `f6f` + h7 (JX: `af6f` = index + h7, wrapped at 8 with cmp/C). Y < 8: no change |
-| `{8+d}f7Y` | no visible effect: the program-start markers `ff70`, `ef75`, `ef74` |
+| `{8+d}f7Y` | **measured 2026-10-17: no effect on registers, flags, memory addressing (banks 0/5) or audio (slaves: a SAW with Roland-style `ef75`/`ef74` voice sections sounds identical); each costs one cycle (`dspbudget.py marker`: same budget edge as single ops); no ARM code refers to them**. Section markers. `0a02 ff70` = program start and end (SYSTEM-1 programs start with `ff71`); **`ef75` opens and `ef74` closes a per-voice section** (layout of every two-voice program: input stores, `ef75`, voice A, `ef74 ef75`, voice B, `ef74`, output stores, end). Their hardware role (scheduling / sync) is not visible to the DSP |
 
 ## 7. MAC semantics **[exact on the measured cases]**
 
@@ -365,7 +393,9 @@ Selected by the mode bits (5–4) and Y bit 3; Y register = Y & 7. **[measured, 
 P1 = Y · rX
 P2 = c · Z          (c = rC or immediate per op2; Z = ±rZ)
 rD ← (op1 & 1 ? −P1 : P1) + (op1 & 2 ? W : 0) + (op1 & 4 ? P2 : 0)
-special case: op2 = 000 and op1 ∈ {6,7}: no products → rD ← ±rX + W + Z
+special case: op2 = 000 and op1 ∈ {6,7}: no products → rD ← ±rX + W + Z (2026-10-17: with an immediate Y the
+P1 product stays: ±imm·rX + W + Z; op1 ∈ {4,5} keeps both products with op2 = 000; op2 = 001 always multiplies:
+op2 bit 9 enables the products in the W modes) [measured, `re/dspmacfit.py`]
 op1 ∈ {0,1}: no write
 D ≥ 8: r(D−8) ← result / 2                                   [measured 2026-10-16, random operands]
 op2 = 010: c = imm16 (modes of c: 00 rC, 01 imm16, 10 imm24, 11 imm32); op2 = 011: unknown (constant result)
@@ -416,9 +446,15 @@ cond 4g+3 = N or Z    (result ≤ 0)
 * **Persistence**: flags are not reset between samples, programs or test sessions; a group keeps its value until
   the next `X9bY` on it. The "static context bits" measured before (DSP3 `0111111011101110`, DSP4 `efdc`
   `0111101111100111`, slaves DCO2 `0011011001100110`) were simply the last flags left by Roland's code.
-* **Group 0** (conds 0–3) read `0111` (the flags of a zero: cond 1/2/3 true, cond 0 false) in every master test;
-  `c9bY` (Roland, before C words on cond 1) changed nothing there **[unknown]**. Usable as constants: cond 1–3 =
-  always, !cond 1–3 = never (on the master).
+* **Groups 4 and 5** (2026-10-17): the C condition field is 5 bits; **X = c → group 4 (conds 16–19), X = d →
+  group 5 (conds 20–23)**, same 4-flag semantics (master DSP3, and slaves by audio: `c9b1` + cond 17, `d9b1` +
+  cond 21 switch the level of a SAW like the `b9b1` + cond 13 control). Roland: `c9b2` → C `2310` (!cond 17),
+  `d9b1` → C `2a10` (cond 21). So **5 writable groups (X = 9…d → groups 1…5)**.
+* **Constant groups**: group 0 (conds 0–3) reads `0111` (the flags of a zero: cond 1/2/3 true, cond 0 false);
+  conds 24–31 read `1111` (always true). X = 8, e, f: no effect. Usable as constants: cond 1 = always, !cond 1 =
+  never; cond 24 = always.
+* The "C words" with cc ≥ 24 that some measured templates show (`3000`, `3921`, `4826`, `c0xx`…) are immediates
+  or references mislabelled by the template guess, not conditions.
 * Old tests missed this because they used `1803 0040 b9bP` (unit 1 = `r0 = r0` with r0 = 0) and read groups that
   did not match X.
 
@@ -430,6 +466,11 @@ true, op 2 if false) or whether a **jump** (§5.4b) is taken: if/else, switch, a
 
 * Load: `rR ← mem[slot]`; store: `mem[slot] ← r(R−8)` with mode `fe` **[exact]**.
 * Up to 6 transfers per instruction (classes 0x060…0x722) **[exact]**.
+* **Read ports per bank [measured 2026-10-17]**: bank 0 serves **2 loads** per instruction (with 3 or more only
+  the last one is done); bank 5 serves **1** (with 2 or more none is done); stores are not limited by this
+  (2 stores + 2 loads work). Roland's code respects it (0x47a: 2 loads from bank 0 + 2 from bank 6).
+* An op and a load writing the same register in one instruction: the values are **added** (A `r7 = 0.5` + load
+  0.375 → 0.875; measured again 2026-10-17). Avoid.
 * **Ring addressing [measured]**: a reference R addresses physical word (R + ptr) mod ring, and ptr moves by one
   word every sample. Within one sample, a value stored at R is read back at R. **A value stored at R is read at R + 1
   in the next sample** (R + k after k samples). This is how state and delay lines work: to keep a variable from one
@@ -667,6 +708,27 @@ word) or a read-back through memory the program itself maintains. `re/dspfit.py`
 `re/dspslots.py` maps template positions; `re/dsptemplates.py` builds §12. Only one tool may use the MIDI port at a
 time.
 
+## 13b. All Roland DSP programs (2026-10-17)
+
+`re/dsp_corpus_all.py` extracts every program (descriptor tables; signature scan as a fallback) from the
+SYSTEM-8 base engine (`base-engine/up/p1y01_{p0s,pl1m,pl1s,pl2m}`), the OS (`m1_tcm`, `m1_sdram`, `s_data`), all
+nine SYSTEM-8 PLUG-OUTs (JUNO-60/106, JUPITER-4/8, JX-3P, PROMARS, SH-101, SH-2, SYSTEM-100: region 1; region 0
+holds no DSP code) → **212 unique programs** (84 = the old corpus, 116 base engine, 12 from JUPITER-8 / PROMARS /
+SH-2); `work/corpus_all` holds the 128 new ones. `re/dsp_s1.py`: the SYSTEM-1 images of SH-2 / PROMARS use the
+same ISA (4 programs, start marker `ff71`, no descriptor table) → `work/corpus_s1`. The base engine adds 20 classes
+not seen before; their templates were inferred from the instances (fe slots, `b9bY` units, C words, +2 per extra
+T between neighbouring classes) and are marked `inferred` in `re/dsp_templates.txt` (not measured on hardware).
+
+**Templates measured (2026-10-17)**: every inferred template was run on master DSP3 with Roland's own instance
+(`re/dspverify.py --inferred`: references moved to scratch words of the same bank and preloaded, random
+registers and flags, registers and written memory compared with `dspisa.run`); `re/dspslots.py` position maps
+for 0x240, 0x248, 0x250, 0x478, 0x47a, 0x4aa, 0x4da. 19 of 20 agree in every trial (0x56a: only its out-of-range
+C field, §5.4); the hand-fixed templates 0x090, 0x098, 0x130, 0x178, 0x208, 0x240, 0x572, 0x592 agree too.
+Random regression over the whole corpus (100 instructions without jumps / special transfer modes): see NOTES.md.
+
+Coverage (`python3 re/dspisa.py cov DIR`): old corpus 98.6 %, new programs 97.8 %, SYSTEM-1 98.6 %; **the only
+words left are the section markers `ff70`/`ff71`/`ef75`/`ef74`** (no visible effect).
+
 ## 14. Open items (do not emit)
 
 Decoding coverage (2026-10-17, `python3 re/dspisa.py cov work/corpus`): 18821 / 19095 = **98.6 %** (16/10: 93.6 %;
@@ -675,9 +737,9 @@ flags, jumps, nibble-f family, template fixes for classes 0x098, 0x0e0, 0x130, 0
 effect), a few unit-B forms (`eda8`, `e7d2`, `8c0f`, `fde8`, `8c30`: nibbles c/6 with an immediate or X in r4–r7),
 transfer mode `e0`. Per-model comparison of the oscillators: `CUSTOM_OSC.md` §11.
 
-1. (Solved 2026-10-17: `X9bY` = set flags, §8; units 3–4, MAC, SFU and min flags measured; jumps §5.4b.) Left:
-   group 0 / `c9bY` / `d9bY` / `89ba` (no effect on the master), unit B nibble e bits 10, `f5Y` Y ≠ c on the
-   slaves, `00cY`.
+1. (Solved 2026-10-17: `X9bY` = set flags of groups 1–5, §8; units 3–4, MAC, SFU and min flags measured; jumps
+   §5.4b.) Left: `89ba` (X = 8, Y = 10), unit B nibble e bits 10, `f5Y` Y ≠ c on the slaves, `00cY`, C words with
+   bits 15–14 = 11 (`c012` in class 0x190).
 2. Delay memory (§9.1): line length (u = 100 reads nothing), how the ARM sets up a window for another slot / DSP
    (slaves: J60/JX chorus), number of taps per sample, fraction resolution; no audio test yet.
 3. Hidden registers (§9.0): h7 (`40c5`), mode-3 `40TY` (reads 0), readers of h6 other than mode `28`; a non-ring

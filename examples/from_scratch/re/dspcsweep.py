@@ -19,6 +19,9 @@ TESTS = {
     0x0B8: ('1703 1045 {C}', 1),                                 # A C
     0x168: ('2d06 1045 2046 {C} 0000 0000', 2),                  # A A C I I
     0x570: ('ae08 1045 2046 3047 {C} 0fe0 07f0 0000', 3),        # A A A C T R I
+    0x2C8: ('5905 1045 2046 3047 {C}', 3),                        # A A A C (2026-10-17)
+    0x240: ('4806 0544 2046 3047 {C} 0000', (0, 2, 3)),          # M A A C N (2026-10-17): r0 = r5*r4, r2, r3
+    0x250: ('4a06 0544 2046 b450 {C} 0000', (0, 2, 3)),          # M A B C N: B r3 = max(r1, imm=N word...)
 }
 REGS = [0, 0, 0, 0, 0.0625, 0.5, 0.25, 0.125]
 
@@ -36,7 +39,7 @@ def main():
     ap.add_argument('--to', dest='hi', type=int, default=255)
     a = ap.parse_args()
     tmpl, nops = TESTS[int(a.cls, 0)]
-    dest = [1, 2, 3, 0][:nops]
+    dest = list(nops) if isinstance(nops, tuple) else [1, 2, 3, 0][:nops]
     with Session(Peek()) as ses:
         for t in range(a.lo, a.hi + 1):
             res = []

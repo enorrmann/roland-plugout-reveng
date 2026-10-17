@@ -37,6 +37,7 @@ TEMPLATES = {
 IMMBITS = {1: 16, 2: 24, 3: 32}
 # context condition bits (condition 0 first) tested by C words; default = slave DCO slots (measured by audio)
 CONTEXT_BITS = {'dco': '0011011001100110', 'master_dsp3': '0111111011101110', 'master_dsp4_efdc': '0111101111100111'}
+HIGH_BITS = '1110111011111111'    # conditions 16-31 as first read on the master (groups 4, 5; 24-31 always true)
 CONTEXT = 'dco'
 # the condition bits are FLAGS (2026-10-17): X9bY (X = 9/a/b -> group 1/2/3, conds 4g..4g+3) stores the flags of
 # the result of unit Y of its instruction; they persist (also across samples) until the next X9bY on that group.
@@ -44,7 +45,7 @@ CONTEXT = 'dco'
 FLAGS = None
 JUMP = None                      # set by run() when a jump executes (offset in words from the instruction end)
 PENDING = {}                     # one instruction of latency: the next instruction still sees the old flags
-FLAG_GROUP = {0x9: 1, 0xA: 2, 0xB: 3, 0xC: 0}
+FLAG_GROUP = {0x9: 1, 0xA: 2, 0xB: 3, 0xC: 4, 0xD: 5}   # 2026-10-17; group 0 = constant 0111, 24-31 = 1111
 _res = [None]                    # (value, Z) of the op just simulated, for X9bY
 
 
@@ -79,7 +80,7 @@ def load_measured():
                 ab[int(w[0], 16)] = {int(x.split(':')[0]): x.split(':')[1] for x in w[3:] if ':' in x}
     for line in open(MEASURED):
         w = line.split()
-        if len(w) >= 4:
+        if len(w) >= 4 and w[0].startswith('0x'):
             cls, t = int(w[0], 16), list(w[3])
             for p, u in ab.get(cls, {}).items():
                 if u == 'B' and t[p - 1] == 'A':
@@ -101,20 +102,37 @@ def template(ins):
     if t.endswith('*'):
         t = t[:-1] + t[-2] * max(0, n - len(t) + 1)
         t = t[:n] if len(t) >= n else t
+    if len(t) != n and 'T' in t:         # the slot area after the last transfer can have any length (§4.3)
+        core = t[:t.rindex('T') + 1]
+        if n >= len(core):
+            return core + 'R' * (n - len(core))
     return t if len(t) == n else None
 
 
 class Imm:
     """immediate bit stream: the words of the I positions, then (as the hardware does) whatever follows"""
-    def __init__(self, words):
-        self.bits = ''.join(f'{w:016b}' for w in words) + '0' * 64
+    def __init__(self, words, refs=()):
+        self.words = list(words) + [0] * 64
+        self.bits = ''.join(f'{w:016b}' for w in self.words)
+        self.refs = set(refs)          # slot words used as references: sequential reading skips them (2026-10-17)
         self.pos = 0
 
-    def take(self, mode):
+    def take(self, mode, field=None):
+        # 2026-10-17: the immediate of an op starts `field` BYTES into the slot array (field = the op's Y; MAC: Y,
+        # W, C); measured `2c25` (Y = 5) reading the imm24 from mid-word
+        if field is not None:
+            self.pos = field * 8
         n = IMMBITS[mode]
-        v = int(self.bits[self.pos:self.pos + n], 2) << (32 - n)
-        self.pos += n
-        return v
+        out, start = '', (self.pos // 16 if field is not None else -1)
+        while len(out) < n:
+            wi = self.pos // 16
+            if wi in self.refs and wi != start:
+                self.pos = (wi + 1) * 16
+                continue
+            k = min(n - len(out), 16 - self.pos % 16)
+            out += self.bits[self.pos:self.pos + k]
+            self.pos += k
+        return int(out, 2) << (32 - n)
 
 
 def opnd(regs, mode, field, imm, neg_bit=True):
@@ -128,7 +146,7 @@ def opnd(regs, mode, field, imm, neg_bit=True):
 def a_op(w, regs, imm, out):
     d, op, x, mode, y = w >> 12, (w >> 9) & 7, (w >> 6) & 7, (w >> 4) & 3, w & 15
     if mode:
-        Y, ys = raw_value(imm.take(mode)), None
+        Y, ys = raw_value(imm.take(mode, y)), None
     else:
         Y = -regs[y & 7] if y & 8 else regs[y & 7]
     ys = f'r{y & 7}' if not mode else f'#{Y:.7g}'
@@ -166,6 +184,14 @@ def sfu(w, regs, imm, out):
     d, mode, y = (w >> 12) - 8, (w >> 4) & 3, w & 15
     Y = regs[y & 7]
     import math
+    if mode == 0 and y & 8:                         # 9f0d/8f09: x = rY; (x+1)/(2*2^k) in [0.5, 1): r(d) = (x-1)/(2*2^k),
+        X = Y                                       # rY = (x+1)/(2*2^k), r(d+1) ~ 1/rY; r(d)*r(d+1) = (x-1)/(x+1)
+        if X + 1:                                   # (log via atanh), measured 2026-10-17
+            m, e = math.frexp((X + 1) / 2)
+            k = 2.0 ** -e
+            out[d], out[y & 7] = (X - 1) / 2 * k, m
+            out[(d + 1) & 7] = 1 / m
+        return f'r{d}, r{y & 7}, r{d + 1} = atanh_split(r{y & 7})  ((x-1)/(x+1) = r{d} * r{d + 1})'
     if mode == 0 and not y & 8:                     # reciprocal seed: r(d) = sign * 2^-e, r(d+1) ~ 1/m (|Y| = 2^e m)
         if Y:
             m, e = math.frexp(abs(Y))
@@ -225,7 +251,7 @@ def b_op(w, regs, imm, out):
             return f'B:{w:04x} (r{d & 7}: no visible effect, program-start form)'
     if d >= 8 and b == 0xF:                          # ff70 / ef75 / ef74 (program start): no visible effect
         return f'B:{w:04x} (r{d & 7}: no visible effect, program-start form)'
-    Y = raw_value(imm.take(mode)) if mode else (-regs[y & 7] if y & 8 else regs[y & 7])
+    Y = raw_value(imm.take(mode, y)) if mode else (-regs[y & 7] if y & 8 else regs[y & 7])
     ys = f'#{Y:.7g}' if mode else ('-' if y & 8 else '') + f'r{y & 7}'
     X = regs[x]
     if d >= 8 and b == 0xE:              # 2026-10-17, bits 7-6: 0 = flags of r(d) + Y only (CMP/TST, no write),
@@ -237,9 +263,16 @@ def b_op(w, regs, imm, out):
         if sub == 1:
             out[d & 7] = Y
             return f'r{d & 7} = {ys}'
-        if sub == 3:
-            out[d & 7] = D + Y
-            return f'r{d & 7} = r{d & 7} + {ys}'
+        if sub == 3:                     # bits 5-4 select the function, Y bit 3 the variant (2026-10-17,
+            R, neg = regs[y & 7], y & 8  # re/dspshape.py): phase shaping
+            wrap = lambda v: (v + 1) % 2 - 1
+            f = {(0, 0): (D + R, f'r{d & 7} + r{y & 7}'), (0, 8): (D - R, f'r{d & 7} - r{y & 7}'),
+                 (1, 0): (abs(R), f'|r{y & 7}|'), (1, 8): (max(-1.0, min(1.0, R)), f'clamp(r{y & 7}, -1, 1)'),
+                 (2, 0): (wrap(R), f'wrap(r{y & 7})  ([-1, 1))'),
+                 (2, 8): (1 - 2 * abs(wrap(-R - 1.5)), f'tri(r{y & 7})  (1 - 2|wrap(-r{y & 7} - 1.5)|)'),
+                 (3, 0): ((R % 2) / 2, f'(r{y & 7} mod 2) / 2  (phase 0..1)'), (3, 8): (-R, f'-r{y & 7}')}[(mode, neg)]
+            out[d & 7] = f[0]
+            return f'r{d & 7} = {f[1]}'
         return f'B:{w:04x} (r{d & 7}, r{(d + 1) & 7}: unknown)'
     if d >= 8 and b & 0xE in (0, 2, 4, 6):   # min/max: Z = operands equal, N = sign of the result (measured max)
         _res[0] = None
@@ -250,6 +283,19 @@ def b_op(w, regs, imm, out):
         (1, 0x8): (abs(X), f'|r{x}|'), (1, 0xa): (abs(Y), f'|{ys}|'), (1, 0xe): (Y, ys),
     }
     k = (d >> 3, b & 0xE)                # odd b = same op with X in r4..r7 (measured: d150 d550 e190 e590)
+    if k[0] == 0 and k[1] <= 0xA:        # bitwise ops on two's-complement fixed point, result mod 512 (2026-10-17,
+        Q = 1 << 23                      # re/dspbits.py; a negative result reads as 512 + x: the old 7ffxxxxx)
+        xi, yi = int(round(X * Q)), int(round(Y * Q))
+        r, txt = {0: (xi & yi, '&'), 2: (~xi & yi, '&~'), 4: (xi | yi, '|'), 6: (~xi | yi, '|~'),
+                  8: (xi ^ yi, '^'), 0xA: (~(xi ^ yi), '^~')}[k[1]]
+        out[d & 7] = (r / Q) % 512
+        name = {0: f'r{x} & {ys}', 2: f'~r{x} & {ys}', 4: f'r{x} | {ys}', 6: f'~r{x} | {ys}', 8: f'r{x} ^ {ys}',
+                0xA: f'~(r{x} ^ {ys})'}[k[1]]
+        return f'r{d & 7} = {name}  (bits, mod 512)'
+    if k == (1, 0xC) and mode:           # 2026-10-17: mode 1: X*2^Y, mode 2: X*2^-Y, mode 3: X*2^-(16+Y)
+        sh = {1: y, 2: -y, 3: -16 - y}[mode]
+        out[d & 7] = X * 2.0 ** sh
+        return f'r{d & 7} = r{x} * 2^{sh}'
     if k == (1, 0xC):                    # frexp: X = m 2^e, m in [0.5, 1): r(d) = m, rY = e (0 -> 0, -31) [2026-10-16]
         import math
         m, e = math.frexp(X) if X else (0.0, -31)
@@ -268,10 +314,17 @@ def b_op(w, regs, imm, out):
 def mac(w1, w2, regs, imm, out):
     d, op1, x, ym, y = w1 >> 12, (w1 >> 9) & 7, (w1 >> 6) & 7, (w1 >> 4) & 3, w1 & 15
     z, op2, c, wm, wf = w2 >> 12, (w2 >> 9) & 7, (w2 >> 6) & 7, (w2 >> 4) & 3, w2 & 15
-    Y = raw_value(imm.take(ym)) if ym else regs[y & 7]
+    # the first immediate of the MAC is slot word (its field >> 1), the next ones follow it (2026-10-17, 0x148/0x248/
+    # 0x250/0x514 against the hardware)
+    # MAC immediates (2026-10-17, checked on the hardware): Y at byte Y and W at byte W of the slot array (their
+    # fields); C right after Y's immediate (sequential, skipping reference words), or at byte c if Y is a register
+    Y = raw_value(imm.take(ym, y)) if ym else regs[y & 7]
     cm = op2 >> 1
-    C = raw_value(imm.take(cm)) if cm else regs[c]
-    W = raw_value(imm.take(wm)) if wm else (-regs[wf & 7] if wf & 8 else regs[wf & 7])
+    if cm:
+        C = raw_value(imm.take(cm)) if ym else raw_value(imm.take(cm, c))
+    else:
+        C = regs[c]
+    W = raw_value(imm.take(wm, wf)) if wm else (-regs[wf & 7] if wf & 8 else regs[wf & 7])
     Z = -regs[z & 7] if z & 8 else regs[z & 7]
     if op1 < 2:
         return 'mac nop'
@@ -284,8 +337,8 @@ def mac(w1, w2, regs, imm, out):
     P1 = Y * regs[x]
     P2 = C * Z
     p1s, p2s = f'r{x}*{ys}', f'{cs}*{zs}'
-    if op2 == 0 and op1 >= 6:
-        P1, P2, p1s, p2s = regs[x], Z, f'r{x}', zs
+    if op2 == 0 and op1 >= 6:          # sum mode (op2 bit 9 = 0 with W): P2 = Z; P1 = X, or X*imm if Y is an imm
+        P1, P2, p1s, p2s = (P1 if ym else regs[x]), Z, (p1s if ym else f'r{x}'), zs
     r = (-P1 if op1 & 1 else P1) + (W if op1 & 2 else 0) + (P2 if op1 & 4 else 0)
     out[d & 7] = r / 2 if d >= 8 else r            # D >= 8: r(D-8) = result / 2 (measured)
     terms = [('-' if op1 & 1 else '') + p1s] + ([ws] if op1 & 2 else []) + ([p2s] if op1 & 4 else [])
@@ -318,9 +371,10 @@ def run(ins, regs, mem=None):
         if k == 'T' and (w >> 4) & 0xFF == 0xFE:
             used.add((w & 15) >> 1)
     nN = t.count('N')
-    imm_words = [w for i, w in enumerate(slot_words) if i >= nN and i not in used] if last_t >= 0 else \
-        [w for w, k in zip(body, t) if k == 'I']
-    imm = Imm(imm_words)
+    # the immediate stream = the whole slot array (N words included; references too, an op addresses its
+    # immediate by slot number Y >> 1); classes without transfers: the N and I words in order (2026-10-17)
+    imm_words = slot_words if last_t >= 0 else [w for w, k in zip(body, t) if k in 'NI']
+    imm = Imm(imm_words, {i for i in used} if last_t >= 0 else ())
     out, mem = list(regs), dict(mem or {})
     slots = slot_words if last_t >= 0 else [w for w, k in zip(body, t) if k in 'NR']
     n_words = iter([w for w, k in zip(body, t) if k == 'N'])
@@ -329,16 +383,21 @@ def run(ins, regs, mem=None):
     units = [i for i, k in enumerate(t) if k in 'ABMJ'] + [i for i, k in enumerate(t) if k == 'T']
     global FLAGS
     if FLAGS is None:
-        FLAGS = CONTEXT_BITS[CONTEXT]
+        FLAGS = CONTEXT_BITS[CONTEXT] + HIGH_BITS
     bits = FLAGS
     unit_res = {}
     upd = {}
     skip = set()
+    cls_ = ins[0] >> 5
     for w, k in zip(body, t):
         if k == 'C':
-            cc, neg, ua, ub = (w >> 9) & 15, (w >> 8) & 1, (w >> 4) & 15, w & 15
+            cc, neg, ua, ub = (w >> 9) & 31, (w >> 8) & 1, (w >> 4) & 15, w & 15
             cond = (bits[cc] == '1') != bool(neg)
             u = ua if cond else ub
+            if (ub if cond else ua) & 8:          # the chosen field only acts if bit 3 of the other field is 0
+                u = 0                             # (sweeps of classes 0x0b8/0x168; `00c1` in 0x148, 2026-10-17)
+            if cls_ == 0x190 and u == 2:          # class 0x190 (A C C): field 2 also skips the op (measured
+                u = 1                             # 2026-10-17, re/dspcreal.py; class-specific unit slots)
             if 1 <= u <= len(units):
                 skip.add(units[u - 1])
     for pos, (w, k) in enumerate(zip(body, t)):
@@ -380,7 +439,7 @@ def run(ins, regs, mem=None):
                 HIDDEN[tg] = v / 16384
                 text.append(f'h{tg} = {v:#x}/16384 = {v / 16384:g}')
         elif k == 'C':
-            cc, neg, a_, b_ = (w >> 9) & 15, (w >> 8) & 1, (w >> 4) & 15, w & 15
+            cc, neg, a_, b_ = (w >> 9) & 31, (w >> 8) & 1, (w >> 4) & 15, w & 15
             text.append(f'C: if {"!" if neg else ""}cond{cc} skip unit {a_ or "-"} else skip unit {b_ or "-"}')
         elif k == 'T':
             reg, slot, mode = w >> 12, (w & 15) >> 1, (w >> 4) & 0xFF
@@ -427,8 +486,10 @@ def coverage(directory):
     import collections, glob, dspmc, dspdis
     tot = ok = 0
     bad = collections.Counter()
-    for f in sorted(glob.glob(os.path.join(directory, '*.bin'))):
-        for pos, ins in dspdis.instructions(dspmc.blob_words(f)):
+    files = sorted(glob.glob(os.path.join(directory, '*.bin')) + glob.glob(os.path.join(directory, '*.txt')))
+    for f in files:
+        w = dspmc.blob_words(f) if f.endswith('.bin') else [int(t, 16) for t in open(f).read().split()]
+        for pos, ins in dspdis.instructions(w):
             tot += 1
             try:
                 _, _, text = run(ins, [0.0] * 8)
@@ -463,7 +524,7 @@ def main():
         print(text)
         print(' '.join(f'r{i}={v:+.6g}' for i, v in enumerate(out) if v != regs[i]) or 'no change')
         run([0x0001], out)              # one more instruction (a no-op) for the flag latency
-        print('flags (cond 0..15):', ' '.join(FLAGS[i:i + 4] for i in range(0, 16, 4)))
+        print('flags (cond 0..31):', ' '.join(FLAGS[i:i + 4] for i in range(0, 32, 4)))
         return
     import dspmc, dspdis
     w = dspmc.blob_words(a.arg) if a.arg.endswith('.bin') else [int(t, 16) for l in open(a.arg) for t in l.split('#')[0].split()]

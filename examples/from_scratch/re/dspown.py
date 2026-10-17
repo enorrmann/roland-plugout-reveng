@@ -53,7 +53,10 @@ def freq(x, rate=da.RATE):
     f = np.fft.rfft(x, 2 * n)
     ac = np.fft.irfft(f * np.conj(f))[:n]
     lo = int(rate / 4000)
-    k = lo + int(np.argmax(ac[lo:n // 2]))
+    seg = ac[lo:n // 2]
+    # first local maximum within 90 % of the best one (argmax alone can pick 2 periods)
+    peaks = [i for i in range(1, len(seg) - 1) if seg[i] >= seg[i - 1] and seg[i] >= seg[i + 1] and seg[i] > 0.9 * seg.max()]
+    k = lo + (peaks[0] if peaks else int(np.argmax(seg)))
     if 1 <= k < n - 1:
         a, b, c = ac[k - 1], ac[k], ac[k + 1]
         k = k + 0.5 * (a - c) / (a - 2 * b + c)
