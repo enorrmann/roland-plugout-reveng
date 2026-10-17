@@ -9,11 +9,14 @@ of both slaves (DCO2 slot, through dsplive), then leaves the player running.
     python3 wt5.py send TABLE.wav ... --dry                # only write the programs (work/wt5/)
     python3 wt5.py info TABLE.wav                          # frames in the file, what would be used
 
-Needs the slave lab (DSPLIVE plugin in slot 3, PLG3 selected) and no other MIDI tool running. Takes ~10 s.
+Needs the slave lab (DSPLIVE plugin in slot 3, PLG3 selected) and no other MIDI tool running. Time (15 ms per MIDI
+command): table 438 commands (~6.6 s) + player ~280 words (~4 s, less when only some words change); --code ~2 min.
 
-Transfer: the ARM cannot reach the slaves' bank 5, so the table travels as code: fill programs (move + store per
-point; bank 5 takes ONE store per instruction) of --chunk points each run with the player for a moment, then the
-player alone is loaded; the table stays in bank 5 (plain memory, DSP_USOS.md §2b).
+Transfer (default, needs a lab built with the 2026-10-17 engine): the table goes as DATA, one MIDI command per point
+(18-bit fixed point, 2^-17 steps) for DSP2 and DSP3 at once; the slave engine (DSPLIVE) converts each value to RAW
+and stores it into bank 5 itself; then the player program is loaded (both DSPs per command, only the changed words).
+--code: the old way for older labs: the table travels as fill programs (move + store per point; bank 5 takes ONE
+store per instruction) of --chunk points each, run with the player for a moment, then the player alone.
 Conversion: frames picked evenly over the file, FFT-resampled to N points (band-limited), DC removed, one common
 peak of 0.9.
 Layout: frame k at BASE + k*(N+1): N points + a copy of point 0 (wrap). Space 0x048..0x1FD = 438 words
@@ -140,7 +143,9 @@ def main():
     ap.add_argument('--points', type=int, default=None, help='default: as many as fit')
     ap.add_argument('--frame', type=float, default=0.0)
     ap.add_argument('--scan', type=float, default=None, help='LFO rate (Hz) scanning all frames')
-    ap.add_argument('--chunk', type=int, default=200, help='table words written per fill program')
+    ap.add_argument('--code', action='store_true', help='send the table as fill programs (labs built before the '
+                    'bank-5 command, ~2 min)')
+    ap.add_argument('--chunk', type=int, default=200, help='--code: table words written per fill program')
     ap.add_argument('--dry', action='store_true', help='only write the programs')
     a = ap.parse_args()
     K = a.frames
@@ -155,7 +160,7 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     name = os.path.splitext(os.path.basename(a.wav))[0].replace(' ', '_')
     progs = []
-    for lo in range(0, len(table), a.chunk):
+    for lo in range(0, len(table), a.chunk) if a.code else ():
         progs.append(program(table, N, K, a.frame, a.scan, (lo, min(len(table), lo + a.chunk))))
     progs.append(program(table, N, K, a.frame, a.scan))
     paths = []
@@ -170,9 +175,17 @@ def main():
     if a.dry:
         return
     import dspown
+    t0 = time.time()
+    if not a.code:              # the table as data: one MIDI command per point, both DSPs (engine DSPLIVE bank-5 mode)
+        import dsplive
+        link = dsplive.Link()
+        link.write_b5(BASE, table)
+        link.center()
+        print(f'table sent: {len(table)} words in {time.time() - t0:.1f} s')
     for p in paths:
         dspown.load(p)
         time.sleep(0.3)
+    print(f'done in {time.time() - t0:.1f} s')
     print(f'table in bank 5 [{BASE:#x}..{BASE + len(table):#x}), playing {os.path.basename(paths[-1])}')
 
 

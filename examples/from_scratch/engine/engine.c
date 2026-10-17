@@ -99,14 +99,17 @@ static dspdesc_t dco2_prog[2][NW] = { DCO2_PROGS, DCO2_PROGS };
    and then CC1 (command, voice id 0x467); both reach every slave as parameters. The engine acts
    when 0x467 changes (bit 6 toggles on every command) and reads 0x465 from the slave's store:
      0x467 = seq<<6 | cmd<<4 | ext   (P = bend + 0x2000, 14 bits)
-     cmd 0 ADDR  dsp = 2 + (ext & 1), cur = P (16-bit word index in execution order, from the slot)
-     cmd 1 DATA  word = P | (ext & 3) << 14 -> the DCO2 slot at cur, cur++
+     cmd 0 ADDR  dsp = 2 + (ext & 1), cur = P (16-bit word index in execution order, from the slot);
+                 ext & 2: both DSP2 and DSP3 (one command writes both); ext & 4: target = bank 5 (cur = word)
+     cmd 1 DATA  program: word = P | (ext & 3) << 14 -> the DCO2 slot at cur, cur++
+                 bank 5:  x = P | ext << 14 (18 bits, two's complement), value = x / 2^17 -> RAW -> bank 5
+                          word cur & 0x3FF of the DSP(s) (DPCn RAW view 0x4111E000 + 0x4000 (n - 2)), cur++
      cmd 2 CTRL  ext 0: restore t0/t1 as built; ext 1: nop
    The slave OS writes program memory with plain 32-bit stores (s_boot 0x011100DE: DSP n at
    0x41480000 + n * 0x100000 + slot address); we keep a shadow of each slot and store whole words. */
 #define LIVE_WORDS 0x800                     /* 32-bit words per slot shadow (8 KiB) */
 static uint32_t live_shadow[2][LIVE_WORDS] = { { 1 } };   /* nonzero: kept out of .bss */
-static int live_dsp = 2, live_cur, live_last = -1;
+static int live_dsp = 2, live_cur, live_last = -1, live_both, live_b5;
 #endif
 #define D8 DATA(0x0008, 8)
 #define D10 DATA(0x0010, 8)
@@ -355,6 +358,20 @@ static void read_params(engine_t *e)
 #ifdef DSPLIVE
 static volatile uint32_t *live_prog(int dsp) { return (volatile uint32_t *)(0x41480000u + dsp * 0x100000u + SLOT_DCO2); }
 
+/* bank 5 (DPC) of slave DSP n, RAW view (as the master's, DSP_ARM_SIDE.md: 0x41114000 + n * 0x4000 + 0x2000) */
+static volatile uint32_t *live_bank5(int dsp) { return (volatile uint32_t *)(0x41114000u + dsp * 0x4000u + 0x2000u); }
+
+/* 18-bit two's complement x = value * 2^17 -> DSP RAW word (sign-magnitude, value = +-M / 2^(32 - 4 s), smallest s
+   with M < 2^29: s = 0 for |value| < 1/8, else s = 1; |value| < 1) */
+static uint32_t live_raw18(uint32_t x)
+{
+    int32_t v = (int32_t)(x << 14) >> 14;
+    uint32_t sign = v < 0 ? 0x80000000u : 0, m = (uint32_t)(v < 0 ? -v : v);
+    if (m < (1u << 14))
+        return m ? sign | m << 15 : 0;
+    return sign | 1u << 29 | m << 11;
+}
+
 static void live_restore(int k)
 {
     const dspdesc_t *p = &dco2_prog[k][0];
@@ -375,15 +392,28 @@ static void live_cmd(int m)
     int p = (os_get(2, 0x465) + 0x2000) & 0x3FFF;   /* stored signed or as 16 bits */
     if (cmd == 0) {
         live_dsp = 2 + (ext & 1);
+        live_both = (ext >> 1) & 1;
+        live_b5 = (ext >> 2) & 1;
         live_cur = p;
+    } else if (cmd == 1 && live_b5) {
+        uint32_t raw = live_raw18((uint32_t)(p | ext << 14));
+        for (int d = 2; d <= 3; d++)
+            if (live_both || d == live_dsp)
+                live_bank5(d)[live_cur & 0x3FF] = raw;
+        live_cur++;
     } else if (cmd == 1) {
         if (live_cur >= 2 * LIVE_WORDS)
             return;
-        int k = live_dsp - 2, i = live_cur >> 1;
-        uint32_t w = (uint32_t)(p | (ext & 3) << 14), x = live_shadow[k][i];
-        x = live_cur & 1 ? (x & 0xFFFF0000u) | w : (x & 0xFFFFu) | w << 16;   /* upper half first */
-        live_shadow[k][i] = x;
-        live_prog(live_dsp)[i] = x;
+        uint32_t w = (uint32_t)(p | (ext & 3) << 14);
+        for (int d = 2; d <= 3; d++) {
+            if (!live_both && d != live_dsp)
+                continue;
+            int k = d - 2, i = live_cur >> 1;
+            uint32_t x = live_shadow[k][i];
+            x = live_cur & 1 ? (x & 0xFFFF0000u) | w : (x & 0xFFFFu) | w << 16;   /* upper half first */
+            live_shadow[k][i] = x;
+            live_prog(d)[i] = x;
+        }
         live_cur++;
     } else if (cmd == 2 && ext == 0) {
         live_restore(0);

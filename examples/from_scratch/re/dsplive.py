@@ -9,9 +9,12 @@
 Transport (no region 0 changes): pitch bend carries 14 data bits (voice id 0x465), then CC1 carries
 the command (voice id 0x467); the stock-path region 0 forwards both to the slaves, whose engine acts
 when 0x467 changes (bit 6 toggles every command):
-    CC1 = seq<<6 | cmd<<4 | ext     cmd 0 ADDR (dsp 2 + ext, word index = bend)
-                                    cmd 1 DATA (word = bend | ext<<14, stored at the index, index++)
+    CC1 = seq<<6 | cmd<<4 | ext     cmd 0 ADDR (dsp 2 + (ext & 1), word index = bend; ext & 2: both DSPs,
+                                               ext & 4: bank 5 instead of the program)
+                                    cmd 1 DATA (program: word = bend | ext<<14; bank 5: 18-bit value*2^17,
+                                               stored at the index, index++)
                                     cmd 2 CTRL (ext 0 restore, ext 1 nop)
+    (both-DSP and bank-5 modes 2026-10-17: Link.write(..., both=True), Link.write_b5; need a lab built after that)
 Words = 16-bit microcode words in execution order, written into the DCO2 slot of DSP2 (t0, paths
 d2a/d2b) or DSP3 (t1, d3a/d3b). Both slaves receive the same pokes. Only changed words are sent;
 the state of what is loaded is kept in work/dsplive/state.json.
@@ -49,10 +52,17 @@ class Link:
                             0xB0 | self.ch, 1, self.seq << 6 | cmd << 4 | ext]))
         time.sleep(self.delay)
 
-    def write(self, dsp, start, words):
-        self.cmd(0, dsp - 2, start)
+    def write(self, dsp, start, words, both=False):
+        self.cmd(0, (dsp - 2) | (2 if both else 0), start)
         for w in words:
             self.cmd(1, w >> 14, w & 0x3FFF)
+
+    def write_b5(self, start, values, dsp=2, both=True):
+        """bank-5 words start.. of DSP2/DSP3 = values (|v| < 1, 18-bit fixed point, 2^-17 steps): one command each"""
+        self.cmd(0, (dsp - 2) | (2 if both else 0) | 4, start)
+        for v in values:
+            x = max(-(1 << 17), min((1 << 17) - 1, int(round(v * (1 << 17))))) & 0x3FFFF
+            self.cmd(1, x >> 14, x & 0x3FFF)
 
     def center(self):
         self.f.write(bytes([0xE0 | self.ch, 0, 0x40]))

@@ -373,17 +373,25 @@ python3 re/wt5.py send TABLA.wav --frames 8 --scan 0.25   # LFO que recorre los 
 python3 re/wt5.py send TABLA.wav --points 256             # menos puntos que el máximo
 python3 re/wt5.py info TABLA.wav                          # cuadros del archivo y cuáles se usarían
 python3 re/wt5.py send TABLA.wav --dry                    # sólo escribe los programas en work/wt5/
+python3 re/wt5.py send TABLA.wav --code                   # vía vieja (tabla como programas), labs anteriores
 ```
 
 Requisitos: laboratorio de los slaves instalado (slot 3, DSPLIVE) con PLG3 elegido; ninguna otra herramienta MIDI
-corriendo. Tarda ~10 s (3 programas de llenado + el reproductor). `python3 re/dspown.py restore` vuelve al silencio.
+corriendo. **Tiempo** (dsplive: 1 comando MIDI cada 15 ms): tabla máxima = 438 comandos ≈ 6.6 s + reproductor ≈ 280
+palabras ≈ 4 s (menos si sólo cambian algunas) → **≈ 11 s**. Con `--code` (la vía vieja) ≈ 2 min. `python3 re/dspown.py restore` vuelve al silencio.
 
 * **Entrada**: WAV PCM 8/16/24/32 o float 32/64 (`wav2dco.read_wav`); tablas tipo Serum (chunk `clm ` con el
   tamaño de cuadro, 2048 por defecto) o un ciclo suelto. Cuadros elegidos parejos en el archivo, remuestreo FFT a N
   puntos (limitado en banda), sin DC, pico común 0.9.
 * **Espacio**: banco 5 0x048–0x1FD = 438 palabras (Roland usa A000–A047, A200–A205, A300–A303). Cada cuadro ocupa
   N + 1 (copia del punto 0 para interpolar): K·(N+1) ≤ 438 → 1 × 437, 2 × 218, 4 × 108, 8 × 53, 16 × 26.
-* **Transferencia**: el ARM no llega al banco 5 de los slaves, así que la tabla viaja como código: programas de
+* **Transferencia (por defecto, lab construido desde el 2026-10-17)**: la tabla viaja como **datos**: un comando
+  MIDI por punto (18 bits en punto fijo, pasos de 2⁻¹⁷) para DSP2 y DSP3 a la vez; el engine del slave (DSPLIVE)
+  convierte a RAW y lo guarda él mismo en el banco 5 (vista RAW del DPC, 0x4111E000 + 0x4000·(n−2)). Los programas
+  también van a los dos DSP con un comando por palabra y sólo se mandan las palabras que cambiaron
+  (`dspown.load`; `OWN_FULL=1` manda todo, `OWN_BOTH=0` para labs viejos). Protocolo en `engine.c` / `re/dsplive.py`:
+  ADDR ext bit 1 = los dos DSP, bit 2 = banco 5. Test emulado: `engine/test_live.py --modes`.
+* **Transferencia vieja (`--code`)**: la tabla viaja como código: programas de
   llenado (`move imm32` + `store` por punto — el banco 5 acepta **un solo store por instrucción**) de `--chunk` = 200
   puntos (500 instrucciones) que corren junto con el reproductor, y al final el reproductor solo (100 instrucciones
   con 1 cuadro, 114 con LFO). La tabla persiste (memoria simple).

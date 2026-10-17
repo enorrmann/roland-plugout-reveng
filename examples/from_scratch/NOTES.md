@@ -709,6 +709,16 @@ Idea del usuario: correr los binarios ARM originales en un emulador de CPU y esc
 * Oído en los slaves: seno de 437 puntos limpio; sierra (2 × 218) bien. `--scan` sin validar. Al cerrar quedó
   sonando la tabla de 8 cuadros con `--scan 0.25` en la ranura DCO2.
 
+## Envío rápido de tablas: comandos DSPLIVE nuevos (2026-10-17, noche)
+* `engine.c` (DSPLIVE): ADDR ext bit 1 = escribir DSP2 y DSP3 con un comando; ext bit 2 = destino banco 5: DATA =
+  18 bits (valor·2¹⁷, complemento a 2) → RAW (`live_raw18`) → DPC RAW del slave (0x41114000 + 0x4000·n + 0x2000).
+  `re/dsplive.py`: `Link.write(..., both=True)`, `Link.write_b5(start, values)`. `re/dspown.py load`: los dos DSP a
+  la vez y sólo las palabras cambiadas (`OWN_FULL=1`, `OWN_BOTH=0`). `re/wt5.py`: tabla como datos por defecto
+  (`--code` = vía vieja). Antes ≈ 2 min por tabla máxima, ahora ≈ 11 s (estimado: 15 ms por comando).
+* Test emulado `engine/test_live.py --modes` OK (escritura doble y banco 5, valores RAW exactos). Lab reinstalado
+  en el slot 3 (DSPLIVE + PEEK, `lab_pad4k`, `dco1_=z_dco1.txt`), `state.json` = lab instalado.
+* Que el ARM del slave pueda escribir su banco 5 está supuesto por el mapa del maestro: verificar en el equipo.
+
 ## Próximos pasos del ISA (para seguir)
 Referencia: `DSP_ISA_SPEC.md` (especificación, manda), `DSP_ISA.md` (resumen), `DSP_ARM_SIDE.md` (mapa de bancos
 del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD/wavetables propios, laboratorio, presupuesto de tiempo).

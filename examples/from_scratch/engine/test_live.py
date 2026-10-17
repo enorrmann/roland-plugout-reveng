@@ -5,6 +5,7 @@ Boots the engine in emu1 with the DSP program memory mapped, replays what dspliv
 hold the new programs, then that restore brings back the built ones.
 
 usage: python3 test_live.py <batch> <path>=<file> ...     (e.g. l00.batch d2a=d00_zero.txt)
+       python3 test_live.py --modes        # 2026-10-17: both-DSP program writes and bank-5 data writes
 """
 import os, struct, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,7 +38,32 @@ class FakeLink(L.Link):
         self.eng.setp(0x467, self.seq << 6 | cmd << 4 | ext)
 
 
+def modes():
+    """one command writes DSP2 and DSP3; bank-5 values (18-bit fixed point) land as RAW in both DPC RAW views"""
+    import dspasm as A
+    eng = Eng({}, 0)
+    for d in (2, 3):
+        eng.e.uc.mem_map(0x41480000 + d * 0x100000, 0x10000)
+    for d in (2, 3):
+        eng.e.uc.mem_map(0x41114000 + d * 0x4000 + 0x2000, 0x1000)
+    eng.boot()
+    link = FakeLink(eng)
+    words = [0x0A02, 0xFF70, 0x1234, 0x5678, 0x0B02, 0x00F8, 0x0001, 0x0000]
+    link.write(2, 0, words, both=True)
+    for d in (2, 3):
+        assert prog_mem(eng.e, d, 4)[:4] == packed(words)[:4], f'd{d}: both-DSP write'
+    vals = [0.0, 0.5, -0.5, 0.1, -0.1, 0.9, -0.9, 0.12, 1 / 131072, -0.999]
+    link.write_b5(0x48, vals)
+    for d in (2, 3):
+        got = struct.unpack('<%dI' % len(vals), eng.e.uc.mem_read(0x41114000 + d * 0x4000 + 0x2000 + 4 * 0x48, 4 * len(vals)))
+        want = [A.raw(round(v * 131072) / 131072) for v in vals]
+        assert list(got) == want, (d, [hex(x) for x in got], [hex(x) for x in want])
+    print('both-DSP program write OK, bank-5 data write OK (DSP2 and DSP3)')
+
+
 def main():
+    if sys.argv[1] == '--modes':
+        return modes()
     batch = sys.argv[1]
     if not os.path.exists(batch):
         batch = os.path.join(HERE, '..', 're', 'dspexp', 'audio', batch)
