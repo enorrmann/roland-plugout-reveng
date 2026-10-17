@@ -2,9 +2,10 @@
 
 Guía práctica para quien escriba microcódigo propio (o el futuro compilador / SDK). **La especificación que manda
 es `DSP_ISA_SPEC.md`**; acá sólo se resume qué se puede construir con cada cosa, con secuencias mínimas tal como se
-midieron. Cada sección dice **dónde se midió** (DSP y contexto). Nada de lo nuevo del 2026-10-16 se escuchó
-todavía por audio: está verificado leyendo memoria con el peek (`re/dsptap.py`, `re/dsprdly.py`, `re/dspidx.py`,
-`re/dsphreg.py`, `re/dspidxring.py`, `re/dspbus.py`, `re/dspbus2.py`). Historia y evidencia cruda: `NOTES.md` ("Tomas de retardo", "Registros ocultos").
+midieron. Cada sección dice **dónde se midió** (DSP y contexto). Lo del 2026-10-16 está verificado leyendo
+memoria con el peek (`re/dsptap.py`, `re/dsprdly.py`, `re/dspidx.py`, `re/dsphreg.py`, `re/dspidxring.py`,
+`re/dspbus.py`, `re/dspbus2.py`); el 2026-10-17 se oyeron en los slaves el retardo indexado (§2) y el banco 5
+indexado (§2b); la línea de retardo del §1 todavía no se oyó. Historia y evidencia cruda: `NOTES.md` ("Tomas de retardo", "Registros ocultos").
 
 Reglas que valen para todo (de `DSP_ISA_SPEC.md`):
 * ≈ 925–945 instrucciones por muestra y por DSP (96 kHz); una instrucción A/A/B cuesta un ciclo. Pasarse puede dejar
@@ -25,7 +26,9 @@ Reglas que valen para todo (de `DSP_ISA_SPEC.md`):
 * Filtros peine (comb) de realimentación y feed-forward, all-pass de Schroeder → bloques de reverb.
 * Karplus-Strong (cuerda pulsada): retardo = período, realimentación con promedio de dos muestras (las dos
   muestras vecinas que ya entrega la toma sirven de filtro paso bajo).
-* Multi-tap: varias tomas por muestra (Roland usa dos: `[4301..]` y `[4304..]`).
+* Multi-tap: varias tomas por muestra (Roland usa dos: `[4301..]` y `[4304..]`). **Medido 2026-10-17: 24 tomas por
+  muestra funcionan** (cada una con su `0b03 4050 <dest>`, resultados en tríos `[4301+3k..]`; `re/dspmtap.py`), el
+  límite no apareció.
 * Idea: pitch shifter de dos tomas con rampas cruzadas.
 * Retardos largos y exactos a la muestra: se midió hasta 8.6 s (u = 50.648).
 
@@ -53,7 +56,8 @@ posición dentro del programa. Base 324 ⇒ el retardo es directamente u.
   en los slaves (donde corren los chorus del J60/JX).
 * La escritura de `[4300]` cae en la posición 324 (fija, la pone el ARM); una base menor que 324 lee "el futuro"
   (ceros). Largo de la línea desconocido: u = 100 ya no devuelve nada.
-* La fracción se midió exacta en 0.25 / 0.5 / 0.75; la resolución fina no está medida.
+* **La fracción tiene 6 bits (1/64), truncada** (2026-10-17: 0.4 → 25/64, 0.8 → 51/64, 0.2 → 12/64): la
+  interpolación lineal de la toma tiene pasos de 1/64 de muestra.
 * Leer toda la WMEM (0x41300000) desde el ARM con un programa propio en esta ranura colgó el maestro una vez.
 
 ---
@@ -91,15 +95,63 @@ parámetro).
 **Límites / cuidado.**
 * Hay que **reservar el rango de referencias S..S+kmax** del banco 0: ningún otro código de ese DSP puede guardar
   ahí (los programas de Roland comparten el banco y su anillo).
-* **Wavetables fijas en memoria: siguen abiertas.** Una tabla guardada una vez en el banco 0 no queda en su lugar:
-  se corre una palabra por muestra y los stores de los demás programas barren todo el banco en 2048 muestras. Haría
-  falta un destino indexado que no sea anillo (por ejemplo el banco 5, memoria simple); no se encontró todavía (las
-  direcciones > 0x7FF vuelven al banco 0). Mientras tanto las wavetables siguen con inmediatos (`CUSTOM_OSC.md`:
-  una A/A/B por punto, ≤ 290 puntos).
-* Por la misma razón las LUT (waveshaping, curvas) no se pueden guardar fijas en el banco 0.
-* No probado todavía en los slaves ni por audio.
+* **Tablas fijas: usar el banco 5 (§2b).** En el banco 0 una tabla fija sólo sobrevive si **ningún** programa del
+  DSP guarda en el banco 0: compensando el anillo con un contador de muestras del banco 5 (h6 = T + n) 8 marcadores
+  duraron 3 s en el DSP3 del maestro (ocioso); un solo store común los borró en < 10 ms (barre las 2048 palabras).
+  `re/dspb0fix.py`. Sirve sólo en un DSP entero propio con el estado en el banco 5.
+* **Verificado por audio en los slaves** (2026-10-17, ranura DCO2, `re/dspb0dly.py`): SAW + SAW retrasada 92
+  muestras con `[h6]` indexado → la nota 72 sale una octava arriba (1045.9 Hz: el fundamental se cancela); con
+  k = 0 vuelve la SAW (523.6 Hz). h6 y el modo `28` funcionan igual en los slaves.
 
 ---
+
+## 2b. Banco 5 indexado: `da`/`de` (h6), `db`/`df` (h7), `d0`–`d7` (directo) — *medido 2026-10-17: maestro DSP3 exacto, slaves por audio*
+
+**Qué hace.** Modos de transferencia sobre el **banco 5, memoria simple (sin anillo)**, sin palabra de referencia:
+
+| palabra | efecto |
+|---|---|
+| `XdaY` / `XdeY` | X 0–7: rX ← banco5[⌊h6·16384⌋ + Y]; X 8–15: banco5[…] ← r(X−8) |
+| `XdbY` / `XdfY` | lo mismo con **h7** (`40c0` = h7 ← r0) |
+| `Xd0Y` … `Xd7Y` | banco5[N·16 + Y] (dirección directa 0x00–0x7F en la palabra) |
+
+* Índice truncado (h6 = 0x10.75 → 0x10); una instrucción entre `4080` y la carga alcanza.
+* **1024 palabras persistentes**: índice mod 0x400 (0x800, 0xC00, 0x1000… son alias; `re/dspb5alias.py`). Con el
+  bit 10 (0x400–0x7FF) lo guardado se lee sólo en la misma muestra y no queda: Roland usa A400–A427 como temporales.
+  El ARM ve 0x000–0x3FF (DPC*n* RAW) y puede escribirlo (en el maestro).
+* Límite del banco 5: **1 carga por instrucción** (dos lecturas vecinas para interpolar = dos instrucciones).
+* `d8`/`d9`/`dc`/`dd` leen direcciones que cambian con el tiempo: [desconocido], no usar. Otros modos (`80`–`8f`,
+  `b0`–`bf`, `c0`–`cf`, `f0`–`ff`, `e0`–`ef`) leen otras cosas, `90`–`af` y `f5`–`f7` no cargan (`re/dspmodescan.py`).
+
+**Uso en Roland** (refs `Annn` del corpus): A000–A047, A200–A205, A300–A303, A4xx. **Libre en general:
+0x048–0x1FF y 0x306–0x3BF** (en el maestro A3C0.. lo usan nuestras pruebas).
+
+**Usos.**
+* **Wavetables verdaderas**: tabla en el banco 5, índice = fase · N + base → h6, una carga (`0daY`), interpolación
+  con una segunda carga `[h6+1]` y la MAC lerp. Costo por voz ≈ 10 instrucciones, sin importar N (hasta ~440 puntos
+  contiguos), contra 1 instrucción por punto de la versión con inmediatos.
+* Morph entre cuadros (dos lecturas con h6 y h7 + lerp), varias tablas por DSP, LUT de waveshaping, curvas
+  (envolventes, velocidad, afinación), secuencias.
+* Estado persistente sin el anillo: con el estado en el banco 5 también es posible una tabla fija en el banco 0.
+
+**Verificado en los slaves por audio** (`re/dspb5osc.py`, ranura DCO2): tabla de 16 puntos en A100 → triángulo
+(armónicos 1, 0, 0.111, 0, 0.042 = 1/n² impares) y cuadrada (1, 0, 0.315, 0, 0.180 = 1/n impares); con un programa
+que sólo lee (sin escribir la tabla) el sonido sigue igual > 10 s: la tabla persiste y las voces A y B la comparten.
+
+**Secuencia mínima** (fase r1 ∈ [−1, 1), tabla de N puntos en la base B):
+
+```
+r0 = r1 · (N/2)/16384                  (A mul imm)
+r0 = r0 + (B + N/2)/16384              (A add imm)
+0b02 4080                              h6 = r0
+0001                                   (una instrucción en el medio)
+0c02 2da0                              r2 <- banco5[h6]
+0001 0001                              latencia
+```
+
+**Cuidado.** Llenar la tabla desde el DSP (en los slaves el ARM no llega): N stores con inmediatos, una vez (saltar
+el bloque con un salto cuando ya está lleno) o repartido en varias muestras. El banco 5 lo comparten todos los
+programas del DSP: respetar las direcciones de Roland.
 
 ## 3. Registros ocultos h4–h7 y palabras `40TY` — *medido: maestro DSP4 `f7dc` y DSP3*
 
@@ -111,7 +163,7 @@ La op A 0 con sub-código 4/5 suma h4/h5: **rD = D + Y + h4** (o h5).
 * h4/h5 como **constantes que no ocupan registro** (ni inmediato en cada uso): cargar una vez por muestra y sumar
   con la op A 0 sub 4/5. Ojo: h4 y h5 también los usa el motor de retardo.
 * `40TY` en modo 0 copia un registro a h4..h7 (con wrap mod 512).
-* h6 = índice del modo `28` (§2). h7 (`40c5` en un efecto del JX): uso desconocido.
+* h6 = índice del modo `28` (§2) y de `da`/`de` (§2b). **h7 = índice de `db`/`df`** (§2b; `40c0` = h7 ← r0).
 
 **Cuidado.** Los valores por defecto los deja otra tarea (DSP4: h4 = 288, h5 = 0x105/16384); un programa propio
 debe fijarlos antes de usarlos. Modo 3 (imm32) carga 0.
@@ -200,18 +252,20 @@ ARM; las lecturas sueltas del banco 0 caen en otras referencias por el anillo.
 * **Reverb chica**: 4 combs + 2 all-pass usando varias tomas de la misma línea.
 * **Karplus-Strong** en la línea de retardo (cuerda pulsada polifónica limitada por número de tomas).
 * **Chorus / vibrato en los slaves** con la línea indexada del banco 0 (§2), sin depender del DMA del maestro.
-* Waveshaper / LUT y wavetable indexada con morph: sólo si aparece un modo indexado sobre memoria no anillo.
+* **Waveshaper / LUT y wavetable indexada con morph**: tablas en el banco 5 (§2b), h6 y h7 para dos cuadros.
 * **Compresor / limitador**: RMS con `cf16` → dB con `cf26` → curva → ganancia con `8f19`.
 * **Efecto repartido en dos DSP** por MXM (DSP3 Z/S → DSP4 O), o un LFO común enviado por el bus.
 
 ## Qué falta verificar antes de usarlo
 
-1. Todo lo de §1–§2 **por audio** (nada se escuchó todavía).
-2. Un destino indexado que no sea anillo (¿banco 5?) para tablas fijas; qué rango del banco 0 está libre en
-   cada DSP para una línea indexada.
-3. Indexado y registros ocultos en los **slaves** (laboratorio PLG3).
-4. Cómo obtener una ventana de retardo fuera de `0xF7DC` (configuración del ARM) y el largo real de la línea.
-5. Cuántas tomas por muestra admite el DMA; resolución de la fracción.
-5b. Latencia del bus MXM, MXM/IOMD en los slaves, escritura desde el ARM; MAC op2 = 011; resto de `8f09`.
-6. h7, modo imm32 de `40TY`, otros bytes bajos de `40xx`.
-7. `X9bY` (sigue sin decodificar; no aparece en ninguna ventana visible desde el ARM; no usar).
+Hecho el 2026-10-17: §2 por audio en los slaves, tablas fijas (banco 5 indexado, §2b), indexado y h6 en los slaves,
+cantidad de tomas (≥ 24) y fracción (1/64), h7 (índice de `db`/`df`). `X9bY` = banderas (§5c). Latencia MXM = 1
+muestra (`DSP_HARDWARE.md` §8).
+
+1. §1 (línea de retardo) **por audio**: está medido exacto con el peek, falta oírlo por la salida.
+2. Cómo obtener una ventana de retardo fuera de `0xF7DC` (configuración del ARM) y el largo real de la línea.
+3. MXM/IOMD en los slaves, escritura del ARM en MXM; MAC op2 = 011; resto de `8f09`.
+4. Modo imm32 de `40TY` (carga 0), otros bytes bajos de `40xx`; modos `d8`/`d9`/`dc`/`dd` del banco 5; qué es la
+   zona 0x400–0x7FF del banco 5 (sólo la misma muestra).
+5. Banco 5 en los slaves: qué direcciones usan los programas de cada DSP (el corpus da la unión) y si el ARM del
+   slave puede escribirlo (para cargar tablas sin código).

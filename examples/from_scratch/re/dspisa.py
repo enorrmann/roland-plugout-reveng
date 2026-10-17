@@ -468,6 +468,21 @@ def run(ins, regs, mem=None):
                 else:
                     mem[ia] = regs[reg - 8]; text.append(f'[h6+{w & 15}] <- r{reg - 8}')
                 continue
+            if mode in (0xDA, 0xDE, 0xDB, 0xDF) or 0xD0 <= mode <= 0xD7:
+                # bank 5, plain memory (2026-10-17): da/de [h6+Y], db/df [h7+Y], d0-d7 direct address N*16+Y;
+                # 1024 persistent words (index mod 0x400; 0x400-0x7FF behave differently, not modelled)
+                if mode >= 0xDA:
+                    ia = int(HIDDEN[6 if mode in (0xDA, 0xDE) else 7] * 16384) + (w & 15)
+                    tag = f'[h{6 if mode in (0xDA, 0xDE) else 7}+{w & 15}]'
+                else:
+                    ia = (mode & 7) << 4 | (w & 15)
+                    tag = f'[{0xA000 | ia:04x}]'
+                ia = 0xA000 | (ia & 0x3FF)
+                if reg < 8:
+                    out[reg] = mem.get(ia, 0.0); text.append(f'r{reg} <- bank5{tag}')
+                else:
+                    mem[ia] = regs[reg - 8]; text.append(f'bank5{tag} <- r{reg - 8}')
+                continue
             if mode == 0x9B:                  # set flags of group X from unit Y (2026-10-17)
                 g, u = FLAG_GROUP.get(reg), w & 15
                 if g is None or u not in unit_res:

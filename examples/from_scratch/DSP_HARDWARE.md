@@ -200,7 +200,8 @@ reescriben. **[medido; confirmado por audio en los slaves]**
 
 ### 5.6 Registros ocultos: `40TY` en posición de C **[medido]**
 T = bits 7–6 → h4, h5, h6, h7; modo = bits 5–4 (0: h ← rY mod 512; 1/2: inmediato de 16/24 bits = valor·16384,
-Y = palabras a saltear; 3: lee 0).
+Y = palabras a saltear; 3: lee 0). h6 = índice de `28` (banco 0) y de `da`/`de` (banco 5); **h7 = índice de
+`db`/`df`** (banco 5) **[medido 2026-10-17]**.
 
 ---
 
@@ -228,7 +229,7 @@ Y = palabras a saltear; 3: lee 0).
 | 2 | `4nnn` | DT2: ventana de la línea de retardo | dos páginas que alternan por muestra; DMA de retardo donde el ARM lo conectó (§8.4) |
 | 3 | `6nnn` | IOMD: palabras de E/S (§8.3) | no es memoria: entradas y salidas con dueño |
 | 4 | `8nnn` | MXM: bus entre DSP, zonas M/O/Z/S de 0x200 palabras | §8.2 |
-| 5 | `Annn` | DPC: memoria simple persistente | 1 lectura por instrucción; el ARM la lee y escribe (mejor lugar para resultados de prueba) |
+| 5 | `Annn` | DPC: memoria simple persistente, 0x400 palabras (0x400–0x7FF: sólo dentro de la muestra) | 1 lectura por instrucción; indexable con h6/h7 (§7.4); el ARM la lee y escribe (mejor lugar para resultados de prueba y **tablas**) |
 | 6 | `Cnnn` | parámetros que escribe el ARM | sólo lectura para el DSP |
 | 7 | `Ennn` | ? (`e013` lo lee el JX como fuente) | [desconocido] |
 
@@ -244,6 +245,22 @@ Estado entre muestras: cargar de S + 1, guardar en S. Retardo variable: transfer
 * Latencia de carga: una instrucción (la op de la instrucción siguiente todavía ve el valor viejo).
 * Una op y una carga al mismo registro en la misma instrucción se **suman**.
 * Hasta 6 transferencias por instrucción.
+
+### 7.4 Transferencias indexadas y tablas **[medido 2026-10-17: maestro DSP3 exacto, slaves por audio]**
+| modo | dirección | memoria |
+|---|---|---|
+| `X28Y` | ⌊h6·16384⌋ + Y | banco 0, relativa al anillo (retardo variable < 2048 muestras; oído en los slaves) |
+| `XdaY` / `XdeY` | ⌊h6·16384⌋ + Y | **banco 5**, fija |
+| `XdbY` / `XdfY` | ⌊h7·16384⌋ + Y | **banco 5**, fija |
+| `Xd0Y`…`Xd7Y` | N·16 + Y | banco 5, dirección directa 0x00–0x7F |
+
+X 0–7 carga rX, 8–15 guarda r(X−8); sin palabra de referencia; índice truncado; una instrucción entre `40TY` y la
+transferencia. Banco 5: índice mod 0x400 (alias cada 0x800); el bit 10 (0x400–0x7FF) da palabras que sólo duran la
+muestra (los temporales A400.. de Roland). **Tablas fijas (wavetables, LUT) = banco 5**: tabla de 16 puntos leída
+con `0da0` en la ranura DCO2 de los slaves, triángulo y cuadrada exactos por audio, persistente. Libre en general
+(refs del corpus de Roland): 0x048–0x1FF y 0x306–0x3FF. `d8`/`d9`/`dc`/`dd`: dirección variable [desconocido].
+En el banco 0 una tabla fija sólo sobrevive sin ningún store al banco 0 en el DSP (h6 = T + contador de muestras).
+La vista RAW del ARM del banco 0 también es relativa al anillo: el ARM no puede dejar una tabla ahí.
 
 ---
 
@@ -281,7 +298,8 @@ inferido]**
 ### 8.4 Línea de retardo (DMA del banco 2) **[medido en el maestro, DSP4 ranura 0xF7DC]**
 Escritura `[4300] ← x`; base con `40TY` + `f6c`; destino de resultados `0b03 4050 <a>` (sin esto el pedido se
 ignora); pedido `Xa9Y`; en la misma muestra `[a]`, `[a+1]`, `[a+2]` = dos muestras vecinas + fracción para
-interpolar. Unidad de dirección = 16384 muestras. Sólo funciona donde el ARM conectó la ventana. Detalles:
+interpolar. Unidad de dirección = 16384 muestras. **Fracción de 6 bits (1/64), truncada; ≥ 24 pedidos por
+muestra** (cada uno con su destino) **[medido 2026-10-17]**. Sólo funciona donde el ARM conectó la ventana. Detalles:
 `DSP_ISA_SPEC.md` §9.1.
 
 ### 8.5 ARM ↔ DSP
@@ -334,9 +352,10 @@ ARM, y el lado ARM (cuándo y cómo se escriben parámetros y voces). Para tiemp
 
 1. Clases de instrucción que no están en el corpus (la numeración de clases no está decodificada).
 2. C con campos fuera de rango en clases de varias ops (Roland: < 0.5 % de las instrucciones, casos medidos).
-3. `f5Y` con Y ≠ c (`cf54` del JX en los slaves lee 0 en nuestros contextos), h7, `89ba`, `00cY`, modo de
-   transferencia `9e` y los "de otra memoria" (`e0`, `e1`, …), nibble e bits 7–6 = 10.
-4. Línea de retardo: largo, ventanas en otras ranuras / DSP, cantidad de tomas.
+3. `f5Y` con Y ≠ c (`cf54` del JX en los slaves lee 0 en nuestros contextos), `89ba`, `00cY`, modo de
+   transferencia `9e` y los "de otra memoria" (`e0`, `e1`, `8x`, `bx`, `cx`, `d8`/`d9`/`dc`/`dd`…; mapa en
+   `re/dspmodescan.py`), zona 0x400–0x7FF del banco 5, nibble e bits 7–6 = 10.
+4. Línea de retardo: largo, ventanas en otras ranuras / DSP, oírla por la salida.
 5. IOMD: qué palabra conecta con qué; bus de onda entre BMC; DT1 compartido por el par (sin medir); MXM en los
    slaves (sólo estático) y zonas M/Z del maestro más allá del par DSP3/DSP4.
 6. DSPM (sin estudiar).

@@ -218,7 +218,11 @@ w2:  Z[15:12]  op2[11:9]  C[8:6]  mW[5:4]  W[3:0]
 | mode byte | behaviour | status |
 |---|---|---|
 | `fe` `ff` `3e` `0e` `10` `12` | same address as `fe` | [measured] (use `fe`) |
-| `e0` `e1` `db` `ed` `be` `8e` `ee` `de` `ce` `7e` `fc` `fd` `f0` | other memory (reads 0 where `fe` reads the word; writes not found in banks 0/1/2/4/5) | [unknown] |
+| `da` `de` | **bank 5 indexed by h6** (2026-10-17): X 0–7 → rX ← bank5[⌊h6·16384⌋ + Y]; X 8–15 → store. No reference slot, plain memory (no ring), §9.0 | [exact, master DSP3; slaves by audio] |
+| `db` `df` | **bank 5 indexed by h7** (same as `da` with h7) | [exact, master DSP3] |
+| `d0`–`d7` | bank5[N·16 + Y] (N = low nibble of the mode byte): direct address 0x00–0x7F, no reference slot | [exact, master DSP3] |
+| `d8` `d9` `dc` `dd` | bank 5 at an address that changes with time | [unknown] |
+| `e0` `e1` `ed` `be` `8e` `ee` `ce` `7e` `fc` `fd` `f0` | other memory (reads 0 or other values where `fe` reads the word; `re/dspmodescan.py`: `80`–`8f`, `b0`–`bf`, `c0`–`cf` read bank5[0] or other values, `e0`–`ef` a constant, `90`–`af`, `f5`–`f7` load nothing) | [unknown] |
 | `28` | **indexed**: rX ← bank0[⌊h6·16384⌋ + Y] (X 8–15: store); Y is an offset, no reference slot; ring-relative (§9.0) | [exact] |
 | `a9` | **delay-tap request** with the read address in rX; results to bank 2 [h5..h5+2] (§9.1) | [measured] |
 | `9b` | **set flags** (2026-10-17, master DSP3/DSP4, `re/dspx9bflags.py`): `X9bY` stores the flags of the result of **unit Y** of its own instruction into **condition group X−8** (X = 9/a/b → group 1/2/3 = conds 4–7/8–11/12–15; X = c is used by Roland before `cond0–3` but changed nothing on the master; X = 0–8, d–f: no effect). Semantics in §8. No register or memory written | [measured] |
@@ -508,8 +512,19 @@ true, op 2 if false) or whether a **jump** (§5.4b) is taken: if/else, switch, a
   sub 5. Defaults on master DSP4: h4 = 288, h5 = 0x105/16384.
 * **Indexed transfer, mode byte `28`**: `X28Y`, X 0–7 → rX ← bank0[⌊h6·16384⌋ + Y]; X 8–15 → bank0[…] ← r(X−8).
   Truncated, mod 0x800, ring-relative like a normal reference; a reference word is not added; several per
-  instruction (`1e04 0281 1282`). Usage (S-100): `r0 ← param`, `0b02 4080`, `0c02 0280`. Lets a program read tables
-  from memory (wavetables) instead of immediates.
+  instruction (`1e04 0281 1282`). Usage (S-100): `r0 ← param`, `0b02 4080`, `0c02 0280`.
+* **Bank-5 indexed transfers [measured 2026-10-17, master DSP3 exact (`re/dspmodescan.py`, `re/dspb5idx.py`,
+  `re/dspb5map.py`, `re/dspb5alias.py`); slaves by audio (`re/dspb5osc.py`)]**: `XdaY`/`XdeY` = bank5[⌊h6·16384⌋ + Y],
+  `XdbY`/`XdfY` = bank5[⌊h7·16384⌋ + Y] (h7 ← r0 with `40c0`), `Xd0Y`…`Xd7Y` = bank5[N·16 + Y]; X 0–7 load, 8–15 store.
+  Index truncated; one instruction between `40TY` and the transfer is enough. Persistent words: index mod 0x400
+  (0x800, 0xC00, 0x1000 alias 0x000); with bit 10 set (0x400–0x7FF) a store is seen in the same sample only and
+  is not kept (Roland's A400–A427 temporaries). Bank 5 serves one load per instruction (§9). **This is the
+  memory for fixed tables** (wavetables, LUTs): plain memory, shared by all programs of the DSP. Roland's refs:
+  A000–A047, A200–A205, A300–A303, A4xx; free in general 0x048–0x1FF, 0x306–0x3FF.
+* A fixed table in bank 0 is possible only with no bank-0 store on the whole DSP: h6 = T + n (n = sample count
+  kept in bank 5) addresses a fixed physical word (kept 3 s on idle master DSP3, wiped < 10 ms by one plain store;
+  `re/dspb0fix.py`). The ARM's RAW view of bank 0 is ring-relative too (consecutive ARM reads ≈ one sample apart
+  return the same physical word), so the ARM cannot write a table there.
 
 * Indexed addresses are **ring-relative** (a counter kept with load [h6+1] / store [h6] counts every sample), so
   `[S + k]` reads what was stored at S k samples ago: a variable delay of < 2048 samples on any DSP. A fixed table
@@ -539,7 +554,9 @@ addresses are in units of 16384 samples. Per sample:
 | request | `da90` (`0c02 3a90`, or `1b04 c510 3a90 0008`) | read at address rd |
 | results | load `[a]`, `[a+1]`, `[a+2]` (same sample) | x[n − L − ⌊k⌋], x[n − L − ⌊k⌋ − 1], frac(k), with k = 16384·(rd − 324), L = 2–3 samples (program position) |
 
-Interpolate with `0803 0c0a 9281`-style lerp: r0 + frac·(r1 − r0). With base = 324 the delay is 16384·u + L for
+Interpolate with `0803 0c0a 9281`-style lerp: r0 + frac·(r1 − r0). **The fraction has 6 bits (1/64), truncated**
+(2026-10-17: k frac .4 → 25/64, .8 → 51/64, .2 → 12/64). **At least 24 requests per sample** work, each with its
+own `0b03 4050 <dest>` (`re/dspmtap.py`; limit not found). With base = 324 the delay is 16384·u + L for
 u = r before f6c (measured u = 0, 0.5, 1, 10, 50.648 → 3, 8196, 16388, 163844, 829826 samples; u = 100 out of the
 line). Roland's global delay: `m1_tcm_f7dc_01134238`, two taps (`[4301..]`, `[4304..]`). Tool: `re/dsptap.py`,
 `re/dsprdly.py`. A full ARM read of WMEM (0x41300000) with a test program in this slot hung the master once.

@@ -659,6 +659,27 @@ Idea del usuario: correr los binarios ARM originales en un emulador de CPU y esc
 * Pendiente antes de pruebas de audio: el usuario puso el fine tune en 0 (verificar en la próxima tanda; la
   referencia ya dio 440.15 Hz).
 
+## Verificación de lo pendiente de `DSP_USOS.md` (2026-10-17, tarde) — tablas fijas resueltas
+* **Banco 5 indexado** (`re/dspmodescan.py`: los 256 modos de transferencia con el banco 5 lleno de marcas, DSP3
+  del maestro): `XdaY`/`XdeY` = banco5[⌊h6⌋ + Y], `XdbY`/`XdfY` = banco5[⌊h7⌋ + Y] (h7 ← r0 con `40c0`: **h7 =
+  segundo índice**), `Xd0Y`…`Xd7Y` = banco5[N·16 + Y]. Carga y store (`9daY`; el ARM ve lo guardado). Truncado, una
+  instrucción entre `4080` y la carga alcanza (`re/dspb5idx.py`). 1024 palabras persistentes, índice mod 0x400
+  (0x800/0xC00/0x1000 alias); 0x400–0x7FF sólo dura la muestra (`re/dspb5alias.py`, `re/dspb5map.py`).
+  `d8`/`d9`/`dc`/`dd`: dirección que cambia con el tiempo (sin decodificar).
+* **Slaves por audio** (`re/dspb5osc.py` + `re/dspharm.py`, ranura DCO2): tabla de 16 puntos en A100 → triángulo
+  (1, 0, 0.111, 0, 0.042…) y cuadrada (1, 0, 0.315, 0, 0.180…) exactos; el programa que sólo lee sigue sonando igual
+  > 10 s después de sacar el llenado. **Wavetables verdaderas posibles**: ~10 instrucciones por voz, sin importar N.
+* Banco 5 de Roland (corpus): A000–A047, A200–A205, A300–A303, A4xx → libre 0x048–0x1FF y 0x306–0x3FF.
+* **Banco 0**: tabla fija posible sólo sin ningún store al banco 0 en el DSP (h6 = T + n, n = contador en el banco
+  5; 3 s intacta en el DSP3; un store común la borra en < 10 ms; `re/dspb0fix.py`). La vista RAW del ARM del banco
+  0 también es relativa al anillo (lecturas seguidas del ARM ≈ 1 muestra entre sí repiten la misma palabra física).
+* **Retardo indexado del banco 0 oído en los slaves** (`re/dspb0dly.py`): SAW + SAW retrasada 92 muestras → nota 72
+  a 1045.9 Hz (fundamental cancelado); k = 0 → 523.6 Hz.
+* **Línea de retardo** (DSP4 `f7dc`, `re/dspmtap.py`): **24 pedidos por muestra** funcionan (límite no hallado);
+  **fracción de 6 bits (1/64), truncada**.
+* SAW de referencia comprobado al empezar (1/n). Al cerrar: `dspown.py restore` (ranura DCO2 = silencio de `lab_pad4k`); el maestro quedó con sus programas originales (las sesiones restauran).
+* Simulador: `dspisa.py` ejecuta `da`/`de`/`db`/`df`/`d0`–`d7` (banco 5, mod 0x400).
+
 ## Próximos pasos del ISA (para seguir)
 Referencia: `DSP_ISA_SPEC.md` (especificación, manda), `DSP_ISA.md` (resumen), `DSP_ARM_SIDE.md` (mapa de bancos
 del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD/wavetables propios, laboratorio, presupuesto de tiempo).
