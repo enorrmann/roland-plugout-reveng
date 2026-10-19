@@ -1,0 +1,1 @@
+python wt5.py send '/home/emilio/PRODUCCION/samples/THE_REST/wavetables/Echo Sound Works Core Tables/Basics/PWM Saw 01.wav'
