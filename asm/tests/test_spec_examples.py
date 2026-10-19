@@ -43,6 +43,13 @@ CASES = [
     ([0x2B09, 0x2C8F, 0x6FE2, 0x7FE4, 0x5983, 0x0407, 0x0403, 0xA2AA, 0xAA00],
      ["ld r6, [0407]", "ld r7, [0403]"], "4.3",
      "two references behind an immediate stream"),
+    # spec 4.4: the elided "540c …" example, found at work/corpus_all/p0s_003743c.txt.
+    # Y at byte 2 = 3000; C right after it, skipping the two references = 233333
+    # (0.2); W at byte 11 = c4c008 (-4.75). Those three values only come out if
+    # the stream is the WHOLE slot array, references included.
+    ([0x540C, 0x1C12, 0xAF1B, 0xAFE4, 0xCFE6, 0x7A2B, 0x3000, 0x0638, 0x063D, 0x2333, 0x33C4, 0xC008],
+     ["0.2", "-4.75"], "4.4",
+     "C = 0.2 after skipping the two references, W = -4.75 at byte 11"),
 ]
 
 # Spec 6.4, line "{8+d}f7Y": the section markers ARE decoded — as f7, a form with
@@ -116,6 +123,31 @@ class SpecExamples(unittest.TestCase):
                 self.assertEqual(TABLE.raw_encode(value), word)
                 self.assertEqual(TABLE.raw_decode(word), value)
         self.assertAlmostEqual(TABLE.raw_decode(TABLE.raw_encode(1 / 192)), 1 / 192, places=9)
+
+    def test_immediate_stream_is_the_whole_slot_array(self):
+        """spec 4.4's `540c` example: the byte offsets index the slot array with
+        its references in it, and only *sequential* reading skips them.
+
+        If the stream were built from the I words alone (the old rule), Y at
+        byte 2 would read 0 instead of `3000` and C would read 0 instead of
+        `233333` — the test would pass only by accident, so check the values.
+        """
+        words = [0x540C, 0x1C12, 0xAF1B, 0xAFE4, 0xCFE6, 0x7A2B,
+                 0x3000, 0x0638, 0x063D, 0x2333, 0x33C4, 0xC008]
+        text, _ = disasm.program(words, TABLE, "spec 4.4")
+        line = first_line(text)[0].split(";")[0].strip()
+        # Y = 3000 = 0.1875 (byte 2), C = 233333 = 0.2 (after skipping bytes 4-7),
+        # W = c4c008 = -4.75 (byte 11)
+        self.assertIn("0.1875", line, line)     # Y, at byte 2
+        self.assertIn("0.2", line, line)        # C, after the two references
+        self.assertIn("-4.75", line, line)      # W, at byte 11
+
+    def test_sequential_read_skips_reference_words(self):
+        """an explicit byte offset does not skip; a sequential read does"""
+        stream = disasm.ImmStream([0x3000, 0x0638, 0x063D, 0x2333], refs={1, 2})
+        self.assertEqual(stream.take(2 * 8, 16), 0x30000000)      # byte 2, no skip
+        stream.pos = 4 * 8                                        # read on at byte 4
+        self.assertEqual(stream.take(None, 24), 0x23333300)       # skips 1 and 2
 
 
 if __name__ == "__main__":

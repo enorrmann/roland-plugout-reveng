@@ -31,17 +31,46 @@ WORD = 0xFFFF
 
 class ImmStream:
     """the instruction's immediate words as one MSB-first bit string;
-    positions past the end read zeros, like the hardware"""
+    positions past the end read zeros, like the hardware
 
-    def __init__(self, words):
+    The words are the whole slot array (spec 4.4), so a byte offset indexes the
+    array directly. `refs` names the words a transfer owns: sequential reading
+    (a MAC's C right after Y's immediate) skips them, an explicit byte offset
+    does not -- that is `re/dspisa.py`'s rule, derived on the `540c` example.
+    """
+
+    def __init__(self, words, refs=()):
         self.words = list(words)
         self.bits = "".join(format(w, "016b") for w in self.words) + "0" * 64
+        self.refs = set(refs)
+        self.pos = 0               # where the last take() stopped (sequential reads)
 
     def take(self, start, n):
-        s = self.bits[start:start + n]
-        if len(s) < n:
-            s += "0" * (n - len(s))
-        return (int(s, 2) << (32 - n)) & 0xFFFFFFFF if n else 0
+        """`n` bits starting at bit `start`, or on from the last read if None
+
+        Only a *sequential* read steps over reference words (spec 4.4: "C right
+        after Y's immediate" of a MAC, measured on `540c …`). An explicit offset
+        is the address the program wrote, so it reads whatever is there.
+        """
+        if not n:
+            return 0
+        if start is None:                       # sequential: step over references
+            pos = self.pos
+            out = ""
+            while len(out) < n:
+                if (pos // 16) in self.refs and pos % 16 == 0:
+                    pos = (pos // 16 + 1) * 16
+                    continue
+                k = min(n - len(out), 16 - pos % 16)
+                out += self.bits[pos:pos + k]
+                pos += k
+            self.pos = pos
+        else:                                   # explicit offset: read it literally
+            out = self.bits[start:start + n]
+            if len(out) < n:
+                out += "0" * (n - len(out))
+            self.pos = start + n
+        return (int(out, 2) << (32 - n)) & 0xFFFFFFFF
 
 
 def fmt_number(v):
@@ -154,10 +183,15 @@ def disassemble_insn(table, ins):
                        % (w, k, len(array)))
         slot.claim_reference(k, array[k], "T%04x" % w)
 
-    # what nobody points at is the immediate bit stream, in order (§4.3)
+    # The immediate stream is the *whole* slot array -- N words and references
+    # included (spec 4.4: an op addresses its immediate by byte Y into that
+    # array, so the indices must be the array's own). Only *sequential* reading
+    # (a MAC's C right after Y's immediate) skips reference words; `refs` says
+    # which ones. Derived and checked on `540c … 2333 33c4 c008` (spec 4.4):
+    # with the I words alone, Y at byte 2 reads 0 instead of `3000`.
+    stream = ImmStream(array, refs={i for i, occ in enumerate(slot.slots)
+                                    if occ is not None and occ.kind != slots_mod.Occupant.N})
     imm_idx = [i for i in range(len(array)) if slot.is_immediate(i)]
-    stream_words = [array[i] for i in imm_idx]
-    stream = ImmStream(stream_words)
     slot_offset = {i: n for n, i in enumerate(imm_idx)}
 
     parts, statuses = [], []
@@ -409,7 +443,8 @@ def hidden_text(table, form, w, body=None, pos=None, letters=None, stream=None, 
     mode = fields.get("mode", 0)
     if mode:
         bits = table.immediate_width(mode)
-        value = "#" + imm_text(table, bits, stream.take(0, bits)) if stream else "#?"
+        # hidden-register loads read the stream in order (isa.json: sequential_read)
+        value = "#" + imm_text(table, bits, stream.take(None, bits)) if stream else "#?"
     else:
         value = _reg_text(fields.get("Y", 0))
     return "hset h%d, %s" % (v.hidden_reg, value), v.status
