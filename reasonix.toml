@@ -1,0 +1,5 @@
+[permissions]
+allow = ["Bash=cd /home/emilio/git/roland-plugout-reveng/examples/from_scratch/re && python3 wt5.py info '/home/emilio/PRODUCCION/samples/THE_REST/wavetables/Echo Sound Works Core Tables/Basics/PWM Saw 01.wav' 2>&1 | tail -30"]
+
+[sandbox]
+allow_write = ["/tmp/wt5probe"]
