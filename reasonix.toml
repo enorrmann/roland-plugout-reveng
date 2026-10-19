@@ -1,5 +1,5 @@
 [permissions]
-allow = ["Bash=cd /home/emilio/git/roland-plugout-reveng/examples/from_scratch/re && python3 wt5.py info '/home/emilio/PRODUCCION/samples/THE_REST/wavetables/Echo Sound Works Core Tables/Basics/PWM Saw 01.wav' 2>&1 | tail -30"]
+allow = ["Bash=cd /home/emilio/git/roland-plugout-reveng/examples/from_scratch/re && python3 wt5.py info '/home/emilio/PRODUCCION/samples/THE_REST/wavetables/Echo Sound Works Core Tables/Basics/PWM Saw 01.wav' 2>&1 | tail -30", "Bash=cd /home/emilio/git/roland-plugout-reveng/asm && python3 -W ignore /tmp/run_all_tests.py 2>&1 | tail -70"]
 
 [sandbox]
-allow_write = ["/tmp/wt5probe"]
+allow_write = ["/tmp/wt5probe", "/tmp/asmwork"]

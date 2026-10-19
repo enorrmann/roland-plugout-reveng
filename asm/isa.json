@@ -1,0 +1,6797 @@
+{
+  "$comment": [
+    "Executable ISA table: the source of truth for asm/ and disasm/.",
+    "Hand-derived from examples/from_scratch/DSP_ISA_SPEC.md; that file stays",
+    "the documentation and tests/test_spec.py cross-checks the two.",
+    "",
+    "HOW A VARIANT IS DECLARED",
+    "  when    literals a decoded word must match (absent field = don't care).",
+    "          A name like 'b76' is a synthetic field defined in word.synthetic.",
+    "  fields  field <- source. Source is an integer literal, an operand name,",
+    "          or {'from': operand, 'bits': [..]} to extract bit positions.",
+    "  result  the semantics, straight from the spec.",
+    "",
+    "An operand marked 'immediate': true takes the instruction's immediate",
+    "value; spec 4.4 allows exactly one such value per instruction, so the",
+    "immediate operands of a variant share it.",
+    "",
+    "status tags follow the spec: exact | measured | inferred | fitted |",
+    "unknown. Only exact/measured/inferred/fitted variants get a mnemonic.",
+    "Everything else is preserved verbatim by the 'raw' form, and reported."
+  ],
+  "word": {
+    "size_bits": 16,
+    "header": {
+      "class": {
+        "msb": 15,
+        "lsb": 5
+      },
+      "length": {
+        "msb": 4,
+        "lsb": 0,
+        "min": 1,
+        "max": 31
+      }
+    },
+    "alu": {
+      "$doc": "spec 5.1: units A and B share this layout",
+      "D": {
+        "msb": 15,
+        "lsb": 12
+      },
+      "op": {
+        "msb": 11,
+        "lsb": 9
+      },
+      "X": {
+        "msb": 8,
+        "lsb": 6,
+        "borrowed_by_nibble": 2,
+        "$doc": "unit B: the nibble at 11-8 is op*2 + X[2], so X[2] lives in the nibble"
+      },
+      "mode": {
+        "msb": 5,
+        "lsb": 4,
+        "meaning": {
+          "0": "register",
+          "1": "imm16",
+          "2": "imm24",
+          "3": "imm32"
+        }
+      },
+      "Y": {
+        "msb": 3,
+        "lsb": 0,
+        "negate_bit": 3,
+        "register_bits": [
+          2,
+          0
+        ]
+      }
+    },
+    "synthetic": {
+      "$doc": "Fields the spec names that are not their own contiguous field of the ALU word: b11_8 (the nibble: op*2 + X[2] for unit B) and f_family (nibble F only: 00 special functions, 01 f4..f7). Bits 5-4 are always the `mode` field of the ALU layout; the nibble-E/F families reuse them as a function/sub-op selector.",
+      "b11_8": {
+        "msb": 11,
+        "lsb": 8,
+        "$doc": "the nibble: op*2 + X[2] for a unit-B op"
+      },
+      "f_family": {
+        "msb": 7,
+        "lsb": 6,
+        "$doc": "nibble F only: 00 = special functions, 01 = f4/f5/f6/f7 (spec 6.4)"
+      }
+    },
+    "transfer": {
+      "$doc": "spec 5.3",
+      "R": {
+        "msb": 15,
+        "lsb": 12,
+        "store_when_msb_set": 8
+      },
+      "mode": {
+        "msb": 11,
+        "lsb": 4
+      },
+      "Y": {
+        "msb": 3,
+        "lsb": 0,
+        "slot_shift": 1
+      }
+    },
+    "condition": {
+      "$doc": "spec 5.4",
+      "cc": {
+        "msb": 13,
+        "lsb": 9
+      },
+      "neg": {
+        "msb": 8,
+        "lsb": 8
+      },
+      "skip_true": {
+        "msb": 7,
+        "lsb": 4
+      },
+      "skip_false": {
+        "msb": 3,
+        "lsb": 0
+      }
+    },
+    "mac": {
+      "D": {
+        "msb": 15,
+        "lsb": 12,
+        "_word": 0
+      },
+      "op1": {
+        "msb": 11,
+        "lsb": 9,
+        "_word": 0
+      },
+      "X": {
+        "msb": 8,
+        "lsb": 6,
+        "_word": 0
+      },
+      "modeY": {
+        "msb": 5,
+        "lsb": 4,
+        "_word": 0
+      },
+      "Y": {
+        "msb": 3,
+        "lsb": 0,
+        "negate_bit": 3,
+        "register_bits": [
+          2,
+          0
+        ],
+        "_word": 0
+      },
+      "Z": {
+        "msb": 15,
+        "lsb": 12,
+        "_word": 1,
+        "negate_bit": 3
+      },
+      "C": {
+        "msb": 8,
+        "lsb": 6,
+        "_word": 1
+      },
+      "modeW": {
+        "msb": 5,
+        "lsb": 4,
+        "_word": 1
+      },
+      "W": {
+        "msb": 3,
+        "lsb": 0,
+        "negate_bit": 3,
+        "register_bits": [
+          2,
+          0
+        ],
+        "_word": 1
+      },
+      "op2": {
+        "msb": 11,
+        "lsb": 10,
+        "_word": 1
+      },
+      "coefreg": {
+        "msb": 9,
+        "lsb": 9,
+        "_word": 1
+      },
+      "$doc_op2": "spec 5.2: bits 11-10 are the coefficient mode (0 = rC, 2 = imm24, 3 = imm32), and bit 9 is 1 when the coefficient is a register. In the corpus bit 9 is set for every op2 = 0 word that uses C (0x9281 = Z=-r1, C=r2: 0b100 1 010 00 0001), so coefreg=1 is the register-coefficient form."
+    },
+    "hidden_reg": {
+      "$doc": "spec 9.0: a C-position word 40TY",
+      "T": {
+        "msb": 7,
+        "lsb": 6
+      },
+      "mode": {
+        "msb": 5,
+        "lsb": 4
+      },
+      "Y": {
+        "msb": 3,
+        "lsb": 0
+      }
+    },
+    "jump": {
+      "$doc": "spec 5.4b: a C-position word 009Y",
+      "tag": {
+        "msb": 11,
+        "lsb": 4
+      },
+      "Y": {
+        "msb": 3,
+        "lsb": 0
+      }
+    },
+    "field_relations": {
+      "$doc": "How fields of a form relate, declared rather than inferred.\n  same_bits_as   two fields name the same bits; naming either covers both\n  selector_only  the field is a selector: only variants that test it own it,\n                 and for the others the same bits belong to `of`\n  optional       a field some variants carry and others simply do not use",
+      "e_family": {
+        "selector_only": true,
+        "of": [
+          "X",
+          "b11_8"
+        ],
+        "$doc": "bits 7-6: the nibble-E family selector"
+      }
+    },
+    "field_sources": {
+      "$doc": "How a variant's `fields` map names its sources: an integer is a literal; an operand name puts the whole operand in the field; {\"from\": name, \"range\": [msb, lsb]} takes that bit range of the operand value (inclusive, shifted down), after adding `add` and then OR-ing `or`."
+    }
+  },
+  "immediate": {
+    "$doc": "spec 4.4",
+    "modes": {
+      "1": 16,
+      "2": 24,
+      "3": 32
+    },
+    "alu_read": "byte Y of the slot array (Y = the op's 4-bit field)",
+    "mac_read": "Y at byte Y, W at byte W; the coefficient c right after Y's immediate",
+    "sequential_read": [
+      "hidden_reg"
+    ],
+    "one_per_instruction": true,
+    "width_policy": {
+      "$doc": "Which immediate width an operand takes (spec 4.4). The width is a property of the variant, not a global 'narrowest': spec 11.2 uses imm32 for `mul` while 11.3 uses imm16 for `mov`. Variants that do not say use the narrowest width that holds the value exactly.",
+      "per_variant_key": "immediate_bits"
+    },
+    "byte_offsets": {
+      "$doc": "spec 4.4: an op with immediate mode reads it starting at byte Y of the slot array, so Y is a *byte offset* into the stream, not a value. When one instruction carries several immediates their offsets must be written explicitly; the disassembler prints them as sel=BYTE.",
+      "source_syntax": "#value@BYTE"
+    }
+  },
+  "number_format": {
+    "$doc": "spec 2: sign-magnitude, exponent steps of x16",
+    "sign_bit": 31,
+    "exponent": {
+      "msb": 30,
+      "lsb": 29
+    },
+    "mantissa": {
+      "msb": 28,
+      "lsb": 0
+    },
+    "exponents": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "max_magnitude": 512,
+    "rule": "smallest exponent with mantissa < 2^29, mantissa = round(|v| * 2^(32-4*exp))"
+  },
+  "operand_kinds": {
+    "reg": "r0..r7; a leading '-' sets the Y negate bit (spec 5.1)",
+    "x_reg": "the X field of an ALU op",
+    "y_operand": "a register or the instruction's immediate",
+    "dst_reg": "the destination register, 0..7",
+    "reg_x2": "a register that also contributes bit 2 to the nibble (unit B)",
+    "ref": "a reference word (data address), spec 5.5",
+    "transfer": "the load/store operands: R and a reference",
+    "hidden_reg": "h4..h7",
+    "label": "a jump target",
+    "cond": "a condition number 0..31, optionally negated",
+    "units": "the units a condition word skips",
+    "word": "a literal 16-bit word",
+    "number": "a plain integer"
+  },
+  "instructions": [
+    {
+      "name": "alu_a",
+      "$section": "6.1",
+      "form": "alu",
+      "layout": "alu",
+      "unit": "A",
+      "status": "exact",
+      "operands": [
+        {
+          "name": "D",
+          "kind": "dst_reg"
+        },
+        {
+          "name": "X",
+          "kind": "x_reg"
+        },
+        {
+          "name": "Y",
+          "kind": "y_operand",
+          "immediate": true
+        }
+      ],
+      "variants": [
+        {
+          "mnemonic": "add3",
+          "status": "exact",
+          "when": {
+            "op": 1
+          },
+          "fields": {
+            "D": "D",
+            "op": 1,
+            "X": "X",
+            "Y": "Y"
+          },
+          "result": "rD <- rD + rX + Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "immediate_bits": 32,
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "mul",
+          "status": "exact",
+          "when": {
+            "op": 2
+          },
+          "fields": {
+            "D": "D",
+            "op": 2,
+            "X": "X",
+            "Y": "Y"
+          },
+          "result": "rD <- rX * Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "immediate_bits": 32,
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "mad",
+          "status": "exact",
+          "when": {
+            "op": 3
+          },
+          "fields": {
+            "D": "D",
+            "op": 3,
+            "X": "X",
+            "Y": "Y"
+          },
+          "result": "rD <- rD + rX * Y (unit A op 3; see mac_* for the MAC unit)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "immediate_bits": 32,
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "ymacd",
+          "status": "exact",
+          "when": {
+            "op": 4
+          },
+          "fields": {
+            "D": "D",
+            "op": 4,
+            "X": "X",
+            "Y": "Y"
+          },
+          "result": "rD <- Y + rX * rD",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "immediate_bits": 32,
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "ymsubd",
+          "status": "exact",
+          "when": {
+            "op": 5
+          },
+          "fields": {
+            "D": "D",
+            "op": 5,
+            "X": "X",
+            "Y": "Y"
+          },
+          "result": "rD <- Y - rX * rD",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "immediate_bits": 32,
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "addxy",
+          "status": "exact",
+          "when": {
+            "op": 6
+          },
+          "fields": {
+            "D": "D",
+            "op": 6,
+            "X": "X",
+            "Y": "Y"
+          },
+          "result": "rD <- rX + Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "subxy",
+          "status": "exact",
+          "when": {
+            "op": 7
+          },
+          "fields": {
+            "D": "D",
+            "op": 7,
+            "X": "X",
+            "Y": "Y"
+          },
+          "result": "rD <- Y - rX",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "nop",
+          "status": "exact",
+          "when": {
+            "op": 0,
+            "X": 0,
+            "mode": 0,
+            "Y": 0
+          },
+          "fields": {
+            "D": "D",
+            "op": 0,
+            "X": 0,
+            "mode": 0,
+            "Y": 0
+          },
+          "result": "no effect (the one-word 0001 is class 0x000 instead)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "shows": []
+        },
+        {
+          "mnemonic": "mov",
+          "status": "exact",
+          "when": {
+            "op": 0,
+            "X": 1
+          },
+          "fields": {
+            "D": "D",
+            "op": 0,
+            "X": 1,
+            "Y": "Y"
+          },
+          "result": "rD <- Y (also loads an immediate)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "immediate_bits": 16
+        },
+        {
+          "mnemonic": "newton",
+          "status": "exact",
+          "when": {
+            "op": 0,
+            "X": 2
+          },
+          "fields": {
+            "D": "D",
+            "op": 0,
+            "X": 2,
+            "Y": "Y"
+          },
+          "result": "rD <- rD*r(D+1); r(D+1) <- 2-r(D+1)*rY; rY <- r(D+1)*rY",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "kinds": {
+            "X": "reg"
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "immediate_bits": 16
+        },
+        {
+          "mnemonic": "addh4",
+          "status": "exact",
+          "when": {
+            "op": 0,
+            "X": 4
+          },
+          "fields": {
+            "D": "D",
+            "op": 0,
+            "X": 4,
+            "Y": "Y"
+          },
+          "result": "rD <- rD + Y + h4",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "shows": [
+            "D",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "addh5",
+          "status": "exact",
+          "when": {
+            "op": 0,
+            "X": 5
+          },
+          "fields": {
+            "D": "D",
+            "op": 0,
+            "X": 5,
+            "Y": "Y"
+          },
+          "result": "rD <- rD + Y + h5",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "shows": [
+            "D",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "add",
+          "status": "exact",
+          "when": {
+            "op": 0,
+            "X": 6
+          },
+          "fields": {
+            "D": "D",
+            "op": 0,
+            "X": 6,
+            "Y": "Y"
+          },
+          "result": "rD <- rD + Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "immediate_bits": 16
+        },
+        {
+          "mnemonic": "sub",
+          "status": "exact",
+          "when": {
+            "op": 0,
+            "X": 7
+          },
+          "fields": {
+            "D": "D",
+            "op": 0,
+            "X": 7,
+            "Y": "Y"
+          },
+          "result": "rD <- rD + Y (identical to sub-code 6; the spec keeps them apart)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "immediate_bits": 16
+        },
+        {
+          "mnemonic": "add3r",
+          "status": "exact",
+          "when": {
+            "op": 0
+          },
+          "special_d": true,
+          "fields": {
+            "D": {
+              "from": "X",
+              "offset": 8
+            },
+            "op": 0,
+            "X": 0,
+            "Y": "Y"
+          },
+          "result": "r(D-8) <- rX + Y + r[op]; only measured in a single-op class (spec 6.1)",
+          "$note": "the op field holds the third register here; the 'when' matches any op with D >= 8",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 435",
+              "kind": "exact-fit",
+              "tool": "dspfit.py --all",
+              "line": 435
+            }
+          ],
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ]
+        }
+      ],
+      "$doc_operands": "X is printed only for the ops that use it as a source (add3..subxy); for the op-0 sub-codes it is the sub-code itself and the operand is Y, which may be an immediate.",
+      "$doc_x": null,
+      "$doc_arity": "Operands are the form's list unless a variant gives `shows`; the op-0 sub-codes fix X in the encoding, so their source form is `D, Y` (see `shows` on those variants)."
+    },
+    {
+      "name": "alu_b",
+      "$section": "6.3",
+      "form": "alu",
+      "layout": "alu",
+      "unit": "B",
+      "status": "exact",
+      "operands": [
+        {
+          "name": "D",
+          "kind": "dst_reg"
+        },
+        {
+          "name": "X",
+          "kind": "reg"
+        },
+        {
+          "name": "Y",
+          "kind": "y_operand",
+          "immediate": true
+        }
+      ],
+      "variants": [
+        {
+          "mnemonic": "and",
+          "status": "exact",
+          "when": {
+            "D": {
+              "lt": 8
+            },
+            "mode": 0,
+            "b11_8": 0
+          },
+          "fields": {
+            "D": "D",
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 0
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- rX & Y (bit operations work mod 512)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspbits.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "andn",
+          "status": "exact",
+          "when": {
+            "D": {
+              "lt": 8
+            },
+            "mode": 0,
+            "b11_8": 2
+          },
+          "fields": {
+            "D": "D",
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 2
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- ~rX & Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspbits.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "or",
+          "status": "exact",
+          "when": {
+            "D": {
+              "lt": 8
+            },
+            "mode": 0,
+            "b11_8": 4
+          },
+          "fields": {
+            "D": "D",
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 4
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- rX | Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspbits.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "orn",
+          "status": "exact",
+          "when": {
+            "D": {
+              "lt": 8
+            },
+            "mode": 0,
+            "b11_8": 6
+          },
+          "fields": {
+            "D": "D",
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 6
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- ~rX | Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspbits.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "xor",
+          "status": "exact",
+          "when": {
+            "D": {
+              "lt": 8
+            },
+            "mode": 0,
+            "b11_8": 8
+          },
+          "fields": {
+            "D": "D",
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 8
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- rX ^ Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspbits.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "xnor",
+          "status": "exact",
+          "when": {
+            "D": {
+              "lt": 8
+            },
+            "mode": 0,
+            "b11_8": 10
+          },
+          "fields": {
+            "D": "D",
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 10
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- ~(rX ^ Y)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspbits.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "absadd",
+          "status": "exact",
+          "when": {
+            "D": {
+              "lt": 8
+            },
+            "mode": 0,
+            "b11_8": 12
+          },
+          "fields": {
+            "D": "D",
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 12
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- |rX| + Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspbits.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "subabs",
+          "status": "exact",
+          "when": {
+            "D": {
+              "lt": 8
+            },
+            "b11_8": 14,
+            "e_family": 0
+          },
+          "fields": {
+            "D": "D",
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y",
+            "e_family": 0,
+            "mode": {
+              "operand_mode": "Y"
+            }
+          },
+          "result": "rD <- Y - |rX|",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspbits.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "min",
+          "status": "exact",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": {
+              "in": [
+                0,
+                1
+              ]
+            }
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 0
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- min(rX, Y)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured",
+              "tool": "re/dspclass.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "max",
+          "status": "exact",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": {
+              "in": [
+                4,
+                5
+              ]
+            }
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 4
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- max(rX, Y)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 437",
+              "kind": "measured-on-hardware",
+              "tag": "measured",
+              "tool": "re/dspclass.py",
+              "line": 437
+            }
+          ]
+        },
+        {
+          "mnemonic": "minn",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": {
+              "in": [
+                2,
+                3
+              ]
+            }
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 2
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- min(-rX, Y)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured"
+            }
+          ]
+        },
+        {
+          "mnemonic": "maxn",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": {
+              "in": [
+                6,
+                7
+              ]
+            }
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 6
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- max(-rX, Y)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured"
+            }
+          ]
+        },
+        {
+          "mnemonic": "absx",
+          "status": "exact",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": {
+              "in": [
+                8,
+                9
+              ]
+            },
+            "mode": 0
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 8
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": 0
+          },
+          "result": "rD <- |rX|",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            }
+          ]
+        },
+        {
+          "mnemonic": "absy",
+          "status": "exact",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": {
+              "in": [
+                10,
+                11
+              ]
+            },
+            "mode": 0
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 10
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- |Y|",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "exact"
+            }
+          ]
+        },
+        {
+          "mnemonic": "cmp",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "e_family": 0
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y",
+            "e_family": 0,
+            "mode": {
+              "operand_mode": "Y"
+            }
+          },
+          "result": "flags of rD + Y, nothing written (partner of setflags)",
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ],
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "8",
+              "kind": "documented",
+              "tag": "measured",
+              "note": "8e09 / ae10 named as cmp partners of X9bY",
+              "tool": "re/dspx9bflags.py"
+            }
+          ],
+          "evidence_note": "decoded from the spec's stated behaviour; not re-measured by this table"
+        },
+        {
+          "mnemonic": "bic",
+          "status": "fitted",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "e_family": 1
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y",
+            "e_family": 1,
+            "mode": {
+              "operand_mode": "Y"
+            }
+          },
+          "result": "rD <- +-rY",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "fitted"
+            }
+          ],
+          "evidence_note": "the spec itself marks this form [fitted]"
+        },
+        {
+          "mnemonic": "shl",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 12,
+            "mode": 1
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 12
+            },
+            "mode": 1,
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- rX * 2^Y (Y is the 4-bit field, not a register)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17"
+            }
+          ]
+        },
+        {
+          "mnemonic": "shr",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 12,
+            "mode": 2
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 12
+            },
+            "mode": 2,
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- rX * 2^-Y",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17"
+            }
+          ]
+        },
+        {
+          "mnemonic": "shrn",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 12,
+            "mode": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 12
+            },
+            "mode": 3,
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- rX * 2^-(16+Y)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17"
+            }
+          ]
+        },
+        {
+          "mnemonic": "frexp",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 12,
+            "mode": 0
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 12
+            },
+            "mode": 0,
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "rD <- mantissa in [0.5,1), rY <- exponent",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17"
+            }
+          ]
+        },
+        {
+          "mnemonic": "ph_add",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "Y": {
+              "lt": 8
+            },
+            "mode": 0,
+            "e_family": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "Y": "Y",
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "mode": 0,
+            "e_family": 3
+          },
+          "result": "rD <- rD + rY",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspshape.py"
+            }
+          ],
+          "mode_is_selector": true
+        },
+        {
+          "mnemonic": "ph_sub",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "Y": {
+              "ge": 8
+            },
+            "mode": 0,
+            "e_family": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "Y": "Y",
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "mode": 0,
+            "e_family": 3
+          },
+          "result": "rD <- rD - rY",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspshape.py"
+            }
+          ],
+          "mode_is_selector": true
+        },
+        {
+          "mnemonic": "ph_abs",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "Y": {
+              "lt": 8
+            },
+            "mode": 1,
+            "e_family": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "Y": "Y",
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "mode": 1,
+            "e_family": 3
+          },
+          "result": "rD <- |rY|",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspshape.py"
+            }
+          ],
+          "mode_is_selector": true
+        },
+        {
+          "mnemonic": "ph_clamp",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "Y": {
+              "ge": 8
+            },
+            "mode": 1,
+            "e_family": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "Y": "Y",
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "mode": 1,
+            "e_family": 3
+          },
+          "result": "rD <- clamp(rY, -1, 1)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspshape.py"
+            }
+          ],
+          "mode_is_selector": true
+        },
+        {
+          "mnemonic": "ph_wrap",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "Y": {
+              "lt": 8
+            },
+            "mode": 2,
+            "e_family": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "Y": "Y",
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "mode": 2,
+            "e_family": 3
+          },
+          "result": "rD <- wrap(rY) into [-1, 1)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspshape.py"
+            }
+          ],
+          "mode_is_selector": true
+        },
+        {
+          "mnemonic": "ph_tri",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "Y": {
+              "ge": 8
+            },
+            "mode": 2,
+            "e_family": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "Y": "Y",
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "mode": 2,
+            "e_family": 3
+          },
+          "result": "rD <- 1 - 2|wrap(-rY - 1.5)|",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspshape.py"
+            }
+          ],
+          "mode_is_selector": true
+        },
+        {
+          "mnemonic": "ph_mod2",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "Y": {
+              "lt": 8
+            },
+            "mode": 3,
+            "e_family": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "Y": "Y",
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "mode": 3,
+            "e_family": 3
+          },
+          "result": "rD <- (rY mod 2) / 2",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspshape.py"
+            }
+          ],
+          "mode_is_selector": true
+        },
+        {
+          "mnemonic": "ph_neg",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "Y": {
+              "ge": 8
+            },
+            "mode": 3,
+            "e_family": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": {
+              "from": "X",
+              "bits": [
+                2
+              ],
+              "or": 14
+            },
+            "Y": "Y",
+            "X": {
+              "from": "X",
+              "bits": [
+                1,
+                0
+              ]
+            },
+            "mode": 3,
+            "e_family": 3
+          },
+          "result": "rD <- -rY",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspshape.py"
+            }
+          ],
+          "mode_is_selector": true
+        }
+      ],
+      "$doc_x": "The nibble at 11-8 is op*2 + X[2] (spec 5.1), so the X field only holds X[1:0]; decoders rebuild X from both.",
+      "$doc_nibble_e": "Nibble E is split by bits 7-6 (cmp 00, bic 01, phase shaping 11). Those bits are X[1:0] of the ALU layout, so those variants carry their own 'e_family' field: the overlap is stated, not inferred.",
+      "local_fields": {
+        "e_family": {
+          "msb": 7,
+          "lsb": 6,
+          "$doc": "nibble E only: bits 7-6 pick the sub-family (cmp 00, bit copy 01, shaping 11)"
+        }
+      },
+      "$doc_d": "This family encodes D = 8 + d (spec 6.3/6.4): the source names the register r(d) and the field is 8 + d."
+    },
+    {
+      "name": "sfu",
+      "$section": "6.4",
+      "form": "alu",
+      "layout": "alu",
+      "unit": "B",
+      "status": "measured",
+      "operands": [
+        {
+          "name": "D",
+          "kind": "dst_reg"
+        },
+        {
+          "name": "Y",
+          "kind": "reg"
+        }
+      ],
+      "$doc": [
+        "D = 8+d, nibble F, bits 7-6 = 00. The function comes from the mode bits 5-4.",
+        "Section 6.4 gives cf06 (Y bit 3 = 0) as the reciprocal seed and cf16/cf26/cf36",
+        "(Y bit 3 = 1) as the sqrt split / log2 split / ceiling, so the function is",
+        "entirely those two bits; Y bit 3 is NOT an independent variant selector there.",
+        "The atanh split is the reciprocal-seed form with a logarithm's operand."
+      ],
+      "variants": [
+        {
+          "mnemonic": "recipseed",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 0
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 0,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rD <- sign*2^-e, r(D+1) <- ~1/m (reciprocal seed)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured, random inputs"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "exact",
+              "tool": "re/dspseed.py"
+            }
+          ]
+        },
+        {
+          "mnemonic": "expsplit",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 1
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 1,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rD <- e^floor(rY), rY <- frac(rY)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured, random inputs"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "exact",
+              "tool": "re/dspseed.py"
+            }
+          ]
+        },
+        {
+          "mnemonic": "sign",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 2
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 2,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rD <- +-1",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured, random inputs"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "exact",
+              "tool": "re/dspseed.py"
+            }
+          ]
+        },
+        {
+          "mnemonic": "negmask",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 3,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rD <- -1 if rY < 0 else 0",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured, random inputs"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "exact",
+              "tool": "re/dspseed.py"
+            }
+          ]
+        },
+        {
+          "mnemonic": "ceil",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 4
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 4,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rD <- ceil(rY)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured, random inputs"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "exact",
+              "tool": "re/dspseed.py"
+            }
+          ]
+        },
+        {
+          "mnemonic": "sqrtsplit",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 5
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 5,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rY <- m in [1,4), r(D+1) <- ~1/sqrt m, r7 <- sign*2^-k",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured, random inputs"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "exact",
+              "tool": "re/dspseed.py"
+            }
+          ]
+        },
+        {
+          "mnemonic": "log2split",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 6
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 6,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rD <- exponent, rY <- mantissa in [0.75,1.5)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured, random inputs"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "exact",
+              "tool": "re/dspseed.py"
+            }
+          ]
+        },
+        {
+          "mnemonic": "atanhsplit",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 7
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 0,
+            "mode": 7,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rD <- (x-1)/2^k, rY <- (x+1)/2^k, rD+1 <- ~1/m",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured, random inputs"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "exact",
+              "tool": "re/dspseed.py"
+            }
+          ]
+        }
+      ],
+      "$doc_x": "Nibble F: bits 11-8 = 1111, bits 7-6 select the family (00 special functions, 01 f4..f7), bits 5-4 the function/sub-op. The spec does not name bits 8-6, so they are kept as free bits.",
+      "$doc_mode": "These forms reuse bits 5-4 (the `mode` field of the ALU layout) as a function/sub-op selector, so they take no immediate: the selector sits in that field, not an operand mode.",
+      "$doc_selector": "bits 5-4 (the `mode` field of the ALU layout) are a function/sub-op selector here, not an operand mode: neither form takes an immediate.",
+      "mode_is_selector": true,
+      "$doc_d": "This family encodes D = 8 + d (spec 6.3/6.4): the source names the register r(d) and the field is 8 + d."
+    },
+    {
+      "name": "f_words",
+      "$section": "6.3/6.4",
+      "form": "alu",
+      "layout": "alu",
+      "unit": "B",
+      "status": "measured",
+      "operands": [
+        {
+          "name": "D",
+          "kind": "dst_reg"
+        },
+        {
+          "name": "Y",
+          "kind": "reg"
+        }
+      ],
+      "variants": [
+        {
+          "mnemonic": "f4",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 1,
+            "mode": 0
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 1,
+            "mode": 0,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rD <- r(Y & 7)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dsphops.py"
+            }
+          ]
+        },
+        {
+          "mnemonic": "f5",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 1,
+            "mode": 1
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 1,
+            "mode": 1,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "f5 form (f5c = delay-ring position when Y = c)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspf5.py"
+            }
+          ]
+        },
+        {
+          "mnemonic": "f6",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 1,
+            "mode": 2
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 1,
+            "mode": 2,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "rD <- (rD + h(Y-8)) mod 512",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured"
+            }
+          ]
+        },
+        {
+          "mnemonic": "f7",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 15,
+            "f_family": 1,
+            "mode": 3
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 15,
+            "f_family": 1,
+            "mode": 3,
+            "Y": "Y",
+            "X": {
+              "free": true,
+              "$doc": "bits 8-6 are not a source register in a nibble-F form"
+            }
+          },
+          "shows": [
+            "D",
+            "Y"
+          ],
+          "result": "section marker, no effect",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.4",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspbudget.py marker"
+            }
+          ]
+        }
+      ],
+      "$doc_x": "Nibble F: bits 11-8 = 1111, bits 7-6 select the family (00 special functions, 01 f4..f7), bits 5-4 the function/sub-op. The spec does not name bits 8-6, so they are kept as free bits.",
+      "$doc_mode": "These forms reuse bits 5-4 (the `mode` field of the ALU layout) as a function/sub-op selector, so they take no immediate: the selector sits in that field, not an operand mode.",
+      "$doc_selector": "bits 5-4 (the `mode` field of the ALU layout) are a function/sub-op selector here, not an operand mode: neither form takes an immediate.",
+      "mode_is_selector": true,
+      "$doc_d": "This family encodes D = 8 + d (spec 6.3/6.4): the source names the register r(d) and the field is 8 + d."
+    },
+    {
+      "name": "mac",
+      "$section": "7",
+      "form": "mac",
+      "layout": "mac",
+      "status": "exact",
+      "words": 2,
+      "operands": [
+        {
+          "name": "D",
+          "kind": "dst_reg"
+        },
+        {
+          "name": "X",
+          "kind": "reg"
+        },
+        {
+          "name": "Y",
+          "kind": "y_operand",
+          "immediate": true
+        },
+        {
+          "name": "Z",
+          "kind": "reg"
+        },
+        {
+          "name": "C",
+          "kind": "reg"
+        },
+        {
+          "name": "W",
+          "kind": "y_operand",
+          "immediate": true
+        }
+      ],
+      "$doc": "spec 7. The word is fully determined by (op1, op2): op1 bit 0 negates P1, bit 1 adds W, bit 2 adds P2; with op2 = 000 and op1 in 6/7 there are no products (rD <- +-rX + W + Z) and op1 in 4/5 keeps both; op2 = 001 multiplies in the W modes.",
+      "variants": [
+        {
+          "mnemonic": "mac_p1",
+          "status": "exact",
+          "when": {
+            "op1": 2,
+            "op2": 0,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 2,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 0,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "exact on the measured cases"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 477",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 477
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1",
+          "status": "inferred",
+          "when": {
+            "op1": 2,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 2,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 0,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9",
+              "note": "the measured MAC examples use coefreg = 0"
+            }
+          ],
+          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+        },
+        {
+          "mnemonic": "mac_p1c1",
+          "status": "inferred",
+          "when": {
+            "op1": 2,
+            "op2": 1,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 2,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 1,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+        },
+        {
+          "mnemonic": "mac_p1c2",
+          "status": "measured",
+          "when": {
+            "op1": 2,
+            "op2": 2,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 2,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 2,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1c3",
+          "status": "measured",
+          "when": {
+            "op1": 2,
+            "op2": 3,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 2,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 3,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1w2",
+          "status": "exact",
+          "when": {
+            "op1": 3,
+            "op2": 0,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 3,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 0,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "exact on the measured cases"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 477",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 477
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1w2",
+          "status": "inferred",
+          "when": {
+            "op1": 3,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 3,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 0,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9",
+              "note": "the measured MAC examples use coefreg = 0"
+            }
+          ],
+          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+        },
+        {
+          "mnemonic": "mac_p1w2c1",
+          "status": "inferred",
+          "when": {
+            "op1": 3,
+            "op2": 1,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 3,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 1,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+        },
+        {
+          "mnemonic": "mac_p1w2c2",
+          "status": "measured",
+          "when": {
+            "op1": 3,
+            "op2": 2,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 3,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 2,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1w2c3",
+          "status": "measured",
+          "when": {
+            "op1": 3,
+            "op2": 3,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 3,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 3,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1w",
+          "status": "inferred",
+          "when": {
+            "op1": 4,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 4,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 1,
+            "C": "C",
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "C"
+          ],
+          "result": "rD <- rX*Y + rC*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9"
+            }
+          ],
+          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
+        },
+        {
+          "mnemonic": "mac_p1w",
+          "status": "inferred",
+          "when": {
+            "op1": 4,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 4,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 1,
+            "C": "C",
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "C"
+          ],
+          "result": "rD <- rX*Y + rC*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9",
+              "note": "the measured MAC examples use coefreg = 0"
+            }
+          ],
+          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+        },
+        {
+          "mnemonic": "mac_p1wc1",
+          "status": "inferred",
+          "when": {
+            "op1": 4,
+            "op2": 1,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 4,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 1,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- rX*Y + imm16*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+        },
+        {
+          "mnemonic": "mac_p1wc2",
+          "status": "measured",
+          "when": {
+            "op1": 4,
+            "op2": 2,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 4,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 2,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- rX*Y + imm24*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1wc3",
+          "status": "measured",
+          "when": {
+            "op1": 4,
+            "op2": 3,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 4,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 3,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- rX*Y + imm32*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1p2w",
+          "status": "inferred",
+          "when": {
+            "op1": 5,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 5,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 1,
+            "C": "C",
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "C"
+          ],
+          "result": "rD <- -rX*Y + rC*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9"
+            }
+          ],
+          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
+        },
+        {
+          "mnemonic": "mac_p1p2w",
+          "status": "inferred",
+          "when": {
+            "op1": 5,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 5,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 1,
+            "C": "C",
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "C"
+          ],
+          "result": "rD <- -rX*Y + rC*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9",
+              "note": "the measured MAC examples use coefreg = 0"
+            }
+          ],
+          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+        },
+        {
+          "mnemonic": "mac_p1p2wc1",
+          "status": "inferred",
+          "when": {
+            "op1": 5,
+            "op2": 1,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 5,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 1,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- -rX*Y + imm16*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+        },
+        {
+          "mnemonic": "mac_p1p2wc2",
+          "status": "measured",
+          "when": {
+            "op1": 5,
+            "op2": 2,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 5,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 2,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- -rX*Y + imm24*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1p2wc3",
+          "status": "measured",
+          "when": {
+            "op1": 5,
+            "op2": 3,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 5,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 3,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- -rX*Y + imm32*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1p2",
+          "status": "inferred",
+          "when": {
+            "op1": 6,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 6,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 1,
+            "C": "C",
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "C",
+            "W"
+          ],
+          "result": "rD <- rX + W + rC*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9"
+            }
+          ],
+          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
+        },
+        {
+          "mnemonic": "mac_p1p2",
+          "status": "inferred",
+          "when": {
+            "op1": 6,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 6,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 1,
+            "C": "C",
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "C",
+            "W"
+          ],
+          "result": "rD <- rX + W + rC*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9",
+              "note": "the measured MAC examples use coefreg = 0"
+            }
+          ],
+          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+        },
+        {
+          "mnemonic": "mac_p1p2c1",
+          "status": "inferred",
+          "when": {
+            "op1": 6,
+            "op2": 1,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 6,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 1,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W + imm16*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+        },
+        {
+          "mnemonic": "mac_p1p2c2",
+          "status": "measured",
+          "when": {
+            "op1": 6,
+            "op2": 2,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 6,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 2,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W + imm24*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1p2c3",
+          "status": "measured",
+          "when": {
+            "op1": 6,
+            "op2": 3,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 6,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 3,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W + imm32*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1p2wp2",
+          "status": "inferred",
+          "when": {
+            "op1": 7,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 7,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 1,
+            "C": "C",
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "C",
+            "W"
+          ],
+          "result": "rD <- -rX + W + rC*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9"
+            }
+          ],
+          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
+        },
+        {
+          "mnemonic": "mac_p1p2wp2",
+          "status": "inferred",
+          "when": {
+            "op1": 7,
+            "op2": 0,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 7,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 1,
+            "C": "C",
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "C",
+            "W"
+          ],
+          "result": "rD <- -rX + W + rC*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9",
+              "note": "the measured MAC examples use coefreg = 0"
+            }
+          ],
+          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+        },
+        {
+          "mnemonic": "mac_p1p2wp2c1",
+          "status": "inferred",
+          "when": {
+            "op1": 7,
+            "op2": 1,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 7,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 1,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W + imm16*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+        },
+        {
+          "mnemonic": "mac_p1p2wp2c2",
+          "status": "measured",
+          "when": {
+            "op1": 7,
+            "op2": 2,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 7,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 2,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W + imm24*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1p2wp2c3",
+          "status": "measured",
+          "when": {
+            "op1": 7,
+            "op2": 3,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 7,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 3,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W + imm32*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1c1r",
+          "status": "inferred",
+          "when": {
+            "op1": 2,
+            "op2": 1,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 2,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 1,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1c2r",
+          "status": "inferred",
+          "when": {
+            "op1": 2,
+            "op2": 2,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 2,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 2,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1c3r",
+          "status": "inferred",
+          "when": {
+            "op1": 2,
+            "op2": 3,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 2,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 3,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1w2c1r",
+          "status": "inferred",
+          "when": {
+            "op1": 3,
+            "op2": 1,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 3,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 1,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1w2c2r",
+          "status": "inferred",
+          "when": {
+            "op1": 3,
+            "op2": 2,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 3,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 2,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1w2c3r",
+          "status": "inferred",
+          "when": {
+            "op1": 3,
+            "op2": 3,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 3,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 3,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1wc1r",
+          "status": "inferred",
+          "when": {
+            "op1": 4,
+            "op2": 1,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 4,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 1,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- rX*Y + imm16*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1wc2r",
+          "status": "inferred",
+          "when": {
+            "op1": 4,
+            "op2": 2,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 4,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 2,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- rX*Y + imm24*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1wc3r",
+          "status": "inferred",
+          "when": {
+            "op1": 4,
+            "op2": 3,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 4,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 3,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- rX*Y + imm32*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1p2wc1r",
+          "status": "inferred",
+          "when": {
+            "op1": 5,
+            "op2": 1,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 5,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 1,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- -rX*Y + imm16*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1p2wc2r",
+          "status": "inferred",
+          "when": {
+            "op1": 5,
+            "op2": 2,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 5,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 2,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- -rX*Y + imm24*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1p2wc3r",
+          "status": "inferred",
+          "when": {
+            "op1": 5,
+            "op2": 3,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 5,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 3,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": 0,
+            "W": {
+              "free": true,
+              "$doc": "unused without a W term"
+            }
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z"
+          ],
+          "result": "rD <- -rX*Y + imm32*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1p2c1r",
+          "status": "inferred",
+          "when": {
+            "op1": 6,
+            "op2": 1,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 6,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 1,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W + imm16*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1p2c2r",
+          "status": "inferred",
+          "when": {
+            "op1": 6,
+            "op2": 2,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 6,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 2,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W + imm24*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1p2c3r",
+          "status": "inferred",
+          "when": {
+            "op1": 6,
+            "op2": 3,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 6,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 3,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W + imm32*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1p2wp2c1r",
+          "status": "inferred",
+          "when": {
+            "op1": 7,
+            "op2": 1,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 7,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 1,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W + imm16*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "inferred"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "documented",
+              "tag": "op2 = 010 -> c = imm16"
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1p2wp2c2r",
+          "status": "inferred",
+          "when": {
+            "op1": 7,
+            "op2": 2,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 7,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 2,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W + imm24*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        },
+        {
+          "mnemonic": "mac_p1p2wp2c3r",
+          "status": "inferred",
+          "when": {
+            "op1": 7,
+            "op2": 3,
+            "coefreg": 1
+          },
+          "fields": {
+            "D": "D",
+            "op1": 7,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": "Z",
+            "op2": 3,
+            "coefreg": 1,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W + imm32*Z",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "tag": "measured"
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 933",
+              "kind": "measured",
+              "tool": "re/dspmacfit.py",
+              "line": 933
+            }
+          ],
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+        }
+      ],
+      "$doc_c": "C is the coefficient register, used only when the coefficient mode is 0 (spec 5.2). With an immediate coefficient its bits carry no register, so they are declared free rather than 0.",
+      "$doc_confidence": "op2[11:10] (coefficient mode) and coefreg[9] are independent in the *encoding*: the corpus shows every combination occurring. That does not make the *semantics* of each combination known. Each variant therefore carries its own status, and the evidence shows which kind of proof supports it: a formula measured on hardware vs. a pattern seen in code.",
+      "$doc_free": "Fields marked {\"free\": true} are bits the encoding leaves unused for that variant (C, Z, W when a term is absent). They are not required to be zero: no measurement says the hardware ignores them, so the decoder accepts any value and the encoder must preserve whatever it was given.",
+      "$doc_coefreg": "bit 9 (spec 5.2) is independent of the coefficient mode: the corpus has both states in every mode, so every combination is declared. Those with bit 9 set are inferred."
+    },
+    {
+      "name": "transfer",
+      "$section": "5.3",
+      "form": "transfer",
+      "layout": "transfer",
+      "status": "exact",
+      "operands": [
+        {
+          "name": "R",
+          "kind": "reg"
+        },
+        {
+          "name": "ref",
+          "kind": "ref"
+        },
+        {
+          "name": "Y",
+          "kind": "number",
+          "$doc": "the 4-bit Y field for indexed and bank-5 forms"
+        }
+      ],
+      "variants": [
+        {
+          "mnemonic": "ld",
+          "status": "exact",
+          "when": {
+            "mode": 254,
+            "R": {
+              "lt": 8
+            }
+          },
+          "fields": {
+            "R": "R",
+            "mode": 254,
+            "Y": {
+              "slot": true
+            }
+          },
+          "uses_slot": true,
+          "result": "rR <- mem[ref]",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9",
+              "kind": "documented",
+              "tag": "measured"
+            }
+          ],
+          "shows": [
+            "R",
+            "ref"
+          ]
+        },
+        {
+          "mnemonic": "st",
+          "status": "exact",
+          "when": {
+            "mode": 254,
+            "R": {
+              "ge": 8
+            }
+          },
+          "fields": {
+            "R": {
+              "from": "R",
+              "add": 8,
+              "$doc": "spec 5.3: a store encodes r(R-8) as field R = 8 + register"
+            },
+            "mode": 254,
+            "Y": {
+              "slot": true
+            }
+          },
+          "uses_slot": true,
+          "result": "mem[ref] <- rR",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.3",
+              "kind": "documented",
+              "tag": "exact"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9",
+              "kind": "documented",
+              "tag": "measured"
+            }
+          ],
+          "shows": [
+            "R",
+            "ref"
+          ]
+        },
+        {
+          "mnemonic": "ld",
+          "status": "measured",
+          "when": {
+            "mode": {
+              "in": [
+                255,
+                62,
+                14,
+                16,
+                18
+              ]
+            },
+            "R": {
+              "lt": 8
+            }
+          },
+          "fields": {
+            "R": "R",
+            "mode": {
+              "one_of": [
+                255,
+                62,
+                14,
+                16,
+                18
+              ]
+            },
+            "Y": {
+              "slot": true
+            }
+          },
+          "uses_slot": true,
+          "result": "same address as fe; the assembler always writes fe",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.3",
+              "kind": "documented",
+              "tag": "measured",
+              "note": "ff/3e/0e/10/12 are the same access as fe"
+            }
+          ],
+          "shows": [
+            "R",
+            "ref"
+          ]
+        },
+        {
+          "mnemonic": "st",
+          "status": "measured",
+          "when": {
+            "mode": {
+              "in": [
+                255,
+                62,
+                14,
+                16,
+                18
+              ]
+            },
+            "R": {
+              "ge": 8
+            }
+          },
+          "fields": {
+            "R": {
+              "from": "R",
+              "add": 8,
+              "$doc": "spec 5.3: a store encodes r(R-8) as field R = 8 + register"
+            },
+            "mode": {
+              "one_of": [
+                255,
+                62,
+                14,
+                16,
+                18
+              ]
+            },
+            "Y": {
+              "slot": true
+            }
+          },
+          "uses_slot": true,
+          "result": "same address as fe",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.3",
+              "kind": "documented",
+              "tag": "measured",
+              "note": "ff/3e/0e/10/12 are the same access as fe"
+            }
+          ],
+          "shows": [
+            "R",
+            "ref"
+          ]
+        },
+        {
+          "mnemonic": "ldidx",
+          "status": "exact",
+          "when": {
+            "mode": 40,
+            "R": {
+              "lt": 8
+            }
+          },
+          "fields": {
+            "R": "R",
+            "mode": 40,
+            "Y": "Y"
+          },
+          "uses_slot": false,
+          "result": "rR <- bank0[floor(h6*16384) + Y]",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "exact"
+            }
+          ],
+          "shows": [
+            "R",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "stidx",
+          "status": "exact",
+          "when": {
+            "mode": 40,
+            "R": {
+              "ge": 8
+            }
+          },
+          "fields": {
+            "R": "R",
+            "mode": 40,
+            "Y": "Y"
+          },
+          "uses_slot": false,
+          "result": "bank0[floor(h6*16384) + Y] <- rR",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "exact"
+            }
+          ],
+          "shows": [
+            "R",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "ldb5",
+          "status": "exact",
+          "when": {
+            "mode": 218,
+            "R": {
+              "lt": 8
+            }
+          },
+          "fields": {
+            "R": "R",
+            "mode": 218,
+            "Y": "Y"
+          },
+          "uses_slot": false,
+          "result": "rR <- bank5[floor(h6*16384) + Y]",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "exact, master DSP3 / slaves by audio",
+              "tool": "re/dspb5idx.py"
+            }
+          ],
+          "shows": [
+            "R",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "ldb5",
+          "status": "exact",
+          "when": {
+            "mode": 222,
+            "R": {
+              "ge": 8
+            }
+          },
+          "fields": {
+            "R": "R",
+            "mode": 222,
+            "Y": "Y"
+          },
+          "uses_slot": false,
+          "result": "bank5[floor(h6*16384) + Y] <- rR",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "exact, master DSP3 / slaves by audio",
+              "tool": "re/dspb5idx.py"
+            }
+          ],
+          "shows": [
+            "R",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "ldb5h7",
+          "status": "exact",
+          "when": {
+            "mode": 219,
+            "R": {
+              "lt": 8
+            }
+          },
+          "fields": {
+            "R": "R",
+            "mode": 219,
+            "Y": "Y"
+          },
+          "uses_slot": false,
+          "result": "rR <- bank5[floor(h7*16384) + Y]",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "exact, master DSP3 / slaves by audio",
+              "tool": "re/dspb5idx.py"
+            }
+          ],
+          "shows": [
+            "R",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "ldb5h7",
+          "status": "exact",
+          "when": {
+            "mode": 223,
+            "R": {
+              "ge": 8
+            }
+          },
+          "fields": {
+            "R": "R",
+            "mode": 223,
+            "Y": "Y"
+          },
+          "uses_slot": false,
+          "result": "bank5[floor(h7*16384) + Y] <- rR",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "exact, master DSP3 / slaves by audio",
+              "tool": "re/dspb5idx.py"
+            }
+          ],
+          "shows": [
+            "R",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "ldb5d",
+          "status": "exact",
+          "when": {
+            "mode": {
+              "in": [
+                208,
+                209,
+                210,
+                211,
+                212,
+                213,
+                214,
+                215
+              ]
+            }
+          },
+          "fields": {
+            "R": "R",
+            "mode": {
+              "mask_from": "mode",
+              "mask": 240
+            },
+            "Y": "Y"
+          },
+          "uses_slot": false,
+          "result": "rR <- bank5[N*16 + Y] with N = mode & 7",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.3",
+              "kind": "documented",
+              "tag": "measured",
+              "note": "ff/3e/0e/10/12 are the same access as fe"
+            }
+          ],
+          "shows": [
+            "R",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "setflags",
+          "status": "measured",
+          "when": {
+            "mode": 155
+          },
+          "fields": {
+            "R": "R",
+            "mode": 155,
+            "Y": "Y"
+          },
+          "uses_slot": false,
+          "result": "flags of unit Y of this instruction -> condition group X-8 (X = 9..d -> groups 1..5)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.3",
+              "kind": "documented",
+              "tag": "measured 2026-10-17"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "8",
+              "kind": "documented",
+              "tag": "measured",
+              "tool": "re/dspx9bflags.py"
+            }
+          ],
+          "shows": [
+            "R",
+            "Y"
+          ]
+        },
+        {
+          "mnemonic": "tapreq",
+          "status": "measured",
+          "when": {
+            "mode": 169
+          },
+          "fields": {
+            "R": "R",
+            "mode": 169,
+            "Y": "Y"
+          },
+          "uses_slot": false,
+          "result": "delay-tap request at address rR; results land in bank 2 at [h5..h5+2]",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.1",
+              "kind": "documented",
+              "tag": "measured"
+            }
+          ],
+          "shows": [
+            "R",
+            "Y"
+          ]
+        }
+      ],
+      "$doc_store": "spec 5.3: load vs store is the R field alone (0-7 load, 8-15 store r(R-8)); the mode byte is fe in both cases.",
+      "$doc_shows": "A plain access (`fe`) takes the register and a reference [addr]; the indexed / bank-5 / flag / tap forms take the register and a number for their Y field (spec 5.3, 9.0)."
+    },
+    {
+      "name": "cond",
+      "$section": "5.4",
+      "form": "condition",
+      "layout": "condition",
+      "status": "measured",
+      "operands": [
+        {
+          "name": "cc",
+          "kind": "cond"
+        },
+        {
+          "name": "skip_true",
+          "kind": "units"
+        },
+        {
+          "name": "skip_false",
+          "kind": "units"
+        },
+        {
+          "name": "neg",
+          "kind": "number"
+        }
+      ],
+      "variants": [
+        {
+          "mnemonic": "cond",
+          "status": "measured",
+          "when": {},
+          "fields": {
+            "cc": "cc",
+            "neg": "neg",
+            "skip_true": "skip_true",
+            "skip_false": "skip_false"
+          },
+          "result": "if cond then unit skip_true does not execute, else unit skip_false does not",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.4",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspcsweep.py"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "8",
+              "kind": "documented",
+              "tag": "measured"
+            }
+          ],
+          "shows": [
+            "cc",
+            "skip_true",
+            "skip_false"
+          ]
+        }
+      ],
+      "$doc_neg": "`neg` is not written: the source says `!cond3` and the assembler sets it. A trailing 1 or 0 is still accepted for a hand-written line that spells it out."
+    },
+    {
+      "name": "jmp",
+      "$section": "5.4b",
+      "form": "jump",
+      "layout": "jump",
+      "status": "measured",
+      "operands": [
+        {
+          "name": "target",
+          "kind": "label"
+        }
+      ],
+      "$doc": "009Y: the signed 16-bit value at slot Y>>1 is the offset in 16-bit words from the instruction end",
+      "variants": [
+        {
+          "mnemonic": "jmp",
+          "status": "measured",
+          "when": {
+            "tag": 9
+          },
+          "fields": {
+            "tag": 9,
+            "Y": {
+              "offset_slot": true
+            }
+          },
+          "result": "jump by the offset stored in a slot word",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.4b",
+              "kind": "documented",
+              "tag": "measured 2026-10-17",
+              "tool": "re/dspflagsaw.py"
+            }
+          ],
+          "$doc": "the Y field selects which slot word holds the offset; the assembler writes it into the instruction's last word"
+        }
+      ],
+      "$doc_slot": "spec 5.4b: the offset is the signed 16-bit word at slot Y>>1 of the immediate stream / free slots. In a class with no R position (0x058 = C + I...) it is one of the trailing I words."
+    },
+    {
+      "name": "hreg",
+      "$section": "9.0",
+      "form": "hidden_reg",
+      "layout": "hidden_reg",
+      "status": "measured",
+      "operands": [
+        {
+          "name": "index",
+          "kind": "hidden_reg"
+        },
+        {
+          "name": "value",
+          "kind": "y_operand",
+          "immediate": true
+        }
+      ],
+      "$doc": "40TY: T selects h4..h7, mode bits 5-4: 0 register, 1 imm16, 2 imm24, 3 imm32 (reads 0). Values are integers = value*16384",
+      "variants": [
+        {
+          "mnemonic": "hset",
+          "status": "measured",
+          "when": {
+            "T": 0,
+            "tag": 4
+          },
+          "fields": {
+            "T": 0,
+            "mode": {
+              "from_mode_of": "value"
+            },
+            "Y": "value",
+            "tag": 4
+          },
+          "hidden_reg": 4,
+          "result": "h4 <- value (delay base for f6c)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "measured 2026-10-16"
+            }
+          ]
+        },
+        {
+          "mnemonic": "hset",
+          "status": "measured",
+          "when": {
+            "T": 1,
+            "tag": 4
+          },
+          "fields": {
+            "T": 1,
+            "mode": {
+              "from_mode_of": "value"
+            },
+            "Y": "value",
+            "tag": 4
+          },
+          "hidden_reg": 5,
+          "result": "h5 <- value (tap-result address)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "measured 2026-10-16"
+            }
+          ]
+        },
+        {
+          "mnemonic": "hset",
+          "status": "measured",
+          "when": {
+            "T": 2,
+            "tag": 4
+          },
+          "fields": {
+            "T": 2,
+            "mode": {
+              "from_mode_of": "value"
+            },
+            "Y": "value",
+            "tag": 4
+          },
+          "hidden_reg": 6,
+          "result": "h6 <- value (index of mode-28 transfers)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "measured 2026-10-16"
+            }
+          ]
+        },
+        {
+          "mnemonic": "hset",
+          "status": "measured",
+          "when": {
+            "T": 3,
+            "tag": 4
+          },
+          "fields": {
+            "T": 3,
+            "mode": {
+              "from_mode_of": "value"
+            },
+            "Y": "value",
+            "tag": 4
+          },
+          "hidden_reg": 7,
+          "result": "h7 <- value",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "9.0",
+              "kind": "documented",
+              "tag": "measured 2026-10-16"
+            }
+          ]
+        }
+      ],
+      "when_tag": {
+        "msb": 15,
+        "lsb": 12,
+        "value": 4
+      }
+    },
+    {
+      "name": "empty",
+      "$section": "3",
+      "form": "empty",
+      "status": "exact",
+      "words": 0,
+      "operands": [],
+      "variants": [
+        {
+          "mnemonic": "noop",
+          "status": "exact",
+          "when": {},
+          "fields": {},
+          "result": "the one-word instruction 0001 (class 0x000)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "3",
+              "kind": "documented",
+              "tag": "exact"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "raw",
+      "$section": "3",
+      "form": "raw",
+      "status": "raw",
+      "words": "1..31",
+      "operands": [
+        {
+          "name": "words",
+          "kind": "word",
+          "variadic": true
+        }
+      ],
+      "variants": [
+        {
+          "mnemonic": "raw",
+          "status": "raw",
+          "when": {},
+          "fields": {},
+          "result": "verbatim body words (an encoding without a known meaning)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "14",
+              "kind": "documented",
+              "tag": "do not emit"
+            }
+          ],
+          "evidence_note": "no semantics: kept verbatim only"
+        }
+      ]
+    }
+  ],
+  "classes": {
+    "$doc": "spec 12: one letter per body word; A/B ALU, M/N MAC, C condition, T transfer, R reference, I immediate. `body_lengths` lists the instruction sizes measured for that class (header excluded); when two classes share a core it is what tells them apart.",
+    "0x000": {
+      "layout": "",
+      "status": "exact"
+    },
+    "0x040": {
+      "layout": "MN",
+      "status": "measured"
+    },
+    "0x048": {
+      "layout": "A",
+      "status": "measured"
+    },
+    "0x050": {
+      "layout": "B",
+      "status": "measured"
+    },
+    "0x058": {
+      "layout": "C",
+      "status": "measured"
+    },
+    "0x060": {
+      "layout": "T",
+      "status": "measured"
+    },
+    "0x080": {
+      "layout": "MMNN",
+      "status": "measured"
+    },
+    "0x088": {
+      "layout": "MAN",
+      "status": "measured"
+    },
+    "0x090": {
+      "layout": "MBN",
+      "status": "measured"
+    },
+    "0x098": {
+      "layout": "MN",
+      "status": "measured"
+    },
+    "0x0A0": {
+      "layout": "MTN",
+      "status": "measured"
+    },
+    "0x0A8": {
+      "layout": "AA",
+      "status": "measured"
+    },
+    "0x0B0": {
+      "layout": "AB",
+      "status": "measured"
+    },
+    "0x0B8": {
+      "layout": "AC",
+      "status": "measured"
+    },
+    "0x0C0": {
+      "layout": "AT",
+      "status": "measured"
+    },
+    "0x0C8": {
+      "layout": "AA",
+      "status": "measured"
+    },
+    "0x0D8": {
+      "layout": "AT",
+      "status": "measured"
+    },
+    "0x0E0": {
+      "layout": "CCC",
+      "status": "measured"
+    },
+    "0x0E8": {
+      "layout": "CT",
+      "status": "measured"
+    },
+    "0x0F0": {
+      "layout": "TTRR",
+      "status": "measured"
+    },
+    "0x100": {
+      "layout": "MMA",
+      "status": "measured"
+    },
+    "0x108": {
+      "layout": "MMNN",
+      "status": "measured"
+    },
+    "0x110": {
+      "layout": "MMTNN",
+      "status": "measured"
+    },
+    "0x118": {
+      "layout": "MABN",
+      "status": "measured"
+    },
+    "0x120": {
+      "layout": "MAN",
+      "status": "measured"
+    },
+    "0x128": {
+      "layout": "MATN",
+      "status": "measured"
+    },
+    "0x130": {
+      "layout": "MBBN",
+      "status": "measured"
+    },
+    "0x140": {
+      "layout": "MBTN",
+      "status": "measured"
+    },
+    "0x148": {
+      "layout": "MCCN",
+      "status": "measured"
+    },
+    "0x158": {
+      "layout": "MTTNRR",
+      "status": "measured"
+    },
+    "0x160": {
+      "layout": "AAB",
+      "status": "measured",
+      "body_lengths": [
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    "0x168": {
+      "layout": "AAC",
+      "status": "measured"
+    },
+    "0x170": {
+      "layout": "AAT",
+      "status": "measured"
+    },
+    "0x178": {
+      "layout": "ABBCCC",
+      "status": "measured"
+    },
+    "0x180": {
+      "layout": "ABC",
+      "status": "measured"
+    },
+    "0x188": {
+      "layout": "ABT",
+      "status": "measured"
+    },
+    "0x190": {
+      "layout": "ACC",
+      "status": "measured"
+    },
+    "0x198": {
+      "layout": "ACT",
+      "status": "measured"
+    },
+    "0x1A0": {
+      "layout": "ATT",
+      "status": "measured"
+    },
+    "0x1B0": {
+      "layout": "BBC",
+      "status": "inferred"
+    },
+    "0x1B8": {
+      "layout": "BBT",
+      "status": "measured"
+    },
+    "0x1D0": {
+      "layout": "BTT",
+      "status": "measured"
+    },
+    "0x1D8": {
+      "layout": "CCCCC",
+      "status": "measured"
+    },
+    "0x1E8": {
+      "layout": "CTTRRC",
+      "status": "measured"
+    },
+    "0x1F0": {
+      "layout": "TTTRR",
+      "status": "measured"
+    },
+    "0x208": {
+      "layout": "MMACN",
+      "status": "inferred"
+    },
+    "0x220": {
+      "layout": "MMATN",
+      "status": "inferred"
+    },
+    "0x238": {
+      "layout": "MMTTNNRR",
+      "status": "measured"
+    },
+    "0x240": {
+      "layout": "MAACN",
+      "status": "measured"
+    },
+    "0x248": {
+      "layout": "MABBN",
+      "status": "inferred"
+    },
+    "0x250": {
+      "layout": "MABCN",
+      "status": "inferred"
+    },
+    "0x258": {
+      "layout": "MAATN",
+      "status": "inferred"
+    },
+    "0x268": {
+      "layout": "MACTN",
+      "status": "measured"
+    },
+    "0x270": {
+      "layout": "MATTNRR",
+      "status": "measured"
+    },
+    "0x2A0": {
+      "layout": "MBTTN",
+      "status": "measured"
+    },
+    "0x2B8": {
+      "layout": "MCTTNRR",
+      "status": "measured"
+    },
+    "0x2C0": {
+      "layout": "MTTTNRRR",
+      "status": "measured"
+    },
+    "0x2C8": {
+      "layout": "AAAC",
+      "status": "measured"
+    },
+    "0x2D0": {
+      "layout": "AAAA",
+      "status": "measured"
+    },
+    "0x2D8": {
+      "layout": "AAA",
+      "status": "measured"
+    },
+    "0x2E0": {
+      "layout": "AAAT",
+      "status": "measured"
+    },
+    "0x2E8": {
+      "layout": "AACC",
+      "status": "measured"
+    },
+    "0x2F0": {
+      "layout": "AACT",
+      "status": "measured"
+    },
+    "0x2F8": {
+      "layout": "AATT",
+      "status": "measured"
+    },
+    "0x310": {
+      "layout": "AABT",
+      "status": "measured"
+    },
+    "0x318": {
+      "layout": "AAB",
+      "status": "measured",
+      "body_lengths": [
+        5
+      ]
+    },
+    "0x320": {
+      "layout": "AABCT",
+      "status": "measured"
+    },
+    "0x328": {
+      "layout": "AABTT",
+      "status": "measured"
+    },
+    "0x340": {
+      "layout": "ACTT",
+      "status": "measured"
+    },
+    "0x348": {
+      "layout": "ATTTRR",
+      "status": "measured"
+    },
+    "0x378": {
+      "layout": "AATT",
+      "status": "measured"
+    },
+    "0x388": {
+      "layout": "BCCT",
+      "status": "measured"
+    },
+    "0x398": {
+      "layout": "ATTTRR",
+      "status": "measured"
+    },
+    "0x3B8": {
+      "layout": "CTTTRRCC",
+      "status": "measured"
+    },
+    "0x3C0": {
+      "layout": "TTTTRRRR",
+      "status": "measured"
+    },
+    "0x458": {
+      "layout": "MMBTTNNRR",
+      "status": "measured"
+    },
+    "0x45A": {
+      "layout": "MMBTTTN",
+      "status": "inferred"
+    },
+    "0x478": {
+      "layout": "MMTTTNNRR",
+      "status": "measured"
+    },
+    "0x47A": {
+      "layout": "MMTTTTNNRR",
+      "status": "inferred"
+    },
+    "0x482": {
+      "layout": "MAAACTN",
+      "status": "inferred"
+    },
+    "0x490": {
+      "layout": "MAACTN",
+      "status": "inferred"
+    },
+    "0x4B4": {
+      "layout": "MAACCTTN",
+      "status": "measured"
+    },
+    "0x4B8": {
+      "layout": "MAACTN",
+      "status": "measured"
+    },
+    "0x4BA": {
+      "layout": "MAACTTNRRCCC",
+      "status": "measured"
+    },
+    "0x4C0": {
+      "layout": "MAATTN",
+      "status": "measured"
+    },
+    "0x4C2": {
+      "layout": "MAATTTNRRR",
+      "status": "measured"
+    },
+    "0x4C4": {
+      "layout": "MABTTTTNRRRR",
+      "status": "inferred"
+    },
+    "0x4DA": {
+      "layout": "MACTTTN",
+      "status": "inferred"
+    },
+    "0x4E0": {
+      "layout": "MATTTNRRR",
+      "status": "measured"
+    },
+    "0x4E2": {
+      "layout": "MATTTTNRRRR",
+      "status": "measured"
+    },
+    "0x510": {
+      "layout": "MBBTTN",
+      "status": "inferred"
+    },
+    "0x512": {
+      "layout": "MBBTTTNRRR",
+      "status": "measured"
+    },
+    "0x514": {
+      "layout": "MBBTTTTNRRR",
+      "status": "inferred"
+    },
+    "0x530": {
+      "layout": "MBTTTNRRRC",
+      "status": "measured"
+    },
+    "0x550": {
+      "layout": "MCTTTNRRR",
+      "status": "inferred"
+    },
+    "0x558": {
+      "layout": "MTTTTNRRRR",
+      "status": "measured"
+    },
+    "0x55A": {
+      "layout": "MTTTTTNRRRRR",
+      "status": "measured"
+    },
+    "0x566": {
+      "layout": "AAABCTTTRRRC",
+      "status": "measured"
+    },
+    "0x568": {
+      "layout": "AAACC",
+      "status": "measured"
+    },
+    "0x56A": {
+      "layout": "AAACCTI",
+      "status": "inferred"
+    },
+    "0x570": {
+      "layout": "AAACT",
+      "status": "measured"
+    },
+    "0x572": {
+      "layout": "AAACTTRRRC",
+      "status": "measured"
+    },
+    "0x574": {
+      "layout": "AAACTTTRRR",
+      "status": "measured"
+    },
+    "0x584": {
+      "layout": "AAAACTTRRC",
+      "status": "measured"
+    },
+    "0x586": {
+      "layout": "AABBCTTTIIRR",
+      "status": "inferred"
+    },
+    "0x588": {
+      "layout": "AAAATRCC",
+      "status": "measured"
+    },
+    "0x590": {
+      "layout": "AAAC",
+      "status": "measured"
+    },
+    "0x592": {
+      "layout": "AABCCT",
+      "status": "measured"
+    },
+    "0x598": {
+      "layout": "AAACT",
+      "status": "measured"
+    },
+    "0x59A": {
+      "layout": "AAACTTRRCC",
+      "status": "measured"
+    },
+    "0x59C": {
+      "layout": "AAACTTTRRRCC",
+      "status": "measured"
+    },
+    "0x59E": {
+      "layout": "AABCTTTTRRRI",
+      "status": "inferred"
+    },
+    "0x5A0": {
+      "layout": "AAATTRR",
+      "status": "measured"
+    },
+    "0x5A2": {
+      "layout": "AAATTTRRR",
+      "status": "measured"
+    },
+    "0x5A4": {
+      "layout": "AAATTTTRR",
+      "status": "measured"
+    },
+    "0x5A6": {
+      "layout": "AAATTTTTRRR",
+      "status": "measured"
+    },
+    "0x5B0": {
+      "layout": "AACCT",
+      "status": "measured"
+    },
+    "0x5B8": {
+      "layout": "AACTTRR",
+      "status": "measured"
+    },
+    "0x5C0": {
+      "layout": "AATTTRRR",
+      "status": "measured"
+    },
+    "0x5C2": {
+      "layout": "AATTTTRRRR",
+      "status": "measured"
+    },
+    "0x5C4": {
+      "layout": "AATTTTTRRRRR",
+      "status": "measured"
+    },
+    "0x5EE": {
+      "layout": "ABBCTTTI",
+      "status": "inferred"
+    },
+    "0x5F0": {
+      "layout": "AAATT",
+      "status": "measured"
+    },
+    "0x5F2": {
+      "layout": "AAATTT",
+      "status": "measured"
+    },
+    "0x600": {
+      "layout": "AACCT",
+      "status": "measured"
+    },
+    "0x608": {
+      "layout": "ABCTTRR",
+      "status": "inferred"
+    },
+    "0x60C": {
+      "layout": "AACTTTTRRRRC",
+      "status": "measured"
+    },
+    "0x610": {
+      "layout": "AATTTRRR",
+      "status": "measured"
+    },
+    "0x612": {
+      "layout": "AATTTTRRRR",
+      "status": "measured"
+    },
+    "0x630": {
+      "layout": "ACTTTRR",
+      "status": "inferred"
+    },
+    "0x632": {
+      "layout": "ACTTTTRRRR",
+      "status": "inferred"
+    },
+    "0x638": {
+      "layout": "ATTTTRRRR",
+      "status": "measured"
+    },
+    "0x63A": {
+      "layout": "ATTTTTRRRRR",
+      "status": "measured"
+    },
+    "0x6C8": {
+      "layout": "AATT",
+      "status": "measured"
+    },
+    "0x6E8": {
+      "layout": "ACTTT",
+      "status": "measured"
+    },
+    "0x720": {
+      "layout": "TTTTTRRRRR",
+      "status": "measured"
+    },
+    "0x722": {
+      "layout": "TTTTTTRRRRRR",
+      "status": "measured"
+    }
+  },
+  "registers": {
+    "data": 8,
+    "hidden": [
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "banks": {
+    "$doc": "spec 5.5: bits 15-13 of a reference are the bank (from the ARM side)",
+    "0": {
+      "name": "bank0",
+      "note": "DT0, ring of 0x800 words"
+    },
+    "1": {
+      "name": "dt1"
+    },
+    "2": {
+      "name": "dt2",
+      "note": "two pages alternating per sample"
+    },
+    "3": {
+      "name": "iomd"
+    },
+    "4": {
+      "name": "mxm"
+    },
+    "5": {
+      "name": "bank5",
+      "note": "plain persistent memory, 0x800 words"
+    },
+    "6": {
+      "name": "env"
+    }
+  },
+  "units": {
+    "$doc": "Body position -> the forms that can describe it, in the order a decoder must try them. A catch-all form (the condition word) comes last.",
+    "A": [
+      "alu_a"
+    ],
+    "B": [
+      "alu_b",
+      "sfu",
+      "f_words"
+    ],
+    "M": [
+      "mac"
+    ],
+    "T": [
+      "transfer"
+    ],
+    "C": [
+      "jmp",
+      "hreg",
+      "cond"
+    ],
+    "$order": "spec 4.2 general order: the ops (A, B, M) and the condition words, then the transfers, then the slot array (N words first, then the references). The assembler sorts a line's units into this order; the disassembler prints them the same way.",
+    "$rank": {
+      "A": 0,
+      "B": 0,
+      "M": 0,
+      "C": 1,
+      "T": 2
+    }
+  },
+  "directives": {
+    "$doc": "Directives the assembler understands. A directive that changes how one instruction is read goes on its own line before it.",
+    ".class": {
+      "args": [
+        "class"
+      ],
+      "effect": "pins the class of the next instruction (spec 4.2 names the class; two classes can share a core layout)",
+      "example": ".class 0x0558"
+    },
+    ".free": {
+      "args": [
+        "bits"
+      ],
+      "effect": "sets bits that the variant leaves free (no defined meaning) in the next instruction; the disassembler writes them back so a round trip preserves what it does not understand",
+      "example": ".free 0x1f00"
+    }
+  }
+}
