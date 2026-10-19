@@ -4,3 +4,4 @@ tools/__pycache__
 dumps
 **/*.bin
 work
+*.pyc
