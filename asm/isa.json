@@ -142,12 +142,12 @@
       "Y": {
         "msb": 3,
         "lsb": 0,
-        "negate_bit": 3,
         "register_bits": [
           2,
           0
         ],
-        "_word": 0
+        "_word": 0,
+        "$doc": "bits 2-0 = register; bit 3 is not a negation (measured 2026-10-20, DISCREPANCIES D3): for a register it is a free bit, restored with .free. Immediate modes use bits 3-0 as the byte."
       },
       "Z": {
         "msb": 15,
@@ -173,7 +173,8 @@
           2,
           0
         ],
-        "_word": 1
+        "_word": 1,
+        "$doc": "bit 3 negates a register W (measured 2026-10-20: mac_p1 with -r3 gives X*Y - r3)"
       },
       "op2": {
         "msb": 11,
@@ -306,6 +307,10 @@
           "name": "Y",
           "kind": "y_operand",
           "immediate": true
+        },
+        {
+          "name": "R",
+          "kind": "reg"
         }
       ],
       "variants": [
@@ -338,6 +343,14 @@
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
               "line": 435
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 837",
+              "line": 837,
+              "kind": "measured",
+              "tool": "re/dspverify.py",
+              "note": "immediate = Y bytes into the slot area (A/B); MAC: Y and W by their field, C after Y skipping references (spec 4.4)"
             }
           ],
           "immediate_bits": 32,
@@ -879,6 +892,49 @@
             "D",
             "X",
             "Y"
+          ]
+        },
+        {
+          "mnemonic": "sum8",
+          "status": "measured",
+          "when": {
+            "D": {
+              "ge": 8
+            }
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.1: the destination is r(D-8)"
+            },
+            "op": {
+              "from": "R",
+              "$doc": "the op field names the third register r[op]"
+            },
+            "X": "X",
+            "Y": "Y"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "R"
+          ],
+          "result": "r(D-8) <- X + Y + r[op]",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "documented",
+              "tag": "exact (class 0x048)"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "6.1",
+              "kind": "measured",
+              "tag": "measured 2026-10-20 (re/review_probes.py): class 0x0a8 all eight op values; class 0x048 four values"
+            }
           ]
         }
       ],
@@ -3610,7 +3666,7 @@
         },
         {
           "mnemonic": "mac_p1wc0",
-          "status": "inferred",
+          "status": "measured",
           "when": {
             "op1": 4,
             "op2": 0,
@@ -3645,20 +3701,9 @@
           "evidence": [
             {
               "source": "examples/from_scratch/DSP_ISA_SPEC.md",
-              "section": "5.2",
-              "kind": "documented",
-              "note": "bit 9 = 1 with a register coefficient"
-            },
-            {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
               "section": "7",
-              "kind": "measured-without-bit-9"
-            },
-            {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
-              "section": "5.2",
-              "kind": "corpus-reassembly",
-              "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
+              "kind": "measured",
+              "tag": "measured 2026-10-20 (re/review_probes.py): bit 9 clear, op2 = 0: op1 6/7 no products, op1 4 keeps the products"
             }
           ],
           "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
@@ -3770,6 +3815,14 @@
               "kind": "measured",
               "tool": "re/dspmacfit.py",
               "line": 933
+            },
+            {
+              "source": "examples/from_scratch/NOTES.md",
+              "section": "line 837",
+              "line": 837,
+              "kind": "measured",
+              "tool": "re/dspverify.py",
+              "note": "immediate = Y bytes into the slot area (A/B); MAC: Y and W by their field, C after Y skipping references (spec 4.4)"
             }
           ],
           "kinds": {
@@ -4160,11 +4213,63 @@
         },
         {
           "mnemonic": "mac_p1p2c0",
+          "status": "measured",
+          "when": {
+            "op1": 6,
+            "op2": 0,
+            "coefreg": 0,
+            "modeY": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 6,
+            "X": "X",
+            "modeY": {
+              "free": true,
+              "$doc": "no product: Y unused"
+            },
+            "Y": {
+              "free": true,
+              "$doc": "no product: Y unused (spec 7)"
+            },
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "no product: C unused"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- rX + W + Z (no products: op2 = 000, op1 = 6/7; spec 7)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured",
+              "tag": "measured 2026-10-20 (re/review_probes.py): bit 9 clear, op2 = 0: op1 6/7 no products, op1 4 keeps the products"
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1p2c0y",
           "status": "inferred",
           "when": {
             "op1": 6,
             "op2": 0,
-            "coefreg": 0
+            "coefreg": 0,
+            "modeY": {
+              "ge": 1
+            }
           },
           "fields": {
             "D": "D",
@@ -4177,7 +4282,10 @@
             "Z": "Z",
             "op2": 0,
             "coefreg": 0,
-            "C": "C",
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
             "modeW": {
               "operand_mode": "W"
             },
@@ -4191,27 +4299,15 @@
             "C",
             "W"
           ],
-          "result": "rD <- rX + W + rC*Z",
+          "result": "rD <- rX*Y + W + c*Z (immediate Y with bit 9 clear: products kept; not measured)",
           "evidence": [
             {
               "source": "examples/from_scratch/DSP_ISA_SPEC.md",
               "section": "5.2",
-              "kind": "documented",
-              "note": "bit 9 = 1 with a register coefficient"
-            },
-            {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
-              "section": "7",
-              "kind": "measured-without-bit-9"
-            },
-            {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "corpus-reassembly",
-              "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
+              "note": "immediate Y with bit 9 clear: reproduced by the corpus only; the products are not measured"
             }
-          ],
-          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
+          ]
         },
         {
           "mnemonic": "mac_p1p2c1",
@@ -4435,11 +4531,63 @@
         },
         {
           "mnemonic": "mac_p1p2wp2c0",
+          "status": "measured",
+          "when": {
+            "op1": 7,
+            "op2": 0,
+            "coefreg": 0,
+            "modeY": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 7,
+            "X": "X",
+            "modeY": {
+              "free": true,
+              "$doc": "no product: Y unused"
+            },
+            "Y": {
+              "free": true,
+              "$doc": "no product: Y unused (spec 7)"
+            },
+            "Z": "Z",
+            "op2": 0,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "no product: C unused"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Z",
+            "W"
+          ],
+          "result": "rD <- -rX + W + Z (no products: op2 = 000, op1 = 6/7; spec 7)",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured",
+              "tag": "measured 2026-10-20 (re/review_probes.py): bit 9 clear, op2 = 0: op1 6/7 no products, op1 4 keeps the products"
+            }
+          ]
+        },
+        {
+          "mnemonic": "mac_p1p2wp2c0y",
           "status": "inferred",
           "when": {
             "op1": 7,
             "op2": 0,
-            "coefreg": 0
+            "coefreg": 0,
+            "modeY": {
+              "ge": 1
+            }
           },
           "fields": {
             "D": "D",
@@ -4452,7 +4600,10 @@
             "Z": "Z",
             "op2": 0,
             "coefreg": 0,
-            "C": "C",
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
             "modeW": {
               "operand_mode": "W"
             },
@@ -4466,27 +4617,15 @@
             "C",
             "W"
           ],
-          "result": "rD <- -rX + W + rC*Z",
+          "result": "rD <- -rX*Y + W + c*Z (immediate Y with bit 9 clear: products kept; not measured)",
           "evidence": [
             {
               "source": "examples/from_scratch/DSP_ISA_SPEC.md",
               "section": "5.2",
-              "kind": "documented",
-              "note": "bit 9 = 1 with a register coefficient"
-            },
-            {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
-              "section": "7",
-              "kind": "measured-without-bit-9"
-            },
-            {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "corpus-reassembly",
-              "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
+              "note": "immediate Y with bit 9 clear: reproduced by the corpus only; the products are not measured"
             }
-          ],
-          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
+          ]
         },
         {
           "mnemonic": "mac_p1p2wp2c1",

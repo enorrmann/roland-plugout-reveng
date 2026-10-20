@@ -247,10 +247,11 @@ class Confidence(unittest.TestCase):
                 mode = v.when.get("op2")
                 creg = v.when.get("coefreg", 0)
                 with self.subTest(mnemonic=v.mnemonic, mode=mode, coefreg=creg):
-                    if mode == 0 and creg == 0 and v.mnemonic.endswith("c0"):
-                        # bit 9 clear with a register coefficient: not in the spec,
-                        # reproduced by the corpus only (see the variant's evidence)
-                        self.assertEqual(v.status, "inferred")
+                    if mode == 0 and creg == 0 and "c0" in v.mnemonic:
+                        # bit 9 clear (spec 5.2 documents bit 9 = 1): measured on the
+                        # device for op1 4 and 6/7; the immediate-Y and op1 2/3/5
+                        # forms are reproduced by the corpus only
+                        self.assertIn(v.status, ("measured", "inferred"))
                     elif mode == 0 and creg == 0:
                         self.assertIn(v.status, ("exact", "measured"))
                     elif mode == 0 and creg == 1:

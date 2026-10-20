@@ -142,11 +142,11 @@ class Policy(unittest.TestCase):
     """the table and the layout rules, as the review left them"""
 
     def test_unit_a_with_destination_eight_or_more_is_not_mov(self):
-        # D >= 8 is a special A form (spec 6.1). The old table read 0x8042 as
-        # `mov r0, r2` and lost the 8. It now stays verbatim until measured.
+        # D >= 8 is the special A form r(D-8) <- X + Y + r[op] (spec 6.1, measured
+        # 2026-10-20 on the device). The old table read 0x8042 as `mov r0, r2`.
         text, report = listing([0x0902, 0x8042])
-        self.assertIn("raw", text)
         self.assertNotIn("mov r0, r2", text)
+        self.assertIn("sum8", text)
 
     def test_wrong_bit_pattern_is_refused_not_guessed(self):
         r = ASM.assemble(".class 0x0040\n.free @1 0x0004\nmac_p1w2 r0, r0, r1, r0")

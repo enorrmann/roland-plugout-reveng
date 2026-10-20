@@ -216,3 +216,23 @@ These are not verified and the code does not claim them.
   rule belongs in `layout.py` if both directions need it.
 - Keep the self-check in `disasm.program`. It is what keeps a bad table entry from
   producing a listing that does not match the words.
+
+## Follow-up: device session and the remaining open items (2026-10-20)
+
+With the lab plugin in slot 3 and PLG3 selected, the open items of `DSP_ISA_DISCREPANCIES.md` were probed on
+master DSP3 (`examples/from_scratch/re/review_probes.py`, results in `work/review_probes.json`, 24 probes, all
+matching). The device closed these, and the code now follows it:
+
+- bit 3 of a MAC register Y is not a negation (a free bit now); bit 3 of W is (unchanged);
+- the MAC coefficient is read at byte C when Y is a register;
+- a hidden-register Y is a byte offset;
+- unit A with D ≥ 8 is `sum8` (r(D−8) ← X + Y + r[op]), measured in classes 0x048 and 0x0a8;
+- bit 9 of a MAC word switches the products for op1 6/7 (no products when clear), and the table says so.
+
+Still open, with the data in the discrepancies file: D4 (three spec layouts, no probe yet), D6 (11 + 9 corpus
+instances with a transfer where the layout has an ALU op; the other letter pattern gives noise), D8 (where the
+coefficient is read after an immediate Y in plain layouts: the spec's 540c instruction reproduces, the plain
+ones do not), and D10 (reads past an instruction's end: a listing limitation).
+
+Corpus after this follow-up: 132 of 132 files identical; 31408 of 31489 instructions decoded (corpus_all 99.7 %,
+corpus_s1 99.9 %); 74 tests, all pass, one skipped.

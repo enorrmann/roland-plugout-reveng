@@ -204,11 +204,11 @@ w2:  Z[15:12]  op2[11:9]  C[8:6]  mW[5:4]  W[3:0]
 | D | destination r0–7 (8–15 not measured) | [exact] |
 | op1 | bit 0: negate P1; bit 1: add W; bit 2: add P2; op1 0/1 = no write | [exact] |
 | X | register | [exact] |
-| mY, Y | Y operand: register (bits 2–0; bit 3 was **not** a negation in the measured MAC cases) or immediate. The listing currently prints bit 3 as a minus sign [DISCREPANCIES D3] | [measured] |
+| mY, Y | Y operand: register (bits 2–0) or immediate. Bit 3 of a register Y is **not** a negation: measured 2026-10-20 (`mac_p1`, Y = −r2 gives the same result as Y = r2). It is a free bit (`asm/`: restored with `.free`). Immediate modes use bits 3–0 as the byte (DISCREPANCIES D3) | [measured] |
 | Z | register, bit 3 = negate | [exact] |
-| op2 | bits 11–10 = mode of the coefficient c: 00 register C, 01 imm16 [inferred], 10 imm24, 11 imm32; bit 9 = 1 with a register coefficient (spec 5.2). Reassembly of the corpus: 1151 instances with an immediate coefficient read after Y, 2124 with Y a register and the coefficient at byte C (§4.4); 143 instances with a register coefficient and bit 9 clear, reproduced but not measured [DISCREPANCIES D9] | [measured; 01 inferred] |
-| C | coefficient register when op2 mode = 0. With an immediate coefficient C is free, except when Y is a register: then C is the byte the coefficient is read at (§4.4) | [exact; the byte rule measured on the device, DISCREPANCIES D1] |
-| mW, W | W operand: register (bit 3 = negate) or immediate | [exact] |
+| op2 | bits 11–10 = mode of the coefficient c: 00 register C, 01 imm16 [inferred], 10 imm24, 11 imm32; bit 9 = 1 with a register coefficient (spec 5.2). Reassembly of the corpus: 1151 instances with an immediate coefficient read after Y, 2124 with Y a register and the coefficient at byte C (§4.4); with op1 = 6 or 7 and bit 9 clear there are no products: r ← ±X + W + Z (measured 2026-10-20); with op1 = 4 or 5 both products are kept (measured 2026-10-20, DISCREPANCIES D9) | [measured; 01 inferred] |
+| C | coefficient register when op2 mode = 0. With an immediate coefficient C is free, except when Y is a register: then C is the byte the coefficient is read at (§4.4) | [exact; byte C measured on the device 2026-10-20 at bytes 2, 4 and 6 (DISCREPANCIES D1)] |
+| mW, W | W operand: register (bit 3 = negate; measured 2026-10-20: `mac_p1` with W = −r3 gives X·Y − r3) or immediate | [exact; measured 2026-10-20] |
 
 ### 5.3 Transfer word
 
@@ -342,9 +342,9 @@ op 0 sub-codes (X field):
 | 6, 7 | rD ← D + Y | [exact] |
 
 D ≥ 8 (single A op, class 0x048): r(D−8) ← X + Y + r[op] (the op field indexes a third register) **[exact]**.
-Not measured inside multi-op classes.
-(2026-10-20: the corpus has about 85 such words in multi-op classes; the listing keeps them verbatim, and the
-plain A forms take D < 8 only. DISCREPANCIES D5.)
+Measured 2026-10-20 in class 0x048 (one op, four values of op) and in class 0x0a8 (AA, all eight values of op):
+r(D−8) ← X + Y + r[op] in every case. The listing prints the form as `sum8`. Other multi-op classes are not yet checked
+on the device (DISCREPANCIES D5).
 
 ### 6.2 Division
 
@@ -424,7 +424,7 @@ P2 = c · Z          (c = rC or immediate per op2; Z = ±rZ)
 rD ← (op1 & 1 ? −P1 : P1) + (op1 & 2 ? W : 0) + (op1 & 4 ? P2 : 0)
 special case: op2 = 000 and op1 ∈ {6,7}: no products → rD ← ±rX + W + Z (2026-10-17: with an immediate Y the
 P1 product stays: ±imm·rX + W + Z; op1 ∈ {4,5} keeps both products with op2 = 000; op2 = 001 always multiplies:
-op2 bit 9 enables the products in the W modes) [measured, `re/dspmacfit.py`]
+op2 bit 9 enables the products in the W modes) [measured, `re/dspmacfit.py`; re-measured 2026-10-20: `mac_p1p2c0` with op1 = 6 gives X + W + Z]
 op1 ∈ {0,1}: no write
 D ≥ 8: r(D−8) ← result / 2                                   [measured 2026-10-16, random operands]
 op2 = 010: c = imm16 (modes of c: 00 rC, 01 imm16, 10 imm24, 11 imm32); op2 = 011: unknown (constant result)
@@ -440,7 +440,7 @@ Measured examples:
 | `0803 0809 5280` | r0 ← r0·r1 + r2·r5 |
 | `0807 3cca 1cb6 002e 3bc7 01a0 1a01` | r3 ← r3·r2 + (2/2835)·r1 + 2/315 |
 | `1107 7522 6504 0025 800d 0002 2222` | r7 ← r4·(−1/5040) + 1/120 ; r6 ← r4·r4 (A op) |
-| `2b09 2c8f 6fe2 7fe4 5983 0407 0403 a2aa aa00` | r2 ← r2·(±r7) + r3 + (−1/6)·r5 ; r6 ← [0407] ; r7 ← [0403]. The sign of Y: [open, DISCREPANCIES D3] |
+| `2b09 2c8f 6fe2 7fe4 5983 0407 0403 a2aa aa00` | r2 ← r2·r7 + r3 + (−1/6)·r5 ; r6 ← [0407] ; r7 ← [0403]. Y is not negated (measured 2026-10-20) |
 
 ## 8. Predication
 
@@ -522,8 +522,7 @@ true, op 2 if false) or whether a **jump** (§5.4b) is taken: if/else, switch, a
 * **`40TY` in a C position** (classes 0x058, 0x0E8, …) loads a hidden register: T = bits 7–6 (0 → h4, 1 → h5,
   2 → h6, 3 → h7 (unread)), mode = bits 5–4 (0: rY, kept mod 512; 1: imm16; 2: imm24; 3: imm32 reads 0), Y = bits
   3–0 = register, or for immediates the byte of the instruction's immediate stream the value is read at (as for an A/B op, §4.4).
-  The example below reads word 1 (byte 2) for h4 = 324, so "words" in earlier text was wrong for this example;
-  whether a word count is used in other cases is open (DISCREPANCIES D7). Immediate
+  Measured 2026-10-20 (`hset h5` with Y = 1 reads byte 1, not word 1); the example reads byte 2 for h4 = 324. Immediate
   values are integers = value·16384 (addresses): `0b03 4050 0301` → h5 = 0x301; `1d06 4022 7fe0 c1fc 5100 0000` →
   h4 = 0x510000/16384 = 324; `0b02 4080` → h6 = r0.
 * h4 = delay base (`f6c`, §6.4) and the value A op 0 sub 4 adds; h5 = tap-result address (§9.1), added by A op 0

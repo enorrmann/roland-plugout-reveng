@@ -282,6 +282,8 @@ def free_bits_in(table, ins, letters, prefix):
         if v is None:
             continue
         y_is_imm = ch == "M" and table.immediate_width(fields.get("modeY", 0)) != 0
+        if ch == "M" and not y_is_imm and w & 0x8:
+            out.append((i, 0x8))          # bit 3 of a register Y is free (DISCREPANCIES D3)
         for fname, src in v.fields.items():
             if not (isinstance(src, dict) and src.get("free")):
                 continue
@@ -358,7 +360,7 @@ def _render_alu(table, form, v, fields, stream):
     args = []
     shows = v.shows if v.shows is not None else form.operand_names
     for name in shows:
-        if name not in v.fields:
+        if name not in v.fields and name != "R":     # R is the op field (see below)
             continue
         if name == "D" and isinstance(v.fields.get("D"), dict) and "add" in v.fields["D"]:
             args.append("r%d" % ((fields.get("D", 0) - v.fields["D"]["add"]) & 7))
@@ -370,7 +372,10 @@ def _render_alu(table, form, v, fields, stream):
         elif name == "Y":
             args.append(ytxt)
         else:
-            args.append("r%d" % (fields.get(name, 0) & 7))
+            if name == "R":                # the third register of a D >= 8 op: the op field
+                args.append("r%d" % (fields.get("op", 0) & 7))
+            else:
+                args.append("r%d" % (fields.get(name, 0) & 7))
     return "%s %s" % (v.mnemonic, ", ".join(args)), v.status
 
 
@@ -418,7 +423,8 @@ def mac_text(table, w1, w2, stream):
         if negate is not None and val & (1 << negate):
             args.append("-r%d" % (val & ((1 << negate) - 1)))
         else:
-            args.append("r%d" % val)
+            # a MAC Y register: bit 3 is not a negation (DISCREPANCIES D3); it is a free bit
+            args.append("r%d" % (val & 7 if name == "Y" else val))
     return "%s %s" % (v.mnemonic, ", ".join(args)), v.status
 
 

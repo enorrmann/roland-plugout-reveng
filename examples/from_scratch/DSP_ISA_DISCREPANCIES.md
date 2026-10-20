@@ -1,188 +1,115 @@
-# Open discrepancies — DSP ISA, assembler and disassembler
+# Discrepancies — DSP ISA, assembler and disassembler
 
-Scope: **only what is still unresolved.** Each entry gives the evidence, why it is not resolved, and what
-would close it. Settled questions are deliberately absent; when one is closed it is removed from here (or
-moved into `DSP_ISA_SPEC.md` if it changes the spec). The 2026-10-20 review that closed the earlier entries
-(D1 coefficient operand, D3 round trip, D4 fixture errors) is written up in `asm/REVIEW.md`.
+What is still open, and the device results that closed the others. A closed entry is removed from the open
+list; its result is written into `DSP_ISA_SPEC.md` (or `DSP_ISA.md`). Settled questions are not repeated.
 
-State at the time of writing (`asm/`, working tree, not committed):
+Status 2026-10-20: 4 items open (D4, D6, D8, D10). Everything else below is closed by a device probe or by a
+code change with a passing test.
 
-```
-python3 -m unittest discover -s tests   (in asm/)   74 tests, all pass, 1 skipped
-python3 tests/roundtrip_report.py                  132 of 132 files identical (128 corpus_all + 4 corpus_s1)
-python3 tests/coverage.py                          corpus_all 30313 of 30478 instructions decoded (99.5 %), 165 verbatim
-```
+## Device session 2026-10-20
 
-Every decoded line is re-assembled before it is printed; a line that does not give back its own words is
-kept verbatim, so the figures above mean "decoded and exactly reproducible", not just "matched a template".
+SYSTEM-8 1.32, lab plugin (`plugins/C-DSPT`, DSPTEST + DSPLIVE + PEEK) in slot 3, PLG3 selected. Probes:
+`re/review_probes.py`, run on master DSP3 through `dspprobe` (the idle master context). Results:
+`work/review_probes.json`: 24 probes, 24 match the expected value (the class 0x048 probes of D5 were run before the script; their numbers are in the table). The value compared is the result register
+(r0, or r1 for the spec's 540c instruction). Registers: r0 .5, r1 .25, r2 .125, r3 −.375, r4 .0625,
+r5 −.75, r6 .875, r7 −.0625.
 
----
+| item | probe | result |
+|---|---|---|
+| D1 | `mac_p1wc2` with Y = r2 and the coefficient 0.5 at byte 2, 4 and 6 (C = 2, 4, 6) | r0 = X·Y + 0.5·Z in all three: the coefficient is read at byte C |
+| D3 (Y) | `mac_p1 r0, r1, −r2, r3` and `… r2, r3` | the same result: bit 3 of a register Y is **not** a negation |
+| D3 (W) | `mac_p1 r0, r1, r2, −r3` and `… r3` | −r3 negates: W's bit 3 **is** a negation (as spec 5.2 says) |
+| D5 | `1503 8a43 4c42`, the AA class, with the D ≥ 8 op 0..7 | r0 = r1 + r3 + r[op] for all eight values |
+| D5 | `0902 8043` … (class 0x048, four op values) | r0 = X + Y + r[op] (earlier session) |
+| D7 | `hset h5` with Y = 1 and Y = 0 | the value is read at byte 1 (0x3456), not word 1 (0x5678) |
+| D9 | op1 = 6, bit 9 set / clear (`mac_p1p2`, `mac_p1p2c0`) | set: X·Y + W + C·Z; clear: X + W + Z (no products) |
+| D9 | op1 = 4, bit 9 clear (`mac_p1wc0`) | X·Y + C·Z: products kept |
+| D8 | the spec's 540c instruction, coefficient word changed (2333, 2800, 2400, 2c00) | r1 = r0 + c·r7 + W for all four: the coefficient is read after Y, at slot 4 |
 
-## D1. The MAC coefficient's read position: byte C vs in-order after Y
+## Code changes made in this session (`asm/`, all tests pass, corpus 132/132 identical)
 
-**Status:** both branches of spec 4.4 are implemented and reproduce the corpus exactly. Only one branch has
-been checked against the device.
+- `isa.json`: the MAC Y operand has no negation; bit 3 of a register Y is a free bit (`disasm.py` and
+  `asm.py` restore it with `.free`). W keeps its negation.
+- `isa.json`: new variant `sum8` (alu_a, D ≥ 8): r(D−8) ← X + Y + r[op]. It takes a register operand `R`
+  (the op field). Measured in classes 0x048 and 0x0a8.
+- `isa.json`: `mac_p1p2c0` and `mac_p1p2wp2c0` (op1 6 and 7, bit 9 clear, register Y) are the no-product form
+  X + W + Z. The immediate-Y forms with bit 9 clear are now separate variants `…c0y` (inferred, products kept as
+  before). `mac_p1wc0` is measured (op1 4).
+- `tests/test_decoding.py`, `tests/test_regressions.py`, `tests/test_spec_examples.py`: expectations updated to
+  the above. The NOTES.md evidence entry for the byte rule (D2) is on `add3` and `mac_p1wc2`; the evidence test
+  checks it.
+- `isa.json` `$doc`: the MAC Y and W notes.
 
-**Evidence.**
-- Spec 4.4: *"A MAC: Y at byte Y, W at byte W, C right after Y's immediate (or at byte c when Y is a
-  register)."*
-- `Y` immediate (`modeY ≠ 0`): **1151** corpus instances, read in order after Y. Its reading comes from the
-  device-derived §4.4 example (`540c 1c12 af1b afe4 cfe6 7a2b 3000 0638 063d 2333 33c4 c008`, class 0x2a0):
-  Y = 1.0 at byte 2, coefficient 233333 = 0.2 after skipping the two reference words, W = c4c008 at byte 11.
-  The spec 4.4 derives this from the device (`re/dspverify.py`, 2026-10-17); the reassembly confirms the reading.
-- `Y` register (`modeY = 0`): **2124** corpus instances, coefficient read at byte C. Example
-  `2b09 2c8f 6fe2 7fe4 5983 0407 0403 a2aa aa00` (class 0x158): C = 6, coefficient `a2aaaa` = −1/6 (the
-  listing: `#-0.16666603@6`). The value is plausible; no device check has been made.
+## Closed
 
-**Why it is not resolved.** The byte-C branch rests on the spec's wording and on the reassembly of 2124
-instructions, which proves the bits are read back the same way, not that the hardware reads them there.
+### D1. The MAC coefficient's read position with a register Y
+Closed by the probe above: the coefficient is read at byte C (bytes 2, 4 and 6). Spec 4.4 now says so with
+the measurement.
 
-**What closes it.** A probe on master DSP3 (the method of `re/dspverify.py`): a MAC with `modeY = 0`,
-`op2 = 2`, a known register Y, and a coefficient word placed at the byte named by C. Compare the stored
-result with `X·Y + W + c·Z`. Two different C bytes should give two different results.
+### D2. NOTES.md line for the byte rule
+Closed: `isa.json` evidence entries on `add3` and `mac_p1wc2` cite `examples/from_scratch/NOTES.md`, line 837,
+which states the byte rule. `tests/test_decoding.py` checks the line exists.
 
----
+### D3. Is bit 3 of a MAC Y or W a negation?
+Closed: Y — no (probe); W — yes (probe). Code and spec now agree with the device.
 
-## D2. Where the NOTES.md line for the byte rule is
+### D5. Unit A with destination 8–15
+Closed for classes 0x048 and 0x0a8 (device, all op values). The listing prints the form as `sum8` (it was kept
+verbatim before). Other multi-op classes are not yet probed; the same rule is expected to hold there, which is
+a test to run rather than a discrepancy to argue about.
 
-**Status:** open, low risk.
+### D7. Hidden-register Y: byte or word?
+Closed: byte (probe). Spec 9.0 and `DSP_ISA.md` say so.
 
-**Evidence.** `DSP_ISA_SPEC.md` §4.4 gives the byte rule and cites `re/dspverify.py` ("~100 random
-Roland instructions"). The `isa.json` evidence entries cite `NOTES.md` line numbers, which
-`tests/test_decoding.py` checks only for existence and non-emptiness. No table entry cites the byte rule.
+### D9. Bit 9 of a MAC word
+Closed: bit 9 switches the product terms for op1 = 6 with op2 = 000 (spec 7, "no products", now measured).
+The `c0` names were kept; their meaning is written in their `$doc`/evidence.
 
-**What closes it.** Either add an evidence entry for the byte rule that points at a real `NOTES.md` line
-(the existing test then checks it), or state that `DSP_ISA_SPEC.md` §4.4 is the sole source.
+## Open
 
----
+### D4. Spec §12 layouts that the corpus contradicts
+The table keeps the layout that reassembles more corpus instances:
 
-## D3. MAC Y and W: is bit 3 a negation?
-
-**Status:** open. The table and the listing treat bit 3 as a negate; the spec says the measured MAC cases do
-not show it.
-
-**Evidence.**
-- `DSP_ISA_SPEC.md` §5.2 (table, row "mY, Y"): *"register (bits 2–0; bit 3 was **not** a negation in the
-  measured MAC cases)"*.
-- `asm/isa.json`, MAC form: `Y` and `W` have `negate_bit: 3`. The listing therefore prints `-r7` for
-  `2b09 2c8f …` (Y field `8f`), and `DSP_ISA.md` §6 reads the same word as `r7·r2`.
-- The two readings give opposite signs for the same word, so one of them is wrong. The round trip is
-  indifferent (the same bit is written back either way).
-
-**What closes it.** A probe of a MAC with the Y (and W) field bit 3 set, register operand known, comparing
-the result with `+r` and with `−r`. Until then the listing keeps the table's reading and the spec's
-sentence stands.
-
----
-
-## D4. Spec §12 layouts that the corpus contradicts
-
-**Status:** open. The table keeps the layout that reassembles more corpus instances; the spec table lists
-another.
-
-**Evidence** (`python3 asm/tests/class_layouts.py`; instances in `work/corpus_all` and `corpus_s1`):
-
-| class | spec §12 | table (kept) | instances re-assembling: spec / table |
+| class | spec §12 | table | instances reassembling: spec / table |
 |---|---|---|---|
-| 0x0E0 | `CCC` | `CC` | 0 / 12 |
 | 0x240 | `MAANCCC` | `MAACN` | 0 / 7 |
 | 0x572 | `ATACTTRRRC` | `AAACTTRRRC` | 0 / 8 |
 | 0x592 | `AATCCT` | `AABCCT` | 0 / 16 |
 
-For 0x0E0 the table is `CC` because `1c04 0090 1a10 0003` is a jump and a condition with its slot word
-(spec 5.4b); the spec's `CCC` has no slot position for that word.
+Reassembly does not say which letter is right. Closing needs a probe per class that tells an ALU op from a
+condition (or the other letter pairs): for example one instance of 0x592 with the table's `B` at position 2
+replaced by an `A`, and the register result compared with the listing. Not done in this session.
 
-**What closes it.** Decide per class whether the spec table or the instances are right, then correct the
-spec §12 row (or the table). The 0x240, 0x572 and 0x592 instances are few (7–16); a probe on one of each
-would settle the letters.
+### D6. Unit B words in classes 0x258 and 0x140
+11 instances in 0x258 and 9 in 0x140 stay verbatim (corpus_all + corpus_s1). In each, position 2 (0x258) or 1
+(0x140) holds a transfer word (`cd0f`, `cd0e`: store to bank 5, mode `d0`), where the layout has an ALU op.
+Trying the other letter pattern decodes them without a raw fallback, but the immediates come out as values like
+3.7e-09, i.e. noise. So the letter is not the whole story: the immediate or array placement of these instances
+differs. Not resolved.
 
----
+### D8. Where the coefficient is read after an immediate Y
+The spec 4.4 rule ("C right after Y's immediate") reproduces the spec's 540c instruction exactly on the device
+(probe above, four coefficient values, and the coefficient at slot 4 regardless of the two words in between).
+Plain MAC layouts do not reproduce the rule in what I could test:
 
-## D5. Unit A words with destination 8–15 outside class 0x048
+- a MAC `mac_p1wc2` with Y = #0.5@2 and a coefficient word at slot 2 (no references, no transfers): the result
+  does not depend on the coefficient word, and the implied coefficient is 1.5 (= the N word read as an
+  immediate);
+- the same with a register W and op1 = 6 (`mac_p1p2c2r`): constant as well;
+- the 540c instruction with its two transfers changed to non-slot modes: unchanged, so the references are not
+  what makes the difference.
 
-**Status:** open; the listing keeps these words verbatim.
+I did not find the rule that places the coefficient in those cases. The listing follows spec 4.4 (and reproduces
+the corpus, which is self-consistent), so a plain-layout MAC with an immediate Y and an immediate coefficient
+may be decoded with the wrong coefficient value. Closing needs a systematic sweep of the coefficient's position
+(one marker word per slot, in several layouts), not more single cases.
 
-**Evidence.** Spec 6.1: *"D ≥ 8 (single A op, class 0x048): r(D−8) ← X + Y + r[op] … Not measured inside
-multi-op classes."* The corpus has about 85 such words in multi-op classes (`0x2e0`, `0x188`, …); they were
-decoded as ordinary ops until 2026-10-20, which lost the 8 (`0x8042` printed as `mov r0, r2`), so the plain
-A forms now take D < 8 only.
+### D10. Reads past the end of an instruction
+Not an ISA question. 20 corpus instructions read past their last word; the hardware reads the next
+instruction's words there. The listing keeps those lines verbatim. A tool would need the next instruction to
+represent them; that is listing work, not spec work.
 
-**What closes it.** A probe of a multi-op class (for instance 0x2e0) with a D ≥ 8 word, comparing the
-destination with `X + Y + r[op]`. Once measured, the variant can be added to `isa.json` with that class's
-evidence, and the verbatim count drops.
+## Not listed here
 
----
-
-## D6. Unit B words in classes 0x258 and 0x140 do not decode
-
-**Status:** open. About 48 corpus instances (27 in 0x258, 21 in 0x140).
-
-**Evidence.** The spec layout `MABTNR` for 0x258 re-assembles 65 of 111 instances; the others have a
-transfer word where the layout has a B. In 0x140 (`MBTN`) the B position fails for `cd0e`-type words, which
-are transfers (store to bank 5, mode `d0`). The layout is probably right for some instances and a different
-pattern holds for the rest.
-
-**What closes it.** Decode the failing instances by hand against the mode bytes and find the pattern that
-separates them; then either a second layout for the class or a note in `DSP_ISA_SPEC.md` §12.
-
----
-
-## D7. Hidden-register Y: byte offset or word count?
-
-**Status:** open. The code reads Y as a byte offset, the same as an ALU op.
-
-**Evidence.** Spec 9.0 says *"Y = … for immediates the number of words of the instruction's immediate stream
-to skip"*. The example `1d06 4022 7fe0 c1fc 5100 0000` (h4 = 324) reads the value at byte 2 (word 1). A
-word count of 2 would read byte 4. Both readings reproduce the corpus, so the corpus does not separate
-them (the word reading was not tried).
-
-**What closes it.** A probe of `40TY` with Y = 1 or 3 (odd): the byte reading lands mid-word, the word
-reading does not. Also check against the spec's own example value.
-
----
-
-## D8. Sequential reads over jump words
-
-**Status:** open; [unknown] in the spec.
-
-**Evidence.** Spec 4.4: a sequential read steps over the words a transfer uses as references. Nothing says
-whether it also steps over a jump's offset word. The code steps over references only (`layout.stream_bits`,
-`refs`), and that is what reproduces the corpus; no corpus instance has a sequential read crossing a jump
-word, so the corpus cannot decide.
-
-**What closes it.** A probe with a MAC coefficient (or a hidden-register load) whose sequential read crosses
-a `jmp` word.
-
----
-
-## D9. Register coefficient with bit 9 clear
-
-**Status:** open. Six `…c0` variants (`mac_p1c0`, `mac_p1w2c0`, `mac_p1wc0`, `mac_p1p2c0`, `mac_p1p2wp2c0`,
-`mac_p1p2wc0`) are `inferred`.
-
-**Evidence.** Spec 5.2: bit 9 = 1 with a register coefficient. 143 corpus instances have a register
-coefficient with bit 9 clear; the variants reproduce them exactly, and nothing else is known about them.
-
-**What closes it.** A probe of a MAC with a register coefficient and bit 9 clear, comparing the result with
-the register form.
-
----
-
-## D10. Reads past the end of an instruction
-
-**Status:** not a discrepancy; a representation gap. 20 corpus instructions read past their last word.
-
-**Evidence.** Spec 4.4: the hardware reads the next instruction's words there. The listing cannot say what
-those words are without the next instruction, so these lines stay verbatim.
-
-**What closes it.** Nothing in the spec needs changing. A listing that keeps the next instruction's words
-with the line would represent them; that is a tool change, not an ISA question.
-
----
-
-## Not listed here, and why
-
-- **Rejected lines, sizing and round-trip divergence** — all zero on the corpus after the 2026-10-20 review;
-  see `asm/REVIEW.md`.
-- **The coefficient operand missing from the listing** — fixed (`mac_*c1/c2/c3` now show `#value`).
-- **Hidden values h4/h5, bit operations, `X9bY` flags** — settled in `DSP_ISA_SPEC.md` §8–§9.
+- Rejected lines, sizing, round-trip divergence: zero on the corpus after the 2026-10-20 review (`asm/REVIEW.md`).
+- The coefficient missing from the listing: fixed (`mac_*` with a coefficient show `#value`).

@@ -874,6 +874,8 @@ class Assembler:
         out = []
         for u in ordered:
             imm = dict(u.imm_args())
+            if u.form.form == "mac" and "Y" not in imm:
+                out.append((spots[id(u)][0], 0x0008))   # bit 3 of a register Y (D3)
             y_is_imm = "Y" in imm
             for fname, src in u.variant.fields.items():
                 if not (isinstance(src, dict) and src.get("free")):

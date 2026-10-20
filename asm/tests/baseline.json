@@ -13,11 +13,11 @@
     "",
     "Semantic confidence is per instruction (worst tag of its units), corpus_all.",
     "",
-    "Known open (see asm/REVIEW.md). A change that lowers these numbers is a regression."
+    "Known open: see asm/REVIEW.md and examples/from_scratch/DSP_ISA_DISCREPANCIES.md. A change that lowers these numbers is a regression."
   ],
   "decoding": {
-    "corpus_all_pct": 99.5,
-    "corpus_s1_pct": 99.7
+    "corpus_all_pct": 99.7,
+    "corpus_s1_pct": 99.9
   },
   "assembly": {
     "lines_pct": 100.0,
@@ -35,12 +35,12 @@
     "measured_pct": 31.6,
     "inferred_pct": 9.8,
     "fitted_pct": 1.5,
-    "raw_pct": 0.5
+    "raw_pct": 0.3
   },
   "known_open": {
-    "unit_a_destination_8_to_15": "outside class 0x048 the D >= 8 form is not measured: ~480 corpus instructions stay raw",
-    "sequential_read_over_jumps": "[unknown] only references are skipped by a sequential read; jump words are not",
-    "hidden_register_y": "Y of hset is read as a byte offset (the 1d06 4022 example needs it); spec 9.0 says words",
-    "register_coefficient_bit9_clear": "10 MAC variants named ...c0 are reproduced by the corpus only (143 instances)"
+    "layouts_0x240_0x572_0x592": "DISCREPANCIES D4: table layouts kept; spec layouts reassemble 0 instances",
+    "unit_b_0x258_0x140": "DISCREPANCIES D6: 11 + 9 corpus instances stay verbatim (transfer where the layout has B)",
+    "coefficient_after_immediate_y": "DISCREPANCIES D8: the spec 540c instruction reproduces; plain layouts do not",
+    "reads_past_instruction_end": "DISCREPANCIES D10: a listing limitation (next instruction not represented)"
   }
 }
