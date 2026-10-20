@@ -5,7 +5,7 @@
 #
 #   [MASK=0x1A20] examples/sd_txt/make_sd_txt.sh [OUT_DIR]
 # Install with --no-patches and capture the ports during the install (see
-# capture.sh).
+# README.md for the install and capture commands).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
