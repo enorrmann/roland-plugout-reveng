@@ -473,9 +473,32 @@ static void e_load(engine_t *e)                                         /* vt+0x
             ((reg_fn)OS(0x58 + 4 * d))(p[s]);
     }
 }
+#ifdef MORPH
+/* morph table (examples/wt_morph/make.py): written into bank 5 of DSP2 and DSP3 when the plugout starts; the
+   18-bit values (value * 2^17) become DSP RAW words as in the DSPLIVE bank-5 mode */
+#include "morph_table.h"
+static volatile uint32_t *morph_bank5(int dsp) { return (volatile uint32_t *)(0x41114000u + dsp * 0x4000u + 0x2000u); }
+static uint32_t morph_raw18(int32_t v)
+{
+    uint32_t sign = v < 0 ? 0x80000000u : 0, m = (uint32_t)(v < 0 ? -v : v);
+    if (m < (1u << 14))
+        return m ? sign | m << 15 : 0;
+    return sign | 1u << 29 | m << 11;
+}
+static void morph_load(void)
+{
+    for (int d = 2; d <= 3; d++)
+        for (unsigned i = 0; i < MORPH_WORDS; i++)
+            morph_bank5(d)[(MORPH_BASE + i) & 0x3FF] = morph_raw18(morph_tab[i]);
+}
+#endif
+
 static void e_start(engine_t *e)                                         /* vt+0x0C */
 {
     send_state(e);
+#ifdef MORPH
+    morph_load();
+#endif
     /* slot programs only run once +0x70 has enabled their task bit */
     swap_dco(e, 1);
     swap_dco(e, 2);
