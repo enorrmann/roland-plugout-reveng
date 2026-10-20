@@ -1,7 +1,7 @@
 /* Region 0 (the model) of the from-scratch PLUG-OUT: runs on the master BMC
  * (core 0, next to the OS). Freestanding, no library, no foreign code.
  *
- * What the OS needs from region 0 (see examples/from_scratch/NOTES.md):
+ * What the OS needs from region 0 (see docs/NOTES.md):
  *   SYNINFO +0x24  init(): returns the descriptor; called many times
  *   SYNINFO +0x28  parameter record list (model_list.h, from params.py)
  *   base+0x8000    slot memory: patches and edit buffers (storage.bin)
@@ -494,7 +494,7 @@ static void m_note_on(struct assign *a, int note, int vel)
  *   cmd 5 read P words (1..16): reply F0 7D 02 <address: 8 nibbles> <words: 8 nibbles each> F7,
  *         address += 4 P
  *   cmd 6 ping: reply F0 7D 03 <P: 4 nibbles> F7
- * MIDI out = the sequence of the OS Identity handler (BASE_FIRMWARE.md 7.12). */
+ * MIDI out = the sequence of the OS Identity handler (docs/BASE_FIRMWARE.md 7.12). */
 static uint32_t peek_alo, peek_ahi, peek_dlo, peek_dmid;
 
 static void sx_send(const uint8_t *buf, int len)

@@ -1,11 +1,109 @@
 # plugout-rev
 
-Install Roland PLUG-OUTs (JUNO-60, JX-3P, SH-101) into a SYSTEM-8 (or SYSTEM-1)
-connected over USB, **without the VST plugin**. The tools replicate the plugins'
-own install routine; the protocol is documented in [`PROTOCOL.md`](PROTOCOL.md).
+Reverse engineering of the Roland SYSTEM-8 PLUG-OUT system, with three results:
 
-Only the plugin folders' `Script/` (`Code*.Dat`, `Script.xml`) and `Patch/`
-files are needed.
+1. **An install tool** (`tools/plugout_tool.py`) that sends PLUG-OUT firmware and patch banks to a SYSTEM-8 or
+   SYSTEM-1 over USB, replicating the plugins' own install routine, without the VST plugin.
+2. **A tool chain for the firmware** (`tools/plugout_build.py`, `tools/sys8fw.py`, `asm/`): unpack, patch and
+   rebuild the PLUG-OUT containers and the SYSTEM-8 updater, and assemble and disassemble the DSP microcode.
+3. **Our own PLUG-OUTs and lab experiments** (`examples/`): a from-scratch C engine, its own DSP microcode for
+   an oscillator and a wavetable player, and a SYSTEM-8 image used as a lab.
+
+All documents are in [`docs/`](docs/INDEX.md); start with [`docs/INDEX.md`](docs/INDEX.md).
+
+## Scope
+
+What this project is:
+
+* A research record of how the PLUG-OUT firmware, the SYSTEM-8 OS and the DSP microcode work, with the evidence
+  behind each claim (`docs/`).
+* Tools that work against a real SYSTEM-8 on USB, plus offline tools for the containers and the firmware.
+* Experiments that run on the device: custom PLUG-OUTs built from our own code, and one lab image.
+
+What this project is not:
+
+* Not a replacement of Roland's firmware or plugins. The tools install only into PLUG-OUT slots, the one the user
+  chooses (`--slot`); what was there is overwritten, so reinstall the stock plugout to get it back.
+* Not a complete DSP toolchain. The DSP instruction set is decoded for the parts the experiments use; see
+  `docs/DSP_ISA_DISCREPANCIES.md` for what is still open.
+* Not a copy of the plugins. The plugin folders (`plugins/`) and the decoded firmware (`work/`, `dumps/`) are
+  local and ignored by git; the firmware updater images are in `firmware/`.
+
+### Verified on a real SYSTEM-8 (firmware 1.32)
+
+| Area | Status | Where |
+|---|---|---|
+| Install of firmware and patch banks, `info`, `banks`, `inspect` | works | `tools/plugout_tool.py`, [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
+| Rebuilt JX-3P (byte-identical), renamed version, name change, effect label change | works | [`docs/CUSTOM_PLUGOUTS.md`](docs/CUSTOM_PLUGOUTS.md) |
+| Code patch in the engine (EFFECT TONE inverted for OD/DS/FZ) | works | `examples/` + `docs/CUSTOM_PLUGOUTS.md` |
+| Region 0 init hook reading OS RAM and the SD card | works | `examples/mem_name`, `examples/sd_txt` |
+| Own C engine and own region 0 (parameter model), own packaging | plays | `examples/from_scratch/`, `docs/examples_from_scratch_engine_README.md` |
+| Own DSP microcode: sawtooth oscillator at 96 kHz (±1.2 cents) | works | `docs/CUSTOM_OSC.md` |
+| Wavetable player (WAV → bank 5 → DSP) and `C-WTLIVE` live table | works | `examples/wt_live/`, `examples/from_scratch/re/wt5.py` |
+| Live DSP peek and poke from the host | works | `docs/DSP_HARDWARE.md`, `examples/from_scratch/re/dsplive.py` |
+| S8LAB lab image in PLG1: OSC1 COLOR changes the timbre | works (not monotonic) | `examples/sys8_lab/`, `docs/PLAN.md` |
+
+### Not done or not verified
+
+* **Own microcode beyond the oscillators above.** Filters, envelopes and effects are still Roland's microcode.
+* **Noise on OSC1.** The stock engine has no native path for it, and the DSP decides the sound; any version needs
+  a code cave (see `docs/CUSTOM_PLUGOUTS.md`).
+* **Wavetable budget.** A table that exceeds the DSP cycle budget can need a power cycle of the device
+  (`examples/from_scratch/re/wav2dco.py`, `docs/CUSTOM_OSC.md`, `docs/OPTIONS.md`).
+* **The SYSTEM-8 modulation paths.** How an LFO or envelope reaches COLOR or OSC1 cross mod is not found: the
+  patch cords and the EXTEND matrix did not change the sound in the tests (`docs/PLAN.md`, steps 3 to 8).
+* **Bootloader and updater.** Both are encrypted (ECB); the key is in the BMC chip. The OS image is decoded
+  (local dump, not in git).
+* **Long samples.** A write to the EDM memory from ARM code is still open; not yet written up in `docs/`.
+* **Emulation.** There is no full emulator of the device. The partial emulators (`tools/engine_emu.py`,
+  `examples/from_scratch/re/emu0.py`, `emu1.py`) cover parts of the engine. The DSP ISA was checked on the device by audio.
+* **Other PLUG-OUTs.** The install code accepts the JUNO-60 and SH-101 folders, but the hardware records in
+  `docs/` cover the JX-3P family and our own builds.
+
+## Repository layout
+
+| Folder | Contents |
+|---|---|
+| `tools/` | install tool, container and firmware tools, device access, and their tests |
+| `asm/` | DSP assembler and disassembler (`asm/asm.py`, `asm/disasm.py`), with tests |
+| `firmware/` | official SYSTEM-8 updater images, v1.30 to v1.32 |
+| `base-engine/` | decoded base engine of the stock plugouts (reports and ELF exports) |
+| `cleanroom/` | clean-room specification test vectors and their checker |
+| `examples/` | experiments that run on the device (one folder each, see below) |
+| `docs/` | all documents; index in [`docs/INDEX.md`](docs/INDEX.md) |
+| `plugins/`, `work/`, `dumps/` | local, not in git: plugin folders, decoded images, device dumps |
+
+### Examples
+
+| Folder | What it is | Status |
+|---|---|---|
+| `examples/from_scratch/` | own PLUG-OUT in C (`engine/`, `model/`) and the reverse-engineering scripts (`re/`) | engine plays; own microcode: oscillator only |
+| `examples/sys8_lab/` | S8LAB, the SYSTEM-8 image in PLG1, with the COLOR, cord, MOD and LFO tests | installed; tests run |
+| `examples/wt_live/` | `C-WTLIVE`: send a WAV wavetable to the slaves live (slot 3) | works |
+| `examples/wt_morph/` | `C-MORPH`: one wavetable position morphing with an LFO | design only; no hardware run recorded; options in `docs/OPTIONS.md` |
+| `examples/wt_pwm/` | `C-PWM`: wavetable PLUG-OUT with a WAV inside | built; no hardware run recorded in `docs/` |
+| `examples/sd_txt/` | read a file from the SD card in a region 0 init hook | works |
+| `examples/mem_name/`, `examples/mem_names/`, `examples/mem_scan/` | region 0 hooks that read OS RAM through the plugout name, and the dump loops | works |
+| `examples/midi_send/` | captures and bulk dump / bulk loop of the device's SysEx | captures |
+| `examples/cave_tone/`, `examples/preset_fill/` | code-cave hooks (TONE, preset fill and press) | experiments |
+
+## Tools and firmware
+
+| Path | What |
+|---|---|
+| `tools/plugout_tool.py` | CLI: `ports`, `info`, `install`, `banks`, `inspect` |
+| `tools/plugout.py` | container format, Roland SysEx, protocol constants |
+| `tools/patches.py` | `Script.xml` structures, `Patch/*.bin` banks, patch addresses |
+| `tools/midi_io.py` | MIDI ports (ALSA raw MIDI via ctypes, python-rtmidi) |
+| `tools/plugout_build.py` | CLI to unpack, modify and rebuild `Code*.Dat` ([`docs/CUSTOM_PLUGOUTS.md`](docs/CUSTOM_PLUGOUTS.md)) |
+| `tools/plugout_image.py` | flash image, region header, SYNINFO, relocation, container builder |
+| `tools/lzss.py` | LZSS codec of the firmware regions |
+| `tools/sys8fw.py` | unpack / patch / rebuild `SYSTEM8_UP.BIN`, RTTI symbols, ELF ([`docs/BASE_FIRMWARE.md`](docs/BASE_FIRMWARE.md)) |
+| `tools/os_analyze.py`, `tools/svc_table.py`, `tools/crypto_scan.py` | analysis of the decoded OS and its service table |
+| `tools/engine_*.py`, `tools/read_param.py`, `tools/patch_read.py` | engine analysis and parameter reads |
+| `tools/test_sys8fw.py`, `tools/test_plugout.py`, `tools/test_plugout_build.py` | tests (`python3 -m unittest discover -s tools`) |
+| `asm/` | DSP assembler and disassembler ([`docs/DSP_ISA_SPEC.md`](docs/DSP_ISA_SPEC.md), [`docs/REVIEW.md`](docs/REVIEW.md)) |
+| `firmware/sys8_sys_v132/SYSTEM8_UP.BIN` | official SYSTEM-8 updater (v1.32); see [`docs/VERSIONS.md`](docs/VERSIONS.md) |
 
 ## Requirements
 
@@ -105,30 +203,10 @@ transfer must wait for the flow-control replies every 32 messages, which is what
   (`Code8_<slot>.Dat`).
 * Use `-v` to see the full traffic.
 
-## Files
-
-| Path | What |
-|---|---|
-| `tools/plugout_tool.py` | CLI: `ports`, `info`, `install`, `inspect` |
-| `tools/plugout.py` | container format, Roland SysEx, protocol constants |
-| `tools/patches.py` | `Script.xml` structures, `Patch/*.bin` banks, patch addresses |
-| `tools/midi_io.py` | MIDI ports (ALSA raw MIDI via ctypes, python-rtmidi) |
-| `tools/plugout_build.py` | CLI to unpack, modify and rebuild `Code*.Dat` ([`CUSTOM_PLUGOUTS.md`](CUSTOM_PLUGOUTS.md)) |
-| `tools/plugout_image.py` | flash image, region header, SYNINFO, relocation, container builder |
-| `tools/lzss.py` | LZSS codec of the firmware regions |
-| `tools/sys8fw.py` | unpack / patch / rebuild `SYSTEM8_UP.BIN` (base firmware), RTTI symbols, ELF ([`BASE_FIRMWARE.md`](BASE_FIRMWARE.md)) |
-| `tools/test_sys8fw.py` | tests for `sys8fw.py` against the shipped updater |
-| `tools/test_plugout.py` | tests against a simulated SYSTEM-8: `python3 -m unittest discover -s tools` |
-| `tools/test_plugout_build.py` | rebuild / relocation tests against the shipped files |
-| `PROTOCOL.md` | protocol extracted from the plugins, with code addresses |
-| `CUSTOM_PLUGOUTS.md` | firmware format, slots, relocation, OS interface; building custom PLUG-OUTs |
-| `firmware/SYSTEM8_UP.BIN` | official SYSTEM-8 updater (analysed in `CUSTOM_PLUGOUTS.md` §5) |
-
 ## Limitations
 
-* `info` has been run against a real SYSTEM-8 (firmware 1.32), and after a
-  firmware install it reported the JUNO-60 1.01 in the target slot. The patch
-  transfer has only been tested against a simulated device; it follows the
-  plugin's code (`PROTOCOL.md` §6).
-* Patches are sent without flow control (as the plugin does) and, by default,
-  without delays. If the device drops data, use `--gap-ms 10 --wire-pacing`.
+* The patch transfer has been tested against a simulated device and on the real SYSTEM-8; it follows the plugin's
+  code ([`docs/PROTOCOL.md`](docs/PROTOCOL.md) §6).
+* Patches are sent without flow control (as the plugin does) and, by default, without delays. If the device drops
+  data, use `--gap-ms 10 --wire-pacing`.
+* Do not run two tools against the device at once: they share one MIDI port and their replies mix.

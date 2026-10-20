@@ -8,7 +8,7 @@ functions it points to.
 Every aligned u32 is classified:
   * odd value inside the kernel image (0x01000400..0x01019A08): Thumb function
     (the code at 0x01000400 is a RAM copy of image 0x602B9774..., see
-    BASE_FIRMWARE.md section 6)
+    docs/BASE_FIRMWARE.md section 6)
   * value inside the OS image (0x60000000..0x602CDA70): pointer into the image
   * value in RAM (0x01xxxxxx / 0x20xxxxxx): data pointer
   * small values: counters / flags

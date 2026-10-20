@@ -8,8 +8,8 @@
  * gen_model.py into byte code that eval_expr() interprets), swaps the
  * oscillator / effect programs when the waveforms or the effect type change,
  * and turns notes into pitch / gate writes.
- * Interface: CUSTOM_PLUGOUTS.md "DSP microcode in the engine",
- * examples/from_scratch/NOTES.md.
+ * Interface: docs/CUSTOM_PLUGOUTS.md "DSP microcode in the engine",
+ * docs/NOTES.md.
  */
 #include <stdint.h>
 

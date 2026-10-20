@@ -3,7 +3,7 @@
 The DSP executes each 32-bit little-endian word upper half first. A blob of
 4n+2 bytes is followed in the image by the halfword 0x0001, which is its real
 last instruction; the blob's own last halfword (0x0000) is never written to
-program memory (verified on the master DSP4, CUSTOM_PLUGOUTS.md).
+program memory (verified on the master DSP4, docs/CUSTOM_PLUGOUTS.md).
 """
 import struct
 

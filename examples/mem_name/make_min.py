@@ -53,7 +53,7 @@ def assemble(src_file: str, base: int, work: str, **sym) -> bytes:
 
 def image(name: str, model_id: int, version: int, base: int, code: bytes,
           size: int = 0, ptr: int = 0) -> bytes:
-    """SYNINFO block (CUSTOM_PLUGOUTS.md section 4) + code, linked at base.
+    """SYNINFO block (docs/CUSTOM_PLUGOUTS.md section 4) + code, linked at base.
     size/ptr: zero-pad the image to `size` bytes and use `ptr` (image offset)
     as the SYNINFO pointer, like the stock region 0."""
     end = base + (ptr or CODE_OFF + len(code))

@@ -10,7 +10,7 @@ cd "$(dirname "$0")"
 SRC=${SRC:-0x60000000}
 HOOK=${HOOK:-0x60a07000}        # zero area of region 1 (same cave as cave_tone)
 NAME=0x61800010                 # region 0 SYNINFO name, slot 1
-SENDER=0x60a0b41e               # CDSPJx3p parameter sender (see CUSTOM_PLUGOUTS.md)
+SENDER=0x60a0b41e               # CDSPJx3p parameter sender (see docs/CUSTOM_PLUGOUTS.md)
 arm-none-eabi-as -mcpu=cortex-a9 -mthumb \
     --defsym SRC=$SRC --defsym DEST=${DEST:-0x60445957} --defsym HOOK=$HOOK --defsym NAME=$NAME \
     ${TEST:+--defsym TEST=1} ${HANG:+--defsym HANG=1} --defsym COUNTER=0x70 --defsym RET=0x60a0b425 --defsym LIT=0x60a0b470 press.s -o press.o

@@ -1,7 +1,7 @@
 {
   "$comment": [
     "Executable ISA table: the source of truth for asm/ and disasm/.",
-    "Hand-derived from examples/from_scratch/DSP_ISA_SPEC.md; that file stays",
+    "Hand-derived from docs/DSP_ISA_SPEC.md; that file stays",
     "the documentation and tests/test_spec.py cross-checks the two.",
     "",
     "HOW A VARIANT IS DECLARED",
@@ -332,20 +332,20 @@
           "result": "rD <- rD + rX + Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
               "line": 435
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 837",
               "line": 837,
               "kind": "measured",
@@ -378,13 +378,13 @@
           "result": "rD <- rX * Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -416,13 +416,13 @@
           "result": "rD <- rD + rX * Y (unit A op 3; see mac_* for the MAC unit)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -454,13 +454,13 @@
           "result": "rD <- Y + rX * rD",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -492,13 +492,13 @@
           "result": "rD <- Y - rX * rD",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -530,13 +530,13 @@
           "result": "rD <- rX + Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -567,13 +567,13 @@
           "result": "rD <- Y - rX",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -608,13 +608,13 @@
           "result": "no effect (the one-word 0001 is class 0x000 instead)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -642,13 +642,13 @@
           "result": "rD <- Y (also loads an immediate)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -680,13 +680,13 @@
           "result": "rD <- rD*r(D+1); r(D+1) <- 2-r(D+1)*rY; rY <- r(D+1)*rY",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -721,13 +721,13 @@
           "result": "rD <- rD + Y + h4",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -758,13 +758,13 @@
           "result": "rD <- rD + Y + h5",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -795,13 +795,13 @@
           "result": "rD <- rD + Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -833,13 +833,13 @@
           "result": "rD <- rD + Y (identical to sub-code 6; the spec keeps them apart)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -875,13 +875,13 @@
           "$note": "the op field holds the third register here; the 'when' matches any op with D >= 8",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 435",
               "kind": "exact-fit",
               "tool": "dspfit.py --all",
@@ -924,13 +924,13 @@
           "result": "r(D-8) <- X + Y + r[op]",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "documented",
               "tag": "exact (class 0x048)"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.1",
               "kind": "measured",
               "tag": "measured 2026-10-20 (re/review_probes.py): class 0x0a8 all eight op values; class 0x048 four values"
@@ -996,13 +996,13 @@
           "result": "rD <- rX & Y (bit operations work mod 512)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
@@ -1042,13 +1042,13 @@
           "result": "rD <- ~rX & Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
@@ -1088,13 +1088,13 @@
           "result": "rD <- rX | Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
@@ -1134,13 +1134,13 @@
           "result": "rD <- ~rX | Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
@@ -1180,13 +1180,13 @@
           "result": "rD <- rX ^ Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
@@ -1226,13 +1226,13 @@
           "result": "rD <- ~(rX ^ Y)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
@@ -1272,13 +1272,13 @@
           "result": "rD <- |rX| + Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
@@ -1322,13 +1322,13 @@
           "result": "rD <- Y - |rX|",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
@@ -1376,13 +1376,13 @@
           "result": "rD <- min(rX, Y)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured",
@@ -1430,13 +1430,13 @@
           "result": "rD <- max(rX, Y)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured",
@@ -1484,7 +1484,7 @@
           "result": "rD <- min(-rX, Y)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured"
@@ -1530,7 +1530,7 @@
           "result": "rD <- max(-rX, Y)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured"
@@ -1577,7 +1577,7 @@
           "result": "rD <- |rX|",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
@@ -1624,7 +1624,7 @@
           "result": "rD <- |Y|",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "exact"
@@ -1675,13 +1675,13 @@
           ],
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "8",
               "kind": "documented",
               "tag": "measured",
@@ -1730,7 +1730,7 @@
           "result": "rD <- +-rY",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "fitted"
@@ -1774,7 +1774,7 @@
           "result": "rD <- rX * 2^Y (Y is the 4-bit field, not a register)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
@@ -1817,7 +1817,7 @@
           "result": "rD <- rX * 2^-Y",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
@@ -1860,7 +1860,7 @@
           "result": "rD <- rX * 2^-(16+Y)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
@@ -1903,7 +1903,7 @@
           "result": "rD <- mantissa in [0.5,1), rY <- exponent",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
@@ -1951,7 +1951,7 @@
           "result": "rD <- rD + rY",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2001,7 +2001,7 @@
           "result": "rD <- rD - rY",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2051,7 +2051,7 @@
           "result": "rD <- |rY|",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2101,7 +2101,7 @@
           "result": "rD <- clamp(rY, -1, 1)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2151,7 +2151,7 @@
           "result": "rD <- wrap(rY) into [-1, 1)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2201,7 +2201,7 @@
           "result": "rD <- 1 - 2|wrap(-rY - 1.5)|",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2251,7 +2251,7 @@
           "result": "rD <- (rY mod 2) / 2",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2301,7 +2301,7 @@
           "result": "rD <- -rY",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2380,13 +2380,13 @@
           "result": "rD <- sign*2^-e, r(D+1) <- ~1/m (reciprocal seed)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "exact",
@@ -2427,13 +2427,13 @@
           "result": "rD <- e^floor(rY), rY <- frac(rY)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "exact",
@@ -2474,13 +2474,13 @@
           "result": "rD <- +-1",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "exact",
@@ -2521,13 +2521,13 @@
           "result": "rD <- -1 if rY < 0 else 0",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "exact",
@@ -2568,13 +2568,13 @@
           "result": "rD <- ceil(rY)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "exact",
@@ -2615,13 +2615,13 @@
           "result": "rY <- m in [1,4), r(D+1) <- ~1/sqrt m, r7 <- sign*2^-k",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "exact",
@@ -2662,13 +2662,13 @@
           "result": "rD <- exponent, rY <- mantissa in [0.75,1.5)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "exact",
@@ -2709,13 +2709,13 @@
           "result": "rD <- (x-1)/2^k, rY <- (x+1)/2^k, rD+1 <- ~1/m",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "exact",
@@ -2781,7 +2781,7 @@
           "result": "rD <- r(Y & 7)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2822,7 +2822,7 @@
           "result": "f5 form (f5c = delay-ring position when Y = c)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2863,7 +2863,7 @@
           "result": "rD <- (rD + h(Y-8)) mod 512",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured"
@@ -2903,7 +2903,7 @@
           "result": "section marker, no effect",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "6.4",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -2995,13 +2995,13 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "exact on the measured cases"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 477",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -3049,13 +3049,13 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
@@ -3103,19 +3103,19 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
@@ -3163,13 +3163,13 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -3217,13 +3217,13 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -3271,13 +3271,13 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -3325,13 +3325,13 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "exact on the measured cases"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 477",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -3379,13 +3379,13 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
@@ -3433,19 +3433,19 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
@@ -3493,13 +3493,13 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -3547,13 +3547,13 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -3601,13 +3601,13 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -3651,13 +3651,13 @@
           "result": "rD <- rX*Y + rC*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9"
             }
@@ -3700,7 +3700,7 @@
           "result": "rD <- rX*Y + rC*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured",
               "tag": "measured 2026-10-20 (re/review_probes.py): bit 9 clear, op2 = 0: op1 6/7 no products, op1 4 keeps the products"
@@ -3747,13 +3747,13 @@
           "result": "rD <- rX*Y + imm16*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -3804,20 +3804,20 @@
           "result": "rD <- rX*Y + imm24*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
               "line": 933
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 837",
               "line": 837,
               "kind": "measured",
@@ -3869,13 +3869,13 @@
           "result": "rD <- rX*Y + imm32*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -3923,13 +3923,13 @@
           "result": "rD <- -rX*Y + rC*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9"
             }
@@ -3972,18 +3972,18 @@
           "result": "rD <- -rX*Y + rC*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
@@ -4030,13 +4030,13 @@
           "result": "rD <- -rX*Y + imm16*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -4087,13 +4087,13 @@
           "result": "rD <- -rX*Y + imm24*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -4144,13 +4144,13 @@
           "result": "rD <- -rX*Y + imm32*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -4198,13 +4198,13 @@
           "result": "rD <- rX + W + rC*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9"
             }
@@ -4253,7 +4253,7 @@
           "result": "rD <- rX + W + Z (no products: op2 = 000, op1 = 6/7; spec 7)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured",
               "tag": "measured 2026-10-20 (re/review_probes.py): bit 9 clear, op2 = 0: op1 6/7 no products, op1 4 keeps the products"
@@ -4302,7 +4302,7 @@
           "result": "rD <- rX*Y + W + c*Z (immediate Y with bit 9 clear: products kept; not measured)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "immediate Y with bit 9 clear: reproduced by the corpus only; the products are not measured"
@@ -4348,13 +4348,13 @@
           "result": "rD <- rX*Y + W + imm16*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -4405,13 +4405,13 @@
           "result": "rD <- rX*Y + W + imm24*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -4462,13 +4462,13 @@
           "result": "rD <- rX*Y + W + imm32*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -4516,13 +4516,13 @@
           "result": "rD <- -rX + W + rC*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9"
             }
@@ -4571,7 +4571,7 @@
           "result": "rD <- -rX + W + Z (no products: op2 = 000, op1 = 6/7; spec 7)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured",
               "tag": "measured 2026-10-20 (re/review_probes.py): bit 9 clear, op2 = 0: op1 6/7 no products, op1 4 keeps the products"
@@ -4620,7 +4620,7 @@
           "result": "rD <- -rX*Y + W + c*Z (immediate Y with bit 9 clear: products kept; not measured)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "immediate Y with bit 9 clear: reproduced by the corpus only; the products are not measured"
@@ -4666,13 +4666,13 @@
           "result": "rD <- -rX*Y + W + imm16*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -4723,13 +4723,13 @@
           "result": "rD <- -rX*Y + W + imm24*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -4780,13 +4780,13 @@
           "result": "rD <- -rX*Y + W + imm32*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -4838,13 +4838,13 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -4892,13 +4892,13 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -4947,13 +4947,13 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5002,13 +5002,13 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -5056,13 +5056,13 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5111,13 +5111,13 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5165,13 +5165,13 @@
           "result": "rD <- rX*Y + imm16*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -5222,13 +5222,13 @@
           "result": "rD <- rX*Y + imm24*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5280,13 +5280,13 @@
           "result": "rD <- rX*Y + imm32*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5338,13 +5338,13 @@
           "result": "rD <- -rX*Y + imm16*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -5395,13 +5395,13 @@
           "result": "rD <- -rX*Y + imm24*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5453,13 +5453,13 @@
           "result": "rD <- -rX*Y + imm32*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5511,13 +5511,13 @@
           "result": "rD <- rX*Y + W + imm16*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -5568,13 +5568,13 @@
           "result": "rD <- rX*Y + W + imm24*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5626,13 +5626,13 @@
           "result": "rD <- rX*Y + W + imm32*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5684,13 +5684,13 @@
           "result": "rD <- -rX*Y + W + imm16*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
@@ -5741,13 +5741,13 @@
           "result": "rD <- -rX*Y + W + imm24*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5799,13 +5799,13 @@
           "result": "rD <- -rX*Y + W + imm32*Z",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "examples/from_scratch/NOTES.md",
+              "source": "docs/NOTES.md",
               "section": "line 933",
               "kind": "measured",
               "tool": "re/dspmacfit.py",
@@ -5866,13 +5866,13 @@
           "result": "rR <- mem[ref]",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9",
               "kind": "documented",
               "tag": "measured"
@@ -5907,13 +5907,13 @@
           "result": "mem[ref] <- rR",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9",
               "kind": "documented",
               "tag": "measured"
@@ -5960,7 +5960,7 @@
           "result": "same address as fe; the assembler always writes fe",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.3",
               "kind": "documented",
               "tag": "measured",
@@ -6012,7 +6012,7 @@
           "result": "same address as fe",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.3",
               "kind": "documented",
               "tag": "measured",
@@ -6042,7 +6042,7 @@
           "result": "rR <- bank0[floor(h6*16384) + Y]",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "exact"
@@ -6071,7 +6071,7 @@
           "result": "bank0[floor(h6*16384) + Y] <- rR",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "exact"
@@ -6100,7 +6100,7 @@
           "result": "rR <- bank5[floor(h6*16384) + Y]",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "exact, master DSP3 / slaves by audio",
@@ -6130,7 +6130,7 @@
           "result": "bank5[floor(h6*16384) + Y] <- rR",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "exact, master DSP3 / slaves by audio",
@@ -6160,7 +6160,7 @@
           "result": "rR <- bank5[floor(h7*16384) + Y]",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "exact, master DSP3 / slaves by audio",
@@ -6190,7 +6190,7 @@
           "result": "bank5[floor(h7*16384) + Y] <- rR",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "exact, master DSP3 / slaves by audio",
@@ -6231,7 +6231,7 @@
           "result": "rR <- bank5[N*16 + Y] with N = mode & 7",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.3",
               "kind": "documented",
               "tag": "measured",
@@ -6265,13 +6265,13 @@
           "result": "flags of unit Y of this instruction -> condition group X-8 (X = 9..d -> groups 1..5)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "8",
               "kind": "documented",
               "tag": "measured",
@@ -6302,7 +6302,7 @@
           "result": "delay-tap request at address rR; results land in bank 2 at [h5..h5+2]",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.1",
               "kind": "documented",
               "tag": "measured"
@@ -6355,14 +6355,14 @@
           "result": "if cond then unit skip_true does not execute, else unit skip_false does not",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.4",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspcsweep.py"
             },
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "8",
               "kind": "documented",
               "tag": "measured"
@@ -6406,7 +6406,7 @@
           "result": "jump by the offset stored in a slot word",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "5.4b",
               "kind": "documented",
               "tag": "measured 2026-10-17",
@@ -6456,7 +6456,7 @@
           "result": "h4 <- value (delay base for f6c)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "measured 2026-10-16"
@@ -6482,7 +6482,7 @@
           "result": "h5 <- value (tap-result address)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "measured 2026-10-16"
@@ -6508,7 +6508,7 @@
           "result": "h6 <- value (index of mode-28 transfers)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "measured 2026-10-16"
@@ -6534,7 +6534,7 @@
           "result": "h7 <- value",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "9.0",
               "kind": "documented",
               "tag": "measured 2026-10-16"
@@ -6564,7 +6564,7 @@
           "result": "the one-word instruction 0001 (class 0x000)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "3",
               "kind": "documented",
               "tag": "exact"
@@ -6595,7 +6595,7 @@
           "result": "verbatim body words (an encoding without a known meaning)",
           "evidence": [
             {
-              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "source": "docs/DSP_ISA_SPEC.md",
               "section": "14",
               "kind": "documented",
               "tag": "do not emit"

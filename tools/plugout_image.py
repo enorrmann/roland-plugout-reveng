@@ -2,7 +2,7 @@
 """
 plugout_image.py -- the firmware carried inside a Code*.Dat, and how to rebuild it.
 
-Layers (see CUSTOM_PLUGOUTS.md):
+Layers (see docs/CUSTOM_PLUGOUTS.md):
 
     Code*.Dat (XOR container, plugout.py)
       -> 4096 (SYSTEM-8) / 2048 (SYSTEM-1) records of 512 flash bytes

@@ -13,7 +13,7 @@
     "",
     "Semantic confidence is per instruction (worst tag of its units), corpus_all.",
     "",
-    "Known open: see asm/REVIEW.md and examples/from_scratch/DSP_ISA_DISCREPANCIES.md. A change that lowers these numbers is a regression."
+    "Known open: see docs/REVIEW.md and docs/DSP_ISA_DISCREPANCIES.md. A change that lowers these numbers is a regression."
   ],
   "decoding": {
     "corpus_all_pct": 99.7,

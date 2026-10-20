@@ -14,7 +14,7 @@ plugout_build.py -- unpack, modify and rebuild PLUG-OUT firmware (Code*.Dat).
 
 A project directory holds plugout.json, region<n>.bin (decompressed images)
 and relocs.json (pointer offsets, needed to build for another slot). The
-format is described in CUSTOM_PLUGOUTS.md.
+format is described in docs/CUSTOM_PLUGOUTS.md.
 """
 
 from __future__ import annotations

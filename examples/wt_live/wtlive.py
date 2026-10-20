@@ -11,7 +11,7 @@
 It runs the send code of re/wt5.py (the protocol is documented in re/dsplive.py) but keeps its own
 host state, in work/wtlive/ instead of work/dsplive/ and work/wt5/, and only ever installs
 plugins/C-WTLIVE, so the lab plugin C-DSPT and its state are not touched. Only one MIDI tool may use
-the device at a time. See README.md.
+the device at a time. See docs/examples_wt_live_README.md.
 """
 import os, subprocess, sys
 

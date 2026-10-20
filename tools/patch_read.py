@@ -4,7 +4,7 @@ patch_read.py -- try to read patch names from a SYSTEM-8 slot with RQ1.
 
     python3 tools/patch_read.py --slot 3 --patches 0-7 [--plugin plugins/JX-3P]
 
-The plugin protocol only documents DT1 writes of the patch bank (PROTOCOL.md
+The plugin protocol only documents DT1 writes of the patch bank (docs/PROTOCOL.md
 sec. 6); no read has been seen. This sends the standard Roland read request
 (RQ1 = address + 4-byte size) for the NAME0 leaf of `fm.usrX` of each patch and
 prints whatever comes back (decoded as 2 nibbles per character). Only RQ1 is

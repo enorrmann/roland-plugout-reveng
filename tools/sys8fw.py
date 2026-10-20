@@ -11,7 +11,7 @@ sys8fw.py -- unpack, inspect, patch and rebuild the SYSTEM-8 updater (SYSTEM8_UP
 What is decoded: the tar container, the PRELOAD_PLUGOUT wrapper, the
 "SYSTEM-8:Plugout" regions (LZSS) of slot 0 and the factory PLUG-OUTs.
 What is NOT: the `App1_Main` OS file, which is encrypted with a 64-bit block
-cipher whose key is not in the updater (BASE_FIRMWARE.md). It is carried
+cipher whose key is not in the updater (docs/BASE_FIRMWARE.md). It is carried
 through unchanged unless you supply a replacement with `--os`.
 """
 
@@ -382,7 +382,7 @@ def _report_os(args, ent: dict) -> tuple:
     h = data[:0x60]
     md = [f"# {ent['stem']} (App1_Main, the OS) - NOT DECODED", "",
           "Encrypted payload; only the clear header and trailer can be read. No classes, vtables, "
-          "presets or labels can be extracted until the payload is decrypted (BASE_FIRMWARE.md section 2).", "",
+          "presets or labels can be extracted until the payload is decrypted (docs/BASE_FIRMWARE.md section 2).", "",
           "## Clear header (0x60 bytes)", "",
           "| offset | value | note |", "|---|---|---|",
           f"| 0x00 | `{o['name']}` | image name |",

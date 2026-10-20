@@ -9,7 +9,7 @@ SYSTEM-8 / SYSTEM-1 over USB MIDI, without the VST plugin.
     python3 tools/plugout_tool.py inspect JUNO-60/Script/Code8_1.Dat
 
 Replicates the plugin's install routine (JUNO-60.vst3 @ 0x1803547c0); see
-PROTOCOL.md for the reverse-engineered details.
+docs/PROTOCOL.md for the reverse-engineered details.
 """
 
 from __future__ import annotations

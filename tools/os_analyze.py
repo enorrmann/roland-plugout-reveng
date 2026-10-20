@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 os_analyze.py -- static analysis of the decrypted SYSTEM-8 OS image
-(dumps/os_full.bin, run address 0x60000000, BASE_FIRMWARE.md §7.14/§8).
+(dumps/os_full.bin, run address 0x60000000, docs/BASE_FIRMWARE.md §7.14/§8).
 
 Linear Thumb-2 sweep with capstone, then:
   * functions  = targets of BL (and of the scatter-load / reset entry),
@@ -35,7 +35,7 @@ import capstone as cs
 from capstone import arm as A
 
 BASE = 0x60000000
-# (name, offset in the image, size, link/run address) -- BASE_FIRMWARE.md §8.1
+# (name, offset in the image, size, link/run address) -- docs/BASE_FIRMWARE.md §8.1
 PARTS = [
     ("m0_core0", 0x000000, 0x130E00, 0x60000000),  # master BMC core 0: OS (+ .rodata)
     ("m1_tcm",   0x130E00, 0x042BBC, 0x01100000),  # master BMC core 1: DSP control, code
