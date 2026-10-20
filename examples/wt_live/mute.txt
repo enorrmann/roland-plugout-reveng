@@ -1,0 +1,4 @@
+# test program t0 / t1 of the C-WTLIVE build: the silent start-up program of the DCO2 slot
+# (the same words programs.py packs as its built-in mute, 38 bytes; 16-bit words, execution order)
+0A02 FF70 0903 0050 0000 7809 8FE0 8FE2 8FE4 8FE6
+2221 221D 2229 2225 0A02 FF70 0B02 00F8 0001

@@ -136,6 +136,7 @@ def program(table, N, K, frame, scan, fill=None, slot='dco2'):
 
 
 def main():
+    os.environ.setdefault('OWN_FULL', '1')      # every program word on every send: the host state may be stale
     ap = argparse.ArgumentParser()
     ap.add_argument('cmd', choices=['send', 'info'])
     ap.add_argument('wav')
