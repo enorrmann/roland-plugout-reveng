@@ -578,6 +578,21 @@ u = r before f6c (measured u = 0, 0.5, 1, 10, 50.648 → 3, 8196, 16388, 163844,
 line). Roland's global delay: `m1_tcm_f7dc_01134238`, two taps (`[4301..]`, `[4304..]`). Tool: `re/dsptap.py`,
 `re/dsprdly.py`. A full ARM read of WMEM (0x41300000) with a test program in this slot hung the master once.
 
+**Base instruction is required for the write to reach the ring (2026-10-20, master DSP4 slot 0xF7DC).** A constant
+input `0.25` stored with `[4300] ← r4` and read back by a tap of u = 25 gives `0x24000000` (= 0.25) only when the
+program contains `1d06 4022 7fe0 c1fc 5100 0000` at its start; without it the same tap reads 0 (6 s after the load,
+the tap already sees the ring). So the write `[4300] ← x` alone does not feed the ring: keep the base instruction in
+every program that writes the ring. Verified tap age: `u = 25` returns exactly the sample written 409 602 samples
+earlier (= 25·16384 + 2), measured on DSP4 with a counter difference stored to bank 5 (`counter − tap`, which is
+independent of when the ARM reads it).
+
+**Bank 5 as a sample queue (2026-10-20).** A program that loads `bank5[0]` (`0c03`-style load at `0xA000+k`, one load
+per instruction plus 2 NOPs), stores it to `[4300]`, and rotates the queue (`bank5[k] ← bank5[k+1]`, `bank5[15] ←` old
+`bank5[0]`) delivers the 16 values in order to the ring: 309 of 309 tap reads were members of the 16-value set. Indices
+**2 and 3 of bank 5 are overwritten by values that change every sample** (not the program's own stores; it looks like
+DSP-internal state mapped there), so queues must start at index 4 or above (used `0xA004..0xA013`). Sources: `re/dspedmloop.py`
+(tap and base), `re/dspcopy.py` (the copier test).
+
 ## 10. Execution semantics **[measured, master DSP3]**
 
 | case | result |
