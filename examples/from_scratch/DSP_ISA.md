@@ -1,6 +1,7 @@
 # DSP instruction set (Roland BMC DSP) — reference
 
-State 2026-10-16 (corpus 93.6 % decoded). Only what was **measured on the hardware** (master DSP4, live probes; see "Method"), each item
+State 2026-10-20 (corpus_all 99.5 % decoded; every decoded line re-assembles to its own words; open items in
+`DSP_ISA_DISCREPANCIES.md`). Only what was **measured on the hardware** (master DSP4, live probes; see "Method"), each item
 marked with how sure it is. The history, raw evidence and dead ends are in `NOTES.md` (sections from
 "ISA del DSP medido en el equipo por audio USB" on). Hardware context: `../../ARCHITECTURE.md`.
 
@@ -57,11 +58,14 @@ General order: `[A/B/M/C words] [T words] [slots: N words, then R words] [I bits
 
 * Registers r0–r7 are the ones transfers can load/store. *(certain)*
 * Operand **mode** (2 bits, see each format): 00 register, 01 immediate 16 bits, 10 immediate 24 bits, 11
-  immediate 32 bits. Immediates are the top bits of a RAW word, taken **in order from a continuous bit stream** at
-  the end of the instruction (24 bits = 1.5 words; past the end it reads the next instruction). *(certain)*
-* Several A/B ops of one instruction **share** the immediate: each reads it from the start of the bit stream with
-  its own width (so two A/B ops cannot have different constants); a MAC's operands take their immediates in
-  order. *(certain, 2026-10-16; this explains the old "two A ops with an immediate made it illegal")*
+  immediate 32 bits. Immediates are the top bits of a RAW word. They are read from the **slot array**: the words
+  after the unit words, references included. An A/B op reads its immediate at **byte Y** of that array (Y is its
+  4-bit field). A MAC reads Y at byte Y, then its coefficient right after Y's immediate (or at byte C when Y is a
+  register), then W at byte W. A hidden-register load reads at byte Y. A read past the last word of the instruction
+  continues into the next instruction. *(certain for the A/B byte rule; MAC byte C: see DSP_ISA_DISCREPANCIES D1)*
+* Several A/B ops of one instruction **share** the same array: each reads it at its own byte, with its own width.
+  Two reads of the same bits must agree. *(measured 2026-10-16; the byte rule 2026-10-17; this explains the old "two A ops
+  with an immediate made it illegal")*
 * Register field bit 3 (Y of A/B, Z and W of MAC) = **negate** (Y = 8 + n → −rn). *(certain for A; seen in MAC)*
 
 ## 4. Unit A (16-bit word)
@@ -79,7 +83,8 @@ General order: `[A/B/M/C words] [T words] [slots: N words, then R words] [I bits
 | 6 | X + Y |
 | 7 | Y − X |
 
-D ≥ 8: r(D−8) = X + Y + r[op] (the op field becomes the index of a third register). *(exact, single-op class)*
+D ≥ 8: r(D−8) = X + Y + r[op] (the op field becomes the index of a third register). *(exact, single-op class 0x048;
+not measured in multi-op classes, where such words stay verbatim: DISCREPANCIES D5)*
 
 ## 5. Unit B (same layout)
 
@@ -108,9 +113,12 @@ to 3 terms fits; `3a42` = −`3842` and `3b42` = −`3942` exactly (sign pairs l
 
 `w1 = D[15:12] op1[11:9] X[8:6] modeY[5:4] Y[3:0]`, `w2 = Z[15:12] op2[11:9] C[8:6] modeW[5:4] W[3:0]`
 (w1 before the transfers, w2 first in the slot array). P1 = Y·X, P2 = c·Z. op1: bit 0 = sign of P1, bit 1 = add
-W, bit 2 = add P2; op1 0/1 = no write. op2 bits 11–10 = mode of c (00: c = rC, 10: imm24, 11: imm32); with op2 =
-000 and op1 = 6/7 there are no products (W ± X + Z). *(exact on the corpus cases below; op2 corner cases partly)*
-Examples: `0803 0c0a 9281` = r1 + r2·(r0 − r1) (lerp); `2b09 2c8f … 5983 … a2aaaa` = r3 + r7·r2 − r5/6;
+W, bit 2 = add P2; op1 0/1 = no write. op2 bits 11–10 = mode of c: 00 register (bit 9 = 1 with a register
+coefficient, spec 5.2), 01 imm16 (inferred), 10 imm24, 11 imm32. With op2 = 000 and op1 = 6/7 there are no products
+(W ± X + Z). A coefficient immediate is read after Y's immediate, or at byte C when Y is a register (§3).
+*(exact on the corpus cases below; op2 corner cases partly; the sign of a Y register: DISCREPANCIES D3)*
+Examples: `0803 0c0a 9281` = r1 + r2·(r0 − r1) (lerp); `2b09 2c8f … 5983 … a2aaaa` = r2·(−r7) + r3 + (−1/6)·r5
+as the table reads it (`#-0.16666603@6`; the spec's "r7·r2" reading depends on D3);
 `0807 3cca 1cb6 002e3bc7 01a01a01` = r3·r2 + 2/315 + (2/2835)·r1; `1107 7522 … 0025 800d00 022222` =
 r4·(−1/5040) + 1/120.
 
@@ -207,7 +215,10 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
 1. The second word of C instructions in the slot array.
 2. (solved) The DSP runs at 96 kHz; data memory is a ring (state: load S + 1, store S); a load has one instruction
    of latency. See `DSP_ISA_SPEC.md` §9–§10.
-3. (Solved 2026-10-17: unit B ops returning `7ffxxxxx` = bit ops; odd nibbles = X in r4–r7.) (hidden values solved: h4/h5); D ≥ 8 inside multi-op classes.
+3. (Solved 2026-10-17: unit B ops returning `7ffxxxxx` = bit ops; odd nibbles = X in r4–r7.) (hidden values solved: h4/h5).
+   Open: unit A with D ≥ 8 in multi-op classes (D5); unit B words in classes 0x258 and 0x140 (D6); whether a
+   hidden-register Y counts bytes or words (D7); the MAC Y sign (D3); the coefficient at byte C (D1). The full list
+   with the evidence and the probe that would close each is `DSP_ISA_DISCREPANCIES.md`.
 4. Transfer modes other than `fe`, `28`, `a9`.
 
 ## Method

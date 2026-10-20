@@ -1,7 +1,8 @@
 # DSP instruction set — technical specification (for assembler / compiler writers)
 
-Roland BMC DSP as used by the SYSTEM-8 (and its PLUG-OUTs). State 2026-10-16 (delay memory, hidden registers,
-indexed transfers, buses, sqrt/log/frexp: §6.3–§9.1). Practical uses of each feature: `DSP_USOS.md`. Overview and history:
+Roland BMC DSP as used by the SYSTEM-8 (and its PLUG-OUTs). State 2026-10-20 (delay memory, hidden registers,
+indexed transfers, buses, sqrt/log/frexp: §6.3–§9.1; assembler review of 2026-10-20: §4.3, §4.4, §5.2, §5.4b, §6.1,
+§9.0, §12–§14). Open discrepancies with the probe that closes each: `DSP_ISA_DISCREPANCIES.md`. Practical uses of each feature: `DSP_USOS.md`. Overview and history:
 `DSP_ISA.md`, `NOTES.md`. Hardware context: `../../ARCHITECTURE.md`. Reference implementation of the
 decoder and simulator: `re/dspisa.py`; measured template data: `re/dsp_templates.txt`, `re/dsp_units_ab.txt`.
 ARM-side memory map of the DSP banks (static analysis): `DSP_ARM_SIDE.md`. First own program: `CUSTOM_OSC.md`.
@@ -122,6 +123,11 @@ The **slot array** = every word after the last `T`. Slot k = (k+1)-th word of th
 (one per M). Among the remaining slots, the ones a memory transfer (mode `fe`) points to are **references**; the
 ones nobody points to are the **immediate bit stream**, in order **[exact on the corpus: every decoding
 inconsistency of the earlier "R then I" rule disappears]**. Transfers with another mode byte do not use a slot.
+**Units and array (2026-10-20).** The units fill the positions up to the last `T` (for a class with no `T`: up to
+its first `N`, `I` or `R`). Every position after that is a slot word, whatever letter the layout gives it: a `C` or
+an `R` there is a slot word, not a unit. A slot word that no operand reads has no meaning to the listing, so the
+listing states it with a `.slot` directive; an assembler has to reproduce it as well (`asm/layout.py`).
+
 Example: `1805 5550 6fe2 7000 0219` = A(5550, imm16) T(6fe2: slot 1) | slot 0 = `7000` (the imm16 = 256),
 slot 1 = `0219` (reference). In §12 the `R`/`I` letters after the transfers are therefore only the layout of the
 most frequent instance; an assembler places references and immediates by this rule. A transfer addresses slot `Y >> 1` (§5.3). Example: `2b09 2c8f 6fe2 7fe4 5983 0407 0403 a2aa aa00`
@@ -151,6 +157,10 @@ most frequent instance; an assembler places references and immediates by this ru
   ~100 random Roland instructions (§13b).
 * Consumption order (old, before the byte rule): within an A/B op: Y. Within a MAC: Y (w1), then c (w2
   op2 mode), then W (w2).
+* **Reads and references (2026-10-20).** A stream read over a reference word must agree with that word's bits; a
+  disagreement is a conflict, and an assembler must refuse it rather than overwrite the word. An immediate read
+  past the last word of the instruction takes the next instruction's words (the listing keeps such a line
+  verbatim). An immediate without a named byte may be placed at the first byte whose bits agree with the stream.
 * **Several A/B ops of one instruction share the immediate [exact, 2026-10-16, master DSP3]**: every A/B op that
   takes an immediate reads it from the **start** of the bit stream, each with its own width. Measured: AB
   `1606 36b0 9410 2800 0000 4200` (A `r3 += r2·imm32`, B `r1 = max(r0, imm16)`) → A gets 0.5 (`28000000`), B gets
@@ -194,10 +204,10 @@ w2:  Z[15:12]  op2[11:9]  C[8:6]  mW[5:4]  W[3:0]
 | D | destination r0–7 (8–15 not measured) | [exact] |
 | op1 | bit 0: negate P1; bit 1: add W; bit 2: add P2; op1 0/1 = no write | [exact] |
 | X | register | [exact] |
-| mY, Y | Y operand: register (bits 2–0; bit 3 was **not** a negation in the measured MAC cases) or immediate | [measured] |
+| mY, Y | Y operand: register (bits 2–0; bit 3 was **not** a negation in the measured MAC cases) or immediate. The listing currently prints bit 3 as a minus sign [DISCREPANCIES D3] | [measured] |
 | Z | register, bit 3 = negate | [exact] |
-| op2 | bits 11–10 = mode of the coefficient c (0: register C, 2: imm24, 3: imm32; 1 presumably imm16 [inferred]); bit 9 = 1 with a register coefficient | [measured] |
-| C | coefficient register when op2 mode = 0 | [exact] |
+| op2 | bits 11–10 = mode of the coefficient c: 00 register C, 01 imm16 [inferred], 10 imm24, 11 imm32; bit 9 = 1 with a register coefficient (spec 5.2). Reassembly of the corpus: 1151 instances with an immediate coefficient read after Y, 2124 with Y a register and the coefficient at byte C (§4.4); 143 instances with a register coefficient and bit 9 clear, reproduced but not measured [DISCREPANCIES D9] | [measured; 01 inferred] |
+| C | coefficient register when op2 mode = 0. With an immediate coefficient C is free, except when Y is a register: then C is the byte the coefficient is read at (§4.4) | [exact; the byte rule measured on the device, DISCREPANCIES D1] |
 | mW, W | W operand: register (bit 3 = negate) or immediate | [exact] |
 
 ### 5.3 Transfer word
@@ -278,6 +288,9 @@ all of them for some fields ≥ 8 when the condition is false **[measured, unexp
   1500 fillers, far beyond the ~930-instruction budget, kept the counter running); a loop of 4 instructions per
   iteration fits 180 iterations, not 185, with ~25 other instructions → **≈ 5 cycles per iteration: a taken jump
   costs about one extra cycle**. Untaken branches are free, so if/else costs only the branch executed.
+* **Named slot (2026-10-20).** The offset word of a jump is the slot Y >> 1; the listing names it (`jmp .+3@k`, k =
+  slot) and an assembler writes k into the jump's Y field. Whether a sequential read (§4.4) steps over a jump word is
+  not measured (DISCREPANCIES D8).
 * **Hazard**: a backward jump in a program that is being rewritten while it runs can land inside old code and loop
   forever (the slaves hung until a power cycle, 2026-10-17). Always switch to an empty program (start + `0b02 00f8`)
   first, write the body, the head last (`dspmaster.Session`, `dspown.load`).
@@ -330,6 +343,8 @@ op 0 sub-codes (X field):
 
 D ≥ 8 (single A op, class 0x048): r(D−8) ← X + Y + r[op] (the op field indexes a third register) **[exact]**.
 Not measured inside multi-op classes.
+(2026-10-20: the corpus has about 85 such words in multi-op classes; the listing keeps them verbatim, and the
+plain A forms take D < 8 only. DISCREPANCIES D5.)
 
 ### 6.2 Division
 
@@ -425,7 +440,7 @@ Measured examples:
 | `0803 0809 5280` | r0 ← r0·r1 + r2·r5 |
 | `0807 3cca 1cb6 002e 3bc7 01a0 1a01` | r3 ← r3·r2 + (2/2835)·r1 + 2/315 |
 | `1107 7522 6504 0025 800d 0002 2222` | r7 ← r4·(−1/5040) + 1/120 ; r6 ← r4·r4 (A op) |
-| `2b09 2c8f 6fe2 7fe4 5983 0407 0403 a2aa aa00` | r2 ← r2·r7 + r3 − r5/6 ; r6 ← [0407] ; r7 ← [0403] |
+| `2b09 2c8f 6fe2 7fe4 5983 0407 0403 a2aa aa00` | r2 ← r2·(±r7) + r3 + (−1/6)·r5 ; r6 ← [0407] ; r7 ← [0403]. The sign of Y: [open, DISCREPANCIES D3] |
 
 ## 8. Predication
 
@@ -506,7 +521,9 @@ true, op 2 if false) or whether a **jump** (§5.4b) is taken: if/else, switch, a
 
 * **`40TY` in a C position** (classes 0x058, 0x0E8, …) loads a hidden register: T = bits 7–6 (0 → h4, 1 → h5,
   2 → h6, 3 → h7 (unread)), mode = bits 5–4 (0: rY, kept mod 512; 1: imm16; 2: imm24; 3: imm32 reads 0), Y = bits
-  3–0 = register, or for immediates the number of words of the instruction's immediate stream to skip. Immediate
+  3–0 = register, or for immediates the byte of the instruction's immediate stream the value is read at (as for an A/B op, §4.4).
+  The example below reads word 1 (byte 2) for h4 = 324, so "words" in earlier text was wrong for this example;
+  whether a word count is used in other cases is open (DISCREPANCIES D7). Immediate
   values are integers = value·16384 (addresses): `0b03 4050 0301` → h5 = 0x301; `1d06 4022 7fe0 c1fc 5100 0000` →
   h4 = 0x510000/16384 = 324; `0b02 4080` → h6 = r0.
 * h4 = delay base (`f6c`, §6.4) and the value A op 0 sub 4 adds; h5 = tap-result address (§9.1), added by A op 0
@@ -606,6 +623,12 @@ class's most frequent length. Other lengths of a class differ in the number of t
 the measured examples; [inferred] in general). Templates with a `C` inside the slot area, or several `C`, came
 from the resolver's fallback and should be re-checked before an assembler emits them.
 
+**2026-10-20.** Where a row here differs from `asm/isa.json`, the table keeps the layout that reassembles more
+corpus instances (`asm/tests/class_layouts.py`). Class `0x0e0` is `CC`: its `C` words are a jump and a condition,
+and the jump's offset word is in the slot array (§5.4b). Rows marked † are contradicted by the corpus (their spec
+layout reassembles 0 instances, the table's reassembles 7–16): DISCREPANCIES D4. Classes `0x45a`, `0x4aa` and `0x60a`
+were missing and are added.
+
 | class | header (len n) | measured template (len) | fixed part | lengths in corpus | uses | most frequent instruction |
 |---|---|---|---|---|---|---|
 | `0x0f0` | `1e05` | `TTRR` (5) | `TTRR` + I… | 5 | 2611 | `1e05 0fe0 1fe2 2200 2200` |
@@ -675,7 +698,7 @@ from the resolver's fallback and should be re-checked before an assembler emits 
 | `0x220` | `440b` | `MMBTNNRIII` (11) | `MMBTNNR` + I… | 10, 11, 12 | 20 | `440b 6566 054f fe69 dfe4 0003 0000 0232 0141 b230 0000` |
 | `0x6c8` | `d908` | `BBTTTRR` (8) | `BBTTTRR` + I… | 8 | 20 | `d908 ae10 8ee0 ffe2 b9b1 c9b2 0000 0252` |
 | `0x098` | `1307` | `MNIIII` (7) | `MN` + I… | 4, 7 | 19 | `1307 2c22 0b10 9941 022a 1c02 2a1c` |
-| `0x0e0` | `1c04` | `CCC` (4) | `CCC` + I… | 3, 4 | 16 | `1c04 0090 0810 0009` |
+| `0x0e0` | `1c04` | `CC` (2) | `CC` + I… | 3, 4 | 12 | `1c04 0090 0810 0009` |
 | `0x2e8` | `5d05` | `AACC` (5) | `AACC` + I… | 5, 7 | 16 | `5d05 3cc4 45c7 0f10 1e30` |
 | `0x720` | `e40b` | `TTTTTRRRRR` (11) | `TTTTTRRRRR` + I… | 11 | 15 | `e40b 8fe0 9fe2 1fe4 2fe6 7fe8 0600 0601 0603 0604 c1f7` |
 | `0x4b8` | `970b` | `MABCTNRIII` (11) | `MABCTNR` + I… | 11, 12 | 14 | `970b 2476 75c6 be52 1830 4fe4 0002 b000 0413 0000 0000` |
@@ -689,7 +712,7 @@ from the resolver's fallback and should be re-checked before an assembler emits 
 | `0x570` | `ae09` | `AAACTRII` (9) | `AAACTR` + I… | 8, 9, 11 | 9 | `ae0b 4072 4043 24b6 1812 ffe0 0412 0000 0001 a2b8 51eb` |
 | `0x2d8` | `5b08` | `AABIIII` (8) | `AAB` + I… | 5, 8 | 9 | `5b08 6050 4d32 bedb 1b10 0000 0978 d4fd` |
 | `0x5a2` | `b44a` | `AABTTTRRR` (10) | `AABTTTRRR` + I… | 10, 11 | 9 | `b44a 4d10 75c7 ee12 9fe4 b9b3 99b1 a800 a800 0459` |
-| `0x592` | `b247` | `AATCCT` (7) | `AATCCT` + I… | 7 | 8 | `b247 3044 3045 ee0f 1220 0e14 b9b3` |
+| `0x592` | `b247` | `AATCCT` (7) † | `AATCCT` + I… | 7 | 8 | `b247 3044 3045 ee0f 1220 0e14 b9b3` |
 | `0x490` | `920c` | `MAACTNRIIII` (12) | `MAACTNR` + I… | 10, 12 | 6 | `920c 75e6 5043 5052 1a23 ffe4 0029 3000 0231 4500 00c4 0000` |
 | `0x5c4` | `b88d` | `AATTTTTRRRRR` (13) | `AATTTTTRRRRR` + I… | 13 | 6 | `b88d 0487 14c7 8fe0 9fe2 2fe4 3fe6 7fe8 060f 0620 060e 061f c1fd` |
 | `0x722` | `e44d` | `TTTTTTRRRRRR` (13) | `TTTTTTRRRRRR` + I… | 13 | 6 | `e44d 8fe0 8fe2 afe4 9fe6 2fe8 0fea 8400 a400 0204 0200 8614 60e1` |
@@ -699,7 +722,7 @@ from the resolver's fallback and should be re-checked before an assembler emits 
 | `0x574` | `ae8e` | `AAACTTTRRRIII` (14) | `AAACTTTRRR` + I… | 12, 14 | 5 | `ae8e 7de8 5043 5050 1a23 ffe2 0fe4 2fe6 3000 0254 025a 0257 aa1d 2a00` |
 | `0x130` | `260b` | `MBBNCCCCCI` (11) | `MBBNCCCCC` + I… | 11 | 4 | `260b 1472 aeda 803a 0036 1999 9999 2e66 6666 03fa 0945` |
 | `0x512` | `a24d` | `MBBTTTNRRRII` (13) | `MBBTTTNRRR` + I… | 13 | 4 | `a24d 79a6 ae12 8ee0 b9b2 c9b3 dfe4 7a40 0000 022e 3000 0000 0000` |
-| `0x572` | `ae4c` | `ATACTTRRRCI` (12) | `ATACTTRRRC` + I… | 12 | 4 | `ae4c 7de6 5043 5050 1a23 ffe2 1fe4 3000 0251 0256 aa1d 2a00` |
+| `0x572` | `ae4c` | `ATACTTRRRCI` (12) † | `ATACTTRRRC` + I… | 12 | 4 | `ae4c 7de6 5043 5050 1a23 ffe2 1fe4 3000 0251 0256 aa1d 2a00` |
 | `0x600` | `c007` | `ABCCTR` (7) | `ABCCTR` + I… | 7 | 4 | `c007 6044 9ee1 2310 1a30 dfe0 024b` |
 | `0x63a` | `c74c` | `ATTTTTRRRRR` (12) | `ATTTTTRRRRR` + I… | 12 | 4 | `c74c 0406 8fe0 4fe2 5fe4 6fe6 7fe8 0264 024d 024e c039 c03a` |
 | `0x318` | `6305` | `ABII` (5) | `AB` + I… | 5 | 4 | `6305 6044 9ee1 2310 1a30` |
@@ -709,7 +732,7 @@ from the resolver's fallback and should be re-checked before an assembler emits 
 | `0x612` | `c24c` | `ABTTTTRRRRI` (12) | `ABTTTTRRRR` + I… | 12 | 4 | `c24c 24b6 be0d b9b2 afe0 1fe2 4fe4 0411 0412 0413 3000 0000` |
 | `0x4b4` | `9692` | `MABCCTTNRRIIIIIII` (18) | `MABCCTTNRR` + I… | 18 | 4 | `9692 2c7b 5052 ee68 1f25 1f36 5fe4 6fe6 4fc2 3000 0406 0410 3b33 3300 0000 0000 0000 0000` |
 | `0x108` | `2109` | `MMNNIIII` (9) | `MMNN` + I… | 9 | 4 | `2109 140b 140b 0b12 0024 0027 2780 00a7 8000` |
-| `0x240` | `4809` | `MAANCCCI` (9) | `MAANCCC` + I… | 8, 9 | 4 | `4809 1862 3040 3041 0b23 2940 0000 0000 0000` |
+| `0x240` | `4809` | `MAANCCCI` (9) † | `MAANCCC` + I… | 8, 9 | 4 | `4809 1862 3040 3041 0b23 2940 0000 0000 0000` |
 | `0x6e8` | `dd07` | `BCTTTR` (7) | `BCTTTR` + I… | 7 | 4 | `dd07 de0e 1830 b9b1 99bc 1fe0 062c` |
 | `0x120` | `2405` | `MANI` (5) | `MAN` + I… | 5, 9 | 3 | `2405 0cc0 0cca 1a12 a007` |
 | `0x59a` | `b34c` | `AABCTTRRCCI` (12) | `AABCTTRRCC` + I… | 12 | 2 | `b34c 4076 4050 ae12 1812 b9b3 7fe4 0000 d000 c007 0800 0000` |
@@ -726,6 +749,9 @@ from the resolver's fallback and should be re-checked before an assembler emits 
 | `0x5a6` | `b4cc` | `AABTTTTTRRR` (12) | `AABTTTTTRRR` + I… | 12 | 1 | `b4cc 6d83 2d4a 8ec1 ffe0 99b1 a9b2 3fe2 1fe4 0223 0228 0224` |
 | `0x320` | `6407` | `ABCTRI` (7) | `ABCTR` + I… | 7 | 1 | `6407 5050 ded9 0a12 3fe2 0000 a021` |
 | `0x0c8` | `1904` | `BBI` (4) | `BB` + I… | 4 | 1 | `1904 ef75 8410 0000` |
+| `0x45a` | `8b4f` | `MMBTTTNNIIIRRR` (14) | `MMBTTTNN` + I… | 12, 14, 15 | 72 | `8b4f 3454 2518 eee6 dfea 1fec 5fee 0016 0002 800d 0222 3000 040d 0442 043a` |
+| `0x4aa` | `954c` | `MABBTTNIRII` (12) | `MABBTTN` + I… | 12 | 12 | `954c 2476 3cc0 ce12 eee6 b9b3 4fe4 0002 a800 040f 0000 0000` |
+| `0x60a` | `c14d` | `ABCTTTIRRRII` (13) | `ABCTTT` + I… | 13 | 1 | `c14d 4078 be10 1810 afe2 5fe4 6fe6 c200 00f2 00ec c05b 2400 0000` |
 
 
 ## 13. Method (how to verify anything here)
@@ -741,6 +767,11 @@ results, but measuring a value that changes per sample needs a coherent 16-word 
 word) or a read-back through memory the program itself maintains. `re/dspfit.py`, `re/dspclass.py`, `re/dspnlfit.py` fit exact formulas over random operands;
 `re/dspslots.py` maps template positions; `re/dsptemplates.py` builds §12. Only one tool may use the MIDI port at a
 time.
+
+**Re-assembly check (2026-10-20).** In `asm/`, `disasm.program` assembles every decoded line back and keeps it
+verbatim if the words differ. On the corpus (132 files) every decoded line re-assembles and every file comes back
+identical (`python3 -m unittest discover -s tests`). That checks the word layout against itself; the meaning of each
+field is what the probes above and DISCREPANCIES measure.
 
 ## 13b. All Roland DSP programs (2026-10-17)
 
@@ -765,7 +796,8 @@ words left are the section markers `ff70`/`ff71`/`ef75`/`ef74`** (no visible eff
 
 ## 14. Open items (do not emit)
 
-Clean, current list: `DSP_HARDWARE.md` §11 (2026-10-17). Everything decoded in the corpus of all Roland programs
+Open discrepancies after the 2026-10-20 review, with the probe that would close each: `DSP_ISA_DISCREPANCIES.md`
+(D1–D10). Clean, current list of the older items: `DSP_HARDWARE.md` §11 (2026-10-17). Everything decoded in the corpus of all Roland programs
 (212 SYSTEM-8 + 4 SYSTEM-1) except the section markers, which have no effect (§6.4). Timing: every instruction
 costs one cycle whatever it contains (1 or 2 MACs, up to 6 transfers; `re/dspbudget.py mac|mac2|xfer4|xfer6`),
 a taken jump one more.
