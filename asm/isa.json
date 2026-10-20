@@ -313,7 +313,10 @@
           "mnemonic": "add3",
           "status": "exact",
           "when": {
-            "op": 1
+            "op": 1,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -348,7 +351,10 @@
           "mnemonic": "mul",
           "status": "exact",
           "when": {
-            "op": 2
+            "op": 2,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -383,7 +389,10 @@
           "mnemonic": "mad",
           "status": "exact",
           "when": {
-            "op": 3
+            "op": 3,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -418,7 +427,10 @@
           "mnemonic": "ymacd",
           "status": "exact",
           "when": {
-            "op": 4
+            "op": 4,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -453,7 +465,10 @@
           "mnemonic": "ymsubd",
           "status": "exact",
           "when": {
-            "op": 5
+            "op": 5,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -488,7 +503,10 @@
           "mnemonic": "addxy",
           "status": "exact",
           "when": {
-            "op": 6
+            "op": 6,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -522,7 +540,10 @@
           "mnemonic": "subxy",
           "status": "exact",
           "when": {
-            "op": 7
+            "op": 7,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -559,7 +580,10 @@
             "op": 0,
             "X": 0,
             "mode": 0,
-            "Y": 0
+            "Y": 0,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -591,7 +615,10 @@
           "status": "exact",
           "when": {
             "op": 0,
-            "X": 1
+            "X": 1,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -626,7 +653,10 @@
           "status": "exact",
           "when": {
             "op": 0,
-            "X": 2
+            "X": 2,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -664,7 +694,10 @@
           "status": "exact",
           "when": {
             "op": 0,
-            "X": 4
+            "X": 4,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -698,7 +731,10 @@
           "status": "exact",
           "when": {
             "op": 0,
-            "X": 5
+            "X": 5,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -732,7 +768,10 @@
           "status": "exact",
           "when": {
             "op": 0,
-            "X": 6
+            "X": 6,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -767,7 +806,10 @@
           "status": "exact",
           "when": {
             "op": 0,
-            "X": 7
+            "X": 7,
+            "D": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": "D",
@@ -801,7 +843,10 @@
           "mnemonic": "add3r",
           "status": "exact",
           "when": {
-            "op": 0
+            "op": 0,
+            "D": {
+              "lt": 8
+            }
           },
           "special_d": true,
           "fields": {
@@ -2909,7 +2954,7 @@
           ]
         },
         {
-          "mnemonic": "mac_p1",
+          "mnemonic": "mac_p1b9",
           "status": "inferred",
           "when": {
             "op1": 2,
@@ -2958,6 +3003,66 @@
               "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
+            }
+          ],
+          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+        },
+        {
+          "mnemonic": "mac_p1c0",
+          "status": "inferred",
+          "when": {
+            "op1": 2,
+            "op2": 0,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 2,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 0,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9",
+              "note": "the measured MAC examples use coefreg = 0"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "corpus-reassembly",
+              "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
             }
           ],
           "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
@@ -3179,7 +3284,7 @@
           ]
         },
         {
-          "mnemonic": "mac_p1w2",
+          "mnemonic": "mac_p1w2b9",
           "status": "inferred",
           "when": {
             "op1": 3,
@@ -3228,6 +3333,66 @@
               "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
+            }
+          ],
+          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+        },
+        {
+          "mnemonic": "mac_p1w2c0",
+          "status": "inferred",
+          "when": {
+            "op1": 3,
+            "op2": 0,
+            "coefreg": 0
+          },
+          "fields": {
+            "D": "D",
+            "op1": 3,
+            "X": "X",
+            "modeY": {
+              "operand_mode": "Y"
+            },
+            "Y": "Y",
+            "Z": {
+              "free": true,
+              "$doc": "unused without a P2 term"
+            },
+            "op2": 0,
+            "coefreg": 0,
+            "C": {
+              "free": true,
+              "$doc": "unused when the coefficient is an immediate"
+            },
+            "modeW": {
+              "operand_mode": "W"
+            },
+            "W": "W"
+          },
+          "shows": [
+            "D",
+            "X",
+            "Y",
+            "W"
+          ],
+          "result": "rD <- -rX*Y + W",
+          "evidence": [
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "documented",
+              "note": "bit 9 = 1 with a register coefficient"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "7",
+              "kind": "measured-without-bit-9",
+              "note": "the measured MAC examples use coefreg = 0"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "corpus-reassembly",
+              "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
             }
           ],
           "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
@@ -3444,12 +3609,12 @@
           "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
         },
         {
-          "mnemonic": "mac_p1w",
+          "mnemonic": "mac_p1wc0",
           "status": "inferred",
           "when": {
             "op1": 4,
             "op2": 0,
-            "coefreg": 1
+            "coefreg": 0
           },
           "fields": {
             "D": "D",
@@ -3461,7 +3626,7 @@
             "Y": "Y",
             "Z": "Z",
             "op2": 0,
-            "coefreg": 1,
+            "coefreg": 0,
             "C": "C",
             "modeW": 0,
             "W": {
@@ -3487,11 +3652,16 @@
             {
               "source": "examples/from_scratch/DSP_ISA_SPEC.md",
               "section": "7",
-              "kind": "measured-without-bit-9",
-              "note": "the measured MAC examples use coefreg = 0"
+              "kind": "measured-without-bit-9"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "corpus-reassembly",
+              "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
             }
           ],
-          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
         },
         {
           "mnemonic": "mac_p1wc1",
@@ -3526,6 +3696,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- rX*Y + imm16*Z",
@@ -3543,7 +3714,11 @@
               "tag": "op2 = 010 -> c = imm16"
             }
           ],
-          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 16
         },
         {
           "mnemonic": "mac_p1wc2",
@@ -3578,6 +3753,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- rX*Y + imm24*Z",
@@ -3595,7 +3771,11 @@
               "tool": "re/dspmacfit.py",
               "line": 933
             }
-          ]
+          ],
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 24
         },
         {
           "mnemonic": "mac_p1wc3",
@@ -3630,6 +3810,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- rX*Y + imm32*Z",
@@ -3647,7 +3828,11 @@
               "tool": "re/dspmacfit.py",
               "line": 933
             }
-          ]
+          ],
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 32
         },
         {
           "mnemonic": "mac_p1p2w",
@@ -3699,12 +3884,12 @@
           "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
         },
         {
-          "mnemonic": "mac_p1p2w",
+          "mnemonic": "mac_p1p2wc0",
           "status": "inferred",
           "when": {
             "op1": 5,
             "op2": 0,
-            "coefreg": 1
+            "coefreg": 0
           },
           "fields": {
             "D": "D",
@@ -3716,7 +3901,7 @@
             "Y": "Y",
             "Z": "Z",
             "op2": 0,
-            "coefreg": 1,
+            "coefreg": 0,
             "C": "C",
             "modeW": 0,
             "W": {
@@ -3742,11 +3927,16 @@
             {
               "source": "examples/from_scratch/DSP_ISA_SPEC.md",
               "section": "7",
-              "kind": "measured-without-bit-9",
-              "note": "the measured MAC examples use coefreg = 0"
+              "kind": "measured-without-bit-9"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "corpus-reassembly",
+              "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
             }
           ],
-          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
         },
         {
           "mnemonic": "mac_p1p2wc1",
@@ -3781,6 +3971,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- -rX*Y + imm16*Z",
@@ -3798,7 +3989,11 @@
               "tag": "op2 = 010 -> c = imm16"
             }
           ],
-          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 16
         },
         {
           "mnemonic": "mac_p1p2wc2",
@@ -3833,6 +4028,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- -rX*Y + imm24*Z",
@@ -3850,7 +4046,11 @@
               "tool": "re/dspmacfit.py",
               "line": 933
             }
-          ]
+          ],
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 24
         },
         {
           "mnemonic": "mac_p1p2wc3",
@@ -3885,6 +4085,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- -rX*Y + imm32*Z",
@@ -3902,7 +4103,11 @@
               "tool": "re/dspmacfit.py",
               "line": 933
             }
-          ]
+          ],
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 32
         },
         {
           "mnemonic": "mac_p1p2",
@@ -3954,12 +4159,12 @@
           "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
         },
         {
-          "mnemonic": "mac_p1p2",
+          "mnemonic": "mac_p1p2c0",
           "status": "inferred",
           "when": {
             "op1": 6,
             "op2": 0,
-            "coefreg": 1
+            "coefreg": 0
           },
           "fields": {
             "D": "D",
@@ -3971,7 +4176,7 @@
             "Y": "Y",
             "Z": "Z",
             "op2": 0,
-            "coefreg": 1,
+            "coefreg": 0,
             "C": "C",
             "modeW": {
               "operand_mode": "W"
@@ -3997,11 +4202,16 @@
             {
               "source": "examples/from_scratch/DSP_ISA_SPEC.md",
               "section": "7",
-              "kind": "measured-without-bit-9",
-              "note": "the measured MAC examples use coefreg = 0"
+              "kind": "measured-without-bit-9"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "corpus-reassembly",
+              "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
             }
           ],
-          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
         },
         {
           "mnemonic": "mac_p1p2c1",
@@ -4035,6 +4245,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -4053,7 +4264,11 @@
               "tag": "op2 = 010 -> c = imm16"
             }
           ],
-          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 16
         },
         {
           "mnemonic": "mac_p1p2c2",
@@ -4087,6 +4302,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -4105,7 +4321,11 @@
               "tool": "re/dspmacfit.py",
               "line": 933
             }
-          ]
+          ],
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 24
         },
         {
           "mnemonic": "mac_p1p2c3",
@@ -4139,6 +4359,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -4157,7 +4378,11 @@
               "tool": "re/dspmacfit.py",
               "line": 933
             }
-          ]
+          ],
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 32
         },
         {
           "mnemonic": "mac_p1p2wp2",
@@ -4209,12 +4434,12 @@
           "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
         },
         {
-          "mnemonic": "mac_p1p2wp2",
+          "mnemonic": "mac_p1p2wp2c0",
           "status": "inferred",
           "when": {
             "op1": 7,
             "op2": 0,
-            "coefreg": 1
+            "coefreg": 0
           },
           "fields": {
             "D": "D",
@@ -4226,7 +4451,7 @@
             "Y": "Y",
             "Z": "Z",
             "op2": 0,
-            "coefreg": 1,
+            "coefreg": 0,
             "C": "C",
             "modeW": {
               "operand_mode": "W"
@@ -4252,11 +4477,16 @@
             {
               "source": "examples/from_scratch/DSP_ISA_SPEC.md",
               "section": "7",
-              "kind": "measured-without-bit-9",
-              "note": "the measured MAC examples use coefreg = 0"
+              "kind": "measured-without-bit-9"
+            },
+            {
+              "source": "examples/from_scratch/DSP_ISA_SPEC.md",
+              "section": "5.2",
+              "kind": "corpus-reassembly",
+              "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
             }
           ],
-          "evidence_note": "the encoding of bit 9 is documented, but no measured case has it set: its semantics is inferred"
+          "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
         },
         {
           "mnemonic": "mac_p1p2wp2c1",
@@ -4290,6 +4520,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -4308,7 +4539,11 @@
               "tag": "op2 = 010 -> c = imm16"
             }
           ],
-          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement"
+          "evidence_note": "the spec marks op2 mode 1 as presumably imm16; needs a direct measurement",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 16
         },
         {
           "mnemonic": "mac_p1p2wp2c2",
@@ -4342,6 +4577,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -4360,7 +4596,11 @@
               "tool": "re/dspmacfit.py",
               "line": 933
             }
-          ]
+          ],
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 24
         },
         {
           "mnemonic": "mac_p1p2wp2c3",
@@ -4394,6 +4634,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -4412,7 +4653,11 @@
               "tool": "re/dspmacfit.py",
               "line": 933
             }
-          ]
+          ],
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 32
         },
         {
           "mnemonic": "mac_p1c1r",
@@ -4775,6 +5020,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- rX*Y + imm16*Z",
@@ -4792,7 +5038,11 @@
               "tag": "op2 = 010 -> c = imm16"
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 16
         },
         {
           "mnemonic": "mac_p1wc2r",
@@ -4827,6 +5077,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- rX*Y + imm24*Z",
@@ -4845,7 +5096,11 @@
               "line": 933
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 24
         },
         {
           "mnemonic": "mac_p1wc3r",
@@ -4880,6 +5135,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- rX*Y + imm32*Z",
@@ -4898,7 +5154,11 @@
               "line": 933
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 32
         },
         {
           "mnemonic": "mac_p1p2wc1r",
@@ -4933,6 +5193,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- -rX*Y + imm16*Z",
@@ -4950,7 +5211,11 @@
               "tag": "op2 = 010 -> c = imm16"
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 16
         },
         {
           "mnemonic": "mac_p1p2wc2r",
@@ -4985,6 +5250,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- -rX*Y + imm24*Z",
@@ -5003,7 +5269,11 @@
               "line": 933
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 24
         },
         {
           "mnemonic": "mac_p1p2wc3r",
@@ -5038,6 +5308,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z"
           ],
           "result": "rD <- -rX*Y + imm32*Z",
@@ -5056,7 +5327,11 @@
               "line": 933
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 32
         },
         {
           "mnemonic": "mac_p1p2c1r",
@@ -5090,6 +5365,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -5108,7 +5384,11 @@
               "tag": "op2 = 010 -> c = imm16"
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 16
         },
         {
           "mnemonic": "mac_p1p2c2r",
@@ -5142,6 +5422,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -5161,7 +5442,11 @@
               "line": 933
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 24
         },
         {
           "mnemonic": "mac_p1p2c3r",
@@ -5195,6 +5480,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -5214,7 +5500,11 @@
               "line": 933
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 32
         },
         {
           "mnemonic": "mac_p1p2wp2c1r",
@@ -5248,6 +5538,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -5266,7 +5557,11 @@
               "tag": "op2 = 010 -> c = imm16"
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 16
         },
         {
           "mnemonic": "mac_p1p2wp2c2r",
@@ -5300,6 +5595,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -5319,7 +5615,11 @@
               "line": 933
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 24
         },
         {
           "mnemonic": "mac_p1p2wp2c3r",
@@ -5353,6 +5653,7 @@
             "D",
             "X",
             "Y",
+            "C",
             "Z",
             "W"
           ],
@@ -5372,7 +5673,11 @@
               "line": 933
             }
           ],
-          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
+          "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
+          "kinds": {
+            "C": "coef_imm"
+          },
+          "coef_bits": 32
         }
       ],
       "$doc_c": "C is the coefficient register, used only when the coefficient mode is 0 (spec 5.2). With an immediate coefficient its bits carry no register, so they are declared free rather than 0.",
@@ -5803,10 +6108,17 @@
           "mnemonic": "setflags",
           "status": "measured",
           "when": {
-            "mode": 155
+            "mode": 155,
+            "R": {
+              "ge": 8
+            }
           },
           "fields": {
-            "R": "R",
+            "R": {
+              "from": "R",
+              "add": 8,
+              "$doc": "the group X-8 (spec 5.3): the field holds 8 + group"
+            },
             "mode": 155,
             "Y": "Y"
           },
@@ -5830,7 +6142,11 @@
           "shows": [
             "R",
             "Y"
-          ]
+          ],
+          "kinds": {
+            "R": "group"
+          },
+          "$doc": "X9bY: X = 9..d names condition group X-8 (1..5); X 0..8 has no effect (spec 5.3), so those words stay raw"
         },
         {
           "mnemonic": "tapreq",
@@ -6214,16 +6530,19 @@
       "status": "measured"
     },
     "0x0C8": {
-      "layout": "AA",
-      "status": "measured"
+      "layout": "BB",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AA). Reassembles 4 of 36 corpus instances (was 0)."
     },
     "0x0D8": {
-      "layout": "AT",
-      "status": "measured"
+      "layout": "BTR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AT). Reassembles 114 of 150 corpus instances (was 0)."
     },
     "0x0E0": {
-      "layout": "CCC",
-      "status": "measured"
+      "layout": "CC",
+      "status": "measured",
+      "$doc": "spec 12 / re/dsp_templates.txt: CCI; the I is the slot array (jump offset word, spec 5.4b)"
     },
     "0x0E8": {
       "layout": "CT",
@@ -6234,8 +6553,9 @@
       "status": "measured"
     },
     "0x100": {
-      "layout": "MMA",
-      "status": "measured"
+      "layout": "MMBNN",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was MMA). Reassembles 5 of 28 corpus instances (was 0)."
     },
     "0x108": {
       "layout": "MMNN",
@@ -6273,15 +6593,20 @@
       "layout": "MTTNRR",
       "status": "measured"
     },
+    "0x4aa": {
+      "layout": "MABBTTN",
+      "status": "measured",
+      "$doc": "re/dsp_templates.txt: MABBTTNIRII, verified on master DSP3 (re/dspverify.py); the R/I tail is not part of the core"
+    },
+    "0x60a": {
+      "layout": "ABCTTT",
+      "status": "measured",
+      "$doc": "re/dsp_templates.txt: ABCTTTIRRRII, verified on master DSP3"
+    },
     "0x160": {
       "layout": "AAB",
       "status": "measured",
-      "body_lengths": [
-        4,
-        5,
-        6,
-        7
-      ]
+      "$doc": "2026-10-20 review: body_lengths removed. The list was a filter that rejected the instruction sizes of the SYSTEM-1 corpus (body 8 for 0x160); the layout alone now tells the classes apart."
     },
     "0x168": {
       "layout": "AAC",
@@ -6344,8 +6669,9 @@
       "status": "inferred"
     },
     "0x220": {
-      "layout": "MMATN",
-      "status": "inferred"
+      "layout": "MMBTNNR",
+      "status": "inferred",
+      "$doc": "2026-10-20 review: layout from spec 12 (was MMATN). Reassembles 20 of 20 corpus instances (was 0)."
     },
     "0x238": {
       "layout": "MMTTNNRR",
@@ -6364,8 +6690,9 @@
       "status": "inferred"
     },
     "0x258": {
-      "layout": "MAATN",
-      "status": "inferred"
+      "layout": "MABTNR",
+      "status": "inferred",
+      "$doc": "2026-10-20 review: layout from spec 12 (was MAATN). Reassembles 65 of 111 corpus instances (was 0)."
     },
     "0x268": {
       "layout": "MACTN",
@@ -6392,16 +6719,19 @@
       "status": "measured"
     },
     "0x2D0": {
-      "layout": "AAAA",
-      "status": "measured"
+      "layout": "AABB",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAAA). Re-assembles 1 of 1 corpus instances (was 0)."
     },
     "0x2D8": {
-      "layout": "AAA",
-      "status": "measured"
+      "layout": "AAB",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAA). Reassembles 40 of 40 corpus instances (was 0)."
     },
     "0x2E0": {
-      "layout": "AAAT",
-      "status": "measured"
+      "layout": "AABTRC",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAAT). Re-assembles 150 of 150 corpus instances (was 0)."
     },
     "0x2E8": {
       "layout": "AACC",
@@ -6416,23 +6746,24 @@
       "status": "measured"
     },
     "0x310": {
-      "layout": "AABT",
-      "status": "measured"
+      "layout": "ABBT",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AABT). Reassembles 3 of 5 corpus instances (was 0)."
     },
     "0x318": {
-      "layout": "AAB",
+      "layout": "AB",
       "status": "measured",
-      "body_lengths": [
-        5
-      ]
+      "$doc": "2026-10-20 review: body_lengths removed. The list was a filter that rejected the instruction sizes of the SYSTEM-1 corpus (body 8 for 0x160); the layout alone now tells the classes apart."
     },
     "0x320": {
-      "layout": "AABCT",
-      "status": "measured"
+      "layout": "ABCTR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AABCT). Reassembles 14 of 30 corpus instances (was 0)."
     },
     "0x328": {
-      "layout": "AABTT",
-      "status": "measured"
+      "layout": "ABTTRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AABTT). Reassembles 125 of 150 corpus instances (was 0)."
     },
     "0x340": {
       "layout": "ACTT",
@@ -6443,16 +6774,18 @@
       "status": "measured"
     },
     "0x378": {
-      "layout": "AATT",
-      "status": "measured"
+      "layout": "BBTTR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AATT). Re-assembles 88 of 88 corpus instances (was 0)."
     },
     "0x388": {
       "layout": "BCCT",
       "status": "measured"
     },
     "0x398": {
-      "layout": "ATTTRR",
-      "status": "measured"
+      "layout": "BTTTRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was ATTTRR). Reassembles 60 of 105 corpus instances (was 0)."
     },
     "0x3B8": {
       "layout": "CTTTRRCC",
@@ -6467,8 +6800,9 @@
       "status": "measured"
     },
     "0x45A": {
-      "layout": "MMBTTTN",
-      "status": "inferred"
+      "layout": "MMBTTTNN",
+      "status": "inferred",
+      "$doc": "re/dsp_templates.txt: MMBTTTNNIIIRRR, verified on master DSP3; two MACs need two N words (spec 4.2)"
     },
     "0x478": {
       "layout": "MMTTTNNRR",
@@ -6491,20 +6825,23 @@
       "status": "measured"
     },
     "0x4B8": {
-      "layout": "MAACTN",
-      "status": "measured"
+      "layout": "MABCTNR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was MAACTN). Re-assembles 2 of 2 corpus instances (was 0)."
     },
     "0x4BA": {
       "layout": "MAACTTNRRCCC",
       "status": "measured"
     },
     "0x4C0": {
-      "layout": "MAATTN",
-      "status": "measured"
+      "layout": "MABTTNRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was MAATTN). Reassembles 120 of 150 corpus instances (was 0)."
     },
     "0x4C2": {
-      "layout": "MAATTTNRRR",
-      "status": "measured"
+      "layout": "MABTTTNRRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was MAATTTNRRR). Reassembles 56 of 76 corpus instances (was 0)."
     },
     "0x4C4": {
       "layout": "MABTTTTNRRRR",
@@ -6587,40 +6924,47 @@
       "status": "measured"
     },
     "0x590": {
-      "layout": "AAAC",
-      "status": "measured"
+      "layout": "AABC",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAAC). Reassembles 12 of 12 corpus instances (was 0)."
     },
     "0x592": {
       "layout": "AABCCT",
       "status": "measured"
     },
     "0x598": {
-      "layout": "AAACT",
-      "status": "measured"
+      "layout": "AABCTR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAACT). Reassembles 1 of 33 corpus instances (was 0)."
     },
     "0x59A": {
-      "layout": "AAACTTRRCC",
-      "status": "measured"
+      "layout": "AABCTTRRCC",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAACTTRRCC). Re-assembles 2 of 10 corpus instances (was 0)."
     },
     "0x59C": {
-      "layout": "AAACTTTRRRCC",
-      "status": "measured"
+      "layout": "AABCTTTRRRCC",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAACTTTRRRCC). Re-assembles 12 of 12 corpus instances (was 0)."
     },
     "0x59E": {
       "layout": "AABCTTTTRRRI",
       "status": "inferred"
     },
     "0x5A0": {
-      "layout": "AAATTRR",
-      "status": "measured"
+      "layout": "AABTTRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAATTRR). Reassembles 51 of 95 corpus instances (was 0)."
     },
     "0x5A2": {
-      "layout": "AAATTTRRR",
-      "status": "measured"
+      "layout": "AABTTTRRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAATTTRRR). Reassembles 28 of 60 corpus instances (was 0)."
     },
     "0x5A4": {
-      "layout": "AAATTTTRR",
-      "status": "measured"
+      "layout": "AABTTTTRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAATTTTRR). Re-assembles 20 of 20 corpus instances (was 0)."
     },
     "0x5A6": {
       "layout": "AAATTTTTRRR",
@@ -6651,12 +6995,14 @@
       "status": "inferred"
     },
     "0x5F0": {
-      "layout": "AAATT",
-      "status": "measured"
+      "layout": "ABBTTRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAATT). Re-assembles 11 of 11 corpus instances (was 0)."
     },
     "0x5F2": {
-      "layout": "AAATTT",
-      "status": "measured"
+      "layout": "ABBTTTRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AAATTT). Re-assembles 12 of 12 corpus instances (was 0)."
     },
     "0x600": {
       "layout": "AACCT",
@@ -6667,16 +7013,19 @@
       "status": "inferred"
     },
     "0x60C": {
-      "layout": "AACTTTTRRRRC",
-      "status": "measured"
+      "layout": "ABCTTTTRRRRC",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AACTTTTRRRRC). Re-assembles 2 of 2 corpus instances (was 0)."
     },
     "0x610": {
-      "layout": "AATTTRRR",
-      "status": "measured"
+      "layout": "ABTTTRRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AATTTRRR). Reassembles 36 of 107 corpus instances (was 0)."
     },
     "0x612": {
-      "layout": "AATTTTRRRR",
-      "status": "measured"
+      "layout": "ABTTTTRRRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AATTTTRRRR). Re-assembles 12 of 12 corpus instances (was 0)."
     },
     "0x630": {
       "layout": "ACTTTRR",
@@ -6695,8 +7044,9 @@
       "status": "measured"
     },
     "0x6C8": {
-      "layout": "AATT",
-      "status": "measured"
+      "layout": "BBTTTRR",
+      "status": "measured",
+      "$doc": "2026-10-20 review: layout from spec 12 (was AATT). Re-assembles 8 of 8 corpus instances (was 0)."
     },
     "0x6E8": {
       "layout": "ACTTT",

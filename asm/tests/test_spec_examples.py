@@ -3,7 +3,7 @@
 These are independent of our own encoder: the words are copied from the spec
 (§11, §6, §7, §8, §9.0), so they catch a table that is self-consistently wrong.
 
-    python3 -m unittest tests/test_spec_examples.py
+    python3 tests/test_spec_examples.py
 """
 
 import os
@@ -136,18 +136,22 @@ class SpecExamples(unittest.TestCase):
                  0x3000, 0x0638, 0x063D, 0x2333, 0x33C4, 0xC008]
         text, _ = disasm.program(words, TABLE, "spec 4.4")
         line = first_line(text)[0].split(";")[0].strip()
-        # Y = 3000 = 0.1875 (byte 2), C = 233333 = 0.2 (after skipping bytes 4-7),
-        # W = c4c008 = -4.75 (byte 11)
-        self.assertIn("0.1875", line, line)     # Y, at byte 2
-        self.assertIn("0.2", line, line)        # C, after the two references
-        self.assertIn("-4.75", line, line)      # W, at byte 11
+        # Y = 3000 (byte 2) is the RAW value 1.0; the coefficient 233333 is read
+        # right after Y, over the two reference words, and is 0.2; W = c4c008
+        # (byte 11) is -4.75 to the precision of its 24 bits
+        self.assertIn("#1@2:16", line, line)    # Y, at byte 2
+        self.assertIn("#0.2,", line, line)      # C, after the two references
+        self.assertIn("#-4.75", line, line)     # W, at byte 11
 
     def test_sequential_read_skips_reference_words(self):
-        """an explicit byte offset does not skip; a sequential read does"""
-        stream = disasm.ImmStream([0x3000, 0x0638, 0x063D, 0x2333], refs={1, 2})
+        """an explicit byte offset does not skip; a sequential read does.
+
+        The array is the spec 4.4 example's: N word, Y's word at byte 2, the two
+        references (slots 2 and 3), then the coefficient's words."""
+        words = [0x7A2B, 0x3000, 0x0638, 0x063D, 0x2333, 0x33C4, 0xC008]
+        stream = disasm.ImmStream(words, refs={2, 3})
         self.assertEqual(stream.take(2 * 8, 16), 0x30000000)      # byte 2, no skip
-        stream.pos = 4 * 8                                        # read on at byte 4
-        self.assertEqual(stream.take(None, 24), 0x23333300)       # skips 1 and 2
+        self.assertEqual(stream.take(None, 24), 0x23333300)       # from bit 32: skips 2, 3
 
 
 if __name__ == "__main__":

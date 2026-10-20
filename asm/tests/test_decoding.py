@@ -9,7 +9,7 @@
 * **unknown**: a word no entry explains. It must stay verbatim, and the reason
   must say which field went unexplained.
 
-    python3 -m unittest tests/test_decoding.py
+    python3 tests/test_decoding.py
 """
 
 import os
@@ -165,12 +165,13 @@ class Unknown(unittest.TestCase):
         self.assertEqual(report["decoded"], 0)
         self.assertEqual(len(report["verbatim"]), 1)
         self.assertIn("truncated", report["verbatim"][0][2])
-        self.assertIn("truncated instruction", text)
+        self.assertIn(".words ffff 0000", text)     # kept as words, not dropped
 
     def test_length_zero_cannot_continue(self):
         text, report = disasm.program([0x0000, 0x3C01], TABLE)
         self.assertEqual(report["decoded"], 0)
         self.assertIn("length 0", report["verbatim"][0][2])
+        self.assertIn(".words 0000 3c01", text)      # nothing after it is lost
 
     def test_truncated_stream(self):
         text, report = disasm.program([0x0904, 0x1430], TABLE)   # claims 4 words
@@ -246,7 +247,11 @@ class Confidence(unittest.TestCase):
                 mode = v.when.get("op2")
                 creg = v.when.get("coefreg", 0)
                 with self.subTest(mnemonic=v.mnemonic, mode=mode, coefreg=creg):
-                    if mode == 0 and creg == 0:
+                    if mode == 0 and creg == 0 and v.mnemonic.endswith("c0"):
+                        # bit 9 clear with a register coefficient: not in the spec,
+                        # reproduced by the corpus only (see the variant's evidence)
+                        self.assertEqual(v.status, "inferred")
+                    elif mode == 0 and creg == 0:
                         self.assertIn(v.status, ("exact", "measured"))
                     elif mode == 0 and creg == 1:
                         # register coefficient: documented in spec 5.2, but no

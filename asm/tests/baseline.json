@@ -1,31 +1,46 @@
 {
   "$comment": [
     "Metrics kept separate. Measured by `python3 tests/coverage.py --check`,",
-    "tests/test_asm.py and tests/roundtrip_report.py.",
+    "tests/test_corpus.py (round trip) and tests/roundtrip_report.py.",
     "",
-    "History -- decoding: 62.9 -> 98.1. Assembly lines: 68.4 -> 75.8 (unit",
-    "order) -> 80.1 (.class) -> 88.8 (.free) -> 98.6 (shared immediate stream)",
-    "-> 99.0 (SlotArrayAllocator) -> 99.0 (single class/length owner).",
+    "History -- decoding (share of instructions decoded; every decoded line",
+    "re-assembles): 98.1 before the 2026-10-20 review (there the listing",
+    "re-assembled 0 of 128 files and 441 lines were rejected) -> 99.5 (corpus_all)",
+    "and 99.7 (corpus_s1) after it.",
     "",
-    "Round trip: 0/128. All 128 diverge on *value*, not length: the first",
-    "divergence always follows a rejected line, which drops its words and",
-    "shifts the rest. So the remaining work is rejection, not sizing.",
+    "Round trip (2026-10-20): 132 of 132 files identical: 128 corpus_all + 4",
+    "corpus_s1. A regression is any file that stops being identical.",
     "",
-    "One regression test still fails: the spec 4.3 example with a MAC",
-    "coefficient immediate (2b09 ...). Its coefficient word is in the stream",
-    "but the listing does not print it, so the assembler cannot size it.",
-    "A change that lowers these numbers is a regression."
+    "Semantic confidence is per instruction (worst tag of its units), corpus_all.",
+    "",
+    "Known open (see asm/REVIEW.md). A change that lowers these numbers is a regression."
   ],
-  "decoding": {"corpus_all_pct": 98.1, "corpus_s1_pct": 98.4},
-  "assembly": {"lines_pct": 99.0},
-  "round_trip": {"files_identical": 0, "files_value_divergence": 128,
-                 "files_length_divergence": 0},
+  "decoding": {
+    "corpus_all_pct": 99.5,
+    "corpus_s1_pct": 99.7
+  },
+  "assembly": {
+    "lines_pct": 100.0,
+    "rejected_lines": 0
+  },
+  "round_trip": {
+    "files_identical": 132,
+    "files_value_divergence": 0,
+    "files_length_divergence": 0,
+    "corpus_all_files": 128,
+    "corpus_s1_files": 4
+  },
   "semantic_confidence": {
-    "exact_pct": 60.2, "measured_pct": 27.7, "inferred_pct": 9.5,
-    "fitted_pct": 0.7, "raw_pct": 1.9
+    "exact_pct": 56.6,
+    "measured_pct": 31.6,
+    "inferred_pct": 9.8,
+    "fitted_pct": 1.5,
+    "raw_pct": 0.5
   },
   "known_open": {
-    "mac_coefficient_immediate": "not printed in the listing: the stream word it occupies cannot be sized",
-    "class_0x398": "header length 8 with 7 body words in the corpus; unverified"
+    "unit_a_destination_8_to_15": "outside class 0x048 the D >= 8 form is not measured: ~480 corpus instructions stay raw",
+    "sequential_read_over_jumps": "[unknown] only references are skipped by a sequential read; jump words are not",
+    "hidden_register_y": "Y of hset is read as a byte offset (the 1d06 4022 example needs it); spec 9.0 says words",
+    "register_coefficient_bit9_clear": "10 MAC variants named ...c0 are reproduced by the corpus only (143 instances)"
   }
 }

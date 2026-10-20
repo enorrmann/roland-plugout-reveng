@@ -11,14 +11,29 @@ The language is what `disasm.program` writes back:
     mac_p1p2 r0, r0, r1, r2, r1
     raw @0x060 0fe0 0201              ; verbatim body words, optional class
 
+Directives, each on the line before the instruction it changes:
+
+    .class 0x0040        the class of the next instruction (needed when two
+                         classes fit the units, or for a `raw` line)
+    .free @n 0xMASK      bits of word n (0 = header) that the variant leaves
+                         free and that the listing restores
+    .slot @k 0xNNNN      slot word k, which no operand reads (spec 4.4)
+    .words 0xNNNN ...    words kept as they are (a truncated tail)
+
+Immediates (spec 4.4): `#v@b:w` is a value read at byte b of the slot array,
+w bits wide. A MAC coefficient `#v` is read in order after Y's immediate, or
+at the byte `@b` when Y is a register. An immediate with no byte is placed by
+the assembler at the first byte where its bits agree with the stream.
+
 Confidence policy is enforced **here**, not by the caller: a line whose
 variant is not in `Table.EMIT_DEFAULT` (exact, measured) is rejected unless
 `allow_inferred=True` is passed, which admits `inferred` and `fitted`. `raw`
-words are never emitted by default either: they are unknown encodings kept
-verbatim, so re-assembling them takes the same explicit option.
+words and `.words` are never emitted by default either: they are unknown
+encodings kept verbatim, so re-assembling them takes the same explicit option.
 
 Ambiguity is rejected: if more than one class can hold the units, or a field
 that must be preserved has no source, the line fails with the reason.
+See asm/REVIEW.md for the 2026-10-20 review that set these rules.
 """
 
 import re
@@ -30,6 +45,11 @@ import slots as slots_mod
 
 WORD = 0xFFFF
 MAX_LEN = 31
+
+
+# operand kinds that take an immediate, and kinds that never do (spec 5.2)
+IMM_KINDS = frozenset(("y_operand", "coef_imm"))
+IMM_ONLY_KINDS = frozenset(("coef_imm",))
 
 
 class AsmError(Exception):
@@ -156,14 +176,20 @@ def parse_operand(kind, text):
         raise codec.CodecError("empty operand")
     if kind in ("reg", "dst_reg", "x_reg", "reg_x2"):
         return codec.Arg("reg", parse_register(t), t)
-    if kind == "y_operand":
+    if kind in ("y_operand", "coef_imm"):
+        if kind == "coef_imm" and not t.startswith("#"):
+            raise codec.CodecError("the coefficient of this MAC is an immediate (#value)")
         if t.startswith("#"):
             body = t[1:]
             at = width = None
-            m = re.fullmatch(r"(?P<v>.+?)@(?P<b>\d+)(?::(?P<w>\d+))?", body)
-            if m:
-                body, at = m.group("v"), int(m.group("b"))
-                width = int(m.group("w")) if m.group("w") else None
+            m = re.fullmatch(r"(?P<v>[^@:]+)(?:@(?P<b>\d+))?(?::(?P<w>\d+))?", body)
+            if m is None:
+                raise codec.CodecError("%r is not an immediate (#value, #value@byte:bits)" % text)
+            body = m.group("v")
+            if m.group("b") is not None:
+                at = int(m.group("b"))
+            if m.group("w") is not None:
+                width = int(m.group("w"))
             arg = codec.Arg("imm", parse_immediate(body, t), t, at_byte=at)
             arg.width = width
             return arg
@@ -191,7 +217,7 @@ def parse_operand(kind, text):
         if not 0 <= n <= 31:
             raise codec.CodecError("condition %d is out of range (0..31)" % n)
         return codec.Arg("cond", (n, neg), text)
-    if kind in ("number", "units"):
+    if kind in ("number", "units", "group"):
         return codec.Arg("num", int(parse_number(t)), t)
     if kind == "word":
         return codec.Arg("word", int(parse_number(t)) & WORD, t)
@@ -203,12 +229,13 @@ def parse_operand(kind, text):
     if kind == "label":
         # a jump target: the disassembler writes the offset itself (`.+3`), and
         # that is the only form the table can place without a linker
-        m = re.fullmatch(r"[.]([+-]\d+)", t)
+        m = re.fullmatch(r"[.]([+-]\d+)(?:@(\d+))?", t)
         if not m:
             raise codec.CodecError(
                 "%r is not a jump offset: write `.%%+d` words from the instruction "
                 "end (spec 5.4b); symbolic labels need a linker" % t)
-        return codec.Arg("label", int(m.group(1)), t)
+        return codec.Arg("label", int(m.group(1)), t,
+                         at_byte=int(m.group(2)) if m.group(2) else None)
     raise codec.CodecError("operands of kind %r are not supported" % kind)
 
 
@@ -220,29 +247,45 @@ class Unit:
     def __init__(self, variant, args, text):
         self.variant, self.args, self.token = variant, args, text
         self.form = variant.form
-        self.words = []
-        self.read = None
 
-    def immediate(self):
-        """the immediate value this unit carries, or None (spec 4.4)"""
-        for name in self.form.immediate_operands:
+    def shown_args(self):
+        """(name, Arg) for each operand the source wrote, in source order"""
+        names = self.variant.shows if self.variant.shows is not None else self.form.operand_names
+        out = []
+        for name in names:
             i = self.form.operand_names.index(name)
-            if i < len(self.args) and self.args[i] is not None and self.args[i].is_immediate:
-                return self.args[i].value
+            if self.args[i] is not None:
+                out.append((name, self.args[i]))
+        return out
+
+    def imm_args(self):
+        """(name, Arg) for each immediate operand, in the order the hardware reads
+        them (spec 4.4): a MAC's Y, then its coefficient, then W"""
+        return [(n, a) for n, a in self.shown_args() if a.is_immediate]
+
+    def _label_arg(self):
+        for name in self.form.operand_names:
+            if self.form.kinds.get(name) == "label":
+                i = self.form.operand_names.index(name)
+                if i < len(self.args) and self.args[i] is not None:
+                    return self.args[i]
         return None
 
     def jump_offset(self):
         """a jump's offset in words (§5.4b): it lives in a slot word"""
-        for name in self.form.operand_names:
-            if self.form.kinds.get(name) != "label":
-                continue
-            i = self.form.operand_names.index(name)
-            if i < len(self.args) and self.args[i] is not None:
-                return int(self.args[i].value)
-        return None
+        arg = self._label_arg()
+        return None if arg is None else int(arg.value)
 
-    def slots(self):
-        """the reference words this unit addresses, in order (§4.3)"""
+    def jump_slot(self):
+        """the slot a jump names (`jmp .+3@2`), or None"""
+        arg = self._label_arg()
+        return None if arg is None else arg.at_byte
+
+    def slot_refs(self):
+        """the reference words this unit addresses: [(value, slot or None)]
+
+        `slot` is the `@k` the source names (the slot the reference occupies),
+        None when the layout pass may choose (§4.3)."""
         if not self.variant.uses_slot:
             return []
         out = []
@@ -251,7 +294,8 @@ class Unit:
                 continue
             i = self.form.operand_names.index(name)
             if i < len(self.args) and self.args[i] is not None:
-                out.append(int(self.args[i].value))
+                arg = self.args[i]
+                out.append((int(arg.value), arg.at_byte))
         return out
 
 
@@ -263,13 +307,16 @@ class Assembler:
     def __init__(self, table=None, allow_inferred=False):
         self.table = table or isa.Table.load()
         self.allow_inferred = allow_inferred
+        self.notes = []
 
     # -- public ------------------------------------------------------------
     def assemble(self, text):
         result = Result()
+        self.notes = []
         lines = text.splitlines()
         pending_class = None
-        pending_free = 0
+        pending_free = []
+        pending_slots = []
         for n, raw in enumerate(lines, 1):
             line = raw.split(";")[0].rstrip()
             if not line.strip():
@@ -283,18 +330,39 @@ class Assembler:
                     result.errors.append((n, "not a class: %r" % m.group("c")))
                     result.rejected += 1
                     continue
-                if pending_class not in self.table.classes:
-                    result.errors.append((n, "class %#05x is not in the table" % pending_class))
-                    result.rejected += 1
-                    pending_class = None
+                # not checked here: a `raw` line may name a class the table does not
+                # know (its words are verbatim); an instruction is checked when built
                 continue
-            m = re.match(r"\s*\.free\s+(?P<v>0x[0-9a-fA-F]+|[0-9]+)\s*$", line)
+            # `.words 0xNNNN ...`: words kept as they are (a truncated tail of a
+            # dump, spec 3): no instruction structure is claimed for them
+            m = re.match(r"\s*\.words\s+(?P<w>.+?)\s*$", line)
+            if m:
+                if not self.allow_inferred:
+                    result.errors.append((n, ".words carries no known encoding; "
+                                            "re-assembling it needs --allow-inferred"))
+                    result.rejected += 1
+                    continue
+                try:
+                    result.words.extend(int(x, 16) & WORD for x in m.group("w").split())
+                except ValueError:
+                    result.errors.append((n, "not a word list: %r" % m.group("w")))
+                    result.rejected += 1
+                continue
+            m = re.match(r"\s*\.slot\s+@(?P<k>\d+)\s+(?P<v>0x[0-9a-fA-F]+|[0-9a-fA-F]{1,4})\s*$", line)
+            if m:
+                pending_slots.append((int(m.group("k")), int(m.group("v"), 16) & WORD))
+                continue
+            # `.free @n 0xMASK`: the bits of word n that its variant leaves free
+            # (word 0 is the header); a bare mask applies to every free word
+            m = re.match(r"\s*\.free\s+(?:@(?P<n>\d+)\s+)?(?P<v>0x[0-9a-fA-F]+|[0-9]+)\s*$", line)
             if m:
                 try:
-                    pending_free = int(m.group("v"), 0) & 0xFFFF
+                    mask = int(m.group("v"), 0) & WORD
                 except ValueError:
                     result.errors.append((n, "not a bit mask: %r" % m.group("v")))
                     result.rejected += 1
+                    continue
+                pending_free.append((int(m.group("n")) if m.group("n") else None, mask))
                 continue
             # the legacy hint in a trailing comment: `; @0x0040 (exact) 0803 ...`
             hint = re.search(r";\s*@(0x[0-9a-fA-F]+)", raw)
@@ -303,12 +371,14 @@ class Assembler:
                 pint = int(hint.group(1), 16)
             pending_class = None
             try:
-                words = self.line(n, line, pint, pending_free)
-                pending_free = 0
+                words = self.line(n, line, pint, pending_free, pending_slots)
+                pending_free = []
+                pending_slots = []
             except AsmError as e:
                 result.errors.append((e.line or n, e.msg))
                 result.rejected += 1
-                pending_free = 0
+                pending_free = []
+                pending_slots = []
                 continue
             except codec.CodecError as e:
                 result.errors.append((n, str(e)))
@@ -318,10 +388,11 @@ class Assembler:
                 continue
             result.words.extend(words)
             result.assembled += 1
+        result.notes = list(self.notes)
         return result
 
     # -- one line ----------------------------------------------------------
-    def line(self, lineno, text, pinned_class=None, free_bits=0):
+    def line(self, lineno, text, pinned_class=None, free=(), fixed_slots=()):
         m = re.match(r"^\s*(?:([A-Za-z_.][\w.]*)\s*:)?\s*(.*)$", text)
         body = m.group(2).strip()
         if not body:
@@ -330,15 +401,16 @@ class Assembler:
         if tokens and tokens[0].split()[0] == "raw":
             return self._raw(lineno, body, pinned_class)
         units = [self._unit(lineno, t) for t in tokens]
-        return self._instruction(lineno, units, pinned_class, free_bits)
+        return self._instruction(lineno, units, pinned_class, free=free,
+                                 fixed_slots=fixed_slots)
 
     def _unit(self, lineno, token):
         mnemonic, raw_ops = tokenize(token)
-        variant = self.table.mnemonics.get(mnemonic)
-        if variant is None:
+        if mnemonic not in self.table.variants_by_mnemonic:
             near = [m for m in sorted(self.table.mnemonics) if m.startswith(mnemonic[:3])][:3]
             hint = (" (similar: %s)" % ", ".join(near)) if near else ""
             raise AsmError(lineno, "unknown mnemonic %r%s" % (mnemonic, hint), token)
+        variant = self._variant_for(lineno, mnemonic, raw_ops, token)
         self._check_confidence(lineno, variant, token)
         form = variant.form
         # the operands a variant *shows* are the ones the source writes
@@ -359,6 +431,42 @@ class Assembler:
             i = form.operand_names.index(name)
             args[i] = self._arg(lineno, variant, name, given, token)
         return Unit(variant, args, token)
+
+    def _variant_for(self, lineno, mnemonic, raw_ops, token):
+        """the variant of `mnemonic` that the operands the source wrote describe.
+
+        A mnemonic can name several variants (`ld` with its modes, `hset` with
+        its register, a MAC with a register or an immediate coefficient). An
+        immediate operand needs a variant whose operand takes one, a register
+        one that takes a register, and `hset hN` the variant of register hN.
+        The first variant that agrees is taken; the line is checked against the
+        words the variant gives, so a wrong guess cannot reach the output.
+        """
+        for v in self.table.variants_by_mnemonic[mnemonic]:
+            shown = v.shows if v.shows is not None else v.form.operand_names
+            if len(shown) != len(raw_ops):
+                continue
+            if v.hidden_reg is not None and raw_ops and \
+                    raw_ops[0].strip().lower() != "h%d" % v.hidden_reg:
+                continue
+            ok = True
+            for name, given in zip(shown, raw_ops):
+                kind = v.kinds.get(name) or v.form.kinds.get(name)
+                if given.strip().startswith("#"):
+                    ok = kind in IMM_KINDS
+                else:
+                    ok = kind not in IMM_ONLY_KINDS
+                if not ok:
+                    break
+            if ok:
+                return v
+        # no variant agrees: report the operand count of the first one
+        first = self.table.variants_by_mnemonic[mnemonic][0]
+        shown = first.shows if first.shows is not None else first.form.operand_names
+        if len(shown) != len(raw_ops):
+            raise AsmError(lineno, "%s takes %d operand(s) (%s), %d given"
+                           % (mnemonic, len(shown), ", ".join(shown), len(raw_ops)), token)
+        raise AsmError(lineno, "%s: no variant takes these operands" % mnemonic, token)
 
     def _arg(self, lineno, variant, name, given, token):
         kind = variant.kinds.get(name) or variant.form.kinds.get(name)
@@ -395,7 +503,8 @@ class Assembler:
             except ValueError:
                 raise AsmError(lineno, "%r is not a class" % ops[0], token)
             ops = ops[1:]
-        if not ops:
+        if not ops and cls != 0:
+            # class 0x000 is the header-only one-word no-op (spec 4.1)
             raise AsmError(lineno, "raw needs at least one body word", token)
         body = []
         for o in ops:
@@ -419,502 +528,412 @@ class Assembler:
     def _class_from_words(self, body):
         """a class whose layout explains these words exactly"""
         hits = []
-        for cls in sorted(self.table.classes):
+        for cls, c in sorted(self.table.classes.items()):
             letters = layout.letters_for(self.table, cls, len(body))
             if letters is None or len(letters) != len(body):
                 continue
-            if layout.fits_exact(self.table, letters, body):
+            if layout.fits_exact(self.table, letters, body, layout.prefix_length(c.layout)):
                 hits.append(cls)
         return hits[0] if len(hits) == 1 else None
 
     # -- a normal instruction ---------------------------------------------
-    def _instruction(self, lineno, units, pinned_class=None, free_bits=0):
-        # spec 4.4: every A/B op that takes an immediate reads it at *its own*
-        # Y byte of the one bit stream, so one instruction can present several
-        # values to several ops. Each is written into the stream separately.
-        carriers = [u for u in units if u.immediate() is not None]
-        value = carriers[0].immediate() if carriers else None
-        bits = None
-        imm_words = 0
-        if carriers:
-            bits = self._width(lineno, value, carriers[0].variant,
-                               given_offset=self._carrier_offset(carriers[0]) is not None,
-                               stated=self._carrier_width(carriers[0]))
-            for u in carriers[1:]:
-                bits = max(bits, self._width(lineno, u.immediate(), u.variant,
-                                             given_offset=self._carrier_offset(u) is not None,
-                                             stated=self._carrier_width(u)))
-            # spec 4.4: the I words must cover every carrier's byte offset
-            need = 0
-            for u in carriers:
-                i = [n for n in u.form.immediate_operands
-                     if u.args[u.form.operand_names.index(n)] is not None
-                     and u.args[u.form.operand_names.index(n)].is_immediate][0]
-                arg = u.args[u.form.operand_names.index(i)]
-                w = self._width(lineno, arg.value, u.variant,
-                                given_offset=arg.at_byte is not None,
-                                stated=getattr(arg, "width", None))
-                at = arg.at_byte or 0
-                need = max(need, at * 8 + w)
-            imm_words = (need + 15) // 16     # local: never leaks to the next line
+    def _instruction(self, lineno, units, pinned_class=None, free=(), fixed_slots=()):
+        """the header-less body of one instruction (spec 4.1-4.4).
 
-        # one call decides the class *and* the body length (nothing recomputes it)
-        imm_words = imm_words if bits else 0
-        choices = self.classify(units, imm_words)
+        The class is one whose unit prefix the units fill exactly. For each such
+        class the slot array is made as small as the line allows: the smallest
+        size at which every reference, jump and immediate bit fits (`_build`).
+        Two classes that both fit are an error unless the source names one.
+        """
+        if pinned_class is not None and pinned_class not in self.table.classes:
+            raise AsmError(lineno, "class %#05x is not in the table" % pinned_class)
         ordered = sorted(units, key=lambda u: self.table.unit_rank.get(
             _letter(self.table, u.form), 0))
+        for u in ordered:
+            self._size_immediates(lineno, u)
+        letters = [_letter(self.table, u.form) for u in ordered]
+        n_mac = sum(1 for u in ordered if u.form.form == "mac")
+        choices, failure = [], None      # failure: the error of the largest slot array tried
+        for cls, c in sorted(self.table.classes.items()):
+            if pinned_class is not None and cls != pinned_class:
+                continue
+            prefix = layout.prefix_length(c.layout)
+            # the units fill the class's prefix exactly, and its slot array has a
+            # N position for every MAC (spec 4.2)
+            if list(c.layout[:prefix]) != letters or c.layout[prefix:].count("N") < n_mac:
+                continue
+            for extra in self._extra_sizes(cls, prefix, c):
+                try:
+                    body = self._build(lineno, cls, prefix, ordered, extra, free, fixed_slots)
+                except (AsmError, slots_mod.SlotError) as e:
+                    if failure is None or extra >= failure[0]:
+                        failure = (extra, e)
+                    continue
+                choices.append((cls, body))
+                break
         if not choices:
-            raise AsmError(lineno, "no class in the table holds these units with "
-                                   "%d slot word(s)%s"
-                           % (max(self._slots_needed(ordered),
-                                  sum(1 for u in ordered if u.jump_offset() is not None)),
-                              "" if not bits else " and %d immediate word(s)" % imm_words))
-        if len(choices) > 1 and pinned_class is not None:
-            choices = [c for c in choices if c[0] == pinned_class] or choices
+            if failure is not None:
+                e = failure[1]
+                raise AsmError(lineno, getattr(e, "msg", None) or str(e))
+            raise AsmError(lineno, "no class in the table holds these units "
+                                   "(%s)" % "".join(letters))
         if len(choices) > 1:
             raise AsmError(lineno, "ambiguous: classes %s all hold these units; "
                                    "name one with `.class` or in the trailing "
                                    "comment (`; @0x%04x`)"
                            % (", ".join("%#05x" % c for c, _ in choices), choices[0][0]))
-        cls, letters = choices[0]
-        return self._emit(lineno, cls, letters, ordered, value, bits, free_bits)
+        cls, body = choices[0]
+        return [isa.header_of(cls, len(body) + 1)] + body
 
-    def classify(self, units, imm_words):
-        """-> [(class, letters)] , the one place that sizes an instruction.
+    def _extra_sizes(self, cls, prefix, c):
+        """slot-array sizes to try for one class, smallest first"""
+        return [extra for extra in range(0, MAX_LEN - prefix)
+                if c.allows(prefix + extra)]
 
-        Everything an instruction needs is decided here together: which class
-        can hold these units, and how many body words it has. Callers must not
-        recompute the length -- that is what made the two disagree.
-        """
-        rank = self.table.unit_rank
-        ordered = sorted(units, key=lambda u: rank.get(_letter(self.table, u.form), 0))
-        letters = [_letter(self.table, u.form) for u in ordered]
-        # spec 4.2: the M of a MAC sits with the ops, its N in the slot array
-        n_after = sum(1 for u in ordered if u.form.form == "mac")
-        if n_after:
-            last_t = max((i for i, ch in enumerate(letters) if ch == "T"), default=-1)
-            at = len(letters) if last_t < 0 else last_t + 1
-            letters = letters[:at] + ["N"] * n_after + letters[at:]
-        # every slot word the line fills: references plus any hole the source
-        # names explicitly, plus one per jump (spec 4.3, 5.4b)
-        slots = self._slots_needed(ordered)
-        jumps = sum(1 for u in ordered if u.jump_offset() is not None)
-        # The slot array covers the references, the jumps, and the bytes the
-        # immediates are read at (§4.3, §4.4): one span, three consumers.
-        slot_words = max(slots, jumps, imm_words)
-        out = []
-        for cls, c in sorted(self.table.classes.items()):
-            lay = c.layout
-            nr = lay.count("R")
-            core = lay[:len(lay) - nr] if nr else lay
-            # the class's core must match the units, position for position
-            if list(core) != letters[:len(core)]:
-                continue
-            if len(letters) > len(core):
-                continue
-            # the body is: the core, then the slot array the line actually
-            # needs, then the immediate words it actually needs. A class keeps
-            # R words for the slot array; one without R keeps them in its tail.
-            body = len(core) + slot_words
-            if not c.allows(body):
-                continue
-            want = layout.letters_for(self.table, cls, body)
-            if want is None or len(want) != body:
-                continue
-            # the core positions must still read as the units say, and the
-            # slot array must have room for every word the line fills
-            if want[:len(letters)] != letters:
-                continue
-            out.append((cls, want))
-        return out
+    def _size_immediates(self, lineno, u):
+        """the width of every immediate operand (spec 4.4)"""
+        for name, arg in u.imm_args():
+            arg.bits = self._width(lineno, arg, u.variant, name)
 
-    def _width(self, lineno, value, variant=None, given_offset=False, stated=None):
-        """the immediate width (spec 4.4).
+    def _width(self, lineno, arg, variant, name):
+        """an immediate's width: the one the source states (`#v@b:32`), else the
+        variant's own (a coefficient's, or `immediate_bits`), else the narrowest
+        that holds the value exactly.
 
-        `immediate_bits` on a variant is the width the spec's own example uses
-        for the plain form (11.2 writes `mul` as imm32). When the source states
-        the byte offset the stream already exists, so the narrowest width that
-        holds the value is what reproduces those bits.
-        """
-        if value is None:
-            return None
-        if stated:
-            return stated          # the source said how wide the stream is
+        A hidden-register value is an integer word (spec 9.0), not a RAW number,
+        so its narrowest width is the one that holds that integer."""
+        value = arg.value
+        fixed = arg.width or (variant.coef_bits if name == "C" else None) or variant.immediate_bits
+        if variant.form.form == "hidden_reg":
+            if isinstance(value, _RawImm):
+                raise AsmError(lineno, "a hidden-register value is written as a number")
+            n = _hidden_int(value)
+            if n is None:
+                raise AsmError(lineno, "%r is not a multiple of 1/16384 (spec 9.0)" % (value,))
+            if fixed:
+                if n >> fixed:
+                    raise AsmError(lineno, "%s: %r needs more than %d bits" % (variant.mnemonic, value, fixed))
+                return fixed
+            return 16 if n < 1 << 16 else 24 if n < 1 << 24 else 32
         if isinstance(value, _RawImm):
             need = len(value.bits) * 4
-            want = getattr(variant, "immediate_bits", None)
-            # the bits were given literally: take the narrowest width that holds
-            # them, but never narrower than the variant requires
-            bits = max(need, want or 0) if want else (
-                16 if need <= 16 else 24 if need <= 24 else 32)
-            if bits == 16:
-                bits = 16
-            elif bits <= 24:
-                bits = 24
-            else:
-                bits = 32
-            if len(value.bits) * 4 > bits:
-                raise AsmError(lineno, "raw.%s does not fit in %d bits"
-                               % (value.bits, bits))
-            return bits
+            if fixed:
+                if need > fixed:
+                    raise AsmError(lineno, "raw.%s does not fit in %d bits" % (value.bits, fixed))
+                return fixed
+            return 16 if need <= 16 else 24 if need <= 24 else 32
         try:
             raw = self.table.raw_encode(value)
         except ValueError as e:
             raise AsmError(lineno, str(e))
-        want = None if given_offset else getattr(variant, "immediate_bits", None)
-        if want:
-            if want == 16 and raw & 0xFFFF:
-                raise AsmError(lineno, "%s takes an imm16 and %r does not fit"
-                               % (variant.mnemonic, value))
-            if want == 24 and raw & 0xFF:
-                raise AsmError(lineno, "%s takes an imm24 and %r does not fit"
-                               % (variant.mnemonic, value))
-            return want
+        if fixed:
+            if raw & ((1 << (32 - fixed)) - 1):
+                # the hardware keeps the top bits: say what is stored when that is
+                # a real loss (a decimal such as 0.2 is exact to its own digits)
+                kept = self.table.raw_decode(raw & ~((1 << (32 - fixed)) - 1))
+                if abs(kept - value) > 1e-6 * max(abs(value), 1e-6):
+                    self.notes.append((lineno, "%s: %r is stored in %d bits as %r"
+                                       % (variant.mnemonic, value, fixed, kept)))
+            return fixed
         if not raw & 0xFFFF:
             return 16
         if not raw & 0xFF:
             return 24
         return 32
 
-    def _slots_needed(self, units):
-        """how many slot words the line needs (§4.3).
-
-        That is the highest byte anything addresses: each reference and each
-        jump occupies one word, and an immediate read at byte b (spec 4.4)
-        reaches word b/2.
-        """
-        top = -1
-        refs = 0
-        for u in units:
-            for name in u.form.operand_names:
-                if u.form.kinds.get(name) != "ref":
-                    continue
-                arg = u.args[u.form.operand_names.index(name)]
-                if arg is None:
-                    continue
-                refs += 1
-                top = max(top, arg.at_byte if arg.at_byte is not None else refs - 1)
-        # an immediate may be read past the references: cover its byte range
-        for u in units:
-            if u.immediate() is None:
-                continue
-            at = self._carrier_offset(u) or 0
-            w = self._width(0, u.immediate(), u.variant,
-                            given_offset=at is not None,
-                            stated=self._carrier_width(u)) or 16
-            top = max(top, (at * 8 + w - 1) // 16)
-        for u in units:
-            if u.jump_offset() is not None:
-                top = max(top, refs)
-        return top + 1 if top >= 0 else 0
-
-    def _explicit_slots(self, units):
-        """the slot each transfer must occupy, in transfer order.
-
-        A reference may name its slot (`[8000]@1`); two transfers can share a
-        value and still sit in different slots, so this is a list, not a map.
-        """
-        out = []
-        for u in units:
-            for name in u.form.operand_names:
-                if u.form.kinds.get(name) != "ref":
-                    continue
-                arg = u.args[u.form.operand_names.index(name)]
-                if arg is not None:
-                    out.append(arg.at_byte)
-        return out
-
-    def _emit(self, lineno, cls, letters, units, value, bits, free_bits=0):
-        explicit = self._explicit_slots(units)
-        """place every unit at the body positions its letter owns (spec 4.2).
-
-        The letters are the authority: an A/B/C/T word goes to the next free
-        position with its letter, and a MAC's two words go to an M and an N.
-        """
-        body = [0] * len(letters)
+    def _spots(self, letters, prefix, ordered):
+        """body position(s) of each unit (id -> [position]): a MAC has an M
+        position in the prefix and an N word in the slot array; every other
+        unit one position of its letter"""
         free = {}
-        for i, ch in enumerate(letters):
+        for i, ch in enumerate(letters[:prefix]):
             free.setdefault(ch, []).append(i)
         for lst in free.values():
-            lst.reverse()                  # pop() takes the first position
-        n_slots = free.pop("N", [])
-        for u in units:
-            words, read = codec.encode(u.form, u.variant, u.args, bits)
-            if read is not None and u.immediate() is None:
-                raise AsmError(lineno, "%s expects an immediate" % u.variant.mnemonic)
+            lst.reverse()                 # pop() takes the first position
+        n_free = [i for i in range(prefix, len(letters)) if letters[i] == "N"]
+        spots = {}
+        for u in ordered:
             if u.form.form == "mac":
-                spots = [free["M"].pop(), n_slots.pop()]
+                if not free.get("M") or not n_free:
+                    raise AsmError(0, "class has no M/N position left for %s" % u.variant.mnemonic)
+                spots[id(u)] = [free["M"].pop(), n_free.pop(0)]
             else:
                 letter = _letter(self.table, u.form)
                 if not free.get(letter):
-                    raise AsmError(lineno, "class %#05x has no %s position left"
-                                   % (cls, letter))
-                spots = [free[letter].pop()]
-            for spot, w in zip(spots, words):
-                body[spot] = w
-        # `.free 0x...`: restore bits the variant declares free (no defined
-        # meaning, so a round trip must keep them). Only bits that really are
-        # free in these units are accepted; anything else is an error.
-        if free_bits:
-            allowed = 0
-            for spot, w in self._free_spots(cls, letters, units):
-                allowed |= w
-            stray = free_bits & ~allowed
-            if stray:
-                raise AsmError(lineno, "0x%04x is not a free bit of this instruction "
-                                       "(free bits: 0x%04x)" % (stray, allowed))
-            for spot, mask in self._free_spots(cls, letters, units):
-                body[spot] |= free_bits & mask
-        # ---- the slot array (§4.3): discover every occupant, then write ----
-        body = self._place_slots(lineno, cls, letters, units, body, explicit, bits)
-        self._check_len(lineno, body)
-        return [isa.header_of(cls, len(body) + 1)] + body
-
-    def _free_spots(self, cls, letters, units):
-        """(body position, bit mask) for every field the variants leave free"""
-        spots = []
-        free = {}
-        for i, ch in enumerate(letters):
-            free.setdefault(ch, []).append(i)
-        for lst in free.values():
-            lst.reverse()
-        n_slots = list(free.get("N", []))
-        for u in units:
-            if u.form.form == "mac":
-                positions = [free["M"].pop(), n_slots.pop()]
-            else:
-                letter = _letter(self.table, u.form)
-                if not free.get(letter):
-                    continue
-                positions = [free[letter].pop()]
-            for fname, src in u.variant.fields.items():
-                if not (isinstance(src, dict) and src.get("free")):
-                    continue
-                spec = u.form.field_spec(fname)
-                width = spec["msb"] - spec["lsb"] + 1
-                mask = ((1 << width) - 1) << spec["lsb"]
-                idx = spec.get("_word", 0)
-                spots.append((positions[min(idx, len(positions) - 1)], mask))
+                    raise AsmError(0, "class has no %s position left for %s"
+                                   % (letter, u.variant.mnemonic))
+                spots[id(u)] = [free[letter].pop()]
         return spots
 
-    def _place_slots(self, lineno, cls, letters, units, body, explicit, bits):
-        """Give every word after the last T exactly one owner (§4.3).
+    def _build(self, lineno, cls, prefix, ordered, extra, free=(), fixed_slots=()):
+        """the body of one instruction in one class with `extra` slot words.
 
-        Discovery happens first: the N words take the first slots, then each
-        transfer claims the slot its Y field names, then a jump claims one.
-        Whatever nobody claims is the immediate stream. Only after the whole
-        map exists is the array written, so no two rules can disagree by order
-        of execution -- a conflict is an error.
+        Everything the line fixes is written first (unit words, the N words,
+        the transfers' and jumps' slot fields); then the immediates are laid
+        over the slot array in the hardware's order (spec 4.4). A bit that two
+        things claim with different values, or a word that a reference or a
+        jump already holds, is an error, never a silent choice.
         """
-        start = layout.slot_start(letters)
-        if start is None:
-            # The slot array is "every word after the last T" (§4.3), so a class
-            # with no T has no array: its N word was encoded with the MAC and is
-            # already in place. Only the I positions take the immediate stream,
-            # and a jump's offset takes the last of them (spec 5.4b).
-            spots = [i for i, ch in enumerate(letters) if ch == "I"]
-            imm = self._immediate_words(units, bits, len(spots))
-            for spot, w in zip(spots, imm):
-                body[spot] = w
-            offsets = [u.jump_offset() for u in units if u.jump_offset() is not None]
-            for j, off in enumerate(offsets):
-                if j < len(spots):
-                    body[spots[len(spots) - 1 - j]] = off & WORD
-            return body
+        letters = layout.letters_for(self.table, cls, prefix + extra)
+        if letters is None:
+            raise AsmError(lineno, "class %#05x cannot hold %d body words" % (cls, prefix + extra))
+        body = [0] * len(letters)
+        spots = self._spots(letters, prefix, ordered)
 
-        size = len(letters) - start
-        nn = layout.n_words(letters)
-        # the N words were encoded by codec.encode into the MAC's own positions
-        n_values = [body[i] for i, ch in enumerate(letters) if ch == "N"]
-        arr = slots_mod.SlotArray(start, nn, size)
-        try:
-            arr.take_n(n_values)
-            # references: the slot each transfer names (`Y >> 1`), or the next
-            # free one when the source does not say (§5.3)
-            ti = 0
-            for u in units:
-                for ref in u.slots():
-                    named = explicit[ti] if ti < len(explicit) else None
-                    if named is None:
-                        named = self._next_free(arr)
-                    arr.claim_reference(named, ref, u.variant.mnemonic)
-                    ti += 1
-            # jump offsets: one slot each, after the references
-            for u in units:
-                off = u.jump_offset()
-                if off is None:
-                    continue
-                arr.claim(self._next_free(arr), slots_mod.Occupant(slots_mod.Occupant.JUMP, off))
-        except slots_mod.SlotError as e:
-            raise AsmError(lineno, "class %#05x: %s" % (cls, e))
+        # ---- the units' own words --------------------------------------
+        for u in ordered:
+            words = codec.encode(u.form, u.variant, u.args)
+            for pos, w in zip(spots[id(u)], words):
+                body[pos] = w
+        # `.free`: the bits the variants leave free, restored from the source
+        free_at = {}
+        for pos, mask in self._free_spots(ordered, spots):
+            free_at[pos] = free_at.get(pos, 0) | mask
+        for n, mask in free:
+            if n is None:                        # a bare mask: every free word
+                stray = mask & ~sum(free_at.values())
+                if stray:
+                    raise AsmError(lineno, "0x%04x is not a free bit of this instruction" % stray)
+                for pos, allowed in free_at.items():
+                    body[pos] |= mask & allowed
+                continue
+            pos = n - 1
+            stray = mask & ~free_at.get(pos, 0)
+            if stray or pos < 0 or pos >= len(body):
+                raise AsmError(lineno, "0x%04x is not a free bit of word %d of this instruction"
+                               % (stray or mask, n))
+            body[pos] |= mask
 
-        # write, from the finished map
-        imm_words = self._immediate_words(units, bits, len(arr.free_slots()))
-        k = 0
-        for i in range(size):
-            if arr.slots[i] is None:
-                body[start + i] = imm_words[k] if k < len(imm_words) else 0
-                k += 1
-            else:
-                body[start + i] = arr.slots[i].value & WORD
-        # point each transfer's Y field at the slot it owns
-        positions = [i for i, ch in enumerate(letters) if ch == "T"]
-        ti = 0
-        for u in units:
-            for fname, src in u.variant.fields.items():
-                if not (isinstance(src, dict) and src.get("slot")):
+        # ---- the slot array (§4.3) -------------------------------------
+        positions = layout.array_positions(letters, prefix)
+        size = len(positions)
+        n_words = layout.n_words(letters, prefix)
+        if any(letters[p] != "N" for p in positions[:n_words]):
+            raise AsmError(lineno, "class %#05x: the N words are not first in the slot array" % cls)
+        arr = slots_mod.SlotArray(positions[0] if positions else len(body), n_words, size)
+        arr.take_n([body[p] for p in positions[:n_words]])
+        for k, value in fixed_slots:      # `.slot`: words stated outright
+            arr.claim(k, slots_mod.Occupant(slots_mod.Occupant.FIXED, value))
+
+        reads = self._reads(ordered, spots, body)
+        cover = set()                     # slots an explicit immediate reads
+        for r in reads:
+            if r.at is not None:
+                for bit in range(r.at * 8, r.at * 8 + r.bits):
+                    cover.add(bit // 16)
+
+        # references: the slot each transfer names, or the next free one
+        for u in ordered:
+            for value, slot in u.slot_refs():
+                k = slot if slot is not None else self._next_free(arr, cover)
+                arr.claim_reference(k, value, u.variant.mnemonic)
+                self._write_slot(body, u, spots, k, "slot")
+        # jumps: one slot word each, after the references (spec 5.4b)
+        for u in ordered:
+            off = u.jump_offset()
+            if off is None:
+                continue
+            slot = u.jump_slot()
+            k = slot if slot is not None else self._next_free(arr, cover)
+            arr.claim(k, slots_mod.Occupant(slots_mod.Occupant.JUMP, off & WORD))
+            self._write_slot(body, u, spots, k, "offset_slot")
+
+        # ---- the immediate bits (spec 4.4) -----------------------------
+        bitmap = {}
+        refs = {i for i, occ in enumerate(arr.slots)
+                if occ is not None and occ.kind == slots_mod.Occupant.REF}
+        cursor = 0
+        for r in reads:
+            if r.search:
+                # no byte was named: the first byte whose bits agree with what
+                # is already there (a word the slot array fixes counts too)
+                r.at = self._first_fit(lineno, r, arr, bitmap, size)
+                body[r.pos] = isa.put_bits(body[r.pos], r.spec, r.at)
+            pos, cursor = layout.stream_bits(r.bits, cursor, refs,
+                                             None if r.at is None else r.at * 8)
+            for j, bit in zip(pos, r.bitstring):
+                if j // 16 >= size:
+                    raise slots_mod.SlotError("an immediate runs past the slot array (%d words)"
+                                              % size)
+                occ = arr.slots[j // 16]
+                want = bit == "1"
+                if occ is not None:
+                    have = (occ.value >> (15 - j % 16)) & 1
+                    if bool(have) != want:
+                        raise AsmError(lineno, "%s: its immediate bit %d disagrees with slot %d (%s)"
+                                       % (r.mnemonic, j, j // 16, occ.kind))
                     continue
-                spec = u.form.field_spec(fname)
-                shift = spec.get("slot_shift", 1)
-                named = explicit[ti] if ti < len(explicit) else None
-                if named is None:
-                    named = self._next_free_reference(arr, u.slots()[0])
-                body[positions[ti]] = isa.put_bits(body[positions[ti]], spec,
-                                                  named << shift)
-                ti += 1
+                if bitmap.get(j, want) != want:
+                    raise AsmError(lineno, "%s: two immediates disagree at bit %d of the stream"
+                                   % (r.mnemonic, j))
+                bitmap[j] = want
+
+        # ---- write the array ---------------------------------------------
+        for k, pos in enumerate(positions):
+            occ = arr.slots[k]
+            if occ is not None:
+                body[pos] = occ.value & WORD
+                continue
+            word = 0
+            for j in range(16):
+                if bitmap.get(k * 16 + j):
+                    word |= 1 << (15 - j)
+            body[pos] = word
+        self._check_len(lineno, body)
         return body
 
+    def _reads(self, ordered, spots, body):
+        """every immediate of the line, in the order the hardware reads them"""
+        reads = []
+        for u in sorted(ordered, key=lambda u: spots[id(u)][0]):
+            for name, arg in u.imm_args():
+                bits = _imm_bitstring(self.table, arg.value, arg.bits,
+                                      hidden=u.form.form == "hidden_reg")
+                at, field = self._read_byte(u, name, arg, spots, body)
+                search = at is None and field is not None
+                pos = spec = None
+                if field is not None:
+                    pos = spots[id(u)][field[0]]
+                    spec = u.form.field_spec(field[1])
+                reads.append(_Read(u.variant.mnemonic, at, bits, search, pos, spec))
+        return reads
+
+    def _read_byte(self, u, name, arg, spots, body):
+        """-> (byte, field): the byte an immediate is read at, and the field that
+        holds that byte.
+
+        byte None with a field: no byte was named, the layout pass chooses one.
+        byte None without a field: read in order after the previous immediate
+        (a MAC coefficient after Y's, spec 4.4); hidden-register loads too.
+        """
+        form = u.form
+        if form.form == "hidden_reg":
+            # spec 9.0: Y names the byte of the stream the value is read at, as
+            # for an ALU op (`1d06 4022 7fe0 c1fc 5100 0000`: Y = 2 reads 5100)
+            return (arg.at_byte if arg.at_byte is not None else 0), None
+        if form.form == "mac":
+            words = [body[spots[id(u)][0]], body[spots[id(u)][1]]]
+            if name == "C":
+                y_is_imm = any(n == "Y" for n, _ in u.imm_args())
+                if y_is_imm and arg.at_byte is None:
+                    return None, None
+                byte = arg.at_byte if arg.at_byte is not None else codec._bits_of(form, words, "C")
+                return byte, None
+            word = 1 if name == "W" else 0
+            field = (word, name)
+            if arg.at_byte is not None:
+                return arg.at_byte, field
+            return None, field
+        field = (0, "Y")
+        if arg.at_byte is not None:
+            return arg.at_byte, field
+        return None, field
+
     @staticmethod
-    def _next_free(arr):
-        """the first slot nobody owns (N words and references already taken)"""
+    def _first_fit(lineno, r, arr, bitmap, size):
+        """the first byte at which an immediate's bits agree with the stream"""
+        for at in range(16):
+            ok = True
+            for j, bit in zip(range(at * 8, at * 8 + r.bits), r.bitstring):
+                if j // 16 >= size:
+                    ok = False
+                    break
+                want = bit == "1"
+                occ = arr.slots[j // 16]
+                if occ is not None:
+                    if bool((occ.value >> (15 - j % 16)) & 1) != want:
+                        ok = False
+                        break
+                elif bitmap.get(j, want) != want:
+                    ok = False
+                    break
+            if ok:
+                return at
+        raise AsmError(lineno, "%s: no byte of the slot array holds its immediate" % r.mnemonic)
+
+    @staticmethod
+    def _next_free(arr, cover):
+        """the first slot nobody owns and no explicit immediate reads"""
         for i, occ in enumerate(arr.slots):
-            if occ is None:
+            if occ is None and i not in cover:
                 return i
         raise slots_mod.SlotError("the slot array is full (%d words)" % arr.size)
 
-    @staticmethod
-    def _next_free_reference(arr, value):
-        return arr.slots.index(next(o for o in arr.slots
-                                    if o is not None and o.kind == slots_mod.Occupant.REF
-                                    and o.value == value))
-
-    @staticmethod
-    def _carrier_width(u):
-        """the width the source states (`#v@b:32`), if any"""
-        for name in u.form.immediate_operands:
-            arg = u.args[u.form.operand_names.index(name)]
-            if arg is not None and arg.is_immediate:
-                return getattr(arg, "width", None)
-        return None
-
-    @staticmethod
-    def _carrier_offset(u):
-        """the byte offset the source names for this unit's immediate, if any"""
-        for name in u.form.immediate_operands:
-            arg = u.args[u.form.operand_names.index(name)]
-            if arg is not None and arg.is_immediate:
-                return arg.at_byte
-        return None
-
-    def _immediate_words(self, units, bits, count):
-        """the immediate stream as words (spec 4.4), `count` words long"""
-        carriers = [u for u in units if u.immediate() is not None]
-        if not carriers or not bits:
-            return [0] * count
-        stream = [0] * count
-        for u in carriers:
-            at = 0
-            for name in u.form.immediate_operands:
-                arg = u.args[u.form.operand_names.index(name)]
-                if arg is not None and arg.is_immediate and arg.at_byte is not None:
-                    at = arg.at_byte
-            ub = self._width(0, u.immediate(), u.variant,
-                             given_offset=self._carrier_offset(u) is not None)
-            stream = self._put_bits(stream, at, self._imm_bitstring(u.immediate(), ub))
-        return stream
-
-    def _write_slot_fields(self, units, refs, nn, body, letters, start=None, explicit=None):
-        """point each {"slot": true} field at its unit's reference (§4.3).
-
-        Each transfer word is a separate body position, in order, so the k-th
-        transfer takes the k-th slot.
-        """
-        positions = [i for i, ch in enumerate(letters) if ch == "T"]
-        # The slot array starts with the N words (§4.3). Slot k belongs to the
-        # k-th *distinct* reference: two transfers may share one (the corpus
-        # has `a2c2` reusing slot 1), so the index advances only for a new
-        # address. References are matched by value, which keeps a repeated
-        # reference pointing where it originally pointed.
-        order = []
-        for u in units:
-            for ref in u.slots():
-                if ref not in order:
-                    order.append(ref)
-        ti = 0
-        for u in units:
-            own = u.slots()                  # the references this unit asks for
-            if not own:
-                continue
-            for fname, src in u.variant.fields.items():
-                if not (isinstance(src, dict) and src.get("slot")):
-                    continue
-                tg = ti
-                slot = nn + (explicit[tg] if tg < len(explicit or []) and explicit[tg] is not None
-                             else order.index(own[0]))
+    def _write_slot(self, body, u, spots, k, field_kind):
+        """write slot index k into the field of unit u that names it (`Y >> 1`)"""
+        pos = spots[id(u)][0]
+        for fname, src in u.variant.fields.items():
+            if isinstance(src, dict) and src.get(field_kind):
                 spec = u.form.field_spec(fname)
                 shift = spec.get("slot_shift", 1)
-                pos = positions[ti]
-                try:
-                    body[pos] = isa.put_bits(body[pos], spec, slot << shift)
-                except ValueError:
-                    raise AsmError(0, "slot %d does not fit the Y field of %s "
-                                       "(spec 5.3: slot index = Y >> 1, so at most %d)"
-                                   % (slot, u.variant.mnemonic,
-                                      (1 << (spec["msb"] - spec["lsb"] + 1 - shift)) - 1))
-                ti += 1
+                body[pos] = isa.put_bits(body[pos], spec, k << shift)
+                return
 
-    @staticmethod
-    def _imm_word_count(bits):
-        """I words an immediate needs: 16 bits = 1, 24 = 2, 32 = 2 (spec 4.4)"""
-        return 0 if not bits else (1 if bits == 16 else 2)
-
-    @staticmethod
-    def _put_bits(stream, at_byte, bitstring):
-        """OR a value's bits into the stream starting at a byte position (§4.4).
-        The stream is a list of 16-bit words, laid out most significant first."""
-        total = "".join(format(w, "016b") for w in stream)
-        start = at_byte * 8
-        buf = list(total)
-        for i, ch in enumerate(bitstring):
-            pos = start + i
-            if pos >= len(buf):
-                buf.extend("0" * (pos + 1 - len(buf)))
-            if ch == "1":
-                buf[pos] = "1"
+    def _free_spots(self, ordered, spots):
+        """(body position, bit mask) of every bit the variants leave free"""
         out = []
-        for i in range(len(stream)):
-            chunk = "".join(buf[i * 16:(i + 1) * 16]).ljust(16, "0")
-            out.append(int(chunk, 2))
+        for u in ordered:
+            imm = dict(u.imm_args())
+            y_is_imm = "Y" in imm
+            for fname, src in u.variant.fields.items():
+                if not (isinstance(src, dict) and src.get("free")):
+                    continue
+                if fname == "C" and u.variant.coef_bits:
+                    # free only when read in order after Y's immediate; a
+                    # coefficient read at a byte keeps that byte in C
+                    if not y_is_imm or imm["C"].at_byte is not None:
+                        continue
+                spec = u.form.field_spec(fname)
+                width = spec["msb"] - spec["lsb"] + 1
+                mask = ((1 << width) - 1) << spec["lsb"]
+                idx = min(spec.get("_word", 0), len(spots[id(u)]) - 1)
+                out.append((spots[id(u)][idx], mask))
         return out
-
-    def _imm_bitstring(self, value, bits):
-        """an immediate as a `bits`-long bit string, most significant first
-        (spec 4.4: the value is the top bits of the RAW word)"""
-        if isinstance(value, _RawImm):
-            hexs = (value.bits + "0" * 8)[:bits // 4]
-            return "".join(format(int(c, 16), "04b") for c in hexs)
-        raw = self.table.raw_encode(value) & 0xFFFFFFFF
-        return format(raw, "032b")[:bits]
-
-    def _imm_words(self, value, bits):
-        """the I words of an immediate (spec 4.4): the *top* `bits` bits of the
-        RAW word, most significant first, padded with zeros"""
-        if isinstance(value, _RawImm):
-            # the bits were given literally: pad on the right to the width
-            hexs = (value.bits + "0" * 8)[:bits // 4]
-            n = bits // 16
-            return [int(hexs[4 * i:4 * i + 4], 16) for i in range(n)]
-        raw = self.table.raw_encode(value) & 0xFFFFFFFF
-        if bits == 16:
-            return [(raw >> 16) & WORD]
-        if bits == 24:
-            return [(raw >> 16) & WORD, (raw >> 8) & WORD]
-        return [(raw >> 16) & WORD, raw & WORD]
 
     def _check_len(self, lineno, body):
         if len(body) + 1 > MAX_LEN:
             raise AsmError(lineno, "instruction is %d words; the header allows %d"
                            % (len(body) + 1, MAX_LEN))
+
+
+class _Read:
+    """one immediate read of the line: where it comes from and which bits it is
+
+    at      the byte it is read at, when the source (or the disassembler) names it
+    search  True when the source names no byte and the layout pass may choose
+            one: the byte is then written into the operand's Y/W field at `pos`
+    """
+
+    def __init__(self, mnemonic, at, bitstring, search=False, pos=None, spec=None):
+        self.mnemonic = mnemonic
+        self.at = at
+        self.bitstring = bitstring
+        self.bits = len(bitstring)
+        self.search = search
+        self.pos, self.spec = pos, spec      # body word and field spec of that byte
+
+
+def _imm_bitstring(table, value, bits, hidden=False):
+    """an immediate as a `bits`-long bit string, most significant first.
+
+    A RAW immediate (spec 4.4) is the top bits of its RAW word. A hidden-register
+    value (spec 9.0) is the integer word itself, value * 16384."""
+    if isinstance(value, _RawImm):
+        hexs = (value.bits + "0" * 8)[:bits // 4]
+        return "".join(format(int(c, 16), "04b") for c in hexs)
+    if hidden:
+        return format(_hidden_int(value), "0%db" % bits)
+    raw = table.raw_encode(value) & 0xFFFFFFFF
+    return format(raw, "032b")[:bits]
+
+
+def _hidden_int(value):
+    """a hidden-register value as its integer word, or None when it has no such
+    word (spec 9.0: values are integers = value * 16384)"""
+    n = value * 16384
+    if n != int(n) or n < 0:
+        return None
+    return int(n)
 
 
 def _letter(table, form):

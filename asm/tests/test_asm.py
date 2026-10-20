@@ -9,7 +9,7 @@ Two kinds of proof, kept apart on purpose:
   It catches layout and operand bugs, but a bug shared by both directions
   would hide — which is why the first kind exists.
 
-    python3 -m unittest tests/test_asm.py
+    python3 tests/test_asm.py
 """
 
 import os
@@ -316,19 +316,14 @@ class Sizing(unittest.TestCase):
                                  "%r: header says %d words, emitted %d"
                                  % (src, header_len, len(r.words)))
 
-    def test_classifier_length_is_what_the_emitter_uses(self):
-        """classify() and _emit() must agree on the length, word for word"""
-        for src in ("mul r5, r5, #256@0:16 | ld r6, [0219]@1   ; @0x00c0",
-                    "ld r0, [0400] | st r1, [0401]",
-                    "addxy r3, r0, r1"):
+    def test_length_is_the_one_the_line_needs(self):
+        """the slot array is as small as the line allows (spec 4.3): no slot
+        word for a line without a reference or an immediate that reads one"""
+        for src, body_words in (("addxy r3, r0, r1", 1),
+                                ("mul r5, r5, #256@0:16", 2),
+                                ("ld r0, [0400] | st r1, [0401]", 4)):
             with self.subTest(source=src):
-                units = [ASM._unit(1, u) for u in asm.split_units(src.split(";")[0])]
-                carriers = [u for u in units if u.immediate() is not None]
-                imm_words = 1 if carriers else 0
-                choices = ASM.classify(units, imm_words)
-                self.assertTrue(choices, "no class for %r" % src)
-                cls, letters = choices[0]
                 r = ASM.assemble(src)
-                self.assertEqual(len(r.words), len(letters) + 1,
-                                 "%r: classified %d body words, emitted %d"
-                                 % (src, len(letters), len(r.words) - 1))
+                self.assertTrue(r.ok, r.errors)
+                self.assertEqual(len(r.words) - 1, body_words,
+                                 "%r: %d body words" % (src, len(r.words) - 1))

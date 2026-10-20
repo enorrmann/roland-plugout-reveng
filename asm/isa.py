@@ -56,15 +56,6 @@ def put_bits(word, spec, value):
     return (word & ~mask & 0xFFFF) | (value << lsb)
 
 
-def field_value(word, spec):
-    """a field is either a literal, a range test or a set membership test"""
-    if isinstance(spec, int):
-        return None
-    if isinstance(spec, dict):
-        return spec
-    return None
-
-
 # ---------------------------------------------------------------------------
 # table objects
 # ---------------------------------------------------------------------------
@@ -77,7 +68,7 @@ class ClassDef:
         self.layout = entry["layout"]
         self.status = entry.get("status", "unknown")
         # the instruction sizes measured for this class (header excluded); used
-        # to tell apart classes that share the same core layout
+        # to tell apart classes whose layouts give the same unit prefix
         self.body_lengths = entry.get("body_lengths")
 
     def allows(self, body_len):
@@ -107,6 +98,10 @@ class Variant:
         self.kinds = dict(entry.get("kinds", {}))
         # the immediate width this variant takes (spec 4.4); None = narrowest
         self.immediate_bits = entry.get("immediate_bits")
+        # a MAC coefficient immediate (op2 mode 1/2/3 = imm16/24/32, spec 5.2):
+        # the width is fixed by the variant, the coefficient is read after Y's
+        # immediate (or at the byte its C field names, when Y is a register)
+        self.coef_bits = entry.get("coef_bits")
         # True when bits 5-4 are a function selector here, not an operand mode
         self.mode_is_selector = entry.get("mode_is_selector", False)
         # where the claim comes from: a spec section, a measurement, both
@@ -182,11 +177,13 @@ class Table:
         self.classes = {int(k, 16): ClassDef(int(k, 16), v)
                         for k, v in data["classes"].items() if not k.startswith("$")}
         self.forms = [Form(self, e) for e in data["instructions"]]
-        self.mnemonics = {}
+        self.mnemonics = {}             # the first variant of each mnemonic
+        self.variants_by_mnemonic = {}  # all of them, in table order
         self.forms_by_mnemonic = {}
         for f in self.forms:
             for v in f.variants:
                 self.mnemonics.setdefault(v.mnemonic, v)
+                self.variants_by_mnemonic.setdefault(v.mnemonic, []).append(v)
                 self.forms_by_mnemonic.setdefault(v.mnemonic, f)
         self.units = {k: v for k, v in data.get("units", {}).items() if not k.startswith("$")}
         # the canonical order of positions (spec 4.2); kept apart from `units`
@@ -305,8 +302,3 @@ class Table:
     def immediate_width(self, mode):
         return self.immediate_rules["modes"].get(str(mode), 0)
 
-    def immediate_mode(self, bits):
-        for mode, width in self.immediate_rules["modes"].items():
-            if width == bits:
-                return int(mode)
-        raise ValueError("no immediate mode for %r bits" % (bits,))

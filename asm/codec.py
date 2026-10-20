@@ -4,11 +4,13 @@ Nothing here knows a mnemonic. A unit is decoded by testing each variant's
 `when` conditions; a word is only decoded when the chosen variant explains
 *every* field of the layout, otherwise the caller keeps it verbatim.
 
-    codec.decode(table, form, word, slot=...)  -> (Variant, fields) | None
-    codec.encode(table, form, variant, args, imm_bits) -> (words, ImmRead)
+    codec.decode(form, words)                -> (Variant, fields) | None
+    codec.encode(form, variant, args)        -> words
 
-Operands travel as `Arg` (parsed source) or plain ints; immediate operands
-carry the instruction's single immediate value (§4.4).
+Operands travel as `Arg` (parsed source). An immediate operand carries its own
+width (`bits`) and byte (`at_byte`); an instruction may have several (a MAC
+reads up to three, spec 4.4). Placing the bits in the slot array is the
+assembler's job (asm.py), not this module's.
 """
 
 import isa
@@ -32,15 +34,18 @@ class Arg:
     text    source text, used when the value cannot be written back
     """
 
-    __slots__ = ("kind", "value", "text", "at_byte", "width")
+    __slots__ = ("kind", "value", "text", "at_byte", "width", "bits")
 
     def __init__(self, kind, value, text=None, at_byte=None):
         self.kind, self.value, self.text = kind, value, text if text is not None else str(value)
         # spec 4.4: the byte of the slot array an immediate is read at. None
-        # means "wherever the operand's own Y field points".
+        # means "in order" for a sequential read, or the operand's own Y field
+        # for an ALU op (where the field is the byte).
         self.at_byte = at_byte
         # the immediate width the source states (`#v@b:32`), if any
         self.width = None
+        # the width the assembler settled on (16, 24 or 32); set before encode
+        self.bits = None
 
     def __repr__(self):
         return "Arg(%s, %r)" % (self.kind, self.value)
@@ -53,21 +58,6 @@ class Arg:
         if isinstance(self.value, int):
             return self.value
         raise CodecError("%r is not a number" % self.text)
-
-
-class ImmRead:
-    """how an instruction reads its immediate (§4.4)
-
-    slot  True  read at byte `at_byte` of the slot array
-          False read in order (hidden-register loads)
-    """
-    __slots__ = ("slot", "at_byte", "bits")
-
-    def __init__(self, slot, at_byte=0, bits=16):
-        self.slot, self.at_byte, self.bits = slot, at_byte, bits
-
-    def __repr__(self):
-        return "ImmRead(slot=%s, byte=%d, %d bits)" % (self.slot, self.at_byte, self.bits)
 
 
 # ---------------------------------------------------------------------------
@@ -221,18 +211,24 @@ def _why(v, form, words):
 # encoding
 # ---------------------------------------------------------------------------
 
-def encode(form, variant, args, imm_bits=None):
-    """-> (words, ImmRead or None)
+def is_imm(arg):
+    return arg is not None and arg.is_immediate
 
-    `args` are the form's positional operands (Arg objects). Fields whose
-    source is a slot reference or a jump target are left for the layout pass.
+
+def encode(form, variant, args):
+    """-> the words of one unit (two for a MAC)
+
+    `args` are the form's positional operands (Arg objects). An immediate
+    operand must have `bits` set (its width) and may have `at_byte` (the byte it
+    is read at; None = read in order). This pass writes the mode nibbles and
+    the byte fields only; the bits themselves are placed by the layout pass.
+    Fields whose source is a slot reference or a jump target are left for it.
     """
     named = dict(zip(form.operand_names, args))
     if form.form == "raw":
-        return [a.number() & WORD for a in args], None
+        return [a.number() & WORD for a in args]
 
     words = [0] * (2 if form.form == "mac" else 1)
-    read = None
     for fname, src in variant.fields.items():
         if isinstance(src, int):
             words = _write(form, words, fname, src)
@@ -243,22 +239,27 @@ def encode(form, variant, args, imm_bits=None):
                 # the mode nibble of a register-or-immediate operand (§5.2):
                 # 0 for a register, else the immediate width's mode
                 arg = named.get(src["operand_mode"])
-                value = 0
-                if arg is not None and arg.is_immediate:
-                    value = _mode_of(form, imm_bits or 16)
-                    read = ImmRead(slot=form.form == "alu", bits=imm_bits or 16)
+                value = _mode_of(form, arg.bits) if is_imm(arg) else 0
                 words = _write(form, words, fname, value)
                 continue
             if src.get("free"):
-                # a bit the encoding leaves unused: write what the caller gave,
-                # which is nothing, so it stays zero (the assembler restores the
-                # original value when re-assembling a disassembled line)
+                # a bit the encoding leaves unused: nothing is written, so it
+                # stays zero (the assembler restores the original value from a
+                # `.free` directive when re-assembling a disassembled line)
                 continue
             if "from" in src:
                 arg = named.get(src["from"])
                 if arg is None:
                     raise CodecError("%s: field %r needs operand %r"
                                      % (variant.mnemonic, fname, src["from"]))
+                spec = form.field_spec(fname)
+                if spec.get("borrowed_by_nibble") is not None and src.get("bits") == [1, 0]:
+                    # unit B: X[2] is written to the nibble (spec 5.1), so this
+                    # field is only X[1:0]; bit 8 belongs to the nibble
+                    idx = spec.get("_word", 0)
+                    value = _extract(arg, src) & 3
+                    words[idx] = (words[idx] & ~(3 << spec["lsb"])) | (value << spec["lsb"])
+                    continue
                 words = _write(form, words, fname, _extract(arg, src))
             elif "one_of" in src:
                 val = named.get(src.get("from", "mode"))
@@ -266,11 +267,9 @@ def encode(form, variant, args, imm_bits=None):
                                (val.number() if isinstance(val, Arg) else 0) & src.get("mask", WORD))
             elif "from_mode_of" in src:
                 arg = named[src["from_mode_of"]]
-                bits = imm_bits or 16
-                if arg.is_immediate:
+                if is_imm(arg):
                     if "mode" in form.fields:
-                        words = _write(form, words, "mode", _mode_of(form, bits))
-                    read = ImmRead(slot=form.form == "alu", bits=bits)
+                        words = _write(form, words, "mode", _mode_of(form, arg.bits))
                 elif "mode" in form.fields:
                     words = _write(form, words, "mode", 0)
             else:
@@ -287,19 +286,21 @@ def encode(form, variant, args, imm_bits=None):
             if arg is None:
                 raise CodecError("%s: field %r needs operand %r"
                                  % (variant.mnemonic, fname, src))
-            if arg.is_immediate:
-                bits = imm_bits or 16
+            if is_imm(arg):
+                # the operand sits in this field: the field is its byte
                 if "mode" in form.fields:
-                    words = _write(form, words, "mode", _mode_of(form, bits))
-                if arg.at_byte is not None and "Y" in form.fields:
-                    words = _write(form, words, "Y", arg.at_byte)
-                read = ImmRead(slot=form.form == "alu", bits=bits,
-                               at_byte=arg.at_byte if arg.at_byte is not None else 0)
+                    words = _write(form, words, "mode", _mode_of(form, arg.bits))
+                if arg.at_byte is not None:
+                    words = _write(form, words, fname, arg.at_byte)
                 continue
             words = _write(form, words, fname, _value(form, fname, arg))
-    if read is not None and form.form == "alu":
-        read.at_byte = form.get(words[0], "Y")
-    return words, read
+
+    # a MAC coefficient read at a byte keeps that byte in its C field (spec 4.4);
+    # read in order (after Y's immediate) the field stays free
+    coef = named.get("C")
+    if variant.coef_bits and is_imm(coef) and coef.at_byte is not None:
+        words = _write(form, words, "C", coef.at_byte)
+    return words
 
 
 def _write(form, words, fname, value):
@@ -353,6 +354,8 @@ def _extract(arg, spec):
 
 
 def _mode_of(form, bits):
+    if bits is None:
+        raise CodecError("%s: immediate has no width" % form.name)
     for mode, width in form.table.immediate_rules["modes"].items():
         if width == bits:
             return int(mode)

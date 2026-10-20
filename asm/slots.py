@@ -5,10 +5,10 @@
     memory transfer (mode fe) points to are references; the ones nobody points
     to are the immediate bit stream, in order.
 
-Both directions use this module, and neither writes into the array directly:
-the disassembler asks it to *classify* the words, the assembler asks it to
-*allocate* them. Discovery and writing are separate steps, so every position
-has exactly one owner and a conflict is reported, never resolved by order.
+Both directions use this module. Each word of the array gets at most one owner
+(N word, reference, jump offset, `.slot` word); a second claim with a different
+value is a conflict, reported, never resolved by order. Immediate bits are not
+owners: they are laid over the array and must agree with the owner they fall on.
 
 Two facts from §4.3 that a count of R words cannot express:
 
@@ -25,13 +25,14 @@ class SlotError(Exception):
 
 
 class Occupant:
-    """what a slot word holds: a reference, an immediate, an N word or a jump
-    offset"""
+    """what a slot word holds: a reference, an immediate, an N word, a jump
+    offset, or a word stated outright with `.slot` (spec 4.4: unread stream words)"""
 
     N = "N"
     REF = "R"
     IMM = "I"
     JUMP = "J"
+    FIXED = "F"            # a word the source states outright (`.slot`), read by nothing
 
     def __init__(self, kind, value=None, by=()):
         self.kind, self.value, self.by = kind, value, tuple(by)
@@ -75,41 +76,7 @@ class SlotArray:
     def claim_reference(self, index, value, by):
         self.claim(index, Occupant(Occupant.REF, value, (by,)))
 
-    def free_slots(self):
-        return [i for i, o in enumerate(self.slots) if o is None]
-
-    def is_immediate(self, index):
-        """a slot nobody points at is part of the immediate stream (§4.3)"""
-        return self.slots[index] is None
-
-    # -- the assembled array ----------------------------------------------
-    def words(self, immediate_of):
-        """the slot words, in order.
-
-        `immediate_of(i)` returns the word for a slot that no one points at.
-        The caller supplies that because the immediate stream belongs to the
-        instruction's encoding (spec 4.4), not to the array.
-        """
-        out = []
-        for i, occ in enumerate(self.slots):
-            if occ is None:
-                out.append(immediate_of(i) & 0xFFFF)
-            else:
-                out.append(occ.value & 0xFFFF)
-        return out
-
-    def __repr__(self):
-        return "SlotArray(base=%d, n=%d, size=%d, %r)" % (
-            self.base, self.n_words, self.size, self.slots)
-
-
 # ---------------------------------------------------------------------------
 # reference indices named by the source
 # ---------------------------------------------------------------------------
 
-def read_index(text):
-    """`[8000]@3` -> 3; the disassembler writes the slot a reference occupies"""
-    if "@" not in text:
-        return None
-    tail = text.rsplit("@", 1)[1].strip()
-    return int(tail) if tail.isdigit() else None

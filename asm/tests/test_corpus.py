@@ -8,7 +8,7 @@ words in execution order, so a program is a word list with no framing. This
 test does not fail on `raw` output: an undecoded encoding is a finding, not
 an error, and the number that matters (the share that decodes) is printed.
 
-    python3 -m unittest tests/test_corpus.py
+    python3 tests/test_corpus.py
 """
 
 import glob
@@ -75,6 +75,29 @@ class Corpus(unittest.TestCase):
         for path, words in programs("corpus*"):
             with self.subTest(file=os.path.basename(path)):
                 disasm.program(words, TABLE, path)
+
+    def test_round_trip_is_exact(self):
+        """listing -> assembler -> the same words, for every program (review
+        2026-10-20: 132 files; before the review 0 of 128 corpus files)"""
+        import asm
+        assembler = asm.Assembler(TABLE, allow_inferred=True)
+        files = programs("corpus_all") + programs("corpus_s1")
+        if not files:
+            self.skipTest("no corpus")
+        for path, words in files:
+            with self.subTest(file=os.path.basename(path)):
+                text, _ = disasm.program(words, TABLE, path)
+                r = assembler.assemble(text)
+                self.assertEqual(r.errors, [])
+                self.assertEqual(r.words, words)
+
+    def test_every_decoded_line_reassembles(self):
+        """the listing never claims a line it cannot take back (disasm.program's
+        own check): no line falls back to raw for that reason"""
+        for path, words in programs("corpus_all") + programs("corpus_s1"):
+            with self.subTest(file=os.path.basename(path)):
+                _, rep = disasm.program(words, TABLE, path)
+                self.assertEqual(rep.get("reassembly", 0), 0)
 
     def test_decoding_share(self):
         t = disassemble_all("corpus")

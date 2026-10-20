@@ -63,8 +63,8 @@ def report(directory="corpus_all"):
         for key, instruction, reason in rep["verbatim"]:
             raw_reasons[reason.split(":")[0]] += 1
         for line in text.splitlines():
-            if not line or line.startswith(";"):
-                continue
+            if not line or line.startswith((";", ".")):
+                continue                  # comments and directives (.class, .free, .slot)
             body, _, tag = line.partition(";")
             status = tag.strip().split()[0].strip("()") if tag.strip() else "?"
             for fam in families(table, body):

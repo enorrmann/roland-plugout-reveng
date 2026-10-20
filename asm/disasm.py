@@ -13,12 +13,20 @@ Honesty rules:
 * `report` counts what happened and lists every instruction that stayed
   verbatim, with the reason.
 
-Layout (§4.3): the slot array is every body word after the last transfer.
-Its first M words are the N words of the MACs; the words a load/store points
-at are references; the rest is the immediate bit stream (§4.4).
+Layout (§4.3): the units fill a class's prefix (up to its last T); every word
+after that is the slot array. Its first M words are the N words of the MACs;
+the words a transfer points at are references; the rest is the immediate bit
+stream (§4.4). `layout.py` holds that rule, and the assembler uses the same
+one, so the two cannot disagree about which word is which.
+
+Each line is checked before it is printed: the listing re-assembles it, and a
+line that does not give back its own words is kept verbatim instead. That is
+the reason `report["reassembly"]` exists; on the corpus it is 0.
 """
 
+import asm as assembler
 import codec
+import isa
 import layout as layout_rules
 import slots as slots_mod
 
@@ -30,76 +38,85 @@ WORD = 0xFFFF
 # ---------------------------------------------------------------------------
 
 class ImmStream:
-    """the instruction's immediate words as one MSB-first bit string;
-    positions past the end read zeros, like the hardware
+    """the slot array as one MSB-first bit string, read by immediates
 
-    The words are the whole slot array (spec 4.4), so a byte offset indexes the
-    array directly. `refs` names the words a transfer owns: sequential reading
-    (a MAC's C right after Y's immediate) skips them, an explicit byte offset
-    does not -- that is `re/dspisa.py`'s rule, derived on the `540c` example.
+    The words are the whole slot array (spec 4.4), references included, so an
+    explicit byte offset indexes the array directly. `refs` are the slots a
+    transfer uses as references: a sequential read steps over them (see
+    layout.stream_bits). Positions past the end read zeros, like the hardware.
     """
 
     def __init__(self, words, refs=()):
         self.words = list(words)
         self.bits = "".join(format(w, "016b") for w in self.words) + "0" * 64
         self.refs = set(refs)
-        self.pos = 0               # where the last take() stopped (sequential reads)
+        self.cursor = 0            # where the last read stopped
+        self.covered = {}          # bit position -> bit, for every bit a read took
+        self.overflow = False      # a read ran past the last word (spec 4.4)
 
-    def take(self, start, n):
-        """`n` bits starting at bit `start`, or on from the last read if None
+    def take(self, at_bit, n):
+        """`n` bits as a 32-bit RAW-aligned value (the top bits of a word).
 
-        Only a *sequential* read steps over reference words (spec 4.4: "C right
-        after Y's immediate" of a MAC, measured on `540c …`). An explicit offset
-        is the address the program wrote, so it reads whatever is there.
+        `at_bit` is the explicit bit position (a byte Y is 8 * Y), or None for a
+        sequential read that continues from the last one.
         """
         if not n:
             return 0
-        if start is None:                       # sequential: step over references
-            pos = self.pos
-            out = ""
-            while len(out) < n:
-                if (pos // 16) in self.refs and pos % 16 == 0:
-                    pos = (pos // 16 + 1) * 16
-                    continue
-                k = min(n - len(out), 16 - pos % 16)
-                out += self.bits[pos:pos + k]
-                pos += k
-            self.pos = pos
-        else:                                   # explicit offset: read it literally
-            out = self.bits[start:start + n]
-            if len(out) < n:
-                out += "0" * (n - len(out))
-            self.pos = start + n
+        pos, self.cursor = layout_rules.stream_bits(n, self.cursor, self.refs, at_bit)
+        if any(p >= 16 * len(self.words) for p in pos):
+            self.overflow = True
+        out = "".join(self.bits[p] if p < len(self.bits) else "0" for p in pos)
+        self.covered.update(zip(pos, out))
         return (int(out, 2) << (32 - n)) & 0xFFFFFFFF
+
+    def unread_words(self, array, owned):
+        """the `.slot` directives for the stream: every slot word that the
+        reads do not give, and every word past the last one a read touches
+        (so the assembler makes the same array). `owned` are slot indices that
+        hold a reference, an N word or a jump."""
+        last = max((p // 16 for p in self.covered), default=-1)
+        out = []
+        for k, value in enumerate(array):
+            if k in owned:
+                continue
+            from_reads = 0
+            for j in range(16):
+                bit = self.covered.get(k * 16 + j)
+                if bit == "1":
+                    from_reads |= 1 << (15 - j)
+            if value != from_reads or k > last:
+                out.append((k, value))
+        return out
 
 
 def fmt_number(v):
+    """a number as source text: the shortest decimal that reads back as `v`"""
     if v == 0:
         return "0"
     if v == int(v) and abs(v) < 1e9:
         return "%d" % int(v)
-    return "%.7g" % v
-
-
-def canonical(table, w):
-    """is `w` what the hardware writes for its own value (§2)?"""
-    try:
-        return table.raw_encode(table.raw_decode(w)) == w
-    except ValueError:
-        return False
+    return repr(v)
 
 
 def imm_text(table, bits, w):
-    """source text of an immediate value; non-canonical bits are kept as raw"""
-    if canonical(table, w):
-        v = table.raw_decode(w)
-        if bits == 32 or v * 2 ** (32 - bits) == int(v * 2 ** (32 - bits)):
-            return fmt_number(v)
-    if bits == 16:
-        return "raw.%04x" % (w >> 16)
-    if bits == 24:
-        return "raw.%06x" % (w >> 8)
-    return "raw.%08x" % (w & 0xFFFFFFFF)
+    """source text of an immediate of `bits` bits, given as the top-aligned
+    32-bit stream value `w` (spec 4.4).
+
+    The text is the shortest decimal that encodes back to the same `bits` bits:
+    0.2 stands for the 24-bit field 233333 (the RAW word of 0.2 is 23333333).
+    Only when no decimal does is the field kept as raw bits (`raw.hhhh`).
+    """
+    target = w >> (32 - bits)
+    value = table.raw_decode(w)
+    for digits in range(1, 18):
+        x = float("%.*g" % (digits, value))
+        try:
+            encoded = table.raw_encode(x)
+        except ValueError:
+            continue
+        if encoded >> (32 - bits) == target:
+            return fmt_number(x)
+    return "raw.%0*x" % (bits // 4, target)
 
 
 # ---------------------------------------------------------------------------
@@ -122,13 +139,13 @@ def uses_slot(table, mode):
 # ---------------------------------------------------------------------------
 
 class Decoded:
-    def __init__(self, text, status, words, reason=None, need_class=False, free_bits=0):
+    def __init__(self, text, status, words, reason=None, free=()):
         self.text, self.status, self.words, self.reason = text, status, words, reason
-        # True when the units alone would fit more than one class, so the
-        # listing must say which one this instruction uses
-        self.need_class = need_class
-        # bits the encoding leaves free that the text cannot express
-        self.free_bits = free_bits
+        # bits the encoding leaves free that the text cannot express:
+        # [(body index, mask)]
+        self.free = list(free)
+        # `.slot` directives: slot words no operand reads (spec 4.4)
+        self.slots = []
 
 
 ORDER = ["exact", "measured", "inferred", "fitted", "raw"]
@@ -145,67 +162,58 @@ def disassemble_insn(table, ins):
     letters = layout_rules.letters_for(table, cls, len(body))
     if letters is None:
         return raw(ins, "class %#05x cannot hold %d body words" % (cls, len(body)))
+    prefix = layout_rules.prefix_length(table.classes[cls].layout)
+    units = letters[:prefix]
 
-    # ---- the slot array (§4.3): discovery first, then reading -------------
-    start = layout_rules.slot_start(letters)
-    if start is None:
-        # no T: the array is the N and I positions in order. A class with no
-        # slot position at all (CCC) keeps the offset words after its units.
-        n_words = [w for w, ch in zip(body, letters) if ch == "N"]
-        array = [w for w, ch in zip(body, letters) if ch in ("N", "I")]
-        if not array:
-            array = list(body[1:])
-        # where each array word lives in the body, so a reference can be read
-        # by its real index (§4.3: slot k is the k-th word of the array)
-        owner = [i for i, ch in enumerate(letters) if ch in ("N", "I")]
-        if not owner:
-            owner = list(range(1, 1 + len(array)))
-    else:
-        array = list(body[start:])
-        n_words = array[:min(letters.count("N"), len(array))]
-        owner = list(range(start, len(body)))
-
-    slot = slots_mod.SlotArray(start if start is not None else 0,
-                               len(n_words), len(array))
-    slot.take_n(n_words)
+    # ---- the slot array (§4.3): the same positions the assembler uses -----
+    positions = layout_rules.array_positions(letters, prefix)
+    array = [body[i] for i in positions]
+    n_words = layout_rules.n_words(letters, prefix)
+    if any(letters[i] != "N" for i in positions[:n_words]):
+        return raw(ins, "the N words are not first in the slot array")
+    slot = slots_mod.SlotArray(positions[0] if positions else 0, n_words, len(array))
+    slot.take_n(array[:n_words])
 
     # every transfer names the slot it addresses: `Y >> 1` (§5.3). Pointing at
     # a slot is what makes it a reference -- not its position in the array.
-    for i, ch in enumerate(letters):
-        if ch != "T":
-            continue
-        w = body[i]
-        if not uses_slot(table, (w >> 4) & 0xFF):
-            continue
-        k = (w & 0xF) >> 1
-        if k >= len(array):
-            return raw(ins, "transfer %04x addresses slot %d, the array has %d"
-                       % (w, k, len(array)))
-        slot.claim_reference(k, array[k], "T%04x" % w)
+    try:
+        for i, ch in enumerate(units):
+            if ch == "T":
+                w = body[i]
+                if not uses_slot(table, (w >> 4) & 0xFF):
+                    continue
+                k = (w & 0xF) >> 1
+                if k >= len(array):
+                    return raw(ins, "transfer %04x addresses slot %d, the array has %d"
+                               % (w, k, len(array)))
+                slot.claim_reference(k, array[k], "T%04x" % w)
+            elif ch == "C" and jump_slot_of(table, body[i]) is not None:
+                k = jump_slot_of(table, body[i])
+                if k >= len(array):
+                    return raw(ins, "jump %04x names slot %d, the array has %d"
+                               % (body[i], k, len(array)))
+                slot.claim(k, slots_mod.Occupant(slots_mod.Occupant.JUMP, array[k]))
+    except slots_mod.SlotError as e:
+        return raw(ins, str(e))
 
-    # The immediate stream is the *whole* slot array -- N words and references
-    # included (spec 4.4: an op addresses its immediate by byte Y into that
-    # array, so the indices must be the array's own). Only *sequential* reading
-    # (a MAC's C right after Y's immediate) skips reference words; `refs` says
-    # which ones. Derived and checked on `540c … 2333 33c4 c008` (spec 4.4):
-    # with the I words alone, Y at byte 2 reads 0 instead of `3000`.
-    stream = ImmStream(array, refs={i for i, occ in enumerate(slot.slots)
-                                    if occ is not None and occ.kind != slots_mod.Occupant.N})
-    imm_idx = [i for i in range(len(array)) if slot.is_immediate(i)]
-    slot_offset = {i: n for n, i in enumerate(imm_idx)}
+    # The immediate stream is the whole slot array, N and reference words
+    # included (spec 4.4). Only a sequential read steps over the references.
+    refs = {i for i, occ in enumerate(slot.slots)
+            if occ is not None and occ.kind == slots_mod.Occupant.REF}
+    stream = ImmStream(array, refs)
 
     parts, statuses = [], []
-    mac_i = 0
-    n_list = n_words
-    for i, ch in enumerate(letters):
+    n_pos = [j for j in range(prefix, len(letters)) if letters[j] == "N"]
+    for i, ch in enumerate(units):
         w = body[i]
         if ch == "A":
             text = alu_text(table, w, "A", stream)
         elif ch == "B":
             text = alu_text(table, w, "B", stream)
         elif ch == "M":
-            w2 = n_list[mac_i] if mac_i < len(n_list) else 0
-            mac_i += 1
+            # the N word of this MAC is the next N position, in order
+            k = sum(1 for j in range(i) if units[j] == "M")
+            w2 = body[n_pos[k]] if k < len(n_pos) else 0
             text = mac_text(table, w, w2, stream)
         elif ch == "T":
             text = transfer_text(table, w, array)
@@ -217,64 +225,92 @@ def disassemble_insn(table, ins):
             return raw(ins, "body word %d (%s) has no mnemonic" % (i + 1, ch))
         parts.append(text[0])
         statuses.append(text[1])
-    # does the text alone identify the class? Two classes sharing a core
-    # (0x040 / 0x098) leave the assembler a choice it must not make alone.
-    need = shares_core(table, cls)
-    return Decoded(" | ".join(parts), worst(statuses), list(ins), need_class=need,
-                   free_bits=free_bits_in(table, ins, letters))
+    if stream.overflow:
+        # the hardware would read the next instruction's words here (spec 4.4):
+        # the line does not say what those are, so it stays verbatim
+        return raw(ins, "an immediate reads past the last word of the instruction")
+    owned = {i for i, occ in enumerate(slot.slots) if occ is not None}
+    dec = Decoded(" | ".join(parts), worst(statuses), list(ins),
+                  free=free_bits_in(table, ins, letters, prefix))
+    dec.slots = stream.unread_words(array, owned)
+    return dec
 
 
-def free_bits_in(table, ins, letters):
+def jump_slot_of(table, w):
+    """the slot a jump word names (009Y, spec 5.4b), or None for any other word"""
+    for form in forms_for(table, "C"):
+        if form.form == "jump" and codec.decode(form, [w])[0] is not None:
+            return (w & 0xF) >> 1
+    return None
+
+
+def free_bits_in(table, ins, letters, prefix):
     """the bits of an instruction that the decoding variant declares free but
-    that are set in the original words.
+    that are set in the original words, as [(body index, mask)].
 
     They have no defined meaning (spec: "bits with no semantic value"), so the
     text cannot express them; the listing hands them to the assembler as
-    `.free`, which puts them back. Only bits of the variant that actually
-    decoded the word count -- a bit another variant leaves free is a real
-    operand here.
+    `.free @n mask`, which puts them back in word n. Only bits of the variant
+    that actually decoded the word count -- a bit another variant leaves free
+    is a real operand here. A MAC coefficient's C field is free only when the
+    coefficient is read in order (Y is an immediate); otherwise it holds the
+    byte it is read at (spec 4.4).
     """
     body = ins[1:]
-    out = 0
-    n_slots = [w for w, ch in zip(body, letters) if ch == "N"]
-    for i, ch in enumerate(letters):
+    out = []
+    n_pos = [i for i in range(prefix, len(letters)) if letters[i] == "N"]
+    m_count = 0
+    for i, ch in enumerate(letters[:prefix]):
         if i >= len(body) or ch not in "ABM":
             continue
         w = body[i]
         if ch == "M":
-            nxt = n_slots.pop(0) if n_slots else 0
+            nxt = body[n_pos[m_count]] if m_count < len(n_pos) else 0
+            m_count += 1
             form = forms_for(table, "M")[0]
-            v, _ = codec.decode(form, [w, nxt])
-            pairs = [(w, 0), (nxt, 1)]
+            v, fields = codec.decode(form, [w, nxt])
+            words = [(i, w), (n_pos[m_count - 1] if m_count <= len(n_pos) else i, nxt)]
         else:
-            form = None
             v = None
             for name in table.units.get(ch, []):
                 form = table.forms_by_name[name]
                 v, _ = codec.decode(form, [w])
                 if v is not None:
                     break
-            pairs = [(w, 0)]
-        if v is None or form is None:
+            words = [(i, w)]
+            fields = {}
+        if v is None:
             continue
+        y_is_imm = ch == "M" and table.immediate_width(fields.get("modeY", 0)) != 0
         for fname, src in v.fields.items():
             if not (isinstance(src, dict) and src.get("free")):
                 continue
+            if fname == "C" and v.coef_bits and not y_is_imm:
+                continue                  # the byte the coefficient is read at
             spec = form.field_spec(fname)
             width = spec["msb"] - spec["lsb"] + 1
             mask = ((1 << width) - 1) << spec["lsb"]
-            word = pairs[min(spec.get("_word", 0), len(pairs) - 1)][0]
-            out |= word & mask
-    return out & 0xFFFF
+            pos, value = words[min(spec.get("_word", 0), len(words) - 1)]
+            if value & mask:
+                out.append((pos, value & mask))
+    return out
 
 
-def shares_core(table, cls):
-    """True when another class of the table has the same core layout"""
-    mine = table.classes[cls].layout
-    for other, c in table.classes.items():
-        if other != cls and c.layout == mine:
-            return True
-    return False
+def assembles_to(table, text, ins, free=(), pin=None, slots=()):
+    """does this one line, assembled back, give exactly the words `ins`?
+
+    The listing's own check (the honesty rule): a line the assembler cannot
+    reproduce must not be printed as if it were decoded. `pin` names the class
+    with a `.class` directive, which is what resolves a class ambiguity.
+    """
+    lines = []
+    if pin is not None:
+        lines.append(".class %#06x" % pin)
+    lines.extend(".free @%d %#06x" % (pos + 1, mask) for pos, mask in free)
+    lines.extend(".slot @%d %04x" % (k, v) for k, v in slots)
+    lines.append(text)
+    r = assembler.Assembler(table, allow_inferred=True).assemble("\n".join(lines))
+    return r.ok and r.words == list(ins)
 
 
 def raw(ins, reason):
@@ -284,19 +320,6 @@ def raw(ins, reason):
 # ---------------------------------------------------------------------------
 # unit texts: (text, status) or None
 # ---------------------------------------------------------------------------
-
-def _y(text):
-    """the Y operand of an ALU word from its Y nibble and mode"""
-    return text
-
-
-def y_operand(table, word, value_text):
-    mode = (word >> 4) & 3
-    y = word & 0xF
-    if mode:
-        return "#" + value_text
-    return "-r%d" % (y & 7) if y & 8 else "r%d" % (y & 7)
-
 
 def alu_text(table, w, letter, stream):
     """the text of one ALU word, or None (spec 6.1 / 6.3 / 6.4).
@@ -357,25 +380,45 @@ def _reg_text(y):
 
 
 def mac_text(table, w1, w2, stream):
-    """the text of a MAC pair, or None (spec 5.2, 7)"""
+    """the text of a MAC pair, or None (spec 5.2, 4.4, 7).
+
+    The hardware reads the MAC's immediates in this order: Y at byte Y, then the
+    coefficient right after Y's immediate (or at byte C when Y is a register),
+    then W at byte W.
+    """
     form = forms_for(table, "M")[0]
     v, fields = codec.decode(form, [w1, w2])
     if v is None:
         return None
+    y_bits = table.immediate_width(fields.get("modeY", 0))
+    w_bits = table.immediate_width(fields.get("modeW", 0))
+    c_bits = v.coef_bits or 0
+    imm = {}
+    if y_bits:
+        imm["Y"] = "#%s@%d:%d" % (imm_text(table, y_bits, stream.take(fields["Y"] * 8, y_bits)),
+                                  fields["Y"], y_bits)
+    if c_bits:
+        if y_bits:
+            c = stream.take(None, c_bits)                   # right after Y's immediate
+            imm["C"] = "#" + imm_text(table, c_bits, c)
+        else:
+            byte = fields["C"]                              # at byte C (Y is a register)
+            imm["C"] = "#%s@%d" % (imm_text(table, c_bits, stream.take(byte * 8, c_bits)), byte)
+    if w_bits:
+        imm["W"] = "#%s@%d:%d" % (imm_text(table, w_bits, stream.take(fields["W"] * 8, w_bits)),
+                                  fields["W"], w_bits)
     args = []
     for name in (v.shows or form.operand_names):
+        if name in imm:
+            args.append(imm[name])
+            continue
         spec = form.fields.get(name, {})
-        mode_field = {"Y": "modeY", "W": "modeW"}.get(name)
-        bits = table.immediate_width(fields[mode_field]) if mode_field else 0
-        if bits:
-            args.append("#" + imm_text(table, bits, stream.take(0, bits)))
+        val = fields.get(name, 0)
+        negate = spec.get("negate_bit")
+        if negate is not None and val & (1 << negate):
+            args.append("-r%d" % (val & ((1 << negate) - 1)))
         else:
-            val = fields.get(name, 0)
-            negate = spec.get("negate_bit")
-            if negate is not None and val & (1 << negate):
-                args.append("-r%d" % (val & ((1 << negate) - 1)))
-            else:
-                args.append("r%d" % val)
+            args.append("r%d" % val)
     return "%s %s" % (v.mnemonic, ", ".join(args)), v.status
 
 
@@ -397,6 +440,9 @@ def transfer_text(table, w, array):
         # `@k` names the slot itself: two transfers may share a slot, and a
         # transfer may point past the references (§4.3)
         return "%s r%d, [%04x]@%d" % (v.mnemonic, r & 7, array[k], k), v.status
+    if v.kinds.get("R") == "group":
+        # a condition group (X9bY, spec 5.3): the field holds 8 + group
+        return "%s %d, %d" % (v.mnemonic, r - 8, w & 0xF), v.status
     return "%s r%d, %d" % (v.mnemonic, r & 7, w & 0xF), v.status
 
 
@@ -425,29 +471,36 @@ def cond_text(table, form, w, body=None, pos=None, letters=None, stream=None, ar
 def jump_text(table, form, w, body=None, pos=None, letters=None, stream=None, array=None, refs=None):
     """spec 5.4b: the offset is the signed 16-bit value in the slot word Y>>1"""
     slot = (w & 0xF) >> 1
-    order = sorted(refs or [])
     words = list(array) if array is not None else []
     if slot >= len(words):
         return None
     word = words[slot]
     off = word - 0x10000 if word & 0x8000 else word
-    return "jmp .%+d" % off, "measured"
+    return "jmp .%+d@%d" % (off, slot), "measured"
 
 
 def hidden_text(table, form, w, body=None, pos=None, letters=None, stream=None, array=None, refs=None):
-    """spec 9.0: 40TY loads h4..h7; the value is an immediate word index or a
-    register (bits 5-4 select which)"""
+    """spec 9.0: 40TY loads h4..h7. The value is an integer word of the stream
+    (value * 16384), read after skipping Y words; or a register (bits 5-4
+    select which)"""
     v, fields = codec.decode(form, [w])
     if v is None:
         return None
     mode = fields.get("mode", 0)
     if mode:
         bits = table.immediate_width(mode)
-        # hidden-register loads read the stream in order (isa.json: sequential_read)
-        value = "#" + imm_text(table, bits, stream.take(None, bits)) if stream else "#?"
+        y = fields.get("Y", 0)                              # the byte it is read at
+        n = stream.take(8 * y, bits) >> (32 - bits)         # the integer word
+        value = "#%s@%d:%d" % (hidden_value_text(n), y, bits)
     else:
         value = _reg_text(fields.get("Y", 0))
     return "hset h%d, %s" % (v.hidden_reg, value), v.status
+
+
+def hidden_value_text(n):
+    """an integer word of a hidden register as its exact decimal (n / 16384)"""
+    text = "%.14f" % (n / 16384.0)
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 # the renderer of each C-position family, keyed by the family name the table
@@ -459,6 +512,11 @@ C_HANDLERS = {
 }
 
 
+def words_tail(words):
+    """words kept as they are, with no instruction structure claimed (`.words`)"""
+    return ".words " + " ".join("%04x" % x for x in words)
+
+
 def program(words, table, title="dsp"):
     """flat words -> (source text, report)"""
     report = {"instructions": 0, "decoded": 0, "raw": 0, "statuses": {},
@@ -468,15 +526,38 @@ def program(words, table, title="dsp"):
     while i < len(words):
         n = words[i] & 0x1F
         if n == 0:
-            body.append("; cannot continue: length 0 at word %d (%04x)" % (i, words[i]))
-            report["verbatim"].append((i, words[i], "length 0"))
+            # a header of length 0 says nothing about the words after it
+            body.append(words_tail(words[i:]))
+            report["verbatim"].append((i, words[i], "length 0: the rest kept as .words"))
             break
         ins = words[i:i + n]
         if len(ins) < n:
-            body.append("; truncated instruction at word %d" % i)
-            report["verbatim"].append((i, words[i], "truncated stream"))
+            # the dump ends inside an instruction: keep its words as they are
+            body.append(words_tail(words[i:]))
+            report["verbatim"].append((i, words[i], "truncated stream, kept as .words"))
             break
+        if len(ins) == 1:
+            # a header-only word (class 0x000, length 1) is the one-word no-op
+            # (spec 4.1, 14): `raw` with no body, pinned to its class
+            body.append(".class 0x0000")
+            body.append("raw                                            ; (exact)  %04x" % ins[0])
+            report["instructions"] += 1
+            report["decoded"] += 1
+            report["statuses"]["exact"] = report["statuses"].get("exact", 0) + 1
+            i += 1
+            continue
         dec = disassemble_insn(table, ins)
+        pin = None
+        if dec.status != "raw" and not assembles_to(table, dec.text, ins, dec.free,
+                                                    slots=dec.slots):
+            # the units may fit more than one class: name this one, if that
+            # resolves it; otherwise the line is not printed as decoded
+            if assembles_to(table, dec.text, ins, dec.free, pin=ins[0] >> 5,
+                            slots=dec.slots):
+                pin = ins[0] >> 5
+            else:
+                dec = raw(ins, "the assembler cannot reproduce this line; kept verbatim")
+                report["reassembly"] = report.get("reassembly", 0) + 1
         report["instructions"] += 1
         report["statuses"][dec.status] = report["statuses"].get(dec.status, 0) + 1
         if dec.status == "raw":
@@ -484,14 +565,15 @@ def program(words, table, title="dsp"):
             report["verbatim"].append((i, ins[0], dec.reason))
         else:
             report["decoded"] += 1
-        # `.class` is a directive (not a hidden comment convention): it is
-        # needed exactly when the units would fit more than one class.
-        if dec.need_class or dec.status == "raw":
-            # a raw line reproduces its words verbatim: the class must be
-            # written too, or the assembler cannot know the header
+        # `.class` is a directive: written when the class is not the one the
+        # units alone select, and always for a raw line (its words are verbatim,
+        # so the header must come from the directive)
+        if pin is not None or dec.status == "raw":
             body.append(".class %#06x" % (ins[0] >> 5))
-        if dec.free_bits:
-            body.append(".free %#06x" % dec.free_bits)
+        for pos, mask in dec.free:
+            body.append(".free @%d %#06x" % (pos + 1, mask))
+        for k, value in dec.slots:
+            body.append(".slot @%d %04x" % (k, value))
         body.append("%-46s ; %-8s %s" % (dec.text, "(%s)" % dec.status,
                                          " ".join("%04x" % x for x in ins)))
         i += n
