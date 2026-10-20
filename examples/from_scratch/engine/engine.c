@@ -108,8 +108,8 @@ static dspdesc_t dco2_prog[2][NW] = { DCO2_PROGS, DCO2_PROGS };
    The slave OS writes program memory with plain 32-bit stores (s_boot 0x011100DE: DSP n at
    0x41480000 + n * 0x100000 + slot address); we keep a shadow of each slot and store whole words. */
 #define LIVE_WORDS 0x800                     /* 32-bit words per slot shadow (8 KiB) */
-static uint32_t live_shadow[2][LIVE_WORDS] = { { 1 } };   /* nonzero: kept out of .bss */
-static int live_dsp = 2, live_cur, live_last = -1, live_both, live_b5;
+static uint32_t live_shadow[2][2][LIVE_WORDS] = { { { 1 } } };   /* [osc: 0 DCO1, 1 DCO2][DSP k]; nonzero: kept out of .bss */
+static int live_dsp = 2, live_cur, live_last = -1, live_both, live_b5, live_osc = 1;
 #endif
 #define D8 DATA(0x0008, 8)
 #define D10 DATA(0x0010, 8)
@@ -356,7 +356,8 @@ static void read_params(engine_t *e)
 }
 
 #ifdef DSPLIVE
-static volatile uint32_t *live_prog(int dsp) { return (volatile uint32_t *)(0x41480000u + dsp * 0x100000u + SLOT_DCO2); }
+/* program slot of OSC osc (0 DCO1 = 0x6000, 1 DCO2 = 0xB000) on DSP dsp */
+static volatile uint32_t *live_prog(int dsp, int osc) { return (volatile uint32_t *)(0x41480000u + dsp * 0x100000u + (osc ? SLOT_DCO2 : SLOT_DCO1)); }
 
 /* bank 5 (DPC) of slave DSP n, RAW view (as the master's, DSP_ARM_SIDE.md: 0x41114000 + n * 0x4000 + 0x2000) */
 static volatile uint32_t *live_bank5(int dsp) { return (volatile uint32_t *)(0x41114000u + dsp * 0x4000u + 0x2000u); }
@@ -372,15 +373,17 @@ static uint32_t live_raw18(uint32_t x)
     return sign | 1u << 29 | m << 11;
 }
 
-static void live_restore(int k)
+/* the program as built for OSC osc (waveform 0) on DSP 2 + k: shadow always, slot too when write */
+static void live_restore(int osc, int k, int write)
 {
-    const dspdesc_t *p = &dco2_prog[k][0];
+    const dspdesc_t *p = osc ? &dco2_prog[k][0] : &dco1_prog[k][0];
     unsigned n = (p->n1 + 3) / 4;
     const uint32_t *src = p->src;
     for (unsigned i = 0; i < LIVE_WORDS; i++)
-        live_shadow[k][i] = i < n ? src[i] : 0;
-    for (unsigned i = 0; i < n; i++)
-        live_prog(2 + k)[i] = src[i];
+        live_shadow[osc][k][i] = i < n ? src[i] : 0;
+    if (write)
+        for (unsigned i = 0; i < n; i++)
+            live_prog(2 + k, osc)[i] = src[i];
 }
 
 static void live_cmd(int m)
@@ -394,6 +397,7 @@ static void live_cmd(int m)
         live_dsp = 2 + (ext & 1);
         live_both = (ext >> 1) & 1;
         live_b5 = (ext >> 2) & 1;
+        live_osc = (ext >> 3) & 1 ? 0 : 1;      /* ext & 8: OSC1 (DCO1 slot), else OSC2 (DCO2 slot) */
         live_cur = p;
     } else if (cmd == 1 && live_b5) {
         uint32_t raw = live_raw18((uint32_t)(p | ext << 14));
@@ -409,15 +413,17 @@ static void live_cmd(int m)
             if (!live_both && d != live_dsp)
                 continue;
             int k = d - 2, i = live_cur >> 1;
-            uint32_t x = live_shadow[k][i];
+            uint32_t x = live_shadow[live_osc][k][i];
             x = live_cur & 1 ? (x & 0xFFFF0000u) | w : (x & 0xFFFFu) | w << 16;   /* upper half first */
-            live_shadow[k][i] = x;
-            live_prog(d)[i] = x;
+            live_shadow[live_osc][k][i] = x;
+            live_prog(d, live_osc)[i] = x;
         }
         live_cur++;
     } else if (cmd == 2 && ext == 0) {
-        live_restore(0);
-        live_restore(1);
+        for (int k = 0; k < 2; k++) {
+            live_restore(0, k, 1);
+            live_restore(1, k, 1);
+        }
     }
 }
 #endif
@@ -475,8 +481,10 @@ static void e_start(engine_t *e)                                         /* vt+0
     swap_dco(e, 2);
     swap_fx(e);
 #ifdef DSPLIVE
-    live_restore(0);                         /* shadows = the programs as built */
-    live_restore(1);
+    for (int k = 0; k < 2; k++) {            /* shadows = the programs as built; DCO1 keeps its swapped program */
+        live_restore(0, k, 0);
+        live_restore(1, k, 1);
+    }
     live_last = os_get(2, 0x467) & 0x7F;
 #endif
 }

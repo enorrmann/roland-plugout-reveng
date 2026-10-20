@@ -21,11 +21,12 @@ def words_of(path):
 EMPTY = [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001, 0x0000]     # slot program that returns at once
 
 
-def load(path):
+def load(path, osc=2):
+    """the program of OSC osc (1 DCO1 slot, 2 DCO2 slot) on DSP2 and DSP3; the state keeps only OSC2"""
     w = words_of(path)
     if len(w) > 2 * 0x800:
         raise SystemExit('program too long for the DSPLIVE shadow')
-    st = L.load_state()
+    st = L.load_state() or {'paths': {}, 'words': {}, 'installed': {}, 'installed_paths': {}}
     link = L.Link()
     # both DSPs with one command per word (needs a lab built 2026-10-17 or later; OWN_BOTH=0 for older ones).
     # An empty program first (start + return), then the body tail first, the head last: the DSP never runs a
@@ -33,11 +34,11 @@ def load(path):
     # cycle; forward-only code only glitches.)
     both = os.environ.get('OWN_BOTH', '1') == '1'
     for d in ((2,) if both else (2, 3)):
-        link.write(d, 0, EMPTY, both)
+        link.write(d, 0, EMPTY, both, osc)
         # body: only the runs that differ from what is loaded (the head is the empty program meanwhile)
-        old = st['words'].get(str(d), []) if st else []
-        if os.environ.get('OWN_FULL') == '1' or (both and st and st['words'].get('2') != st['words'].get('3')):
-            old = []                                 # OWN_FULL=1: send every word (state unsure)
+        old = st['words'].get(str(d), []) if osc == 2 else []
+        if osc != 2 or os.environ.get('OWN_FULL') == '1' or (both and st['words'].get('2') != st['words'].get('3')):
+            old = []                                 # OSC1 and OWN_FULL=1: send every word (state unsure)
         old = old[:len(EMPTY)] and ([None] * len(EMPTY) + old[len(EMPTY):])
         new = [None] * len(EMPTY) + w[len(EMPTY):]
         for start, chunk in reversed(L.runs(old, new)):
@@ -45,14 +46,15 @@ def load(path):
                 chunk, start = chunk[len(EMPTY) - start:], len(EMPTY)
             for k in range(len(chunk) - len(chunk) % 32, -1, -32):
                 if chunk[k:k + 32]:
-                    link.write(d, start + k, chunk[k:k + 32], both)
+                    link.write(d, start + k, chunk[k:k + 32], both, osc)
         for i in range(len(EMPTY) - 2, -1, -2):       # head: one 32-bit word at a time, the start word last
-            link.write(d, i, w[i:i + 2], both)
-    for d in (2, 3):
-        st['words'][str(d)] = w
+            link.write(d, i, w[i:i + 2], both, osc)
     link.center()
-    st['own'] = os.path.abspath(path)
-    L.save_state(st)
+    if osc == 2:
+        for d in (2, 3):
+            st['words'][str(d)] = w
+        st['own'] = os.path.abspath(path)
+        L.save_state(st)
     print(f'loaded {len(w)} words into DSP2/DSP3 DCO2 of both slaves')
 
 

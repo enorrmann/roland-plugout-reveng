@@ -144,6 +144,8 @@ def main():
     ap.add_argument('--points', type=int, default=None, help='default: as many as fit')
     ap.add_argument('--frame', type=float, default=0.0)
     ap.add_argument('--scan', type=float, default=None, help='LFO rate (Hz) scanning all frames')
+    ap.add_argument('--osc', default='2', choices=['1', '2', 'both'],
+                    help='which oscillator plays the table: 1 (DCO1 slot), 2 (DCO2 slot, default), both')
     ap.add_argument('--code', action='store_true', help='send the table as fill programs (labs built before the '
                     'bank-5 command, ~2 min)')
     ap.add_argument('--chunk', type=int, default=200, help='--code: table words written per fill program')
@@ -160,19 +162,22 @@ def main():
     table = words_of_table(frames)
     os.makedirs(OUT, exist_ok=True)
     name = os.path.splitext(os.path.basename(a.wav))[0].replace(' ', '_')
-    progs = []
-    for lo in range(0, len(table), a.chunk) if a.code else ():
-        progs.append(program(table, N, K, a.frame, a.scan, (lo, min(len(table), lo + a.chunk))))
-    progs.append(program(table, N, K, a.frame, a.scan))
-    paths = []
-    for i, P in enumerate(progs):
-        p = os.path.join(OUT, f'{name}_{"play" if i == len(progs) - 1 else f"fill{i}"}.txt')
-        open(p, 'w').write(A.text(P, f'wt5 {a.wav} K={K} N={N} frames {picks}'))
-        words = sum(len(x) for x in P)
-        print(f'{os.path.basename(p)}: {len(P)} instructions, {words} words')
-        if len(P) > 600 or words > 4096:
-            raise SystemExit('over the safe size (600 instructions / 4096 words): lower --chunk')
-        paths.append(p)
+    jobs = []                                   # (program file, OSC number): the player of each OSC chosen
+    for osc in ([1, 2] if a.osc == 'both' else [int(a.osc)]):
+        slot = 'dco1' if osc == 1 else 'dco2'
+        tag = '' if osc == 2 else '_osc1'
+        progs = []
+        for lo in range(0, len(table), a.chunk) if a.code else ():
+            progs.append(program(table, N, K, a.frame, a.scan, (lo, min(len(table), lo + a.chunk)), slot))
+        progs.append(program(table, N, K, a.frame, a.scan, slot=slot))
+        for i, P in enumerate(progs):
+            p = os.path.join(OUT, f'{name}{tag}_{"play" if i == len(progs) - 1 else f"fill{i}"}.txt')
+            open(p, 'w').write(A.text(P, f'wt5 {a.wav} K={K} N={N} frames {picks} OSC {osc}'))
+            words = sum(len(x) for x in P)
+            print(f'{os.path.basename(p)}: {len(P)} instructions, {words} words')
+            if len(P) > 600 or words > 4096:
+                raise SystemExit('over the safe size (600 instructions / 4096 words): lower --chunk')
+            jobs.append((p, osc))
     if a.dry:
         return
     import dspown
@@ -183,11 +188,11 @@ def main():
         link.write_b5(BASE, table)
         link.center()
         print(f'table sent: {len(table)} words in {time.time() - t0:.1f} s')
-    for p in paths:
-        dspown.load(p)
+    for p, osc in jobs:
+        dspown.load(p, osc)
         time.sleep(0.3)
     print(f'done in {time.time() - t0:.1f} s')
-    print(f'table in bank 5 [{BASE:#x}..{BASE + len(table):#x}), playing {os.path.basename(paths[-1])}')
+    print(f'table in bank 5 [{BASE:#x}..{BASE + len(table):#x}), playing {os.path.basename(jobs[-1][0])} on OSC {jobs[-1][1]}')
 
 
 if __name__ == '__main__':

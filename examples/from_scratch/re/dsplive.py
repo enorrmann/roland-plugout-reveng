@@ -10,7 +10,8 @@ Transport (no region 0 changes): pitch bend carries 14 data bits (voice id 0x465
 the command (voice id 0x467); the stock-path region 0 forwards both to the slaves, whose engine acts
 when 0x467 changes (bit 6 toggles every command):
     CC1 = seq<<6 | cmd<<4 | ext     cmd 0 ADDR (dsp 2 + (ext & 1), word index = bend; ext & 2: both DSPs,
-                                               ext & 4: bank 5 instead of the program)
+                                               ext & 4: bank 5 instead of the program,
+                                               ext & 8: OSC1 = DCO1 slot 0x6000 instead of OSC2 = DCO2 0xB000)
                                     cmd 1 DATA (program: word = bend | ext<<14; bank 5: 18-bit value*2^17,
                                                stored at the index, index++)
                                     cmd 2 CTRL (ext 0 restore, ext 1 nop)
@@ -52,8 +53,9 @@ class Link:
                             0xB0 | self.ch, 1, self.seq << 6 | cmd << 4 | ext]))
         time.sleep(self.delay)
 
-    def write(self, dsp, start, words, both=False):
-        self.cmd(0, (dsp - 2) | (2 if both else 0), start)
+    def write(self, dsp, start, words, both=False, osc=2):
+        """program words of OSC 2 (DCO2 slot, default) or OSC 1 (DCO1 slot, osc=1) of DSP dsp (both: DSP2 and DSP3)"""
+        self.cmd(0, (dsp - 2) | (2 if both else 0) | (8 if osc == 1 else 0), start)
         for w in words:
             self.cmd(1, w >> 14, w & 0x3FFF)
 

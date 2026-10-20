@@ -4,6 +4,7 @@
     python3 wtlive.py install                            # slot 3, then select PLG3 on the panel
     python3 wtlive.py send 'PWM Saw 01.wav'              # the table, live (see wt5.py for the options)
     python3 wtlive.py send TABLE.wav --frames 4 --frame 1.5
+    python3 wtlive.py send TABLE.wav --osc 1             # OSC1 (DCO1 slot); --osc 2 (default) or --osc both
     python3 wtlive.py info TABLE.wav                     # no hardware
     python3 wtlive.py restore                            # silent test program again
 
