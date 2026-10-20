@@ -1,0 +1,1 @@
+python wtlive.py send /home/emilio/PRODUCCION/samples/THE_REST/wavetables/Echo\ Sound\ Works\ Core\ Tables/Analog/Ultra\ Saw.wav  --osc both --frames 16 --scan 0.2
