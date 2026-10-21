@@ -1,0 +1,38 @@
+diff --git a/examples/from_scratch/engine/build.sh b/examples/from_scratch/engine/build.sh
+index 0de052b..da2117f 100755
+--- a/examples/from_scratch/engine/build.sh
++++ b/examples/from_scratch/engine/build.sh
+@@ -26,6 +26,7 @@ CFLAGS="-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -Os -ffreesta
+  -fno-builtin -nostdlib -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$B"
+ if [ -n "$DSPTEST" ]; then CFLAGS="$CFLAGS -DDSPTEST"; fi
+ if [ -n "$DSPLIVE" ]; then CFLAGS="$CFLAGS -DDSPLIVE"; fi
++if [ -n "$IOMDTEST" ]; then CFLAGS="$CFLAGS -DIOMDTEST"; fi
+ if [ -n "$WAVETABLE" ]; then CFLAGS="$CFLAGS -DWAVETABLE"; fi
+ if [ -n "$MORPH" ]; then CFLAGS="$CFLAGS -DMORPH"; fi
+ arm-none-eabi-gcc $CFLAGS -c "$HERE/engine.c" -o "$B/engine.o"
+diff --git a/examples/from_scratch/engine/engine.c b/examples/from_scratch/engine/engine.c
+index c052f00..31f5409 100644
+--- a/examples/from_scratch/engine/engine.c
++++ b/examples/from_scratch/engine/engine.c
+@@ -61,7 +61,11 @@ static dspdesc_t main_prog[6] = {
+     PROG(0x0100, MAIN3), PROG(0x0100, MAIN4), PROG(0x0100, MAIN5),
+ };
+ static dspdesc_t empty_x[2] = { EMPTY(SLOT_X), EMPTY(SLOT_X) };              /* DSP0, DSP1 */
++#ifdef IOMDTEST   /* output-path test (dsp/make_iomd_test.py): DSP5 DCO1 slot writes saws to IOMD */
++static dspdesc_t empty_6[2] = { EMPTY(SLOT_DCO1), PROG(SLOT_DCO1, IOMD5) };
++#else
+ static dspdesc_t empty_6[2] = { EMPTY(SLOT_DCO1), EMPTY(SLOT_DCO1) };        /* DSP4, DSP5 */
++#endif
+ /* DCO1 waveform 0 SAW, 1 SQR, 2 PULSE (= SAW program + flag), 3 FOLD (our wavefolder, re/dspasm.py fold),
+    4.. PULSE again; DCO2 0 SAW, 1 SQR, 2 PULSE, 3.. NOISE; [0] DSP2, [1] DSP3 */
+ #ifdef WAVETABLE
+@@ -503,6 +507,9 @@ static void e_start(engine_t *e)                                         /* vt+0
+     swap_dco(e, 1);
+     swap_dco(e, 2);
+     swap_fx(e);
++#ifdef IOMDTEST
++    swap(5, &empty_6[1], &data_8[5], SLOT_DCO1, 2, 0, 0);
++#endif
+ #ifdef DSPLIVE
+     for (int k = 0; k < 2; k++) {            /* shadows = the programs as built; DCO1 keeps its swapped program */
+         live_restore(0, k, 0);
