@@ -60,6 +60,33 @@ def test_blob(path):
     return struct.pack('<%dI' % (len(w) // 2), *(w[i] << 16 | w[i + 1] for i in range(0, len(w), 2))), n
 
 
+# VCA gate (no envelope): the amplitude of each voice is the note gate, not ENV-2. In MAIN0/MAIN1 the ENV-2
+# output of each voice is one instruction, `r0 = r1` (1703 0041 1f10, three words, execution-order index
+# below); it is replaced by a read of the gate parameter of the same voice, same size, so the jumps do not move.
+# Gate ids: A022 = voice A, A034 = voice B (engine.c note_gate writes 0x22 + 0x12 * k).
+GATE_OLD = [0x1703, 0x0041, 0x1f10]
+GATE_SITES = {'main0': ((1196, 0xa022), (2378, 0xa034)),
+              'main1': ((1241, 0xa022), (2423, 0xa034))}
+
+
+def gate_patch(name, blob):
+    """blob (memory order) of a main program -> the same blob with the gate sites replaced"""
+    sites = GATE_SITES.get(name)
+    if not sites:
+        return blob
+    h = struct.unpack('<%dH' % (len(blob) // 2), blob)
+    w = []
+    for i in range(0, len(h), 2):           # execution order: upper half of each LE word first
+        w += [h[i + 1], h[i]]
+    for pos, addr in sites:
+        if w[pos:pos + 3] != GATE_OLD:
+            raise SystemExit(f'{name}: word {pos} is {w[pos:pos + 3]}, not the ENV-2 output: wrong program')
+        w[pos:pos + 3] = [0x0c03, 0x0fe0, addr]   # r0 <- [addr]
+    out = struct.pack('<%dI' % (len(w) // 2), *(w[i] << 16 | w[i + 1] for i in range(0, len(w), 2)))
+    assert len(out) == len(blob)
+    return out
+
+
 def main(plugin, out):
     os.makedirs(out, exist_ok=True)
     img = unpack(plugin, out)
@@ -75,6 +102,7 @@ def main(plugin, out):
         got = hashlib.sha256(blob).hexdigest()[:16]
         if got != sha:
             raise SystemExit(f'{name}: sha256 {got} != {sha}: not the JX-3P 1.01 PLUG-OUT?')
+        blob = gate_patch(name, blob)
         for prefix, path in test:
             if name.startswith(prefix):
                 blob, n = test_blob(path)

@@ -155,11 +155,11 @@ for m, t in enumerate(('B4:0x2b B4:0x3a B5:0x2a B5:0x39', 'B4:0x2c B4:0x3b B5:0x
                        'B4:0x2d B4:0x3c B5:0x2c B5:0x3b')):
     out(0x736, t, sel(eq(P(0x736), m) + eq(P(0x736), 3) * (m == 0), 1, 0))     # 3 behaves as 0
 
-# ---- envelopes: ENV-1 ids 0x2f..0x32, ENV-2 0x33..0x36, voice k + 0x17 -----------------
+# ---- envelopes: ENV-1 ids 0x2f..0x32, voice k + 0x17. ENV-2 (amplitude) is not modelled: the VCA takes the
+# note gate instead (C-NOENV, programs.py gate_patch) -------------------------------------------------
 # circuit mod (0x744) scales the times of each voice by max(lo, 1 - a * cm), a per voice
 ENV_A = {0: [(0.003015075, 0.25), (0.001974981, 0), (1.168625e-05, 0), (0.002454118, 0)],
          1: [(0.00169451, 0), (0.002828078, 0), (0.002267137, 0), (0.0005609412, 0)]}
-GATE = [1, 0.7, 1, 0.7]                       # ENV-2 when VCA Mode = GATE
 
 
 def cm_scale(v):
@@ -177,12 +177,10 @@ def env_value(env, stage, v):
         val = curve('env_attack', x, 1)
     else:
         val = curve('env_decay', x, 0.7)
-    if env == 2:
-        val = sel(eq(P(0x736), 2), GATE[stage], val)
     return val if stage == 2 else val * cm_scale(v)
 
 
-for env in (1, 2):
+for env in (1,):
     for stage in range(4):
         pid = (0x6ef if env == 1 else 0x6f4) + stage
         for v in range(4):
@@ -192,8 +190,6 @@ for env in (1, 2):
             out(pid, ramp(t), e)
             if stage != 2:
                 out(0x744, ramp(t), e)
-            if env == 2:
-                out(0x736, ramp(t), e)
 
 # ---- portamento ------------------------------------------------------------------------
 PORTA_ON = 'B0:0x23 B0:0x35 B1:0x23 B1:0x35'

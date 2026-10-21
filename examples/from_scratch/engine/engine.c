@@ -535,16 +535,12 @@ static void e_mute(engine_t *e)                                          /* vt+0
     (void)e;
     for (int d = 2; d <= 3; d++)
         for (int k = 0; k < 2; k++) { p_ramp(d, 0x32 + 0x16 * k, 0, 0, 0, 0.0f); }
-    for (int d = 2; d <= 3; d++)
-        for (int k = 0; k < 2; k++) { p_ramp(d, 0x33 + 0x16 * k, 0, 0, 0, 0.0f); }
     p_ramp(4, 0x4a, 3, 0, 0, 0.0f);
 }
 static void e_unmute(engine_t *e)                                        /* vt+0x18 */
 {
     for (int d = 2; d <= 3; d++)
         for (int k = 0; k < 2; k++) { p_ramp(d, 0x32 + 0x16 * k, 3, 0, 0, 1.0f); }
-    for (int d = 2; d <= 3; d++)
-        for (int k = 0; k < 2; k++) { p_ramp(d, 0x33 + 0x16 * k, 3, 0, 0, 1.0f); }
     p_ramp(4, 0x4a, 3, 0, 0, 1.0f);
     switch (clampi(e->val[P_FX_TYPE], 0, 5)) {          /* the effect program's own level */
     case 0: p_ramp(4, 0x1f3, 15, 0, 0, 1.0f); p_ramp(4, 0x1f2, 15, 0, 0, 1.0f); break;
