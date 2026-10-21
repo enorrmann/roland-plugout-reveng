@@ -33,7 +33,7 @@ def main():
     a = ap.parse_args()
     notes = [int(n) for n in a.notes.split(',')]
     total = len(notes) * (HOLD + REST) + 1.5
-    rec = subprocess.Popen(['arecord', '-D', 'hw:SYSTEM8,0', '-f', 'FLOAT_LE', '-r', '96000', '-c', '2',
+    rec = subprocess.Popen(['arecord', '-D', 'hw:SYSTEM8,0', '-t', 'raw', '-f', 'FLOAT_LE', '-r', '96000', '-c', '2',
                             '-d', str(int(total + 1)), a.raw], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(0.5)
     dev = open(midi_dev(), 'wb', buffering=0)

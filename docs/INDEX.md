@@ -35,6 +35,9 @@ Status of each item is in the document itself; the scope of the project is in th
 | [DSP_ISA_SPEC.md](DSP_ISA_SPEC.md) | Specification for assembler and compiler writers (used by `asm/`). |
 | [DSP_ISA_DISCREPANCIES.md](DSP_ISA_DISCREPANCIES.md) | Where the measured ISA, the assembler and the disassembler disagree, and what is still open. |
 | [DSP_ARM_SIDE.md](DSP_ARM_SIDE.md) | DSP ports, banks and the ARM-side configuration (static analysis). |
+| [SLAVE_DSP_READBACK.md](SLAVE_DSP_READBACK.md) | Reading the memory of the slave DSPs from the host: what is verified, the open blockers, and the plan. Spanish. |
+| [MIDI_SYSEX.md](MIDI_SYSEX.md) | MIDI and SysEx routing between the host, the master and the slaves: where a message is received, filtered and echoed, with the tests done and what is still open. Spanish. |
+| [DSP_MAIN_PROGRAMS.md](DSP_MAIN_PROGRAMS.md) | What the six main programs MAIN0–MAIN5 of the voice do, where each one runs, and what is still open. Spanish. |
 | [DSP_USOS.md](DSP_USOS.md) | What the operations found in the microcode do. Spanish. |
 | [REVIEW.md](REVIEW.md) | Review, fixes and tests of the assembler and the disassembler (`asm/`). |
 

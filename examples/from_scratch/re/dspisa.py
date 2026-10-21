@@ -47,6 +47,46 @@ JUMP = None                      # set by run() when a jump executes (offset in 
 PENDING = {}                     # one instruction of latency: the next instruction still sees the old flags
 FLAG_GROUP = {0x9: 1, 0xA: 2, 0xB: 3, 0xC: 4, 0xD: 5}   # 2026-10-17; group 0 = constant 0111, 24-31 = 1111
 _res = [None]                    # (value, Z) of the op just simulated, for X9bY
+ACCESS = None                    # hook(op, addr, mem[, value]) for every memory access; sim_main.py sets it to refuse
+                                 # unmeasured banks. Reads return the value; writes update mem themselves.
+
+
+def quant(v):
+    """RAW encoding of an op result: the smallest exponent s whose 29-bit mantissa holds |v|, truncated toward
+    zero (DSP_HARDWARE.md §3, bit-exact on the master). |v| >= 512 is wrapped by the op itself, not here."""
+    if v == 0:
+        return v
+    m = abs(v)
+    for s in range(4):
+        M = math.floor(m * 2 ** (32 - 4 * s))
+        if M < 2 ** 29:
+            return math.copysign(M / 2 ** (32 - 4 * s), v)
+    return v
+
+
+def _key(a):
+    """bank 5 (Annn) has 1024 persistent words: the index is taken mod 0x400 (default path only)"""
+    return 0xA000 | (a & 0x3FF) if 0xA000 <= a < 0xC000 else a
+
+
+def _load(mem, a):
+    if ACCESS is not None:
+        return ACCESS('r', a, mem)
+    return mem.get(_key(a), 0.0)
+
+
+def _store(mem, a, v):
+    if ACCESS is not None:
+        ACCESS('w', a, mem, v)
+    else:
+        mem[_key(a)] = v
+
+
+def _hidden(n):
+    """value of hidden register h(n); None = never loaded (no measured value)"""
+    if HIDDEN.get(n) is None:
+        raise ValueError(f'h{n} has no known value (load it with 40TY first, or give it to the simulator)')
+    return HIDDEN[n]
 
 
 def flag_bits(v, z):
@@ -166,7 +206,7 @@ def a_op(w, regs, imm, out):
         if x in (6, 7):
             out[d] = D + Y; return f'r{d} = r{d} + {ys}'
         if x in (4, 5):
-            out[d] = D + Y + HIDDEN[x]
+            out[d] = D + Y + _hidden(x)
             return f'r{d} = r{d} + {ys} + h{x}'
         return 'nop'
     s = {1: f'r{d} + r{x} + {ys}', 2: f'r{x} * {ys}', 3: f'r{d} + r{x} * {ys}', 4: f'{ys} + r{x} * r{d}',
@@ -257,7 +297,7 @@ def b_op(w, regs, imm, out):
             out[d & 7] = regs[yy & 7]
             return f'r{d & 7} = r{yy & 7}  (f4)'
         if sub == 2 and yy >= 12:                     # f6Y: rd = (rd + h(Y-8)) mod 512 (f6c = delay base h4)
-            out[d & 7] = (regs[d & 7] + HIDDEN[yy - 8]) % 512
+            out[d & 7] = (regs[d & 7] + _hidden(yy - 8)) % 512
             return f'r{d & 7} = (r{d & 7} + h{yy - 8}) mod 512'
         if sub == 1 and yy == 12:                     # f5c: delay-ring write position (counts down 1/16384 per sample)
             return f'r{d & 7} = delay_write_pos  (time-varying, mod 512)'
@@ -433,6 +473,7 @@ def run(ins, regs, mem=None):
             imm.pos = 0
             text.append(b_op(w, regs, imm, out))
         if k in 'ABM':
+            out[:] = [quant(v) for v in out]     # every result is RAW-encoded once (DSP_HARDWARE.md §3)
             if _res[0] is None:          # flags of the op's destination r(D & 7) (MAC measured 2026-10-17)
                 dest = (w >> 12) & 7
                 _res[0] = (out[dest], out[dest] == 0)
@@ -462,26 +503,27 @@ def run(ins, regs, mem=None):
             reg, slot, mode = w >> 12, (w & 15) >> 1, (w >> 4) & 0xFF
             addr = slots[slot] if slot < len(slots) else None
             if mode == 0x28:                  # indexed: bank0[floor(h6 * 16384) + Y], ring-relative (§9.0)
-                ia = (int(HIDDEN[6] * 16384) + (w & 15)) & 0x7FF
+                ia = (int(_hidden(6) * 16384) + (w & 15)) & 0x7FF
                 if reg < 8:
-                    out[reg] = mem.get(ia, 0.0); text.append(f'r{reg} <- [h6+{w & 15}]')
+                    out[reg] = _load(mem, ia); text.append(f'r{reg} <- [h6+{w & 15}]')
                 else:
-                    mem[ia] = regs[reg - 8]; text.append(f'[h6+{w & 15}] <- r{reg - 8}')
+                    _store(mem, ia, regs[reg - 8]); text.append(f'[h6+{w & 15}] <- r{reg - 8}')
                 continue
             if mode in (0xDA, 0xDE, 0xDB, 0xDF) or 0xD0 <= mode <= 0xD7:
                 # bank 5, plain memory (2026-10-17): da/de [h6+Y], db/df [h7+Y], d0-d7 direct address N*16+Y;
-                # 1024 persistent words (index mod 0x400; 0x400-0x7FF behave differently, not modelled)
+                # 1024 persistent words (index mod 0x400 on the default path; the hook sees the raw address)
                 if mode >= 0xDA:
-                    ia = int(HIDDEN[6 if mode in (0xDA, 0xDE) else 7] * 16384) + (w & 15)
-                    tag = f'[h{6 if mode in (0xDA, 0xDE) else 7}+{w & 15}]'
+                    h = 6 if mode in (0xDA, 0xDE) else 7
+                    ia = int(_hidden(h) * 16384) + (w & 15)
+                    tag = f'[h{h}+{w & 15}]'
                 else:
                     ia = (mode & 7) << 4 | (w & 15)
                     tag = f'[{0xA000 | ia:04x}]'
-                ia = 0xA000 | (ia & 0x3FF)
+                ia = 0xA000 + ia
                 if reg < 8:
-                    out[reg] = mem.get(ia, 0.0); text.append(f'r{reg} <- bank5{tag}')
+                    out[reg] = _load(mem, ia); text.append(f'r{reg} <- bank5{tag}')
                 else:
-                    mem[ia] = regs[reg - 8]; text.append(f'bank5{tag} <- r{reg - 8}')
+                    _store(mem, ia, regs[reg - 8]); text.append(f'bank5{tag} <- r{reg - 8}')
                 continue
             if mode == 0x9B:                  # set flags of group X from unit Y (2026-10-17)
                 g, u = FLAG_GROUP.get(reg), w & 15
@@ -499,9 +541,9 @@ def run(ins, regs, mem=None):
                             + (f' [{addr:04x}]' if addr is not None else '') + '  (mode unknown, no effect on r0-r7)')
                 continue
             if reg < 8:
-                out[reg] = mem.get(addr, 0.0); text.append(f'r{reg} <- [{addr:04x}]')
+                out[reg] = _load(mem, addr); text.append(f'r{reg} <- [{addr:04x}]')
             else:
-                mem[addr] = regs[reg - 8]; text.append(f'[{addr:04x}] <- r{reg - 8}')
+                _store(mem, addr, regs[reg - 8]); text.append(f'[{addr:04x}] <- r{reg - 8}')
     global PENDING
     f = list(FLAGS)
     for g, b4 in PENDING.items():

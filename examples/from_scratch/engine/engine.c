@@ -386,6 +386,23 @@ static void live_restore(int osc, int k, int write)
             live_prog(2 + k, osc)[i] = src[i];
 }
 
+/* slave OS transmit queue (s_boot 0x011079E6, Thumb): one USB-MIDI event packet per call, byte 0 in the low byte.
+   The OS SysEx sender (0x011078FC) always uses cable 0; the master routes by cable (8 and 9 are the slave links,
+   BASE_FIRMWARE.md router), so the test builds its own packets with cable `cable`. */
+static void live_tx_packet(uint32_t w)
+{
+    ((void (*)(uint32_t))0x011079E7u)(w);
+}
+
+/* SysEx F0 7D 77 01 02 03 F7 on the given cable: CIN 4 (3 bytes), CIN 4 (3 bytes), CIN 5 (F7) */
+static void live_sysex_test(int cable)
+{
+    uint32_t c = (uint32_t)(cable & 15) << 4;
+    live_tx_packet(c | 4 | 0xF0u << 8 | 0x7Du << 16 | 0x77u << 24);
+    live_tx_packet(c | 4 | 0x01u << 8 | 0x02u << 16 | 0x03u << 24);
+    live_tx_packet(c | 5 | 0xF7u << 8);
+}
+
 static void live_cmd(int m)
 {
     if (m == live_last)
@@ -424,6 +441,8 @@ static void live_cmd(int m)
             live_restore(0, k, 1);
             live_restore(1, k, 1);
         }
+    } else if (cmd == 2 && ext >= 2 && ext <= 4) {   /* 2026-10-21: SysEx return-path test, cable 0 / 8 / 9 */
+        live_sysex_test(ext == 2 ? 0 : ext == 3 ? 8 : 9);
     }
 }
 #endif

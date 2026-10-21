@@ -212,6 +212,291 @@ SAW propio. Queda un residuo de ~7 cents con −128: pendiente de medir la escal
 de la cadena de Roland que tocamos). El fine tune del OSC2 también afecta al DCO1 (mismo programa en la configuración
 de Roland), como indicó el usuario.
 
+## 4i. Memoria compartida entre DSP: no existe; mecanismos de comunicación (2026-10-21)
+
+**No hay memoria compartida** entre DSP. Cada DSP tiene sus bancos privados (DT0 ring, DT1, DT2, banco 5, programa).
+La comunicación pasa por cuatro mecanismos, todos con **latencia de una muestra** salvo el banco 5:
+
+| mecanismo | qué es | quién escribe / lee | propiedades | fuente |
+|---|---|---|---|---|
+| **MXM** (banco 4, `8nnn`) | bus punto a punto entre DSP del mismo BMC; zonas M `0x000–1FF`, O `0x200–3FF`, Z `0x400–5FF`, S `0x600–7FF` | DSP n escribe Z/S; el DSP vecino lee M/O | **doble buffer**: el lector ve lo escrito en la muestra n−1 durante todo su programa; **no suma** (gana la última escritura); **no guarda** (si nadie escribe, 0) | `DSP_HARDWARE.md` §8.2 [medido DSP3↔DSP4]; `DSP_ARM_SIDE.md` (routing) |
+| **IOMD** (banco 3, `6nnn`) | palabras de E/S del BMC, cada una con un DSP dueño | el dueño escribe; el ARM y el bus leen | las escrituras de quien no es dueño no aparecen | `DSP_HARDWARE.md` §8.3 |
+| **Banco 5** (`Annn`) | parámetros persistentes; el ARM escribe con `+0xB0` | el ARM escribe; el DSP lee (y a veces escribe) | persistente | `DSP_USOS.md` §2 |
+| **Bus de onda** (pines entre BMC) | voces de los slaves al maestro | DSP5 de cada slave → maestro | correspondencia palabra→pin **[desconocido]** | `DSP_ARM_SIDE.md` |
+
+**Importante**: las direcciones `8nnn` son **ventanas locales de cada DSP**. `8405` en DSP0 y `8405` en DSP2 no son la
+misma palabra. El emparejamiento está en el routing: DSP0 Z `404–416` → DSP2 M `004–016`, y DSP2 Z `404–41A` → DSP4 M
+`005–01A` (`DSP_ARM_SIDE.md`).
+
+### Traza de la envolvente (estática, MAIN0 → DSP2 → DSP4)
+
+1. **DSP0 (MAIN0)** escribe en su Z `8405`–`8416` (y `8404`) las salidas de las envolventes y el LFO (líneas 613–636
+   del listado, `dsp/dump_main.py MAIN0`).
+2. **DSP2 (MAIN2)** lee su M `8006`–`8015` y lo **reenvía**: `st r0,[8405]` con lo que lee de `8005`… (línea 9 del
+   listado). Además multiplica `[222c]` por parámetros del panel `[C025]`/`[C024]` (líneas 45–56): ahí los valores son
+   moduladores escalados por el panel (probablemente profundidad de modulación de tono).
+3. **DSP4 (MAIN4)** lee su M `8005`–`8016` al inicio (líneas 7–24) y lo copia a `[220E]`–`[2219]`. Esas palabras se usan en
+   operaciones MAC y multiplicaciones (líneas 81, 89, 291–293, 387, 401, 599). En la línea 293 aparece
+   `mul … #0.9998364`: un suavizado de un polo, típico de un filtro o de una rampa, **no un VCA**.
+4. **Pendiente**: identificar cuál de estas palabras es la envolvente de **amplitud**: la que multiplica el audio
+   (los DCO) antes de IOMD. No está resuelto por el listado; requiere seguir las multiplicaciones que reciben el audio.
+
+Lo que no se ha medido: la latencia exacta de cada tramo (la doble memoria de MXM sí está medida en DSP3↔DSP4) y el
+valor real de cada palabra durante una nota.
+
+## 4j. Salida de DSP4 y envolvente de amplitud (traza estática, 2026-10-21)
+
+Traza desde la salida hacia atrás (`dsp/dump_main.py MAIN4`, líneas citadas del listado):
+
+| paso | líneas | qué hace |
+|---|---|---|
+| `[6020]` ← `[02D0]` ← `[02CF]` × `[C000]` | 725–728 | salida izquierda: nivel de Roland (parámetro del panel) |
+| `[02CF]` ← `[02CC]` × `[02CE]` (`[02CE]` = `[C04B]`) | 718–725 | mezcla × parámetro del panel |
+| `[02B8]`/`[02B9]` = `[C049]`/`[C04A]`, `[02BA]` = 0 | 688–690 | ganancias de salida: **parámetros del panel** (nivel y paneo), no envolvente |
+| `[02B2]` × `[029A]`, luego × `[029D]` | 659–662 | **dos multiplicaciones por envolventes** sobre la mezcla |
+
+Las dos envolventes tienen la misma estructura (comparaciones con `cmp`, `min`/`max`, tasas `0.00359` y `0.003464`):
+* `[029A]` (líneas 579–595): alimentada por `[A038]` (líneas 577–578) = **curva de velocidad** de `note_gate`.
+* `[029D]` (líneas 596–600): alimentada por `[A039]` = **puerta** de `note_gate` (1.0 al pulsar).
+
+**Hipótesis [inferida]**: la envolvente de **amplitud** es la de `[029D]`, porque es la que recibe la puerta. La de
+`[029A]` escala con la velocidad. Se confirma con una prueba de audio (reemplazar sólo esa cadena por una versión con
+puerta fija y ver que el volumen deja de seguir las notas). Pendiente.
+
+## 4k. Pruebas de la envolvente de amplitud (2026-10-21)
+
+Método: `MC_TEST=main4=<probe>` con el engine original (`C-PROBE`, `C-PROBE2`), una nota sostenida 2 s y soltada,
+captura por USB. El probe cambia **una** instrucción de MAIN4 por otra del mismo tamaño (3 o 2 palabras).
+
+| probe | cambio en MAIN4 | resultado |
+|---|---|---|
+| `C-PROBE` | `[029D]` forzado a 1.0 (`max r0,r0,#0` → `mov r0,#1.0`, 3 palabras) | el sonido se corta al soltar igual: `[029D]` no da la forma de la liberación |
+| `C-PROBE2` | `[029A]` quitado de la cadena (`mul r0,r0,r1` → `mov r0,r0`, 2 palabras) | igual: el sonido se corta al soltar; `[029A]` tampoco |
+
+Lo que muestran las capturas (ventanas de 20 ms):
+* **Ataque y liberación instantáneos**: el nivel pasa de 0 a su valor completo, y de nuevo a 0, en unos 40 ms. No hay
+  cola de liberación. Con el patch INIT, la envolvente de amplitud tiene tiempos de ataque y liberación en cero.
+* **Latencia de ~0.5 s** entre el MIDI y el sonido, en los dos sentidos (la misma en ataque y liberación). No es una
+  envolvente: es la cadena o la captura.
+* **Conclusión**: ni `[029A]` ni `[029D]` son la envolvente de amplitud que se ve aquí; con el patch INIT ninguna
+  envolvente muestra forma, así que estas pruebas **no pueden identificarla**. Hace falta un patch con tiempos de
+  envolvente (ataque y liberación en el panel) para que la forma aparezca.
+* La hipótesis de §4j queda **rechazada**: `[029D]` no es la amplitud.
+
+Siguiente paso: un patch con ataque y liberación largos (panel) y repetir la captura con `C-SUB3` (sin probe) para ver
+la forma real; después comparar cada candidata con esa forma.
+
+### 4k-bis. Patch con envolvente (panel: attack 255, decay 255, sustain 0, release 0; 2026-10-21)
+
+Con estos valores la forma aparece: **ataque lento** (rms 0.0002 a 1.5 s, 0.0032 a 5.5 s), mantenimiento al nivel
+alcanzado y **liberación instantánea** (release 0). Medido con `C-PROBE2` (sin la multiplicación por `[029A]`): el ataque
+**sigue** presente, así que `[029A]` no es la envolvente de amplitud. Pendiente: medir con `C-PROBE` (`[029D]` = 1.0);
+si el ataque desaparece, `[029D]` es la de amplitud.
+
+### 4k-ter. Resultado: `[029D]` es la envolvente de amplitud (2026-10-21)
+
+Mismo patch (attack 255, decay 255, sustain 0, release 0), `C-PROBE` (`[029D]` = 1.0):
+
+| medida | con Roland (`C-SUB3`, referencia) | con `[029D]` = 1.0 |
+|---|---|---|
+| ataque | lento: 0.0002 a 1.5 s → 0.0032 a 5.5 s | **instantáneo**: 0.0032 desde el primer medio segundo |
+| liberación | instantánea (release 0) | instantánea |
+
+[medido] Conclusión: `[029D]` es la **envolvente de amplitud** (VCA). Su cadena (MAIN4, líneas 596–600): puerta
+`[A039]` → `[029C]` → `mac_p1p2c1` (tasa `0.003464`) → `max r0,r0,#0` → `[029D]`. Se multiplica en la mezcla de
+salida (`[02B2]` × `[029A]` × `[029D]`, §4j). `[029A]` queda descartada como amplitud (§4k-bis).
+
+Pendiente para reemplazarla dentro del flujo: reproducir la misma palabra `[029D]` con el mismo intervalo de muestra
+y la misma escala, a partir de la puerta `[A039]` y los tiempos del panel (`[C0xx]`), sin cambiar el número de palabras
+del programa (o ajustando los saltos).
+
+### 4k-quater. Bloque de la envolvente de amplitud, simulado (2026-10-21)
+
+Bloque original de MAIN4 (instrucciones 408–413 del listado, `programs.h` regenerado desde el plugin JX-3P sin
+sustituciones), simulado con `re/dspisa.py` (puerta `[A039]` = 1.0 desde la muestra 100, anillo de `[029E]`):
+
+* Ataque: `[029D]` sube de forma **exponencial**, 0.0069 a 101, 0.50 a 300, 0.956 a 1000 (constante ~0.00346, unas
+  290 muestras). Liberación: 0.995 → 0.837 en 50 muestras (misma constante).
+* Por tanto `[029D]` es un seguidor de un polo: `e ← e + k·(puerta − e)` con `k` fijo.
+
+**Discrepancia con el equipo** (importante): con el patch de attack 255 el ataque medido dura ~4 s y es casi
+lineal (0.0002 a 1.5 s, 0.0032 a 5.5 s). Ese tiempo **no** sale de este bloque (`k` fijo, puerta abrupta). Hipótesis
+[inferida]: el tiempo lo pone una rampa del OS aplicada al parámetro del panel con `+0xA0` (`engine.c` usa
+`p_ramp(…, ramp, …)` con tiempo de rampa) sobre una entrada de este bloque. Pendiente: confirmarlo antes de
+reemplazar la envolvente, porque un reemplazo sin esa rampa no reproduciría el tiempo del panel.
+
+### 4k-quinquies. Origen del tiempo de ataque (estático, 2026-10-21)
+
+Confirmado en el listado de MAIN0 (`dsp/dump_main.py MAIN0`):
+* Hay **dos** envolventes en MAIN0: ENV1 (ataque `C02F`, resto `C030`/`C031`/`C032`, estado `[024E]`, líneas 233–249) y
+  ENV2 (ataque `C033`, resto `C034`–`C036`, estado `[025C]`, líneas 289–305).
+* La envolvente de amplitud de DSP4 (`[029D]`, §4k-ter) recibe una **entrada constante**: `CONST` del modelo
+  (`engine/model_spec.py`) escribe `B4:0x39` = 1. Por tanto **no** puede ser ella la que da el tiempo del panel.
+* El tiempo del panel llega al sonido por una de las dos envolventes de MAIN0 (salidas MXM `8405`–`8416` → DSP2 → DSP4).
+  **Pendiente**: cuál. Se mide moviendo el ataque de cada envolvente en el panel con `C-SUB3`.
+
+#### Medida: origen del ataque lento (panel, 2026-10-21)
+
+| panel | ataque observado |
+|---|---|
+| env1 = 255, env2 = 0 | **instantáneo**: 0.0032 desde 1.5 s; sin ataque lento |
+| env1 = 0, env2 = 255 | **lento**: 0.0002 a 1.5 s → 0.0032 a 5.5 s, igual que con el patch original |
+
+[medido] Con env2 en 0 el ataque lento desaparece aunque env1 esté en 255: **el ataque lento lo da env2** (ENV2 de MAIN0,
+ataque `C033`). Confirmado con el caso contrario (env1 = 0, env2 = 255): el ataque lento vuelve. **El tiempo de ataque sale de env2 (ENV2 de MAIN0, `C033`)** [medido, dos sentidos].
+
+**Contradicción abierta**: si env2 llega a DSP4 por `[029D]`, forzar `[029D]` a 1.0 debería dar el mismo efecto que env2
+en 0, pero el constante `[A039]` = 1 daría un ataque de ~3 ms, no de 4 s. O la puerta `[A039]` no es constante, o el
+ataque entra por otra palabra de DSP4. Sin resolver.
+
+### 4k-sexies. Traza de ENV2 hasta la salida (2026-10-21)
+
+1. **MAIN0**: ENV2 (bloque líneas 289–305 del listado) calcula el valor en `r0`; líneas 46–48 lo guardan en `[025B]` y en
+   `[0261]`; `[0261]` sale por **MXM `840A`** (línea 618 del listado de MAIN0).
+2. **DSP2**: relee `800A` y lo reenvía a su Z `840A` (líneas 13–14 del listado de MAIN2). Ese es el emparejamiento
+   `800k` ↔ `840k` de §4i.
+3. **DSP4**: carga `800A` en `[2212]` (línea 12). Desde ahí entra en un filtro de primer orden con coeficientes
+   `0.9998364` / `0.9996728` y estado `[0254]` (líneas 291–294), luego en un bloque con límites (`min` 5.5, escala 0.6)
+   que termina en `[025B]` de DSP4 (líneas 336–352). La multiplicación con el audio está más abajo; no la he seguido.
+
+**Medida que separa filtro de volumen** (captura de `C-SUB3` con env1 = 0, env2 = 255, sin reinstalar):
+| t (s) | rms | centroide espectral |
+|---|---|---|
+| 1.5 | 0.00021 | 2364 Hz |
+| 3.0 | 0.00135 | 2379 Hz |
+| 5.5 | 0.00321 | 2389 Hz |
+
+El nivel sube 15 veces y el centroide no se mueve: **el ataque es de volumen (VCA), no de filtro**. Por tanto la
+envolvente de amplitud es **ENV2 de MAIN0**, y su salida llega a DSP4 por MXM.
+
+**Resuelto**: el bloque `[029D]` no es la amplitud del ataque (su entrada es constante y su ataque sería de ~3 ms).
+**Pendiente**: el punto exacto de multiplicación en DSP4 (dónde el audio se multiplica por la envolvente de ENV2), y
+por qué forzar `[029D]` a 1.0 eliminó el ataque en la prueba de `C-PROBE` (no explicado; la prueba puede haber
+cambiado algo más de lo previsto).
+
+### 4k-septies. Punto de multiplicación de ENV2 en DSP4 (2026-10-21)
+
+Listado de MAIN4 (`dsp/dump_main.py MAIN4`):
+
+| líneas | operación | qué es |
+|---|---|---|
+| 352–353 | `[025B]` ← ENV2 (resultado del filtro de §4k-sexies); luego `[025B]` × `[0243]` | ENV2 × ganancia `[0243]` |
+| 354–356 | `[025C]` × `[0246]` → `[025D]` | × ganancia `[0246]` (escrita cerca de `[0298]`, sin identificar) |
+| 665 | `[025D]` × `[02B4]` | **ENV2 multiplica la mezcla de salida** |
+
+`[02B4]` = mezcla × `[029A]` × `[029D]` (§4j, líneas 659–662). Por tanto el VCA final es:
+
+**salida = mezcla × `[029A]` × `[029D]` × ENV2 × `[0243]` × `[0246]`** (y luego × niveles del panel `[C000]`, `[C04B]`).
+
+[inferido del listado, medido en el efecto de volumen de §4k-sexies]. Consecuencia: ENV2 es uno de varios factores. La
+prueba de `[029D]` = 1.0 no debería quitar el ataque de ENV2; la contradicción de §4k-sexies sigue abierta.
+
+**Pendiente**: origen de `[0243]` y `[0246]`, y la prueba de cada factor con el mismo patch de ataque para confirmar
+la forma (ENV2 solo, sin los demás factores).
+
+### 4k-octies. Pruebas de [0243] y [0246] (2026-10-21)
+
+Método: `C-p0243` y `C-p0246` (`MC_TEST=main4=…`, MAIN4 original con la multiplicación que consume cada palabra
+sustituida por `mov r0,r0`, mismo tamaño). Patch de ataque: env1 = 0, env2 = 255.
+
+| probe | resultado (rms 1.5 → 6.0 s) |
+|---|---|
+| sin cambios (referencia) | lento: 0.0002 → 0.0032 |
+| `[0243]` consumida = 1 | **plano**: 0.0033 desde 1.5 s |
+| `[0246]` consumida = 1 | **plano**: 0.0032 desde 1.5 s |
+
+**Interpretación insegura**: quitar cualquiera de las dos elimina la rampa. Eso no encaja con dos factores
+independientes (quitar uno debería dejar la rampa del otro). Hipótesis: `[0243]` y `[0246]` forman parte de un mismo
+lazo de realimentación (ambas leen estados que escribe el propio bloque), y sustituir una consumidora cambia el
+comportamiento del lazo, no sólo un factor. **El método de quitar multiplicaciones no aísla estos factores.**
+
+Lo que sí queda firme: la rampa del ataque pasa por DSP4 en el tramo ENV2 → `[0243]`/`[0246]` → `[025D]` → salida
+(§4k-septies). Para separar los factores hace falta medir valores intermedios o reemplazar ENV2 en su origen (MAIN0).
+
+### 4l. Nombres oficiales de las envolventes (plugin JX-3P, `plugins/JX-3P/Script/Script.xml`) (2026-10-21)
+
+El XML del plugin (no usado hasta ahora; debió consultarse antes) define las secciones de parámetros:
+
+| sección XML | parámetros de envolvente | papel |
+|---|---|---|
+| `AMP` | `ENV2 ATTACK`, `ENV2 DECAY`, `ENV2 SUSTAIN`, `ENV2 RELEASE` (y `BRILLIANCE`) | **envolvente de amplitud** |
+| `FLT` | `ENV1 ATTACK`, `ENV1 DECAY`, `ENV1 SUSTAIN`, `ENV1 RELEASE`, `VCF ENV1 MOD` | **envolvente de filtro** |
+| `PIT` | `PITCH ATTACK`, `PITCH DECAY`, `DCO ENV1 MOD` | envolvente de tono |
+
+Coincide con la medida (§4k-quinquies): el ataque lento es **ENV2 = AMP**. En MAIN0, ENV2 lee `C033`–`C036` (§4k-quinquies)
+y ENV1 lee `C02F`–`C032`. Los ids numéricos de cada campo no están en el XML (se deducen del orden dentro de la
+sección); la correspondencia `C033` ↔ `ENV2 ATTACK` se confirma por la medida, no por el XML.
+
+### 4m. Ids verificados de ENV2 (2026-10-21)
+
+Verificación en tres vías, con `plugins/JX-3P/Script/Script.xml` (campos con nombre, rango y default), el INIT de
+`model/params.py` y las rutas de `engine/model_spec.py`:
+
+* **Índice del patch**: `id = 0x6A7 + índice` (en el orden de los valores del XML que tienen rango y default). Esta base
+  coincide con los 35 valores del INIT (100 %).
+* **Campos verificados**: `ENV1 ATTACK` = `0x6EF`, `ENV1 DECAY` = `0x6F0`, `ENV1 SUSTAIN` = `0x6F1` (default 255, INIT 255),
+  `ENV1 RELEASE` = `0x6F2`; **`ENV2 ATTACK` = `0x6F4`**, `ENV2 DECAY` = `0x6F5`, `ENV2 SUSTAIN` = `0x6F6` (default 255,
+  INIT 255), `ENV2 RELEASE` = `0x6F7`.
+* **Rutas en el modelo** (`model_spec.py`, líneas 158–200): el id del patch `0x6F4+stage` escribe en los parámetros del
+  DSP `0x33+stage` (`C033` ataque, `C034` decay, `C035` sustain, `C036` release). Para ENV1: `0x6EF+stage` → `0x2F+stage`.
+* **MAIN0** lee `C033`–`C036` en el bloque de ENV2 (líneas 289–305), con el mismo orden. Coincide.
+
+Nota de método: un primer recuento dio `ENV2 ATTACK` en el índice 81 porque la expresión regular incluía nombres de
+sistema sin rango ni default. El recuento correcto usa nombre, rango y default a la vez.
+
+### 4n. Cómo obtener los parámetros e ids del plugin y mapearlos al código (2026-10-21)
+
+Cadena completa, de un nombre del panel a una instrucción del DSP:
+
+| paso | fuente | herramienta / comando | qué da |
+|---|---|---|---|
+| 1. nombre, rango, default, sección | `plugins/JX-3P/Script/Script.xml` (`<structType>` → `<value>`) | `dsp/patch_ids.py` | "ENV2 ATTACK", rango 0–255, default 0, sección `AMP` |
+| 2. id del patch | base `0x6A7` + índice del XML; base verificada contra el INIT de `model/params.py` (35/35) | `dsp/patch_ids.py` | `ENV2 ATTACK` = `0x6F4` |
+| 3. qué parámetro del DSP escribe ese id | `engine/model_spec.py`, líneas 158–200: `out(pid, ramp(targets), expr)` | leer `out(...)` con ese id | `0x6F4+stage` → `0x33+stage` (`C033`…`C036`) |
+| 4. dónde lo lee el DSP | listados del programa: `dsp/dump_main.py MAIN0` (buscar `[c033]`) | `grep "\[c033\]"` en el listado | MAIN0 líneas 289–305 |
+| 5. qué hace el DSP con él | el mismo listado, con sus stores y cargas siguientes | seguir el registro hasta `st` a MXM o IOMD | ENV2 → `[0261]` → MXM `840A` |
+
+**Convenciones que hay que recordar**
+* `C0nn` en el listado = parámetro del DSP `0xnn` (escrito por el ARM con `+0xA0`, con rampa, o por el modelo).
+* `A0nn` = banco 5 del DSP (escrito por el ARM con `+0xB0`, p. ej. puerta `0x22`, tono `0x21`).
+* `[8nnn]` / `[84nn]` = ventana MXM **local** del DSP (no es la misma palabra en otro DSP; ver §4i).
+* `[6nnn]` = IOMD del BMC.
+* En el XML los ids dependen del orden: si el XML cambia (otra versión del plugin), recalcular la base con
+  `dsp/patch_ids.py` antes de confiar en ningún número.
+
+**Verificación mínima antes de usar un id**: (a) la base reproduce el INIT; (b) el default del XML coincide con el
+INIT o con el valor que el modelo usa; (c) la medida del equipo cambia como dice la sección del XML (p. ej. el
+ataque de `AMP` = ENV2, §4k-bis).
+
+**Herramientas de este documento**: `dsp/patch_ids.py` (ids), `dsp/dump_main.py` (listados con referencias de bus),
+`dsp/make_bmap.py` y `dsp/analyze_bmap.py` (medida de palabras de salida), `dsp/sim_main.py` (simulación de un programa
+completo: **todavía no validada**, las salidas de MAIN0 salen en cero; no usar para conclusiones hasta validarla).
+
+### 4o. Simulador de MAIN0 y puerta de ENV2 (2026-10-21, sin validar)
+
+`dsp/sim_main.py` ejecuta MAIN0 completo (con saltos y anillo). Resultados:
+* Con **todas** las entradas de banco 5 que lee MAIN0 (`A020`–`A04F`) en 1.0, `[0261]` (ENV2) sale 0.02. Antes salía 0
+  porque las entradas estaban a cero: el cero anterior no era un fallo del programa.
+* Búsqueda de una sola entrada a 1.0 (`A020`–`A03F`, 200 muestras): **sólo `A022`** hace responder `[0261]` (0.02).
+  `A022` es la puerta de la voz 0 en el engine (`p_bank(u, 0x22 + 0x12·k, gate)`, `engine.c`).
+* **Pero**: con `A022` a 1.0 desde la muestra 100 (no desde el inicio), `[0261]` sigue en 0 hasta la muestra 259.
+  Por tanto el 0.02 depende del estado inicial y **no** es una respuesta a la puerta. El simulador no reproduce todavía
+  la envolvente y **no** sirve para confirmar la puerta.
+
+Pendiente: confirmar `A022` en el equipo (una prueba de MAIN0 que anule esa lectura y mida si el ataque de ENV2 desaparece
+en las notas de la voz 0), y corregir el simulador (estado inicial de los estados de ENV2) antes de usarlo.
+
+### 4p. Prueba en el equipo de la puerta de ENV2 (2026-10-21, no concluyente)
+
+Probe `C-G22`: en MAIN0 la única lectura de `A022` (palabra 44, copia la puerta a `[0207]`) se cambia por `A02B`
+(constante 1.0 del engine). Resultado con una nota (69) de 3 s:
+* Antes de la nota ya hay sonido de fondo: rms 0.00214 constante (la envolvente está abierta).
+* Con la nota sube a 0.0038–0.0043 y **al soltar vuelve al fondo**: la nota sigue apagándose.
+
+Conclusión: el encendido y apagado de la nota **no** pasa sólo por `A022` → `[0207]`. La prueba no confirma que `A022`
+sea la puerta de ENV2 y no la descarta. Pendiente: encontrar el otro camino de la puerta (otra lectura de `A022` o
+de `A03x`/`A02x` en DSP2/3 por MXM) antes de identificar la puerta de ENV2.
+
 ## 5. Por qué 6020 sonaba
 
 Medido (mapa de canales, §4): `6020` llega al canal 1 de la captura y `6021` al canal 0. La prueba anterior de 880 Hz
@@ -244,6 +529,21 @@ python3 examples/from_scratch/dsp/make_bmap.py                      # programa d
 
 ## 8. Historial
 
+* 2026-10-21 (método): documentado cómo obtener ids y mapearlos al código (§4n); dsp/patch_ids.py; sim_main.py sin validar.
+* 2026-10-21 (ids): ENV2 = patch 0x6F4–0x6F7, DSP C033–C036 (verificado en XML, INIT y modelo; §4m).
+* 2026-10-21 (XML): el plugin define ENV2 = AMP (amplitud), ENV1 = FLT (filtro), PIT (tono) en Script.xml (§4l).
+* 2026-10-21 (factores): quitar [0243] o [0246] aplana el ataque; el método no aísla factores en lazo (§4k-octies).
+* 2026-10-21 (VCA): salida = mezcla × [029A] × [029D] × ENV2 × [0243] × [0246] × niveles del panel (§4k-septies).
+* 2026-10-21 (volumen): el ataque es VCA (centroide constante); la envolvente de amplitud es ENV2 de MAIN0 (§4k-sexies).
+* 2026-10-21 (origen del ataque): medido con env2 = 0: sin ataque lento; el ataque lento lo da env2 (ENV2 de MAIN0, C033).
+* 2026-10-21 (bloque): la envolvente de amplitud simulada es un seguidor de un polo con k fijo (0.00346); el tiempo del
+  panel (~4 s) no sale de este bloque: hipótesis de rampa del OS (§4k-quater).
+* 2026-10-21 (amplitud): envolvente de amplitud = [029D] (MAIN4), confirmada: al fijarla a 1.0 el ataque desaparece (§4k-ter).
+* 2026-10-21 (probes): [029D] y [029A] no son la envolvente de amplitud (la forma no cambia; con INIT no hay forma). Latencia
+  MIDI→sonido ~0.5 s (§4k).
+* 2026-10-21 (salida DSP4): VCA = mezcla × [029A] × [029D]; candidata a amplitud [029D] (puerta A039) (§4j).
+* 2026-10-21 (memoria compartida): no existe; MXM (doble buffer), IOMD (dueño), banco 5 y bus de onda; traza
+  MAIN0 → DSP2 → DSP4 de la envolvente (§4i); amplitud aún sin identificar.
 * 2026-10-21 (afinación): el desfase de ~52 cents era de la escala del fine tune del OSC2; con −128 queda ~7 cents (§4h).
 * 2026-10-21 (regla de flujo): la cadena de Roland no se cambia; `C-SUB2` (SAW propio en DCO1/DCO2) suena en las ocho notas (§4g).
 * 2026-10-21 (polifonía): cuatro voces por slave (simétrico); dos notas a la vez suenan en el slave que llega a la salida (§4f).

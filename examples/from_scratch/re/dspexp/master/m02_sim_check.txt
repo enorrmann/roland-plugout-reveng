@@ -1,0 +1,6 @@
+# validation program for dspvalid4.py (stateless, see its docstring)
+0a02 ff70 0904 0070 2800 0000 0904 1070
+24cc cccd 0902 2440 0904 3cb0 2400 0000
+0c03 afe0 0700 0c03 bfe0 0701 0c03 4fe0
+0700 0001 0902 5d01 0c03 dfe0 0702 0c03
+cfe0 0703 0a02 ff70 0b02 00f8 0001
