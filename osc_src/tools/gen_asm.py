@@ -134,6 +134,7 @@ def main(argv=None):
     with open(args.image, "rb") as f:
         img = f.read()
     funcs = sorted(set(int(x, 16) for x in open(args.functions) if x.strip()))
+    all_funcs = funcs
     if args.limit:
         funcs = funcs[:args.limit]
     os.makedirs(args.out, exist_ok=True)
@@ -159,14 +160,22 @@ def main(argv=None):
             with open(os.path.join(args.out, "fn_%08x.s" % fn), "w") as f:
                 f.write(unit(fn, [render(x) for x in insns]))
             continue
-        # byte-exact fallback
+        # Byte-exact fallback.  Any function entry that falls inside this unit
+        # gets a global label, so a call to it resolves to the right address
+        # even though the unit is a plain byte image.
+        import bisect as _bisect
+        lo = _bisect.bisect_right(all_funcs, fn)
+        hi = _bisect.bisect_left(all_funcs, end)
+        nested = all_funcs[lo:hi]
         lines = []
-        for off in range(0, len(seg), 16):
-            chunk = seg[off:off + 16]
+        for off in range(0, len(seg), 2):
+            here = fn + off
+            for x in nested:
+                if x == here:
+                    lines.append("\t.global fn_%08x" % x)
+                    lines.append("fn_%08x:" % x)
+            chunk = seg[off:off + 2]
             lines.append("\t.byte " + ", ".join("0x%02x" % b for b in chunk))
-            if off == 0:
-                lines.append("\t.global fn_%08x_body" % fn)
-                lines.append("fn_%08x_body:" % fn)
         text2 = unit(fn, lines)
         data2, err = assemble(args.work, fn, end, text2)
         if data2 is not None and data2 == seg:

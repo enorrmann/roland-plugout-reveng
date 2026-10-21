@@ -222,6 +222,21 @@ los dos canales. [medido]
 
 El slave 1 sigue sin llegar a la salida (§4e); con la voz en el slave 0 no hace falta para sonar.
 
+**Medición por audio (2026-10-21, `C-SLV`: el slave 1 sube una octava, `gate/diag/build_slv.sh`):** notas 48, 57, 64
+y 72, una a una. Nivel de cada armónico frente al suelo del espectro:
+
+| nota | f0 | 2f0 | 3f0 | 4f0 | 2f0/f0 |
+|---|---|---|---|---|---|
+| 48 | ×204 | ×88 | ×40 | ×20 | 0.43 |
+| 57 | ×181 | ×39 | ×21 | ×11 | 0.21 |
+| 64 | ×118 | ×32 | ×14 | ×9 | 0.27 |
+| 72 | ×78 | ×21 | ×12 | ×11 | 0.27 |
+
+Lectura [medido]: la fundamental de la nota está (es la del slave 0) y **no aparece una fundamental a 2f0 de nivel
+comparable**, que es lo que daría el slave 1 con la octava subida. Solo se oye el slave 0. No excluye que el slave 1
+suene muy por debajo. Las razones 2f0/f0 y 3f0/f0 no son las de un SAW ideal (0.5 y 0.33): hay un filtrado o una
+ventana que no se ha caracterizado, así que no se usan para más conclusiones.
+
 **Estado 2026-10-21 (plug-out `C-SOLO`, ocho voces en el slave 0):** las ocho voces suenan con el motor propio y sin
 código de Roland (`gate/engine_solo.c`, `dsp/make_solo.py`). El slave 1 sigue sin ruta medida hasta la salida: ninguna
 palabra de IOMD `6020`–`60FF` la lleva (§4e). Para repartir voces entre los dos slaves hace falta antes esa ruta; si el
