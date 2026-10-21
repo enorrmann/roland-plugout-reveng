@@ -1,19 +1,7 @@
 ; mono voice, DSP5 DCO1 slot. Own asm: see make_voice.py
 mov r5, #0.0:32
 mov r6, #1.0:32
-ld r7, [0691]
-ld r4, [a022]
-mov r4, r4
-subxy r1, r7, r4
-mul r2, r1, #256.0:32
-mul r2, r2, #256.0:32
-max r2, r2, r5
-min r2, r2, r6
-mul r2, r2, #0.0098:32
-add r2, #0.0002:32
-mul r1, r1, r2
-addxy r7, r7, r1
-st r7, [0690]
+mov r7, #1.0:32
 ld r3, [06a1]
 mov r4, r4
 addxy r3, r3, #0.00011458333333333333:32
@@ -64,3 +52,35 @@ st r1, [0670]
 mul r1, r1, r7
 st r1, [6020]
 st r1, [6021]
+st r1, [6000]
+st r1, [6001]
+st r1, [6002]
+st r1, [6003]
+st r1, [6004]
+st r1, [6005]
+st r1, [6006]
+st r1, [6007]
+st r1, [6008]
+st r1, [6009]
+st r1, [600a]
+st r1, [600b]
+st r1, [600c]
+st r1, [600d]
+st r1, [600e]
+st r1, [600f]
+st r1, [6010]
+st r1, [6011]
+st r1, [6012]
+st r1, [6013]
+st r1, [6014]
+st r1, [6015]
+st r1, [6016]
+st r1, [6017]
+st r1, [6018]
+st r1, [6019]
+st r1, [601a]
+st r1, [601b]
+st r1, [601c]
+st r1, [601d]
+st r1, [601e]
+st r1, [601f]

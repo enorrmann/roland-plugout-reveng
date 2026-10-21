@@ -524,13 +524,13 @@ static void e_param(engine_t *e, int id, int zero, int value)            /* vt+0
     if (id == 0x465) return;
 #endif
     if (id >= 0x429 && id < 0x429 + 8) {
-        v = id - 0x429;                              /* voice id 0..7 */
-        voice_note[v] = value;
+        v = id - 0x429 - e->first;                   /* this slave's four voices */
+        if (v >= 0 && v < 4) voice_note[v] = value;
         return;
     }
     if (id >= 0x43A && id < 0x43A + 8) {
-        v = id - 0x43A;
-        voice_gate(v, value);
+        v = id - 0x43A - e->first;
+        if (v >= 0 && v < 4) voice_gate(v, value);
         return;
     }
     int i = pidx(id);

@@ -142,8 +142,7 @@ def main(argv=None):
 
     asm_ok = byte_ok = failed = 0
     for i, fn in enumerate(funcs):
-        end = min(funcs[i + 1] if i + 1 < len(funcs) else BASE + len(img),
-                  fn + 0x10000)
+        end = funcs[i + 1] if i + 1 < len(funcs) else BASE + len(img)
         seg = img[fn - BASE:end - BASE]
         if not seg:
             continue

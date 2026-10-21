@@ -639,6 +639,43 @@ solo `[6020]` y `[6021]`. No lee IOMD ni MXM, así que no depende de lo que escr
 3. Medir la ruta `DSP2 Z 0x404 → DSP4 M 0x005` con una constante (no el SAW).
 4. Construir el plug-out sin Roland en el arranque: principal de DSP4 con la puerta, DCO nuestro en DSP2, resto vacío.
 
+## 4q. C-SOLO con filtro de voces por `first`: sólo suenan 4 notas (2026-10-21)
+
+Cambio en `gate/engine_solo.c` (`e_param`): cada slave acepta sólo sus cuatro voces, `v = id − 0x429 − first` y
+`v = id − 0x43A − first`, con descarte fuera de 0–3 (igual que `mini/engine_mini.c`). Compilado con
+`gate/build_solo.sh` e instalado como `C-SOLO` en el slot 3 (`tools/plugout_tool.py install --force`, PLG3).
+
+Resultado **[reportado por el usuario al oído, no medido con captura]**: suenan sólo 4 notas.
+
+Lectura [inferida de §4e, no medida]: las voces 0–3 son las del slave 0, que es el que llega al audio. Las voces 4–7
+son del slave 1, que no tiene ninguna palabra IOMD `6020`–`60FF` que llegue a la salida. El filtro no crea el mudo:
+lo deja al descubierto. Antes de este cambio, las ocho notas sonaban en el slave 0 porque el slave 0 las calculaba
+todas, y el filtro sólo cambia qué notas llegan a él.
+
+**Grabación de C-SOLO (2026-10-21, `mini/play_test.py`, 16 notas de 48 a 74, 1.5 s cada una) [medido]:**
+
+| nota | resultado |
+|---|---|
+| 48, 50 | mudas |
+| 52, 53, 55, 57 | suenan (+0.45 a +0.49 st) |
+| 59, 60, 62, 64 | mudas |
+| 65, 67, 69, 71 | suenan (+0.46 a +0.49 st) |
+| 72, 74 | mudas |
+
+Suenan ocho notas en dos bloques de cuatro, no cuatro. Lectura [inferida]: el asignador reparte las notas por voz
+global (ver abajo) y los bloques que suenan son los de las voces del slave 0. El desfase de +0.47 st no coincide con la
+afinación exacta de §4l; queda sin explicar.
+
+**Asignación de voces en el ARM de Roland [medido en el desensamblado]:** el asignador está en la región 0 del maestro
+(`base-engine/elf-asm/p1y01_p0m.region0.S`, `p1y01_p0m_r0_init`, bucle desde `0x61718514`). Por cada voz `v` de una
+máscara envía `0x429+v` (nota), `0x42D+v`, `0x43A+v` (velocidad) y `0x43E+v`. Los ids son globales (0–7): no hay ids
+por slave. El slave filtra por `first = 4·slave`. Nuestro `model/model.c` envía `0x429+v`, `0x43A+v`, `0x44B+v` y
+`0x45C`; no envía `0x42D+v` ni `0x43E+v`, cuyo significado no está identificado.
+
+Lo que sigue abierto: la ruta del slave 1 hasta el audio (§4e). Prueba pendiente: drone del slave 1 en
+`6000`–`601F`; no se ha lanzado porque el generador `dsp/make_voice.py` sólo escribe `6020`–`60FF` (`ALLOUT`) y el
+drone depende de notas.
+
 ## 5. Por qué 6020 sonaba
 
 Medido (mapa de canales, §4): `6020` llega al canal 1 de la captura y `6021` al canal 0. La prueba anterior de 880 Hz
@@ -702,6 +739,7 @@ python3 examples/from_scratch/dsp/make_bmap.py                      # programa d
   `60B0`–`60B7` en silencio. Corrección: la hipótesis de sobrescritura por MAIN4/MAIN5 no explica el silencio de
   `6022`–`6024`, `6060`–`6066` (MAIN4 las escribe igual que `6021`/`6063`).
 * 2026-10-21 (tarde): mapa de canales en `6020`–`6024`/`6060`–`6062`: `6020` = canal 1, `6021` = canal 0.
+* 2026-10-21 (C-SOLO con filtro `first`): instalado; el usuario reporta que sólo suenan 4 notas (§4q).
 * 2026-10-21: primera versión. Se documentan MAIN5 y MAIN4 (listado estático), la prueba IOMD y la prueba del engine
   propio. Antes de este documento la correspondencia de palabras IOMD estaba marcada como [desconocido] en
   `DSP_HARDWARE.md`; ahora está parcialmente medida.

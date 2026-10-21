@@ -67,8 +67,13 @@ def source():
     L += ['mul r2, r2, #2.0:32', 'subxy r1, r2, r1', f'st r1, [{PHASE:04x}]']
     # VCA and output
     L += ['mul r1, r1, r7', f'st r1, [{OUT:04x}]', f'st r1, [{OUT2:04x}]']   # OUT2: second route, tested per slave
-    if os.environ.get('ALLOUT'):           # diagnostic: the same signal in every IOMD word 6020-60FF (slave 1 search)
-        L += [f'st r1, [{w:04x}]' for w in range(0x6020, 0x6100) if w not in (OUT, OUT2)]
+    if os.environ.get('ALLOUT'):           # diagnostic: the same signal in every IOMD word (slave 1 search)
+        # ALLOUT=1 -> 6020-60FF; ALLOUT=6000-601F -> that range (hex, inclusive)
+        if '-' in os.environ['ALLOUT']:
+            lo, hi = (int(t, 16) for t in os.environ['ALLOUT'].split('-'))
+        else:
+            lo, hi = 0x6020, 0x60FF
+        L +=[f'st r1, [{w:04x}]' for w in range(lo, hi + 1) if w not in (OUT, OUT2)]
     return '\n'.join(L) + '\n'
 
 
