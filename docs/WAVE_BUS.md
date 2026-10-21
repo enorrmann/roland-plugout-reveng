@@ -7,6 +7,68 @@ arquitectura general: `ARCHITECTURE.md`. Este documento es el de **por dónde sa
 Etiquetas: **[medido]** = observado en el equipo o por audio USB; **[desconocido]** = sin medir;
 **[inferido]** = deducido de código de Roland (listado estático) sin prueba en el equipo.
 
+## 0. Ruta de señal que el OS usa y espera (resumen unificado, 2026-10-21)
+
+Objetivo: construir un plug-out sin programas de Roland, sabiendo qué espera el OS en cada paso.
+Antes se mantenían dos documentos sobre lo mismo; este es el único.
+
+### 0.1 Flujo de la voz (asignación por componente)
+
+Regla del usuario (2026-10-21): cada componente conserva el DSP y la ranura que Roland le asigna. El DSP de un
+componente no cambia; se reemplaza su programa en el mismo DSP y ranura.
+
+| componente | DSP | ranura | fuente |
+|---|---|---|---|
+| entrada de tono y puerta de la voz (ENV) | DSP0 / DSP1 | `0x0100` (principal) | [código] `engine.c` `note_pitch`/`note_gate` escriben banco 5 de DSP `u = lv>>1` |
+| envolvente y LFO | DSP0 / DSP1 | `0x8000` | [código] `engine.c` `slots[0..1]` |
+| oscilador DCO1 | DSP2 / DSP3 | `0x6000` | [código] `engine.c` `dco1_prog`; [medido] §4g |
+| oscilador DCO2 | DSP2 / DSP3 | `0xB000` | [código] `engine.c` `dco2_prog` |
+| filtro y VCA (velocidad) | DSP4 / DSP5 | `0x6000` / `0xB000` (efecto DSP4) | [código] `engine.c` `note_gate` escribe `d = 4+u` |
+| salida al bus de onda | DSP4 (IOMD0 `0x20–0x24`) y DSP5 (`0xB0–0xB7`) | IOMD | [documentado] `DSP_ARM_SIDE.md`; [medido] `6020` llega a la salida |
+
+### 0.2 Caminos entre DSP (MXM, banco 4)
+
+Fuente [documentado] `DSP_ARM_SIDE.md`:
+* DSP0 guarda Z `404–416` → DSP2 carga M `004–016`.
+* DSP2 guarda Z `404–41A` → DSP4 carga M `005–01A`.
+* DSP1 guarda Z `400–410` → DSP3 carga O `200–210`; DSP3 Z `400–414` → DSP5 O `201–214`.
+* Retroalimentación: DSP2 guarda M `017–019` → DSP0 carga S `617–619`.
+
+[medido] Roland MAIN2 escribe `[8404]` (`dsp/dump_main.py MAIN2`). El par DSP2→DSP4 no está medido en el equipo.
+
+### 0.3 Entradas y salidas del oscilador (direcciones de programa)
+
+Fuente: `re/dspasm.py` `SLOTS` (desde los programas SAW de Roland):
+
+| | voz A | voz B |
+|---|---|---|
+| DCO1: tono de entrada | `[2201]` | `[220E]` |
+| DCO1: salidas | `[221F]`, `[221B]` | `[2227]`, `[2223]` |
+| DCO1: estado (fase) | `0470` | `0480` |
+| DCO2: tono de entrada | `[2207]` | `[2214]` |
+| DCO2: salidas | `[2221]`, `[221D]` | `[2229]`, `[2225]` |
+
+El programa principal (MAIN2) escribe `[2201]`/`[2207]` desde el banco y el MXM, y lee las salidas de DCO para
+enviarlas a DSP4. **Nuestro SAW de prueba leía `[A021]` y escribía `[8404]`**: no sigue esta ruta. [código]
+
+### 0.4 Banco 5: lo que escribe el ARM
+
+| id de banco 5 | DSP | significado | fuente |
+|---|---|---|---|
+| `0x21` | u = lv>>1 (DSP0 o DSP1) | altura: `(nota−12)/12` | [código] `note_pitch` (engine.c) |
+| `0x22` | u | puerta de envolvente (1 al pulsar) | [código] `note_gate` (engine.c) |
+| `0x22` | 4+u (DSP4/5) | velocidad del VCA `vel/127` | [código] `note_gate` (engine.c) |
+| `0x60+lv`, `0x68+lv` | DSP5 | altura y puerta de la voz de `mini/` (`dsp/poly.hex`) | [código] `engine_mini.c` `voice_gate` |
+
+### 0.5 Qué código de Roland carga el arranque
+
+* `mini/engine_mini.c` (el que suena) carga en `e_load` los **programas principales `MAIN0`–`MAIN5` de Roland**,
+  los programas de DCO de Roland en DSP2/DSP3 (`DCO1_SAW`, `DCO1_SQR`, `DCO1_FOLD`, `DCO2_*`) y los efectos de
+  Roland en DSP4 (`fx_prog`, `swap_fx`). Su voz de DSP5 sí es nuestra (`poly.hex`). [código]
+* `gate/engine_gate.c` (el que rompe) no carga ningún programa de Roland, pero tiene vacíos los seis principales.
+
+Ver §4l para lo medido sobre cada una de estas piezas.
+
 ## 1. Piezas
 
 | pieza | qué es | fuente |
@@ -186,12 +248,25 @@ asignación de voces la hace el OS y no la controlamos desde MIDI, así que no s
 
 ## 4g. Regla de flujo y resultado con la cadena de Roland (2026-10-21)
 
-**Regla (indicación del usuario, "muy importante")**: no cambiar la cadena de DSP de Roland. El flujo lo controla el OS:
-DSP0/1 (envolventes, LFO, tono) → DSP2/3 (osciladores) → DSP4/5 (filtro y VCA) → IOMD → bus de onda. Sólo se reemplazan
-los programas de oscilador (ranuras DCO1/DCO2) y, después, el resto de programas uno a uno, siempre dentro de ese flujo.
+**Regla (indicación del usuario, "muy importante")**: cada componente de la voz conserva el DSP y la ranura que Roland
+le asignó. El DSP de un componente no cambia: un oscilador sigue en DSP2/3, un LFO o una envolvente siguen en DSP0/1,
+el filtro y el VCA siguen en DSP4/5. Dentro de esa asignación:
 
-Por qué: el engine `mini` (voz sola en DSP5, ranuras DCO vacías en DSP2/3) perdió notas y polifonía, y no tiene
-sentido seguir reemplazando la cadena. `engine/engine.c` y `build.sh` quedan sin cambios.
+* **Reemplazar** el programa de un componente en su mismo DSP y ranura está permitido (p. ej. el SAW propio en el
+  DCO1 de DSP2).
+* **Quitar** un componente deja vacía su ranura en su mismo DSP. No pasa a otro DSP.
+* **Mover** una función a otro DSP, o reunir dos funciones en un mismo DSP, no está permitido.
+
+Asignación de Roland (`engine/engine.c`, `e_load`; `docs/ARCHITECTURE.md`): DSP0/1 ranura `0x8000` (envolventes y LFO);
+DSP2/3 ranuras DCO1 `0x6000` y DCO2 `0xB000` (osciladores); DSP4 ranura DCO1 `0x6000` (filtro/VCA) y `0xB000` (efecto
+del PLUG-OUT); DSP5 ranura DCO1 `0x6000` (filtro/VCA). El flujo que controla el OS es DSP0/1 → DSP2/3 → DSP4/5 → IOMD
+→ bus de onda.
+
+Por qué: el engine `mini` del 2026-10-21 puso oscilador y VCA juntos en DSP5. Eso rompe la asignación.
+[Corrección 2026-10-21, §4l: la frase anterior sobre ranuras DCO vacías venía de una versión del motor; el motor `mini`
+real carga los DCO de Roland en DSP2/3. Lo que sí está medido es el mudo con el principal de DSP4 vacío.] `engine/engine.c` y `build.sh` quedan sin cambios.
+El plug-out `gate/` (2026-10-21) sigue la regla: oscilador SAW en DSP2 (ranura DCO1), puerta en DSP4 (ranura DCO1, la
+función de VCA), sin LFO ni envolvente (DSP0/1 vacíos).
 
 Resultado (`C-SUB2` = engine original + SAW propio en DCO1 y DCO2, `MC_TEST`): las ocho notas de prueba (48–76) suenan
 en los dos canales, con el mismo desfase constante de afinación (−11.45 st respecto a la nota esperada, ~+0.55 st
@@ -496,6 +571,51 @@ Probe `C-G22`: en MAIN0 la única lectura de `A022` (palabra 44, copia la puerta
 Conclusión: el encendido y apagado de la nota **no** pasa sólo por `A022` → `[0207]`. La prueba no confirma que `A022`
 sea la puerta de ENV2 y no la descarta. Pendiente: encontrar el otro camino de la puerta (otra lectura de `A022` o
 de `A03x`/`A02x` en DSP2/3 por MXM) antes de identificar la puerta de ENV2.
+
+## 4l. Diagnóstico del mudo y de la voz de `mini` (2026-10-21)
+
+### 4l.1 Error de diagnóstico corregido: voz equivocada
+
+Las variantes de diagnóstico `C-D4`, `C-GT3`, `C-MO`, `C-MO1` y `C-MO2` usaron `dsp/voice.hex` (voz monofónica que lee
+`[A021]`/`[A022]`). El motor `mini/` escribe la nota en el banco 5 de DSP5 con los ids `0x60+lv` y `0x68+lv`, que
+lee `dsp/poly.hex` (`mini/build.sh` copia `poly.hex` a `voice.txt`). Con `voice.hex` la voz nunca recibía nota, así que
+su silencio no dice nada sobre los DCO de DSP2/3. Las conclusiones previas sobre un "DCO2 de Roland necesario" eran
+falsas y quedan anuladas.
+
+Microcódigo de `dsp/poly.s`: lee solo su propia memoria, el banco 5 de DSP5 (`[A060]`–`[A06B]`) y el estado; escribe
+solo `[6020]` y `[6021]`. No lee IOMD ni MXM, así que no depende de lo que escriben los DCO de DSP2/3. [código]
+
+### 4l.2 Tabla de variantes en el equipo
+
+| variante | DSP2/3 DCO1 | DSP2/3 DCO2 | principales DSP0..5 | voz DSP5 | motor | resultado |
+|---|---|---|---|---|---|---|
+| C-MINI2 | Roland | Roland | Roland ×6 | `poly.hex` | `mini` | suena con notas; no rompe |
+| C-D4 | Roland | Roland | Roland ×5, DSP4 constante | `voice.hex` (incorrecta) | `mini` | sin nota en la voz; no rompe |
+| C-GATE, C-GT0/2/3 | nuestro o vacío | vacío o nuestro | vacíos ×6 | `voice.hex` o ninguna | `gate` | **rompen a todos** |
+| C-MO, C-MO1, C-MO2 | nuestro o Roland | nuestro o vacío | Roland ×6 | `voice.hex` (incorrecta) | `mini` | sin nota en la voz; no rompen |
+| C-MO3 | nuestro | nuestro sin salida | Roland ×6 | `poly.hex` (correcta) | `mini` | **suena: 48, 57, 64, 72, 76 afinadas; no rompe** (rms 3.6× menor que C-MINI2, sin explicar) |
+| C-M4 | Roland | Roland | Roland ×5, DSP4 constante | `poly.hex` | `mini` | suena con algunas notas; no rompe |
+| C-M4E | Roland | Roland | vacíos ×5, DSP4 constante | `poly.hex` | `mini` | **suena: 60, 64, 67, 72 afinadas; 48, 52, 55, 57, 76 no suenan; no rompe** |
+
+### 4l.3 Qué está medido y qué no
+
+* **Mudo total:** todas las variantes que rompen a los demás tienen el **programa principal de DSP4 vacío**. Ninguna
+  variante con el de DSP4 ocupado (constante o Roland) rompe. Es un patrón fuerte; la causa exacta no se ha aislado.
+  Además, el esqueleto `gate/` no llama a `send_state`, y eso también difiere de `mini/`. [medido por correlación]
+* **DSP0, DSP1, DSP2, DSP3 y DSP5 con el principal vacío** (C-M4E) no rompen el sistema. [medido]
+* **Nuestro oscilador en DSP2/DSP3** (DCO1 y DCO2 sin salida) no rompe y no impide que suene la voz de DSP5. [medido, C-MO3]
+* **La rampa de nivel del DCO** (`+0xA0`) es un bloque de parámetros del hardware, no lo ejecuta el programa de DCO
+  (`docs/CUSTOM_PLUGOUTS.md`). Descartada como explicación del silencio de la voz.
+* **Nivel:** `C-MO3` suena unas 3.6 veces más bajo que `C-MINI2` (rms 0.0031 frente a 0.0111). No explicado.
+* **Notas silenciosas:** el mismo patrón de notas que suenan y no suenan en `C-MINI2` aparece en `C-M4E`. Es el
+  comportamiento de asignación de voces que se dejó fuera de este análisis.
+
+### 4l.4 Qué falta medir
+
+1. Aislar qué principal de DSP4 necesita el sistema (¿el valor que escribe? ¿su programa?).
+2. Probar `send_state` en el esqueleto `gate/` y ver si el mudo desaparece sin ningún principal de Roland.
+3. Medir la ruta `DSP2 Z 0x404 → DSP4 M 0x005` con una constante (no el SAW).
+4. Construir el plug-out sin Roland en el arranque: principal de DSP4 con la puerta, DCO nuestro en DSP2, resto vacío.
 
 ## 5. Por qué 6020 sonaba
 

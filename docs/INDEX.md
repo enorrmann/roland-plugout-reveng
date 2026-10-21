@@ -84,3 +84,5 @@ A specification of the PLUG-OUT firmware and protocol, written from the evidence
 | [evidence.md](evidence.md) | Register of the evidence behind each statement. |
 | [clean-room-boundary.md](clean-room-boundary.md) | Team separation and the authorised material. |
 | [cleanroom_test-vectors_README.md](cleanroom_test-vectors_README.md) | Test vectors and their checker (`cleanroom/test-vectors/`). |
+| [WAVE_BUS.md](WAVE_BUS.md) | Ruta de señal de los plug-outs: flujo por DSP, MXM, banco 5, qué carga Roland al arrancar, mediciones de audio y diagnóstico del mudo (2026-10-21). Único documento de este tema. |
+

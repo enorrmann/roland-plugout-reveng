@@ -71,6 +71,7 @@ que se instala. `re/dspmc.py` `words()` da las palabras en orden de ejecución (
 
 - `MC_TEST=main0=fichero` (y `main1=`, …) sustituye el programa en `engine/programs.py`; el tamaño registrado sigue
   al fichero. Un programa más largo que el registrado no se ejecuta entero (`engine/build.sh`).
-- Regla vigente del usuario (2026-10-21): no cambiar la cadena DSP de Roland; sólo se reemplazan los programas de
-  los DCO (`docs/WAVE_BUS.md` §4 y `dsp-chain-roland-flow`). Un intento de desactivar ENV/LFO sin tocar MAIN0/MAIN1
+- Regla vigente del usuario (2026-10-21): cada componente conserva el DSP y la ranura que Roland le asignó (oscilador
+  en DSP2/3, LFO y envolvente en DSP0/1, filtro y VCA en DSP4/5); se reemplaza el programa en su mismo DSP y ranura, y
+  no se mueve ni se reúne con otra función (`docs/WAVE_BUS.md` §4g). Un intento de desactivar ENV/LFO sin tocar MAIN0/MAIN1
   (dejar el código, no usarlo) va primero; reemplazar MAIN0/MAIN1 es el paso siguiente, no el primero.

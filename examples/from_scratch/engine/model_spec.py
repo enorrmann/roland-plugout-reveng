@@ -133,23 +133,9 @@ out(0x6e7, osc(0x27), eabs(bip(P(0x6e7), 1.967)))
 out(0x6e7, 'B2:0x2d B2:0x3b B3:0x2d B3:0x3b', sel(P(0x6e7) >= 128, 0, 1))
 
 # ---- filter / amplifier (DSP4 voices 0/1, DSP5 voices 2/3 at +0x80) -------------------
-def vcf(a, r=3):
-    return ramp(f'P4:{a:#x} P4:{a + 0x12:#x} P5:{a + 0x80:#x} P5:{a + 0x92:#x}', r)
-out(0x6ea, vcf(0x20, 12), P(0x6ea) / 255)
-out(0x2db, vcf(0x20, 0), F(0x7e4) + (1 - F(0x7e4)) * P(0x2db) / 100)     # panel % towards 1
-out(0x7e4, vcf(0x20, 0), F(0x7e4))     # float parameter (cutoff), written as is
-out(0x6ec, vcf(0x21), P(0x6ec) / 255)
-out(0x2dd, vcf(0x21), toward(P(0x6ec), P(0x2dd)) / 255)
 out(0x6ed, ramp('P4:0x48'), curve('hpf', P(0x6ed), 6.54e-05))
 out(0x2dc, ramp('P4:0x48'), curve('hpf', toward(P(0x6ed), P(0x2dc)), 6.54e-05))
-out(0x6ee, vcf(0x27), eabs(bip(P(0x6ee), 13.5)))
 out(0x6ee, 'B4:0x26 B4:0x35 B5:0x25 B5:0x34', sel(P(0x6ee) >= 128, 0, 1))
-out(0x6d1, vcf(0x26), bip(P(0x6d1), 2.2))
-out(0x6f3, vcf(0x28), P(0x6f3) / 100 - 1.28)
-out(0x7e3, vcf(0x29), emin(P(0x7e3) / 255, 1))
-out(0x801, vcf(0x2f), emin(P(0x801) / 255, 1))
-out(0x6f8, vcf(0x2e), 0)
-out(0x6f8, vcf(0x2d), bip(P(0x6f8), 0.5))
 out(0x709, ramp('P4:0x4b'), curve('level', P(0x709), 0))
 for m, t in enumerate(('B4:0x2b B4:0x3a B5:0x2a B5:0x39', 'B4:0x2c B4:0x3b B5:0x2b B5:0x3a',
                        'B4:0x2d B4:0x3c B5:0x2c B5:0x3b')):
@@ -229,7 +215,6 @@ for t, (s0, s1) in T737.items():
 # ---- bend / modulation ----------------------------------------------------------------------
 bend_mul = (emin(P(0x700), 23) + 1) * pick(P(0x738), [1, 2, 3, 1, 1, 1])
 BEND_OSC = osc(0x23)
-BEND_VCF = vcf(0x23)
 # part switches 0x22C / 0x519 / 0x544 / 0x56E (all four rewrite the same ids): routing state
 # 0 normal (0x22C != 1); with 0x22C = 1: 1 = 0x519 is 0, 2 / 3 = 0x519 is 1 and this slave's
 # flag (0x544 slave 0, 0x56E slave 1) is / is not 1, 4 = 0x519 >= 2. Values per state for
@@ -238,9 +223,8 @@ own = per_slave(eq(P(0x544), 1), eq(P(0x56e), 1))
 state = sel(eq(P(0x22c), 1), pick(P(0x519), [1, 2 + (1 - own), 4]), 0)
 sens_on = 1 - eq(P(0x22c), 1) * (eq(P(0x519), 0) + eq(P(0x519), 1) * emax(eq(P(0x544), 1), eq(P(0x56e), 1)))
 SENS = {'P2:0x23 P2:0x39 P3:0x23 P3:0x39': P(0x739) / 255 / 12 * bend_mul,
-        'P4:0x23 P4:0x35 P5:0xa3 P5:0xb5': P(0x73a) / 255 / 12 * bend_mul,
         'P2:0x25 P2:0x3b P3:0x25 P3:0x3b': P(0x73b) / 255,
-        'P4:0x25 P4:0x37 P5:0xa5 P5:0xb7': P(0x73c) * (10 / 255)}
+}
 ROUTING = {
     'P0:0x28 P0:0x3f P1:0x28 P1:0x3f P5:0xc4': ([1, 0, 1, 1, 0], [1, 0, 1, 1, 0]),
     'P0:0x29 P0:0x41 P1:0x2a P1:0x41': ([1, 1, 1, 0, 1], [0, 1, 1, 0, 1]),
@@ -258,14 +242,11 @@ for i in (0x22c, 0x519, 0x544, 0x56e):
 # bend / modulation sensitivities: off when 0x22C = 1 and 0x519 = 0, or 0x519 = 1 with a part flag
 # set (the JX-3P caches this in its 0x22C handler; here it follows the current values)
 out(0x739, BEND_OSC, sens_on * P(0x739) / 255 / 12 * bend_mul)
-out(0x73a, BEND_VCF, sens_on * P(0x73a) / 255 / 12 * bend_mul)
 for i in (0x700, 0x738):
     out(i, BEND_OSC, sens_on * P(0x739) / 255 / 12 * bend_mul)
-    out(i, BEND_VCF, sens_on * P(0x73a) / 255 / 12 * bend_mul)
 out(0x73b, osc(0x25), sens_on * P(0x73b) / 255)
-out(0x73c, vcf(0x25), sens_on * P(0x73c) * (10 / 255))
-out(0x465, osc(0x22) + ' ' + vcf(0x22), P(0x465) * (0.03113 / 255))
-out(0x467, osc(0x24) + ' ' + vcf(0x24), P(0x467) / 255)
+out(0x465, osc(0x22), P(0x465) * (0.03113 / 255))
+out(0x467, osc(0x24), P(0x467) / 255)
 
 
 # ---- on/off switches outside the patch -------------------------------------------------------

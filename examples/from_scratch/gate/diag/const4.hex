@@ -1,0 +1,16 @@
+# diagnostic: DSP4 DCO1 constant to IOMD 6020/6021
+0a02
+ff70
+0904
+0070
+2400
+0000
+0c03
+8fe0
+6020
+0c03
+8fe0
+6021
+0b02
+00f8
+0001
