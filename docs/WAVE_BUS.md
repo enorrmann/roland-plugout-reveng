@@ -197,6 +197,21 @@ Resultado (`C-SUB2` = engine original + SAW propio en DCO1 y DCO2, `MC_TEST`): l
 en los dos canales, con el mismo desfase constante de afinación (−11.45 st respecto a la nota esperada, ~+0.55 st
 respecto a Roland; pendiente, como se acordó). [medido]
 
+## 4h. Afinación: era el fine tune del OSC2, no el SAW (2026-10-21)
+
+Medida con `C-SUB3` (DCO1 de Roland, DCO2 propio), notas 69 y 81 (limpias: la nota 45 y la 57 baten entre los dos
+osciladores y su pico no es fiable):
+
+| fine tune OSC2 | nota 69 | nota 81 | lectura |
+|---|---|---|---|
+| 0 | −11.42 st | −11.45 st | ~+0.55 st (~52 cents) por encima de lo esperado |
+| −128 | −11.93 st | −11.93 st | ~+0.07 st (~7 cents) respecto al patch con octava abajo |
+
+Conclusión [medido]: el desfase era de la escala del parámetro fine tune (−128 … +128) del OSC2 con el valor 0, no del
+SAW propio. Queda un residuo de ~7 cents con −128: pendiente de medir la escala exacta del parámetro (no es parte
+de la cadena de Roland que tocamos). El fine tune del OSC2 también afecta al DCO1 (mismo programa en la configuración
+de Roland), como indicó el usuario.
+
 ## 5. Por qué 6020 sonaba
 
 Medido (mapa de canales, §4): `6020` llega al canal 1 de la captura y `6021` al canal 0. La prueba anterior de 880 Hz
@@ -229,6 +244,7 @@ python3 examples/from_scratch/dsp/make_bmap.py                      # programa d
 
 ## 8. Historial
 
+* 2026-10-21 (afinación): el desfase de ~52 cents era de la escala del fine tune del OSC2; con −128 queda ~7 cents (§4h).
 * 2026-10-21 (regla de flujo): la cadena de Roland no se cambia; `C-SUB2` (SAW propio en DCO1/DCO2) suena en las ocho notas (§4g).
 * 2026-10-21 (polifonía): cuatro voces por slave (simétrico); dos notas a la vez suenan en el slave que llega a la salida (§4f).
 * 2026-10-21 (notas): las notas que no sonaban eran descartadas por el filtro de voces del engine; con las ocho voces en
