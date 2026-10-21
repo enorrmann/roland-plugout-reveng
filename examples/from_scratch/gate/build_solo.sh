@@ -1,5 +1,5 @@
 #!/bin/sh
-# Roland-free test plug-out: engine_solo.c (mini's engine without Roland programs) + our oscillator with gate on DSP4
+# Roland-free test plug-out: engine_solo.c (mini's engine without Roland programs) + eight voices with gate on DSP4
 # (dsp/make_solo.py) + our null DCO programs on DSP2/3 (dco2_null.hex).
 #   NAME=C-SOLO examples/from_scratch/gate/build_solo.sh
 set -e

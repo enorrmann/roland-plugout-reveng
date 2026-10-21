@@ -217,7 +217,48 @@ class Elf:
                 sym["value"] = mapping[sym["name"]]
 
 
-def place(elf, base, size):
+def global_symbols(elf, base):
+    """Defined symbols of one object, as a {name: value} map.
+
+    Every generated unit is one function (or one data run) at a fixed address,
+    so the union of the objects' symbols is the link's symbol table and a
+    cross reference resolves exactly as it did in the firmware.  A global
+    ``fn_<addr>`` or ``d_<addr>`` symbol names its own address, which is where
+    the unit was placed -- not the section-relative value as stores it.
+    """
+    out = {}
+    for sym in elf.symbols:
+        if sym["shndx"] in (0xFFF1,) or not sym["name"]:
+            continue
+        if (sym["info"] & 0xF) == STT_SECTION:
+            continue
+        name = sym["name"]
+        value = sym["value"]
+        if sym["shndx"] == 0:
+            # an undefined symbol here is a *declared* call target (see
+            # gen_asm.render): its name carries the address
+            for prefix in ("fn_", "d_"):
+                if name.startswith(prefix) and len(name) == len(prefix) + 8:
+                    try:
+                        value = int(name[len(prefix):], 16) | 1
+                    except ValueError:
+                        value = None
+                    break
+            else:
+                value = None
+            if value is None:
+                continue
+        for prefix in ("fn_", "d_"):
+            if name.startswith(prefix) and len(name) == len(prefix) + 8:
+                try:
+                    value = int(name[len(prefix):], 16) | (value & 1 or 1)
+                except ValueError:
+                    pass
+        out[name] = value
+    return out
+
+
+def place(elf, base, size, table=None):
     """Return [(image_offset, bytes)] for one object, relocations applied."""
     out = []
     allsec = {s["i"]: s for s in elf.sections}
@@ -240,10 +281,14 @@ def place(elf, base, size):
                     r_off, r_info = struct.unpack_from("<II", elf.buf, o)
                     r_add = 0
                 symi, rtype = r_info >> 8, r_info & 0xFF
-                sym = elf.symbols[symi]
+                sym = dict(elf.symbols[symi])
                 if sym["shndx"] == 0:
-                    raise ValueError("%s: symbol %r is undefined"
-                                     % (elf.path, sym["name"]))
+                    if table is not None and sym["name"] in table:
+                        sym["shndx"] = 1
+                        sym["value"] = table[sym["name"]]
+                    else:
+                        raise ValueError("%s: symbol %r is undefined"
+                                         % (elf.path, sym["name"]))
                 if (sym["info"] & 0xF) == STT_SECTION:
                     sval = allsec[sym["shndx"]]["addr"] + r_add
                 else:
@@ -301,12 +346,20 @@ def main(argv=None):
 
     image = bytearray([args.fill]) * args.size
     covered = bytearray(args.size)
-    for path in args.objects:
-        for off, data in place(Elf(path), args.base, args.size):
+    objs = [Elf(p) for p in args.objects]
+    table = {}
+    for elf in objs:
+        table.update(global_symbols(elf, args.base))
+    for path, elf in zip(args.objects, objs):
+        for off, data in place(elf, args.base, args.size, table):
             for i, b in enumerate(data):
-                if covered[off + i] and image[off + i] != b:
-                    raise SystemExit("%s: conflicting byte at %#x (%02x vs %02x)"
-                                     % (path, args.base + off + i, image[off + i], b))
+                if covered[off + i]:
+                    # an overlapping unit (a call target inside another
+                    # function) must agree with what is already placed
+                    if image[off + i] != b:
+                        raise SystemExit("%s: conflicting byte at %#x (%02x vs %02x)"
+                                         % (path, args.base + off + i, image[off + i], b))
+                    continue
                 image[off + i] = b
                 covered[off + i] = 1
     holes = args.size - sum(covered)

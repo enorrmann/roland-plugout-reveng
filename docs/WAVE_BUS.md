@@ -222,6 +222,13 @@ los dos canales. [medido]
 
 El slave 1 sigue sin llegar a la salida (§4e); con la voz en el slave 0 no hace falta para sonar.
 
+**Estado 2026-10-21 (plug-out `C-SOLO`, ocho voces en el slave 0):** las ocho voces suenan con el motor propio y sin
+código de Roland (`gate/engine_solo.c`, `dsp/make_solo.py`). El slave 1 sigue sin ruta medida hasta la salida: ninguna
+palabra de IOMD `6020`–`60FF` la lleva (§4e). Para repartir voces entre los dos slaves hace falta antes esa ruta; si el
+slave 1 llegara a la salida con las ocho voces, cada nota sonaría duplicada. El reparto correcto sería slave 0 con
+`0–3` y slave 1 con `4–7`, con el filtro por `first` de `mini/`. La ruta del slave 1 sigue abierta: candidatos sin medir
+son los pines del bus de onda (`DSP_HARDWARE.md` §11) y el banco 5 del DSP5 del slave 1.
+
 Lo que no podemos decir aún: cuál de las tres causas es. La siguiente medida debe distinguirlas: por ejemplo, un slot
 del slave 1 que escriba un valor conocido en un banco que sólo el ARM del slave 1 pueda leer (con el lab o con
 `dsplive`), o un drone del slave 1 que cambie de frecuencia al recibir su nota (si la frecuencia cambia, el DSP corre).

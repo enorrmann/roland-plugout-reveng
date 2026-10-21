@@ -303,15 +303,14 @@ static void note_pitch(engine_t *e, int lv, int note)
 
 /* four voices per slave (symmetric for both slaves): local voice lv = voice - first. Bank 5 ids of DSP5: pitch
    0x60 + lv, gate 0x68 + lv (make_poly.py). Roland's ids are not used for DSP5. */
-static int voice_note[4];
-static void voice_gate(int lv, int vel)              /* mono: the last key sounds, gate 1 while held */
+static int voice_note[8];                                 /* all eight voice ids reach this engine (WAVE_BUS 4e) */
+static void voice_gate(int lv, int vel)              /* voice lv (0..7): pitch 0x70+lv, gate 0x78+lv (make_solo.py) */
 {
-    (void)lv;
     if (vel > 0) {
-        p_bank(4, 0x70, (float)(voice_note[lv] - 12) / 12.0f);
-        p_bank(4, 0x71, 1.0f);
+        p_bank(4, 0x70 + lv, (float)(voice_note[lv] - 12) / 12.0f);
+        p_bank(4, 0x78 + lv, 1.0f);
     } else {
-        p_bank(4, 0x71, 0.0f);
+        p_bank(4, 0x78 + lv, 0.0f);
     }
 }
 
@@ -480,8 +479,10 @@ static void e_start(engine_t *e)                                         /* vt+0
     swap_dco(e, 1);
     swap_dco(e, 2);
     swap_fx(e);
-    p_bank(4, 0x70, 0.0f);                        /* pitch and gate off until a key goes down */
-    p_bank(4, 0x71, 0.0f);
+    for (int k = 0; k < 8; k++) {                 /* pitch and gate of the eight voices off until a key goes down */
+        p_bank(4, 0x70 + k, 0.0f);
+        p_bank(4, 0x74 + k, 0.0f);
+    }
 #ifdef DSPLIVE
     for (int k = 0; k < 2; k++) {            /* shadows = the programs as built; DCO1 keeps its swapped program */
         live_restore(0, k, 0);
@@ -523,14 +524,13 @@ static void e_param(engine_t *e, int id, int zero, int value)            /* vt+0
     if (id == 0x465) return;
 #endif
     if (id >= 0x429 && id < 0x429 + 8) {
-        v = id - 0x429 - e->first;                   /* this slave's four voices */
-        if (v >= 0 && v < 4) voice_note[v] = value;
+        v = id - 0x429;                              /* voice id 0..7 */
+        voice_note[v] = value;
         return;
     }
     if (id >= 0x43A && id < 0x43A + 8) {
-        v = id - 0x43A - e->first;
-        if (v >= 0 && v < 4) voice_gate(v, value);
-        else active_flags(e);                         /* a voice of the other slave */
+        v = id - 0x43A;
+        voice_gate(v, value);
         return;
     }
     int i = pidx(id);

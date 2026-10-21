@@ -79,11 +79,13 @@ def render(ins):
         # Only the 32-bit forms are emitted as text: for a narrow branch the
         # assembler would widen b<cond> into b<cond>.w and shift the whole
         # function.  Narrow branches stay as bytes.
-        # as widens a branch whose target is not yet defined, and the target
-        # of a firmware branch is only known after linking: such a branch is
-        # kept as its original bytes.  The function-level check below puts the
-        # whole function in the byte form when that is not enough.
-        return "\t.byte " + ", ".join("0x%02x" % b for b in ins.bytes)
+        # as widens a branch whose target is not yet defined, and a target is
+        # only known after linking: keep the bytes, but declare the target so
+        # that the link-time symbol table has it even when the target sits
+        # inside another unit.
+        return "\t.globl fn_%08x\n\t.byte %s" % (
+            ins.operands[0].imm & ~1,
+            ", ".join("0x%02x" % b for b in ins.bytes))
     return ("\t" + m + " " + o).rstrip()
 
 

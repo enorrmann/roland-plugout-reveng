@@ -33,26 +33,30 @@ BASE = 0x60000000
 
 
 def sweep(img: bytes, base: int = BASE):
-    """Linear Thumb-2 sweep.
+    """Linear Thumb-2 sweep with restart after every undecodable byte.
 
     Returns (mask, insns): ``mask[i]`` is 1 for every byte covered by a decoded
     instruction; ``insns`` maps image offset -> (size, mnemonic, operands).
+
+    Capstone's decoder is started at ``pos`` and runs as far as it can; when it
+    stops (a literal pool or a data table), the sweep skips one byte and starts
+    a fresh stream, which re-synchronises on the next real instruction instead
+    of drifting through the table.
     """
     md = cs.Cs(cs.CS_ARCH_ARM, cs.CS_MODE_THUMB | cs.CS_MODE_MCLASS)
     n = len(img)
     mask = bytearray(n)
     insns = {}
-    a = 0
-    while a < n - 1:
-        decoded = False
-        for ins in md.disasm(img[a:a + 4], base + a):
-            mask[a:a + ins.size] = b"\x01" * ins.size
-            insns[a] = (ins.size, ins.mnemonic, ins.op_str)
-            a += ins.size
-            decoded = True
-            break
-        if not decoded:
-            a += 1
+    pos = 0
+    while pos < n - 1:
+        progressed = False
+        for ins in md.disasm(img[pos:], base + pos):
+            mask[pos:pos + ins.size] = b"\x01" * ins.size
+            insns[pos] = (ins.size, ins.mnemonic, ins.op_str)
+            pos += ins.size
+            progressed = True
+        if not progressed:
+            pos += 1
     return mask, insns
 
 
