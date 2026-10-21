@@ -672,9 +672,39 @@ máscara envía `0x429+v` (nota), `0x42D+v`, `0x43A+v` (velocidad) y `0x43E+v`. 
 por slave. El slave filtra por `first = 4·slave`. Nuestro `model/model.c` envía `0x429+v`, `0x43A+v`, `0x44B+v` y
 `0x45C`; no envía `0x42D+v` ni `0x43E+v`, cuyo significado no está identificado.
 
-Lo que sigue abierto: la ruta del slave 1 hasta el audio (§4e). Prueba pendiente: drone del slave 1 en
-`6000`–`601F`; no se ha lanzado porque el generador `dsp/make_voice.py` sólo escribe `6020`–`60FF` (`ALLOUT`) y el
-drone depende de notas.
+Lo que sigue abierto: la ruta del slave 1 hasta el audio (§4e).
+
+**Prueba de búsqueda en `6000`–`601F` (C-S1W, 2026-10-21) — resultado: el slave 1 no llega al audio por `6000`–`601F`.**
+
+Medida [medido, 12 s de `arecord -t raw`, PLG3 seleccionado]: **440 Hz en los dos canales** (pico 70.9 dB; su segundo
+y tercer armónico en 880 y 1320 Hz, como un SAW). **660 Hz ausente**: pico 13.1 dB, igual que el suelo en 550 Hz
+(13.3 dB), unos 58 dB por debajo del 440. Lo que el slave 1 escribe en `6000`–`601F` no sale por el audio. No excluye
+que el slave 1 no esté ejecutando su voz (ver lo que sigue).
+
+Lo que esto deja sin decidir: si el DSP5 del slave 1 corre (tarea o `swap`) o si su salida llega al maestro por
+una palabra fuera de `6000`–`60FF`. La prueba de §4e ya excluía `6020`–`60FF`, así que `6000`–`60FF` completa queda
+descartada para la salida del slave 1 en las condiciones de esta prueba.
+
+Diseño de la prueba:
+* Build: `gate/diag/build_s1w.sh` (engine `gate/diag/engine_s1w.c` = copia de `mini/engine_mini.c` con un drone fijo por
+  slave: 440 Hz en el slave 0, 660 Hz en el slave 1, puerta siempre abierta, sin notas).
+* Programa de voz: `dsp/make_voice.py` con `DRONE=1 ALLOUT=6000-601F`: la misma señal en las 32 palabras `6000`–`601F`,
+  además de `6020`/`6021`.
+* Criterio: si aparece **660 Hz**, el slave 1 llega al audio por una palabra de `6000`–`601F`. Si aparece sólo 440 Hz,
+  el slave 1 no llega por ninguna palabra de `6000`–`60FF` y la ruta está en el maestro (fuera de estas palabras).
+* Efecto colateral: `build_s1w.sh` sobrescribe `re/dspexp/own/voice.txt` (el archivo que lee `mini/build.sh`); `mini/build.sh`
+  lo regenera al compilar.
+
+**Pendiente para la siguiente sesión (2026-10-22):**
+1. Decidir entre la causa A (el DSP5 del slave 1 no corre: tarea o `swap`) y la causa B (corre, pero su salida no llega
+   al maestro por ninguna palabra de `6000`–`60FF`). Propuesta: en el slave 1, escribir un valor conocido en un banco
+   que sólo lea su ARM (con `dsplive`, o un drone que cambie de frecuencia al recibir su nota).
+2. Sin medir: si el slave 1 recibe su pitch (`p_bank(5, 0x21)`) en C-S1W; no lo verificamos, así que la ausencia de
+   660 Hz también podría deberse a que el tono no se fijó.
+3. Pendiente de la comparación con Roland: significado de `0x42D+v` y `0x43E+v` en el asignador de la región 0.
+4. Sin resolver: desfase de +0.47 st en C-SOLO frente a la afinación exacta medida antes (§4l).
+5. No commit: el repo tiene cambios sin commitear en `docs/WAVE_BUS.md`, `dsp/make_voice.py`, `gate/engine_solo.c`,
+   `gate/diag/` (nuevo), `plugins/C-S1W` y `plugins/C-SOLO`. Hay además un `osc_src/NOTES.md` sin seguimiento que no creé.
 
 ## 5. Por qué 6020 sonaba
 
@@ -740,6 +770,8 @@ python3 examples/from_scratch/dsp/make_bmap.py                      # programa d
   `6022`–`6024`, `6060`–`6066` (MAIN4 las escribe igual que `6021`/`6063`).
 * 2026-10-21 (tarde): mapa de canales en `6020`–`6024`/`6060`–`6062`: `6020` = canal 1, `6021` = canal 0.
 * 2026-10-21 (C-SOLO con filtro `first`): instalado; el usuario reporta que sólo suenan 4 notas (§4q).
+* 2026-10-21 (C-S1W): drone fijo 440 Hz slave 0 / 660 Hz slave 1 con la voz en `6000`–`601F`: 440 Hz en los dos
+  canales, 660 Hz ausente (−58 dB sobre el suelo). El slave 1 no llega al audio por `6000`–`60FF` (§4q).
 * 2026-10-21: primera versión. Se documentan MAIN5 y MAIN4 (listado estático), la prueba IOMD y la prueba del engine
   propio. Antes de este documento la correspondencia de palabras IOMD estaba marcada como [desconocido] en
   `DSP_HARDWARE.md`; ahora está parcialmente medida.
