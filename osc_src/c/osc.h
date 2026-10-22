@@ -46,6 +46,11 @@ typedef void (*code)(void);         /* a function pointer, Ghidra's `code` */
 #define OSC_PA(x) (*(volatile uint32_t *)(uintptr_t)(x))
 /* a call through a word the decompiler could not type: the function whose
  * address the word holds, called with whatever the call site passes */
+/* a field of a value: ``x._j_k_`` is the k-byte field at byte j of x, an
+ * lvalue (the decompiler's decomposition of a word into bytes) */
+#define OSC_FIELD(x, j, k) \
+    (*(volatile uint8_t (*)[8])(void *)&(x))[j]
+
 /* a call through a word (a function pointer read from memory): C cannot
  * dereference a non-pointer, so this stands in for it.  It is the only thing
  * in the generated C that is not a plain operation, and a reader can find

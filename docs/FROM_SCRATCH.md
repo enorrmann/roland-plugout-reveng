@@ -113,7 +113,39 @@ una carga y un store al banco 5 por instrucción; hasta 6 transferencias por ins
 En la build, `engine/programs.py` empaqueta cada `.hex` en un array C `mc_<NOMBRE>[]` de palabras de 32 bits (la mitad
 alta primero, como en la imagen de Roland) más `MC_<NOMBRE>_BYTES`, dentro de `engine/build/programs.h`.
 
-### 3.2 Por qué el ensamblador está dentro de los `.py`
+### 3.2 Los nombres `v4m0` … `v4m5`: qué significan y dónde corre cada uno
+
+El nombre tiene tres partes: **`v4`** = versión del plug-out (v3, v4…), **`m`** = programa principal ("main", el que
+corre en la ranura `0x0100` de un DSP en cada muestra), **el dígito** = **el DSP donde corre**, 0 a 5. Así `v4m2` es el
+principal de la versión 4 que corre en el DSP2. Es la misma numeración que los principales de Roland (`MAIN0` …
+`MAIN5`, DSP0 … DSP5).
+
+| programa | DSP | voces locales | qué hace |
+|---|---|---|---|
+| `v4m0` | DSP0 | 0, 1 | toma del banco 5 el tono de las voces 0 y 1 (`A021`, `A033`) y lo manda a DSP2 por MXM (Z `404`/`405`) |
+| `v4m1` | DSP1 | 2, 3 | lo mismo para las voces 2 y 3, hacia DSP3 (Z `400`/`401`) |
+| `v4m2` | DSP2 | 0, 1 | pasa los dos tonos a las entradas de la ranura DCO2 (`[2207]`, `[2214]`), lee las dos sierras (`[2222]`, `[222A]`) y las manda a DSP4 |
+| `v4m3` | DSP3 | 2, 3 | lo mismo para las voces 2 y 3, hacia DSP5 |
+| `v4m4` | DSP4 | 0, 1 (+ 2, 3 y el otro slave) | aplica la puerta a las voces 0 y 1, suma las voces 2 y 3 que llegan de DSP5 por `A400`/`A401` y el otro slave por IOMD `6000`–`6003`, y escribe la salida `6020`/`6021` y las voces sueltas `6060`–`6063` |
+| `v4m5` | DSP5 | 2, 3 | aplica la puerta a las voces 2 y 3 y las deja en el buzón `A400`/`A401` para DSP4 |
+
+Cosas a tener en cuenta:
+
+* **El dígito sí decide dónde corre**, pero no por el nombre del fichero: decide el **índice del array** en el motor.
+  `e_load` registra `main_prog[d]` en el DSP `d` (servicio del OS `+0x40 + 4·d`, ranura `0x0100`) [código,
+  `engine_v3.c`]. Que el índice `d` es el DSP `d` está medido con C-SAWPOLY y con C-V4 (con otro orden no sonaría).
+* **Los dos slaves corren los mismos seis programas.** `v4m0` corre en el DSP0 del slave 0 (voces globales 0 y 1) y en
+  el DSP0 del slave 1 (voces 4 y 5). Lo que cambia entre slaves es qué notas les manda el motor (`lv = voz − 4·slave`).
+* **En la build se cargan con los nombres de v3.** `engine_v3.c` pide `V3M0` … `V3M5` (arrays `mc_V3M0` …).
+  `build_v4.sh` hace que esos nombres contengan los v4 (`OWN_PROGS=v3m0=v4/v4m0.hex,…`), así que `v4m2.hex` acaba en
+  `mc_V3M2`, que es `main_prog[2]`, que corre en DSP2.
+* **Programas de ranura**, que no siguen esta regla de nombres: `v3saw` (sierra, ranura DCO2 `0xB000` de DSP2 y DSP3)
+  y `dco2_null` (programa nulo, ranura DCO1 `0x6000` de DSP2 y DSP3; el nombre viene de que se escribió para DCO2).
+  En DSP0/DSP1 (ranura `0x8000`) y DSP4/DSP5 (ranuras `0x6000` y efecto `0xB000`) van programas vacíos del propio
+  motor (`mc_empty`).
+* `v4bm0` … `v4bm5` (sólo con `make_v4.py --no-ring`): la variante C-V4B. Misma regla: el dígito es el DSP.
+
+### 3.3 Por qué el ensamblador está dentro de los `.py`
 
 `make_v3.py` y `make_v4.py` no contienen programas fijos: son **generadores**. Cada principal se escribe como una
 función de Python que recibe direcciones y devuelve líneas de ensamblador. Por ejemplo `prog_pitch(name, desc, out0,

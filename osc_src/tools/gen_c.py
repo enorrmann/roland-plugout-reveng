@@ -407,6 +407,8 @@ class Rewriter:
         def reread(m):
             return self.place_token(m.group(0))
         code = SYM_RE2.sub(reread, code)
+        # an assignment to a place: the accessor is the lvalue
+
         # an absolute address the body writes to is a place: `0x70A4F540 = v`
         code = re.sub(r"(?m)^(\s*)(0x[0-9A-Fa-f]{8})\s*=", r"\1OSC_PA(\2) =", code)
         # 2a. a call whose result is used is a call to a value-returning
@@ -437,7 +439,22 @@ class Rewriter:
 
         # 3b. ``(T *)(frame + off)._3_1_``: a byte of a word, as a value
         code = re.sub(r"\(([^()]*)\)\._([0-7])_1_", r"((\1) >> 8*\2)", code)
-        code = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\.(_[0-7]_[1248]_)", r"\1", code)
+        # an assignment needs an lvalue, so a field of the left side of an
+        # assignment becomes the byte itself
+        def assign(m):
+            lhs = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\._([0-7])_([1-8])_",
+                         r"OSC_FIELD(\1, \2, \3)", m.group(2))
+            return m.group(0).replace(m.group(2), lhs)
+        code = re.sub(r"(?m)^(\s*)([A-Za-z_][A-Za-z0-9_]*(?:\._[0-7]_[1-8]_)+)\s*=(?!=)",
+                      assign, code)
+        # a field of a value read: `x._j_k_` is the k-byte value at byte j of x
+        code = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\._([0-7])_([1-8])_",
+                      lambda m: "((%s) >> %d)" % (m.group(1), 8 * int(m.group(2))), code)
+        code = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\._([0-7])_([1-8])_",
+                      lambda m: "((%s) >> %d)" % (m.group(1), 8 * int(m.group(2))), code)
+        code = re.sub(r"((?:[A-Za-z_][A-Za-z0-9_]*)?\[[^\[\]]*\])\._([0-7])_([1-8])_",
+                      lambda m: "OSC_FIELD(%s, %s, %s)" % (m.group(1), m.group(2), m.group(3)),
+                      code)
         # 3c. a call through a word: `(*(code *)x)(a)` and `(*x)(a)` are
         #     `(x)(a)` in the decompiler's notation, and C cannot call a
         #     word, so the call goes through OSC_CALL (osc.h).  The chain
@@ -448,6 +465,8 @@ class Rewriter:
         code = re.sub(r"\(\s*\*\s*\*\s*\(\s*code \*\*\s*\)\s*", "OSC_CALL_AT(", code)
         code = self.calls_through_words(code)
         code = re.sub(r"\)\s*\(", ") OSC_CALL (", code) if False else code
+        # 3d. the intrinsics take no operands in the decompiler's text
+        code = re.sub(r"\b(int3|halt_baddata)\([^()]*\)", r"\1()", code)
         # 4. Ghidra's undefined widths are the operands of a 32-bit core
         code = re.sub(r"\bundefined\b", "uint32_t", code)
         code = re.sub(r"\bundefined1\b", "uint8_t", code)
