@@ -19,7 +19,7 @@ Un PLUG-OUT del SYSTEM-8 es un fichero `Code8_<slot>.Dat` (uno por slot, 1–3) 
 | región | corre en | qué hace | nuestro código |
 |---|---|---|---|
 | 0 ("modelo") | BMC maestro | SYNINFO, lista de parámetros del panel, memoria de patches, **asignador de voces** (qué nota va a qué voz) | `model/` |
-| 1 ("motor") | los dos BMC esclavos (slave 0: voces 0–3, slave 1: voces 4–7) | carga los programas de los seis DSP del slave y traduce notas y parámetros a escrituras en el DSP | `v3/engine_v3.c` |
+| 1 ("motor") | los dos BMC esclavos (slave 0: voces globales 0–3, slave 1: voces globales 4–7; §1.1) | carga los programas de los seis DSP del slave y traduce notas y parámetros a escrituras en el DSP | `v3/engine_v3.c` |
 
 Y, dentro de la región 1, **el microcódigo de los DSP**: un programa principal por DSP (seis) y los programas de ranura
 (osciladores DCO1/DCO2 en DSP2 y DSP3; efecto en DSP4). Es lo que genera el sonido.
@@ -31,6 +31,40 @@ Y, dentro de la región 1, **el microcódigo de los DSP**: un programa principal
 
 C-V4 usa la región 0 propia de `model/` (la de C-SAW), el motor `v3/engine_v3.c` sin cambios y los seis principales de
 `v4/`. Los programas de ranura son los de v3: nuestra sierra en DCO2 y nuestro programa nulo en DCO1.
+
+### 1.1 Voces globales y voces locales
+
+No hay dos tipos de voz: es **la misma voz contada de dos maneras**, según quién la mire.
+
+* **Voz global (0–7)**: el número que usa el asignador de la región 0, en el maestro, para todo el instrumento. Es
+  el que va en el id del parámetro: nota `0x429 + v`, velocidad `0x43A + v` [código, `model/model.c`]. Es también la
+  "voz" que muestra `voicelog.py`.
+* **Voz local (0–3)**: la misma voz vista desde el slave que la toca. Cada slave tiene cuatro: el slave 0 toca las
+  globales 0–3 y el slave 1 las 4–7. El motor la calcula como `lv = v − 4·slave` (`e->first = 4 * e->slave` en
+  `engine_v3.c`) [código]. Los dos slaves corren el mismo código y los mismos programas de DSP, así que dentro de un
+  slave sólo existen las voces locales 0–3.
+
+Dentro del slave, la voz local decide los DSP y las direcciones: `u = lv >> 1` es la **pareja** (0: voces 0 y 1; 1:
+voces 2 y 3) y `k = lv & 1` es la **voz A o B** dentro de cada DSP (cada DSP de oscilador lleva dos voces).
+
+| voz global | slave | voz local `lv` | pareja `u` | A/B `k` | tono en | oscilador en | puerta en |
+|---|---|---|---|---|---|---|---|
+| 0 | 0 | 0 | 0 | A | DSP0 `A021` | DSP2 voz A | DSP4 `A02A` |
+| 1 | 0 | 1 | 0 | B | DSP0 `A033` | DSP2 voz B | DSP4 `A039` |
+| 2 | 0 | 2 | 1 | A | DSP1 `A021` | DSP3 voz A | DSP5 `A029` |
+| 3 | 0 | 3 | 1 | B | DSP1 `A033` | DSP3 voz B | DSP5 `A038` |
+| 4 | 1 | 0 | 0 | A | DSP0 `A021` del slave 1 | DSP2 voz A | DSP4 `A02A` |
+| 5 | 1 | 1 | 0 | B | DSP0 `A033` | DSP2 voz B | DSP4 `A039` |
+| 6 | 1 | 2 | 1 | A | DSP1 `A021` | DSP3 voz A | DSP5 `A029` |
+| 7 | 1 | 3 | 1 | B | DSP1 `A033` | DSP3 voz B | DSP5 `A038` |
+
+Ejemplo: la voz global 6 es la voz local 2 del slave 1. Su tono lo escribe el motor del slave 1 en el `A021` de su
+DSP1, la sierra sale de la voz A de su DSP3 y la puerta está en el `A029` de su DSP5. El asignador decide qué voz
+global toca cada nota; en modo split, la mitad superior usa las voces 4–7 [código, `model.c` `vid`].
+
+En el resto de este documento y en `VOICE_ALLOCATION.md`, "voz 0…3" sin más quiere decir voz local, salvo cuando se
+habla de `voicelog` o del slave 1, donde se dice "voz global" o se dan los números 4–7.
+
 
 ## 2. El flujo de una voz en C-V4
 
@@ -120,7 +154,7 @@ corre en la ranura `0x0100` de un DSP en cada muestra), **el dígito** = **el DS
 principal de la versión 4 que corre en el DSP2. Es la misma numeración que los principales de Roland (`MAIN0` …
 `MAIN5`, DSP0 … DSP5).
 
-| programa | DSP | voces locales | qué hace |
+| programa | DSP | voces locales (§1.1) | qué hace |
 |---|---|---|---|
 | `v4m0` | DSP0 | 0, 1 | toma del banco 5 el tono de las voces 0 y 1 (`A021`, `A033`) y lo manda a DSP2 por MXM (Z `404`/`405`) |
 | `v4m1` | DSP1 | 2, 3 | lo mismo para las voces 2 y 3, hacia DSP3 (Z `400`/`401`) |
