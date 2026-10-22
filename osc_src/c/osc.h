@@ -26,7 +26,9 @@ typedef uint64_t undefined8;
 typedef long long longlong;
 typedef unsigned long long ulonglong;
 
-typedef unsigned int uint;
+/* Ghidra's `uint` is the operand of a 32-bit core: exactly 32 bits here */
+typedef __typeof__(*(uint32_t *)0) uint;
+typedef unsigned long long undef_ull;
 typedef int32_t bool32;
 typedef unsigned short ushort;
 typedef void (*code)(void);         /* a function pointer, Ghidra's `code` */
@@ -50,14 +52,16 @@ typedef void (*code)(void);         /* a function pointer, Ghidra's `code` */
  * lvalue (the decompiler's decomposition of a word into bytes) */
 #define OSC_FIELD(x, j, k) \
     (*(volatile uint8_t (*)[8])(void *)&(x))[j]
+/* the same for a place: the byte j of the word at that address */
+#define OSC_FIELD_BYTE(p, j) (*(volatile uint8_t *)(uintptr_t)(p) + (j))
 
 /* a call through a word (a function pointer read from memory): C cannot
  * dereference a non-pointer, so this stands in for it.  It is the only thing
  * in the generated C that is not a plain operation, and a reader can find
  * every indirect call by searching for it. */
-#define OSC_CALL(fn) (*(void (*)())&(uint32_t){(uint32_t)(uintptr_t)(fn)})
+#define OSC_CALL(fn) (*(uint32_t (*)())&(uint32_t){(uint32_t)(uintptr_t)(fn)})
 /* a call through the word at an address (`(**(code **)x)(a)`) */
-#define OSC_CALL_AT(p) OSC_CALL(*(uint32_t *)(uintptr_t)(p))
+#define OSC_CALL_AT(p) OSC_CALL((uint32_t)(uintptr_t)(p))
 /* an address of the kernel's RAM for the OS: not part of this image */
 #define OSC_RAM(x) (*(volatile uint32_t *)(uintptr_t)(x))
 

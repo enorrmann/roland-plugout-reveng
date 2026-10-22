@@ -450,6 +450,9 @@ class Rewriter:
         # a field of a value read: `x._j_k_` is the k-byte value at byte j of x
         code = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\._([0-7])_([1-8])_",
                       lambda m: "((%s) >> %d)" % (m.group(1), 8 * int(m.group(2))), code)
+        # a field of a place: `OSC_PA(addr)._0_3_` is the byte at addr
+        code = re.sub(r"(OSC_P[0-9A](?:\([^()]*(?:\([^()]*\))?[^()]*\))?)\._([0-7])_([1-8])_",
+                      lambda m: "OSC_FIELD_BYTE(%s, %s)" % (m.group(1), m.group(2)), code)
         code = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)\._([0-7])_([1-8])_",
                       lambda m: "((%s) >> %d)" % (m.group(1), 8 * int(m.group(2))), code)
         code = re.sub(r"((?:[A-Za-z_][A-Za-z0-9_]*)?\[[^\[\]]*\])\._([0-7])_([1-8])_",
@@ -459,14 +462,23 @@ class Rewriter:
         #     `(x)(a)` in the decompiler's notation, and C cannot call a
         #     word, so the call goes through OSC_CALL (osc.h).  The chain
         #     `(...)(a)(b)` is the same thing twice.
+        #     OSC_CALL's value is a pointer, so a call whose result is used
+        #     still has a type: the word the callee returns.
         code = re.sub(r"(?<![0-9A-Za-z_$*])\*\s*([A-Za-z_0-9][A-Za-z0-9_]*)\s*\)\s*\(", 
                       r"OSC_CALL(\1))(", code)
+        # `((a = b), (c = d))`: a comma expression in parentheses is not an
+        # argument, and C's comma operator has to be spelled out
+        code = re.sub(r"\((\s*[A-Za-z_][A-Za-z0-9_]*\s*=[^;]*?,\s*\()", r"(\1", code)
         # `(**(code **)x)(a)`: the function pointer is the word at x
         code = re.sub(r"\(\s*\*\s*\*\s*\(\s*code \*\*\s*\)\s*", "OSC_CALL_AT(", code)
         code = self.calls_through_words(code)
         code = re.sub(r"\)\s*\(", ") OSC_CALL (", code) if False else code
         # 3d. the intrinsics take no operands in the decompiler's text
         code = re.sub(r"\b(int3|halt_baddata)\([^()]*\)", r"\1()", code)
+        # 3f. `OSC_P*(x)(a)`: a call through the word at x (C's accessor is
+        #     a value, so the call needs OSC_CALL)
+        code = re.sub(r"(OSC_P[0-9A]\((?:[^()]|\([^()]*\))*\))\s*\(",
+                      r"OSC_CALL_AT(\1)(", code)
         # 4. Ghidra's undefined widths are the operands of a 32-bit core
         code = re.sub(r"\bundefined\b", "uint32_t", code)
         code = re.sub(r"\bundefined1\b", "uint8_t", code)

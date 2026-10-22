@@ -482,3 +482,39 @@ formatos.
 Resultado 2026-10-22: `v3m0`–`v3m5`, `v4m0`–`v4m5`, `v3saw`, `dco2_null` y `engine/build/engine_0x60A00000.bin` /
 `engine_0x60C00000.bin` (la última build del motor) limpios. `hyb_*.bin` (la build híbrida antigua) contiene los 17
 programas, como era de esperar. Hay que ejecutarlo sobre la build de v4 antes de instalarla.
+
+## 8. ¿Hay un límite de voces por slave? ¿El máximo de 8 lo fija el hardware o el software? (2026-10-22)
+
+Respuesta corta: **no hay ninguna medida que muestre un límite de 8 voces en el hardware.** Las 8 voces (4 por slave)
+son una convención que aparece en varias capas de software, unas nuestras y otras de Roland. El límite que sí está
+medido es el **tiempo de cada DSP por muestra**. Si un plug-out puede pasar de 8 voces depende sobre todo de una pieza
+que no hemos probado: si el OS del maestro entrega a los slaves más de 8 ids de voz.
+
+| capa | qué fija hoy | ¿se puede cambiar en un plug-out? | evidencia |
+|---|---|---|---|
+| Región 0 (nuestra, `model/model.c`) | `NV_MAX 8`: el asignador guarda como mucho 8 voces y envía nota/velocidad en `0x429 + v` / `0x43A + v`, v = 0–7 | sí, es nuestro código | [código] |
+| OS del maestro | llama a `init`/`set_voices(n)` del asignador con el número de voces y reenvía a los slaves los parámetros de voz | **desconocido**: no sabemos qué `n` pasa ni si reenvía ids por encima de `0x430` | [código] la interfaz; el resto [abierto] |
+| Ids de parámetro de voz | los bloques empiezan cada 17 ids: `0x429` nota, `0x43A` velocidad, `0x44B` legato, `0x45C` voz más aguda | el hueco de 17 por bloque **sugiere** sitio para más de 8 voces, pero no prueba que el OS lo use | [código] los ids; [inferido] el hueco |
+| Reparto entre slaves | los **dos** slaves reciben los ocho ids de voz; cada motor se queda con 4 (`lv = v − 4·slave`) | sí, es nuestro motor | [medido] `WAVE_BUS.md` §4e (un slave aceptando las 8 voces las tocó todas); [código] `engine_v3.c` |
+| Microcódigo (disposición de Roland, la de C-V4) | 2 voces por DSP de oscilador (voces A y B de DSP2 y DSP3), es decir 4 por slave | sí: es nuestro microcódigo; el número de voces por DSP lo decide el programa | [listado] familia A; [código] v4 |
+| Salida entre slaves | Roland pasa las 4 voces del slave 1 por 4 palabras IOMD (`6000`–`6003`) | una palabra puede llevar una mezcla de varias voces, así que no limita el número | [listado]; [medido] que el enlace existe (§6.7) |
+| **Tiempo del DSP** | ≈ 925–945 instrucciones por muestra en cada DSP; pasarse deja el slave inestable hasta apagarlo | **es el límite físico real** | [medido] `DSP_HARDWARE.md` §1 |
+
+**Cuánto da el tiempo del DSP** [inferido, sin medir]: nuestro SAW hace dos voces en 66 instrucciones (≈ 33 por
+voz), así que un DSP de oscilador tendría tiempo para unas 25 sierras de ese tipo. Los osciladores de Roland son mucho
+más grandes (`DCO1_SAW` ocupa 4104 bytes para dos voces), y con filtro, envolventes y LFO el coste por voz crece. Por
+tanto, el número de voces que cabe depende de lo que haga cada voz: con voces simples, el hardware de los slaves no
+parece el límite; con voces como las del JX-3P, Roland llena el DSP con dos voces por DSP.
+
+**Qué haría falta para pasar de 8 voces:**
+1. Región 0: subir `NV_MAX` y enviar ids `0x429 + v` / `0x43A + v` con v ≥ 8.
+2. Motor: repartir las voces entre los slaves (p. ej. 6 por slave) y escribir tono y puerta en direcciones nuevas
+   del banco 5 (los ids actuales los fija la disposición de Roland, pero en v4 son nuestros).
+3. Microcódigo: más voces por DSP de oscilador (más salidas en el banco 1 o mezcla dentro del DSP) y mezclar antes de
+   pasar por MXM y por `6000`–`6003`.
+4. Comprobar en el emulador y con `sigcheck.py`, y medir con `voicelog.py`.
+
+**La medida que decide el punto abierto** (propuesta, no hecha): una región 0 con `NV_MAX 12` que asigne las notas 9 a
+12 de un acorde a las voces 8–11, y un motor que toque un tono fijo cuando recibe `0x431` (la voz 8). Si suena, el OS
+reenvía ids por encima de la voz 7 y el límite de 8 es sólo de software. Si no suena, el OS filtra los ids o no llama
+al asignador con más de 8 voces; entonces habría que buscar en el binario del OS dónde fija ese número.
