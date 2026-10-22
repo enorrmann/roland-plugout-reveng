@@ -187,6 +187,14 @@ Comandos: `cd examples/from_scratch/emu; python3 test_chain.py; python3 test_cor
 * `asm/` (capa de formato del ensamblador) y `dspisa.Layout` siguen siendo dos decodificadores; unificarlos es una
   tarea aparte (comparar los dos sobre el corpus primero; `DSP_ISA_DISCREPANCIES.md` tiene 4 puntos abiertos).
 
+* **La cadena completa del JX-3P no da audio válido** (2026-10-22, `examples/system_1_jx`, `docs/examples_system_1_jx_README.md`
+  §7): con el modelo completo y el INIT PATCH, la salida `6020` de MAIN4 es 0, enorme (511) o NaN según el corte
+  (barrido 0–255). El coeficiente del filtro sale de `expsplit` + `newton r2, #…` + un polinomio (instrucciones
+  ≈ 302–347 de MAIN4) y da valores fuera de rango (−9,6). El DCO1 empieza con la misma secuencia y, con la semántica
+  actual de `newton` (`DSP_HARDWARE.md` §5.1: lee `r2`·`r3`), depende de los registros que deja el programa
+  anterior. Una de las dos cosas: `newton` con inmediato tiene otra semántica, o Roland encadena registros entre
+  programas. Sin resolver; las pruebas de C-S1JX comparan programas entre sí (bit a bit) y no dependen de ello.
+
 ### 5.3 Siguiente: paso 2 de §4 (cargador de programas de Roland)
 
 Hoy `test_core.jx_programs()` arma el JX-3P a mano: MAIN0–5 en DSP0–5 y `DCO1_SAW` + `DCO2_SAW` en las ranuras de

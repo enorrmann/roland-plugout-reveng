@@ -85,6 +85,18 @@ the order in which those values arrive; the model follows the current values
 (what the JX-3P gives after a full refresh). The tests count those cases
 separately.
 
+## Removed from the model (2026-10-21) and where the full one is
+
+Three experiments trimmed `model_spec.py` in place: `b50213f` removed ENV-2 (C-NOENV: the VCA takes the note gate,
+see `programs.py` PATCH_SITES), `0396d20` removed ENV-1, `b440296` ("mini") removed the VCF outputs (cutoff 0x6EA /
+0x2DB / 0x7E4, resonance 0x6EC / 0x2DD, LFO 0x6D1, key follow 0x6F3, 0x7E3, 0x801, brilliance 0x6F8, bend /
+aftertouch to the filter 0x73A / 0x73C, and the VCF part of 0x465 / 0x467). The full model is the one of `013d3fe`;
+checked again on 2026-10-22 with this `test_model.py` (unchanged, importing it as `model_spec`): 0 differences in
+changes (72 sources x 4 contexts x 2 slaves) and at refresh, largest approximation error 2 %. With the current
+trimmed file `test_model.py 4` reports 92 differing (source, target) pairs and 84 ids at refresh, so the "0
+differences" above no longer holds for it. The full model lives on, unchanged, in
+`examples/system_1_jx/model_full.py` (C-S1JX, `docs/examples_system_1_jx_README.md` section 8).
+
 ## Program registration and swaps
 
 `vt+0x08` registers slots, programs and data per DSP (OS `+0x28/+0x40/+0x58 +

@@ -23,7 +23,7 @@ Código de salida 0 si cabe, 1 si no.
 | opción | por defecto | qué es |
 |---|---|---|
 | `--dco1` | `saw` | programa de la ranura DCO1 (`saw`, `sqr`) en DSP2 y DSP3 |
-| `--dco2` | `saw` | ranura DCO2 (`saw`, `sqr`, `noise`) |
+| `--dco2` | `saw` | ranura DCO2 (`saw`, `sqr`, `noise`, `none` = sin DCO2) |
 | `--fx` | ninguno | ranura de efecto del DSP4 (`od`, `ds`, `ch`, `fz`, `cr`, `ph`) |
 | `--voices` | 4 | 4 = los seis DSP de un slave; 2 = DSP0, DSP2, DSP4 |
 | `--budget` | 925 | instrucciones por muestra y DSP. 925–945 está **[medido] en el SYSTEM-8**; en el SYSTEM-1 **[abierto]** |
@@ -90,6 +90,9 @@ tampoco. No depende del presupuesto del SYSTEM-1 salvo que fuera ≥ ≈ 1030.
 Bus: esclavo → maestro 5 de 8 (3 de `S` hacia MAIN0 + 2 de audio), maestro → esclavo 19 de 20 (la modulación de
 MAIN0 hacia MAIN2). Habría que reescribir 4 enlaces MXM en el microcódigo de Roland y portar el motor ARM del JX-3P
 (o escribir uno que dé al microcódigo las mismas entradas del banco 5). [abierto]: nada de esto está probado.
+
+**Un DCO, 4 voces** (`--dco2 none`): 3098 instrucciones, cabe (maestro: MAIN2 + MAIN4 / MAIN0 + DCO1; esclavo:
+MAIN3 + MAIN5 / MAIN1 + DCO1). Hecho como C-S1JX: [../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md).
 
 Variantes por medir con la herramienta: `--dco1 sqr` (357 instrucciones por ranura), `--fx ch` (312 en DSP4).
 

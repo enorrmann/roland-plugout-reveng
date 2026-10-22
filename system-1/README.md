@@ -13,6 +13,7 @@ versión (1.30).
 | [SH101_POLY.md](SH101_POLY.md) | SH-101 (PLUG-OUT para SYSTEM-1) a 4 voces: sus dos programas DSP, servicios de carga del slave (colas por DSP, ranuras de voz), plan |
 | [../docs/examples_system_1_README.md](../docs/examples_system_1_README.md) | C-S1V4 (`examples/system_1/`): el C-V4 propio portado al SYSTEM-1; interfaz de PLUG-OUT del SYSTEM-1, cadena de audio esclavo → maestro, build y prueba |
 | [DSP_FIT.md](DSP_FIT.md) | ¿Cabe el microcódigo del JX-3P (u otro PLUG-OUT del SYSTEM-8) en los 4 DSP del SYSTEM-1? Tiempo por programa, enlaces entre DSP, reparto; resultado: 4 voces no, 2 voces sí en el papel; con un solo DCO, 4 voces caben en tiempo; §4 compara SH-101 / SH-2 / PROMARS |
+| [../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md) | C-S1JX: el microcódigo del JX-3P (un DCO, 4 voces) reubicado en los 4 DSP del SYSTEM-1; puesta en marcha, pruebas, riesgos. Construido y probado sin hardware, sin instalar |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Arquitectura: chips (maestro + 1 esclavo, 2 DSP por BMC), qué código corre dónde, flujos, ventanas de los DSP, herramientas |
 | [../docs/DSP_PROGRAM_MEMORY.md](../docs/DSP_PROGRAM_MEMORY.md) | Memoria de programa (principal, secciones, cierre) del SYSTEM-1 y del SYSTEM-8, usos y límites |
 | [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md) | Asignación de voces: del teclado a los ids `0x110+v`/`0x120+v`, reparto del sinte de serie por DSP (secciones, banco 1 por voz, modulación en el maestro), PLUG-OUTs y C-S1V4 |
@@ -48,3 +49,5 @@ Desde la raíz del repo. Necesitan `firmware/sys1_sys_v130.zip` y el plug-in en 
   [../docs/examples_system_1_README.md](../docs/examples_system_1_README.md) §2 se corrige lo de los seis DSP: cada
   BMC tiene dos (A = `FC30`, B = `FC34`); `FC38`/`FC3C` son colas de datos.
 * Instalado en el slot 1: C-S1V8 (sustituye al SH-2; se recupera con `plugout_tool.py install plugins/SH-2 --slot 1`).
+* C-S1JX (`examples/system_1_jx/`, 2026-10-22): JX-3P de Roland con un DCO a 4 voces; construido, 7 + 4 pruebas sin
+  hardware pasan; **sin instalar** ([../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md)).
