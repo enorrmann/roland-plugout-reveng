@@ -467,8 +467,9 @@ Lectura:
   correspondiente queda mudo).
 * No hubo realimentación ni ruido por sumar `6000`–`6003` (el riesgo de §6.5): línea base rms 1·10⁻⁵ antes de las
   notas.
-* En el registro, las voces 3 y 4 no tienen mensaje de nota (`kind 0`), sólo de velocidad [medido]. [inferido] El OS
-  no reenvía la nota si la voz ya la tenía de una ejecución anterior. El tono oído es el correcto, así que el motor ya tenía el valor.
+* En el registro, las voces 3 y 4 no tienen mensaje de nota (`kind 0`), sólo de velocidad [medido]. Es nuestra región
+  0: `retune` de `model/model.c` sólo envía la nota si cambia [código], y esas voces ya tenían esa nota de una
+  ejecución anterior. El tono oído es el correcto.
 
 ## 7. Comprobación de firmas (sin bytes de Roland)
 

@@ -125,7 +125,7 @@ Todas con `C-IOMD` / `C-MINI`/`C-MINI2` en slot 3 (PLG3 seleccionado) salvo que 
 
 | fecha | prueba | resultado | estado |
 |---|---|---|---|
-| 2026-10-21 | DSP5 DCO1 escribe SAW fijos en `60B0` (440), `60B1` (660), `6020` (880) | sólo **880 Hz en el canal derecho** de la captura (armónicos 1/n). `60B0` y `60B1` no llegan | [medido] (`MINI_PLUGOUT.md` §4) |
+| 2026-10-21 | DSP5 DCO1 escribe SAW fijos en `60B0` (440), `60B1` (660), `6020` (880) | sólo **880 Hz en el canal derecho** de la captura (armónicos 1/n). `60B0` y `60B1` no llegan | [medido] (`FROM_SCRATCH.md` §11) |
 | 2026-10-21 | mismo programa, reinstalado tras reinicio | igual: 880 Hz, rms 0.01269, canal izquierdo en silencio | [medido] |
 | 2026-10-21 | engine propio (`C-MINI2`), voz en DSP5 con puerta desde el ARM | sólo suenan algunas notas (60 y 64 en una ejecución; 67–76 en otra), siempre en un canal | [medido], **causa no resuelta** |
 | 2026-10-21 | drone (envolvente fija) de `C-MINI2` | tono constante 329.7 Hz = última nota de la voz; una sola voz audible | [medido] |

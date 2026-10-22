@@ -2,7 +2,7 @@
 
 Estado: **sólo el oscilador SAW (DCO2) está escrito y verificado en simulación**. No está instalado ni
 probado en el equipo, y todavía no lo llama ningún engine propio. Diario completo y decisiones:
-`../MINI_PLUGOUT.md`.
+`docs/FROM_SCRATCH.md`.
 
 ## Ficheros
 
@@ -76,11 +76,11 @@ explícitos y no una traducción literal.
 
 * Se simuló con `re/dspisa.py` mediante el mismo bucle que `dspasm.simulate` (anillo, saltos, un solo
   ejecutable por muestra). Ambos programas dan la misma diente de sierra dentro de la tolerancia de arriba.
-* Prueba de salida en el equipo (`make_iomd_test.py`, `analyze_iomd.py`, `docs/MINI_PLUGOUT.md` §4): sólo la
+* Prueba de salida en el equipo (`make_iomd_test.py`, `analyze_iomd.py`, `docs/FROM_SCRATCH.md` §11): sólo la
   palabra `6020` llega a la salida; `60B0` y `60B1` no. El SAW propio aún no tiene nota ni puerta.
 
 ## Prueba de salida (IOMD)
 
 `make_iomd_test.py` escribe tres SAW fijos (440, 660 y 880 Hz) desde el slot DCO1 del DSP5 a `60B0`, `60B1`
 y `6020`. Se registra con `engine/build.sh` usando `IOMDTEST=1 OWN_PROGS=iomd5=iomd_test.txt NAME=C-IOMD`.
-Captura de PLG3: sólo 880 Hz en el canal derecho, armónicos 1/n. Ver `docs/MINI_PLUGOUT.md` §4.
+Captura de PLG3: sólo 880 Hz en el canal derecho, armónicos 1/n. Ver `docs/FROM_SCRATCH.md` §11.
