@@ -81,6 +81,7 @@ Kept together in the `system-1/` folder (documents and scripts), at the user's r
 | [../system-1/FIRMWARE.md](../system-1/FIRMWARE.md) | SYSTEM-1 OS images (updater 1.30 unencrypted, plug-in `Code1.Dat` 1.20), extraction, known addresses. Spanish. |
 | [../system-1/VOCES_6.md](../system-1/VOCES_6.md) | 6-voice analysis: slave DSP voice programs and budget, master→slave ids, allocator sites, plan. Spanish. |
 | [../system-1/SH101_POLY.md](../system-1/SH101_POLY.md) | SH-101 PLUG-OUT on SYSTEM-1 to 4 voices: its DSP programs, the slave's program-loading services, plan. Spanish. |
+| [examples_system_1_README.md](examples_system_1_README.md) | C-S1V4: the from-scratch C-V4 ported to the SYSTEM-1 (`examples/system_1/`): the SYSTEM-1 PLUG-OUT interface (SYNINFO, vtables, DSP program queues, audio path slave → master), build, test order, open risks. Built and simulated, not yet tested on the device. Spanish. |
 
 ## Clean-room specification
 

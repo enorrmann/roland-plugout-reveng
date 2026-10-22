@@ -11,6 +11,7 @@ versión (1.30).
 | [FIRMWARE.md](FIRMWARE.md) | Fuentes del firmware (actualizador 1.30 sin cifrar, `Code1.Dat` 1.20 del plug-in), cómo se extraen, organización del maestro y del slave, direcciones conocidas (asignador, servicios, envío MIDI) |
 | [VOCES_6.md](VOCES_6.md) | Análisis para 6 voces: programas DSP de voz y su coste, ids maestro→slave, sitios del asignador, cómo se instalaría y próximos pasos |
 | [SH101_POLY.md](SH101_POLY.md) | SH-101 (PLUG-OUT para SYSTEM-1) a 4 voces: sus dos programas DSP, servicios de carga del slave (colas por DSP, ranuras de voz), plan |
+| [../docs/examples_system_1_README.md](../docs/examples_system_1_README.md) | C-S1V4 (`examples/system_1/`): el C-V4 propio portado al SYSTEM-1; interfaz de PLUG-OUT del SYSTEM-1, cadena de audio esclavo → maestro, build y prueba |
 
 ## Scripts
 
@@ -34,4 +35,7 @@ Desde la raíz del repo. Necesitan `firmware/sys1_sys_v130.zip` y el plug-in en 
   ([VOCES_6.md](VOCES_6.md) §6).
 * SH-101 a 4 voces: el SH-101 es un programa de 575 instrucciones en DSP0 (más 12 en DSP1); no caben dos voces en
   un DSP, así que harían falta copias en DSP2–DSP5 y una mezcla ([SH101_POLY.md](SH101_POLY.md)).
-* No se ha escrito ni instalado nada en el equipo.
+* C-S1V4 (`examples/system_1/`, 2026-10-22): plug-out propio de 4 voces construido y simulado, sin instalar. En
+  [../docs/examples_system_1_README.md](../docs/examples_system_1_README.md) §2 se corrige lo de los seis DSP: cada
+  BMC tiene dos (A = `FC30`, B = `FC34`); `FC38`/`FC3C` son colas de datos.
+* No se ha instalado nada en el equipo.
