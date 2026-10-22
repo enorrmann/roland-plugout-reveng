@@ -4,6 +4,10 @@ Objetivo: saber, con datos, qué programa corre en cada DSP y cómo viaja una vo
 salida), para escribir programas principales propios sin repetir errores. Este documento separa lo **verificado**
 de lo **pendiente**. Ninguna afirmación de aquí se apoya en una suposición sin marcar.
 
+> **Estado 2026-10-22:** el flujo completo del slave, las preguntas A–H y la medida de C-V4 (ocho voces con
+> microcódigo propio) están en §6; el límite de voces en §8. Donde §0–§5 dicen algo que §6 corrige, se marca en su
+> sitio. Cómo se construye el plug-out: `FROM_SCRATCH.md`.
+
 Niveles de evidencia (§0–§5; §6 tiene su propia leyenda): **[datos]** = leído de la imagen de la región 1 de un plug-out; **[listado]** = leído del
 microcódigo desensamblado (`dump_main.py`); **[ARM]** = leído del código ARM de la región 1; **[medido]** = audio en
 el equipo.
@@ -171,6 +175,8 @@ voz B (`0x680`/`0x681`, que coincide con `CUSTOM_OSC.md` §2).
 ## 3. Lo que no está verificado en JX-3P
 
 * El orden del array de descriptores → índice DSP está deducido por el tamaño, no por la función `e_load` completa.
+  **2026-10-22:** el orden `main_prog[d]` → DSP d de nuestro `e_load` está medido (C-SAWPOLY y C-V4 suenan); el
+  `e_load` de Roland sigue sin leerse.
 * El destino exacto de cada palabra de MXM dentro de los DSP (p. ej. `[2200]` frente a `[2201]`) lo fija el programa
   de la ranura DCO; no está documentado con el mismo detalle en todos los casos.
 
@@ -199,6 +205,13 @@ Sirve para medir la asignación. No es válido como plug-out sin microcódigo de
    que espera.
 4. Asumir que el microcódigo es común entre plug-outs. La tabla de la sección 2 muestra que no.
 5. Inferir la asignación sin mirar la tabla de descriptores. Esta tabla existe y se puede leer.
+6. (v3) Suponer un desfase en MXM (DSP2 Z 404 → DSP4 M 005). La palabra se conserva (§6.3 G).
+7. (v3) Leer las salidas del oscilador en la dirección en que se escriben. El banco 1 es un anillo: se leen a +1 en la
+   muestra siguiente (§6.3 D).
+8. (v3) Mandar las voces de DSP5 a `60B0`, que no se oye. Van a DSP4 por el buzón `A400` (§6.3 B).
+9. (v3) No sumar en DSP4 las entradas `6000`–`6003`, por donde llega el slave 1 (§6.3 C).
+10. Fiarse de un emulador sin una prueba que pueda fallar: el `emu/chain.py` anterior perdía todas las escrituras a
+    memoria y nadie lo notó (§6).
 
 ## 6. Flujo de datos del slave y por qué C-V3 no suena (estudio con emulador, 2026-10-22)
 
@@ -287,11 +300,11 @@ predicción del emulador para el modelo elegido **y** para el alternativo.
   deja pasar la sierra de la voz B: suena **con el tono de la voz 1**), `test_A_v3_same_with_and_without_ring`.
 * Resultado [emulador]: las tres pasan. La voz 0 "suena" en v3 sólo porque su puerta abre la sierra de la voz 1
   (con el modelo elegido; ver F para la variante "ranura primero").
-* Medida que lo confirma (propuesta, no hecha): C-V3L en poly, voz 1 con nota 57 y luego voz 0 con nota 69 (o
+* Medida que lo confirmaría (propuesta, **no hecha**; C-V3L ya no está instalado): C-V3L en poly, voz 1 con nota 57 y luego voz 0 con nota 69 (o
   `voicelog.py --groups 57 69`): se oye 220 Hz (la nota de la voz 1) mientras la puerta de la voz 0 está abierta. Si
   se oye 440 Hz, el modelo está mal. En unison todas las voces tienen la misma nota, por eso allí la afinación es
   exacta [medido].
-* Arreglo (v4): MAIN4 lee `M 004`/`M 005`.
+* Arreglo (v4): MAIN4 lee `M 004`/`M 005`. **Medido 2026-10-22:** con C-V4 suenan las voces 1 y 5 (§6.7).
 
 **B. ¿Por qué DSP3 (voces 2 y 3) no suena? ¿Llega 60B0 al audio?**
 * `60B0`–`60B7` no llegan al audio [medido, `WAVE_BUS.md` §4b, barrido con ocho SAW]. v3 manda las voces 2 y 3 a
@@ -302,7 +315,7 @@ predicción del emulador para el modelo elegido **y** para el alternativo.
 * Pruebas: `test_B_v3_voices23_only_reach_60b0` (v3: señal en 60B0, nada en 6020), `test_B_listing_pair_window`,
   `test_B_v4_pair_window_decides` (v4: voz 2 suena con la ventana; muda sin ella).
 * Resultado: pasan. Medida que lo confirma: C-V4, voces 2 y 3 (notas sueltas). Si suenan, la ventana de pareja queda
-  medida; si no, `dp_pairs` es falso.
+  medida; si no, `dp_pairs` es falso. **Medido 2026-10-22:** suenan (voces globales 2, 3, 6 y 7; §6.7).
 
 **C. ¿Por qué el slave 1 entero no suena, si con la cadena de Roland sí?**
 * v3 produce la voz del slave 1 en su propio `6020` [emulador]. Si ese `6020` se oyera, la voz 4 sonaría, y no suena
@@ -316,7 +329,7 @@ predicción del emulador para el modelo elegido **y** para el alternativo.
   `6000`–`6003`; también encaja `6020`/`6021` → `6000`/`6001`). El barrido de `WAVE_BUS.md` §4b oyó `6063` en los dos
   canales sin que nadie lo sumara, lo que C1 no explica. **Abierto.**
 * Medida propuesta: C-V4 con notas del slave 1 (voces 4–7; `voicelog.py` dice qué slave). Si suenan, C1 o su variante
-  es correcta. Para fijar la palabra: un MAIN4 que sume una sola entrada `60nn` por instalación y el motor con un
+  es correcta. **Medido 2026-10-22:** suenan las cuatro (§6.7); la palabra exacta sigue abierta. Para fijar la palabra: un MAIN4 que sume una sola entrada `60nn` por instalación y el motor con un
   tono distinto por slave (el ARM conoce `e->slave` y puede escribirlo en el banco 5).
 
 **D. ¿Quién escribe `[2220]`–`[222A]`?**
@@ -332,7 +345,7 @@ predicción del emulador para el modelo elegido **y** para el alternativo.
   sierra, porque nuestro SAW escribe también esas palabras). Por eso v3 funciona igual con o sin anillo y no sirve
   para decidirlo.
 * Medida que lo confirma: C-V4 (lee `[2222]`/`[222A]`) suena ⇒ anillo; C-V4 mudo y C-V4B (lee `[2221]`/`[2229]`)
-  suena ⇒ no hay anillo.
+  suena ⇒ no hay anillo. **Medido 2026-10-22:** C-V4 suena ⇒ anillo (§6.7).
 
 **E. ¿Comparten banco 1 DSP2 y DSP3?**
 * No, según la tabla de bancos del OS del slave (`s_boot` `0x0111C580`): bases de DT1 `0x41510000` (DSP0),

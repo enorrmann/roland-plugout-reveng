@@ -1,8 +1,8 @@
 # DSP de la voz propia: microcódigo en el lenguaje de `asm/`
 
-Estado: **sólo el oscilador SAW (DCO2) está escrito y verificado en simulación**. No está instalado ni
-probado en el equipo, y todavía no lo llama ningún engine propio. Diario completo y decisiones:
-`docs/FROM_SCRATCH.md`.
+Estado (2026-10-21): **sólo el oscilador SAW (DCO2) está escrito y verificado en simulación**. Carpeta de pruebas de
+esa época (C-IOMD, C-MINI, mapa de canales). El plug-out propio actual es C-V4 (`v4/`, ocho voces medidas); cómo se
+construye y qué es cada fichero: `docs/FROM_SCRATCH.md`.
 
 ## Ficheros
 

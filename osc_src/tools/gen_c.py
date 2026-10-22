@@ -411,6 +411,10 @@ class Rewriter:
 
         # an absolute address the body writes to is a place: `0x70A4F540 = v`
         code = re.sub(r"(?m)^(\s*)(0x[0-9A-Fa-f]{8})\s*=", r"\1OSC_PA(\2) =", code)
+        # an assignment to a place written as a pointer variable
+        # (`_DAT_x = v`): the decompiler's own notation, which C accepts
+        code = re.sub(r"(?m)^(\s*)(_[A-Za-z][A-Za-z0-9_$]*?_[0-9a-fA-F]{6,8})(\s*=)",
+                      r"\1OSC_VAR(\2)\3", code)
         # 2a. a call whose result is used is a call to a value-returning
         #     function, whatever its own body returns (the word in r0 is the
         #     value the original code takes)
@@ -437,6 +441,15 @@ class Rewriter:
         # cast expression; C cannot take the address of a label, so the call
         # goes through a statement expression
 
+        # Ghidra's local names are sometimes written with a leading underscore
+        # (`_uStack_8` for `uStack_8`): one name
+        # a local the decompiler spells with an underscore it did not declare
+        # (`_local_8` / `local_8`, `_uStack_8` / `uStack_8`): one name
+        locals_ = set(re.findall(r"(?m)^\s*(?:[A-Za-z_][A-Za-z0-9_ ]*?)\b([A-Za-z_][A-Za-z0-9_]*)\s*"
+                                 r"(?:\[|;)", code))
+        for name in list(locals_):
+            if name.startswith("_") and name[1:] in locals_:
+                code = re.sub(r"\b%s\b" % re.escape(name), name[1:], code)
         # 3b. ``(T *)(frame + off)._3_1_``: a byte of a word, as a value
         code = re.sub(r"\(([^()]*)\)\._([0-7])_1_", r"((\1) >> 8*\2)", code)
         # an assignment needs an lvalue, so a field of the left side of an
@@ -485,6 +498,7 @@ class Rewriter:
         code = re.sub(r"\bundefined2\b", "uint16_t", code)
         code = re.sub(r"\bundefined4\b", "uint32_t", code)
         code = re.sub(r"\bundefined8\b", "uint64_t", code)
+        code = re.sub(r"\bundefined(\d)\b", lambda m: "uint%d_t" % (8 * int(m.group(1))) if int(m.group(1)) in (1, 2, 4) else m.group(0), code)
         # an untyped cast `(uint *)x` and the like: the word is what moves
         code = re.sub(r"\(\s*(?:uint|ushort|uchar|byte|code|longlong|ulonglong)\s*\*\s*\)",
                       "(uint32_t *)", code)
@@ -635,7 +649,7 @@ def pass_code(d, names, out):
         body = rw.run(body)
         # the definition's name is not the macro the calls use; the file
         # declares it before defining it, so it never meets fwd.h's `()` view
-        body = "#undef %s\n#pragma GCC diagnostic push\n#pragma GCC diagnostic ignored \"-Wincompatible-pointer-types\"\n%s;\n%s\n#pragma GCC diagnostic pop\n" % (name, head, body)
+        body = "#undef %s\n#pragma GCC diagnostic push\n#pragma GCC diagnostic ignored \"-Wincompatible-pointer-types\"\n#pragma GCC diagnostic ignored \"-Wint-conversion\"\n%s;\n%s\n#pragma GCC diagnostic pop\n" % (name, head, body)
         items.append((a, name, body, rw))
     items.sort()
     runs = []

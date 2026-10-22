@@ -1,11 +1,23 @@
 # Bus de audio entre los DSP del SYSTEM-8 (slaves → maestro)
 
 Documento vivo: cada hallazgo lleva su estado y la prueba que lo sostiene. Se actualiza a medida que avanzan las
-pruebas (última revisión: 2026-10-21). Mapa de memoria general: `DSP_ARM_SIDE.md`; ISA: `DSP_ISA_SPEC.md`;
+pruebas (última revisión: 2026-10-22). Mapa de memoria general: `DSP_ARM_SIDE.md`; ISA: `DSP_ISA_SPEC.md`;
 arquitectura general: `ARCHITECTURE.md`. Este documento es el de **por dónde sale el audio**.
 
 Etiquetas: **[medido]** = observado en el equipo o por audio USB; **[desconocido]** = sin medir;
 **[inferido]** = deducido de código de Roland (listado estático) sin prueba en el equipo.
+
+> **Actualización 2026-10-22 (`VOICE_ALLOCATION.md` §6–§8, `FROM_SCRATCH.md`).** Varias conclusiones del 2026-10-21
+> de este documento quedaron superadas; se marcan en su sitio con "**Superado 2026-10-22**". En resumen:
+> * **Slave 1:** sí llega al audio, pero **a través del slave 0**: el DSP4 del slave 0 suma sus entradas IOMD
+>   `6000`–`6003`, y por ahí entra el slave 1 [medido con C-V4: ocho voces en los dos slaves]. Por eso ninguna
+>   palabra que el slave 1 escriba se oye **sola** (§4e, §4q): hace falta que el slave 0 la sume. Qué palabra del
+>   slave 1 llega a qué entrada sigue abierto.
+> * **Sí hay memoria compartida** entre los DSP de una pareja: el banco 5 `A400`–`A7FF` es un buzón (DSP5 → DSP4
+>   `A400`–`A403`, DSP4 → DSP5 `A404`–`A407`, DSP0 → DSP1 `A404`…) [listado; DSP5 → DSP4 medido con C-V4]. Corrige §4i.
+> * **DSP5 no sólo reenvía:** entrega las voces 2 y 3 a DSP4 por ese buzón; `60B0`–`60B7` siguen sin oírse.
+> * **MXM conserva el número de palabra** (Z `4nn` → M/O `nn`): "DSP2 Z `404–41A` → DSP4 M `005–01A`" son rangos de uso.
+> * **El banco 1 es un anillo** como el banco 0 y es propio de cada DSP (salvo DSP0/DSP1 en la tabla del ARM).
 
 ## 0. Ruta de señal que el OS usa y espera (resumen unificado, 2026-10-21)
 
@@ -24,17 +36,19 @@ componente no cambia; se reemplaza su programa en el mismo DSP y ranura.
 | oscilador DCO1 | DSP2 / DSP3 | `0x6000` | [código] `engine.c` `dco1_prog`; [medido] §4g |
 | oscilador DCO2 | DSP2 / DSP3 | `0xB000` | [código] `engine.c` `dco2_prog` |
 | filtro y VCA (velocidad) | DSP4 / DSP5 | `0x6000` / `0xB000` (efecto DSP4) | [código] `engine.c` `note_gate` escribe `d = 4+u` |
-| salida al bus de onda | DSP4 (IOMD0 `0x20–0x24`) y DSP5 (`0xB0–0xB7`) | IOMD | [documentado] `DSP_ARM_SIDE.md`; [medido] `6020` llega a la salida |
+| salida al bus de onda | DSP4 (IOMD0 `0x20–0x24`) y DSP5 (`0xB0–0xB7`) | IOMD | [documentado] `DSP_ARM_SIDE.md`; [medido] `6020` llega a la salida. **2026-10-22:** DSP5 entrega sus voces a DSP4 por el banco 5 `A400`–`A403`; la salida audible es sólo `6020`/`6021` de DSP4 |
 
 ### 0.2 Caminos entre DSP (MXM, banco 4)
 
 Fuente [documentado] `DSP_ARM_SIDE.md`:
 * DSP0 guarda Z `404–416` → DSP2 carga M `004–016`.
-* DSP2 guarda Z `404–41A` → DSP4 carga M `005–01A`.
+* DSP2 guarda Z `404–41A` → DSP4 carga M `005–01A` (rangos de uso: la palabra se conserva, Z `4nn` → M `nn`;
+  **2026-10-22**, `VOICE_ALLOCATION.md` §6.3 G).
 * DSP1 guarda Z `400–410` → DSP3 carga O `200–210`; DSP3 Z `400–414` → DSP5 O `201–214`.
 * Retroalimentación: DSP2 guarda M `017–019` → DSP0 carga S `617–619`.
 
 [medido] Roland MAIN2 escribe `[8404]` (`dsp/dump_main.py MAIN2`). El par DSP2→DSP4 no está medido en el equipo.
+**2026-10-22:** medido con C-V4 (DSP2 Z `404`/`405` → DSP4 M `004`/`005`).
 
 ### 0.3 Entradas y salidas del oscilador (direcciones de programa)
 
@@ -49,7 +63,8 @@ Fuente: `re/dspasm.py` `SLOTS` (desde los programas SAW de Roland):
 | DCO2: salidas | `[2221]`, `[221D]` | `[2229]`, `[2225]` |
 
 El programa principal (MAIN2) escribe `[2201]`/`[2207]` desde el banco y el MXM, y lee las salidas de DCO para
-enviarlas a DSP4. **Nuestro SAW de prueba leía `[A021]` y escribía `[8404]`**: no sigue esta ruta. [código]
+enviarlas a DSP4. **2026-10-22:** las lee en la muestra siguiente a +1 (`[2220]`, `[2222]`…, `[222A]`), porque el
+banco 1 es un anillo [medido con C-V4, `VOICE_ALLOCATION.md` §6.3 D]. **Nuestro SAW de prueba leía `[A021]` y escribía `[8404]`**: no sigue esta ruta. [código]
 
 ### 0.4 Banco 5: lo que escribe el ARM
 
@@ -213,7 +228,8 @@ Prueba: `C-MINI2` con un drone por slave, sin notas. El slave 0 toca 261.6 Hz (n
 | slave 0 (261.6 Hz) | presente en los dos canales, −40 dB, en la captura |
 | slave 1 (147.4 Hz) | **ausente** en los dos canales (−103.6 dB) |
 
-Conclusión [medido]: ninguna palabra de IOMD `6020`–`60FF` lleva la voz del slave 1 hasta la salida. Como la voz de
+Conclusión [medido]: ninguna palabra de IOMD `6020`–`60FF` lleva la voz del slave 1 hasta la salida. **Superado
+2026-10-22:** ninguna la lleva **sola**; llega cuando el DSP4 del slave 0 suma sus entradas `6000`–`6003` (C-V4). Como la voz de
 DSP5 es el mismo código en los dos slaves, el fallo está en algo que sólo depende del slave: que el slot de DSP5 no
 corra en el slave 1 (tarea o `swap`), que la escritura de banco 5 (`+0xB0`) no llegue a su DSP5, o que su salida no
 pase por IOMD (otro camino hacia el maestro, quizá el bus de onda por pines, `DSP_HARDWARE.md` §11).
@@ -224,7 +240,8 @@ del asignador en las voces `4–7` se descartaban. Al aceptar las ocho voces en 
 nota), las notas 48, 50, 60, 64, 67, 69, 72 y 76 suenan todas con la afinación exacta (−0.02 a +0.02 semitonos) en
 los dos canales. [medido]
 
-El slave 1 sigue sin llegar a la salida (§4e); con la voz en el slave 0 no hace falta para sonar.
+El slave 1 sigue sin llegar a la salida (§4e); con la voz en el slave 0 no hace falta para sonar. **Superado
+2026-10-22:** llega por las entradas `6000`–`6003` del slave 0 si su DSP4 las suma (ver la nota del principio).
 
 **Medición por audio (2026-10-21, `C-SLV`: el slave 1 sube una octava, `gate/diag/build_slv.sh`):** notas 48, 57, 64
 y 72, una a una. Nivel de cada armónico frente al suelo del espectro:
@@ -246,7 +263,8 @@ código de Roland (`gate/engine_solo.c`, `dsp/make_solo.py`). El slave 1 sigue s
 palabra de IOMD `6020`–`60FF` la lleva (§4e). Para repartir voces entre los dos slaves hace falta antes esa ruta; si el
 slave 1 llegara a la salida con las ocho voces, cada nota sonaría duplicada. El reparto correcto sería slave 0 con
 `0–3` y slave 1 con `4–7`, con el filtro por `first` de `mini/`. La ruta del slave 1 sigue abierta: candidatos sin medir
-son los pines del bus de onda (`DSP_HARDWARE.md` §11) y el banco 5 del DSP5 del slave 1.
+son los pines del bus de onda (`DSP_HARDWARE.md` §11) y el banco 5 del DSP5 del slave 1. **Superado 2026-10-22:** la
+ruta es la suma de `6000`–`6003` en el DSP4 del slave 0 [medido con C-V4].
 
 Lo que no podemos decir aún: cuál de las tres causas es. La siguiente medida debe distinguirlas: por ejemplo, un slot
 del slave 1 que escriba un valor conocido en un banco que sólo el ARM del slave 1 pueda leer (con el lab o con
@@ -314,6 +332,10 @@ de la cadena de Roland que tocamos). El fine tune del OSC2 también afecta al DC
 de Roland), como indicó el usuario.
 
 ## 4i. Memoria compartida entre DSP: no existe; mecanismos de comunicación (2026-10-21)
+
+> **Superado 2026-10-22:** sí la hay entre los dos DSP de una pareja: el banco 5 `A400`–`A7FF` (buzón; ver la nota del
+> principio). El banco 1 es propio de cada DSP salvo DSP0/DSP1, y es un anillo. Las rutas MXM conservan el número de
+> palabra (DSP2 Z `404` → DSP4 M `004`).
 
 **No hay memoria compartida** entre DSP. Cada DSP tiene sus bancos privados (DT0 ring, DT1, DT2, banco 5, programa).
 La comunicación pasa por cuatro mecanismos, todos con **latencia de una muestra** salvo el banco 5:
@@ -696,6 +718,8 @@ Diseño de la prueba:
   además de `6020`/`6021`.
 * Criterio: si aparece **660 Hz**, el slave 1 llega al audio por una palabra de `6000`–`601F`. Si aparece sólo 440 Hz,
   el slave 1 no llega por ninguna palabra de `6000`–`60FF` y la ruta está en el maestro (fuera de estas palabras).
+  **Superado 2026-10-22:** en esta prueba el slave 0 no sumaba sus entradas `6000`–`6003`; con C-V4, que las suma, el
+  slave 1 se oye. La ruta no está fuera de estas palabras: está en la suma del slave 0.
 * Efecto colateral: `build_s1w.sh` sobrescribe `re/dspexp/own/voice.txt` (el archivo que lee `mini/build.sh`); `mini/build.sh`
   lo regenera al compilar.
 
@@ -742,6 +766,9 @@ python3 examples/from_scratch/dsp/make_bmap.py                      # programa d
 
 ## 8. Historial
 
+* 2026-10-22 (C-V4, `VOICE_ALLOCATION.md` §6.7): ocho voces en los dos slaves con microcódigo propio. El slave 1 llega
+  por la suma de `6000`–`6003` en el DSP4 del slave 0; buzón de pareja `A400`… en el banco 5; banco 1 en anillo; MXM
+  conserva el número de palabra. Corrige §4e, §4i y §4q (marcados "Superado").
 * 2026-10-21 (método): documentado cómo obtener ids y mapearlos al código (§4n); dsp/patch_ids.py; sim_main.py sin validar.
 * 2026-10-21 (ids): ENV2 = patch 0x6F4–0x6F7, DSP C033–C036 (verificado en XML, INIT y modelo; §4m).
 * 2026-10-21 (XML): el plugin define ENV2 = AMP (amplitud), ENV1 = FLT (filtro), PIT (tono) en Script.xml (§4l).

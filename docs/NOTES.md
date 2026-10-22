@@ -145,7 +145,7 @@ recibir onda/tipo de efecto; nuestro engine nunca lo llamaba. Ahora `vt+0x0C` ha
 | Código del engine (región 1) | `engine/engine.c` | propio |
 | Metadatos del contenedor (`plugout.json`) | `engine/build.sh` | **propios** (antes: `unpack` del JX-3P) |
 | `Script.xml` + `Patch/` en `plugins/C-SAW` | plantilla JX-3P | **eliminados**: sin Script.xml `plugout_tool.py install` manda sólo el firmware; los 64 INIT están en la región 0 (`MODEL=jx` los sigue copiando) |
-| Microcódigo DSP (6 principales, SAW/SQR/NOISE, 6 efectos; 48 KB) | copiado del JX-3P al compilar, **estático** (`engine/programs.py`, offsets + SHA-256, sin ejecutar nada) | **pendiente**: requiere el ISA del DSP (assembler propio); el programa vacío y los bloques de datos ya son nuestros |
+| Microcódigo DSP (6 principales, SAW/SQR/NOISE, 6 efectos; 48 KB) | copiado del JX-3P al compilar, **estático** (`engine/programs.py`, offsets + SHA-256, sin ejecutar nada) | **pendiente**: requiere el ISA del DSP (assembler propio); el programa vacío y los bloques de datos ya son nuestros. **2026-10-22:** `C-V4` ya no usa microcódigo de Roland (`FROM_SCRATCH.md`) |
 | Tablas del engine (estado, curvas, rampas, velocidad, registro, cambios de programa) | antes: `gen_tables.py` ejecutaba el engine del JX-3P | **propio** (2026-10-14): modelo `engine/model_spec.py` + intérprete en `engine.c`; sin probar en hardware |
 | Patch por defecto de esas tablas | `Script.xml` del JX-3P | ya no hace falta: el engine lee los valores reales con `+0x00 get` |
 
@@ -637,6 +637,9 @@ Documento técnico completo: `CUSTOM_OSC.md`.
   que reserve 4096 palabras (el máximo de la sombra de DSPLIVE) para probar tablas más grandes en vivo.
 
 ## Posibles próximos pasos: emulador (2026-10-17, decidido dejarlo para otra sesión)
+
+> 2026-10-22: hecho en parte, sin Unicorn: `examples/from_scratch/emu/` emula los seis DSP de un slave (y dos slaves)
+> con nuestros programas, en Python (`VOICE_ALLOCATION.md` §6).
 Idea del usuario: correr los binarios ARM originales en un emulador de CPU y escribir en C sólo el DSP.
 * **Ya resuelto**: núcleos Cortex-M Thumb-2 → Unicorn (ya usado: `re/emu0.py` región 0, `re/emu1.py` región 1,
   `tools/engine_emu.py` motor base, con los servicios del OS atrapados); binarios descifrados (OS maestro núcleos
@@ -952,3 +955,15 @@ Pendiente (osciladores, cuando se retome):
 * Antialiasing por nota (apagar puntos / armónicos según el pitch) y morphing entre tablas.
 * Decisión del usuario: empezar el compilador / SDK (DSL embebido en Python: grafo, registros, estado, voces),
   validado con el laboratorio.
+
+## C-V4: plug-out propio de ocho voces (2026-10-22)
+
+Detalle en `FROM_SCRATCH.md` (cómo se construye) y `VOICE_ALLOCATION.md` §6–§8 (análisis, emulador, medida, límite de
+voces). Resumen:
+* `C-V3` sólo sonaba la voz 0. El emulador nuevo (`examples/from_scratch/emu/`, 20 pruebas) encontró tres errores en
+  nuestra cadena: el desfase de MXM que no existe, las voces de DSP5 hacia `60B0` (no se oye) y la falta de la suma de
+  `6000`–`6003` (la entrada del slave 1). Además, el banco 1 es un anillo.
+* `C-V4` (`examples/from_scratch/v4/`) corrige los tres. Medido con `voicelog.py`: 8/8 voces en los dos slaves,
+  sueltas y en acordes, ±3 cent. `emu/sigcheck.py`: sin bytes de Roland.
+* Pendiente: envolvente, filtro y LFO propios; palabras exactas del enlace entre slaves; afinación en mono; si el OS
+  admite más de 8 voces.

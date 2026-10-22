@@ -23,6 +23,11 @@ typedef unsigned char uchar;
 typedef unsigned short undefined2;
 typedef unsigned int undefined4;
 typedef uint64_t undefined8;
+/* Ghidra's odd widths (a field of three bytes and the like) */
+typedef uint32_t undefined3;
+typedef uint32_t undefined5;
+typedef uint32_t undefined6;
+typedef uint32_t undefined7;
 typedef long long longlong;
 typedef unsigned long long ulonglong;
 
@@ -48,6 +53,10 @@ typedef void (*code)(void);         /* a function pointer, Ghidra's `code` */
 #define OSC_PA(x) (*(volatile uint32_t *)(uintptr_t)(x))
 /* a call through a word the decompiler could not type: the function whose
  * address the word holds, called with whatever the call site passes */
+/* a pointer variable Ghidra wrote by address (`_DAT_602acaf4 = p`): the word
+ * at that address, assigned as the decompiler wrote it */
+#define OSC_VAR(x) (x)
+
 /* a field of a value: ``x._j_k_`` is the k-byte field at byte j of x, an
  * lvalue (the decompiler's decomposition of a word into bytes) */
 #define OSC_FIELD(x, j, k) \

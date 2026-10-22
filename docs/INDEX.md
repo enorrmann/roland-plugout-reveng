@@ -46,7 +46,7 @@ Status of each item is in the document itself; the scope of the project is in th
 | Document | What it covers |
 |---|---|
 | [FROM_SCRATCH.md](FROM_SCRATCH.md) | Plug-out propio desde cero (C-V4, ocho voces medidas): arquitectura, flujo de la voz, microcódigo (`.s`/`.hex`, por qué Python genera ensamblador), motor ARM, región 0, build, instalación, emulador, mapa de ficheros y pendientes. Sustituye a `MINI_PLUGOUT.md`. Spanish. |
-| [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md) | Asignación de voces de Roland por DSP y flujo de datos del slave (familia A), por qué C-V3 no suena (preguntas A–H con pruebas en el emulador `examples/from_scratch/emu/`), candidato v4, plan de medida y comprobación de firmas. Spanish. |
+| [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md) | Asignación de voces de Roland por DSP y flujo de datos del slave (familia A), por qué C-V3 no sonaba (preguntas A–H con pruebas en el emulador `examples/from_scratch/emu/`), C-V4 medido (ocho voces), comprobación de firmas y límite de voces. Spanish. |
 | [NOTES.md](NOTES.md) | Working notes of the from-scratch PLUG-OUT: interfaces found, what runs on the device, next steps. Spanish, unfinished. |
 | [CUSTOM_OSC.md](CUSTOM_OSC.md) | Own DSP microcode oscillator (C-SAW): description and the audio checks. |
 | [SCRIPTS.md](SCRIPTS.md) | What each script in `examples/from_scratch/re/` does and what it needs. |
@@ -86,5 +86,5 @@ A specification of the PLUG-OUT firmware and protocol, written from the evidence
 | [evidence.md](evidence.md) | Register of the evidence behind each statement. |
 | [clean-room-boundary.md](clean-room-boundary.md) | Team separation and the authorised material. |
 | [cleanroom_test-vectors_README.md](cleanroom_test-vectors_README.md) | Test vectors and their checker (`cleanroom/test-vectors/`). |
-| [WAVE_BUS.md](WAVE_BUS.md) | Ruta de señal de los plug-outs: flujo por DSP, MXM, banco 5, qué carga Roland al arrancar, mediciones de audio y diagnóstico del mudo (2026-10-21). Único documento de este tema. |
+| [WAVE_BUS.md](WAVE_BUS.md) | Ruta de señal de los plug-outs: flujo por DSP, MXM, banco 5, qué carga Roland al arrancar, mediciones de audio y diagnóstico del mudo (2026-10-21; conclusiones superadas marcadas, ruta del slave 1 y buzón de pareja actualizados el 2026-10-22). Único documento de este tema. |
 

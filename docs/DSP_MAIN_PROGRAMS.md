@@ -1,6 +1,6 @@
 # Programas principales de los DSP (MAIN0–MAIN5): qué son y dónde corren
 
-Estado: 2026-10-21. Descripción de los seis programas principales del microcódigo de voz del JX-3P (PLUG-OUT de
+Estado: 2026-10-21 (correcciones del 2026-10-22 marcadas; flujo completo en `VOICE_ALLOCATION.md` §6.2). Descripción de los seis programas principales del microcódigo de voz del JX-3P (PLUG-OUT de
 Roland), con qué parte de la voz hace cada uno y en qué DSP corre. Las etiquetas: **[medido]** = observado en el
 equipo o por audio; **[inferido]** = deducido del listado estático de Roland, sin prueba en el equipo;
 **[abierto]** = sin resolver.
@@ -39,7 +39,9 @@ Un BMC esclavo tiene seis DSP (DSP0..DSP5) que comparten IOMD y MXM con sus veci
 Fuente: `docs/ARCHITECTURE.md` (tabla de slaves) y `docs/WAVE_BUS.md` §2–§3 (listados de MAIN4/MAIN5).
 
 **Qué no está resuelto:**
-- **[abierto]** En qué esclavo corre MAIN0 y en cuál MAIN1 (`docs/SLAVE_DSP_READBACK.md` paso 4).
+- ~~**[abierto]** En qué esclavo corre MAIN0 y en cuál MAIN1~~ **Resuelto 2026-10-22:** los dos slaves corren los seis
+  principales; MAIN0 en el DSP0 y MAIN1 en el DSP1 de **cada** slave (voces locales 0–1 y 2–3) [código `e_load`;
+  medido con C-SAWPOLY y C-V4, `VOICE_ALLOCATION.md` §6].
 - **[abierto]** El camino completo de la envolvente de amplitud: ENV2 de MAIN0 → DSP2 → DSP4 (`[0261]` → MXM `840A`
   → `[029D]`), con una contradicción señalada en `WAVE_BUS.md` (§4k-ter, línea 348).
 - **[abierto]** Por qué sólo algunas palabras de salida llegan al audio (`WAVE_BUS.md` §5).

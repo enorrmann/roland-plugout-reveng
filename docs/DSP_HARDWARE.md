@@ -271,6 +271,9 @@ La vista RAW del ARM del banco 0 también es relativa al anillo: el ARM no puede
 Registros compartidos (lo que deja un programa lo ve el siguiente), banco 1 (`22nn`, p. ej. entradas de las
 ranuras DCO `2207`, `2209`–`220c`), banco 5 (`a1fe`/`a2fe` en las ranuras de efectos del maestro). **[medido /
 inferido]**
+**2026-10-22** [medido con C-V4]: el principal corre antes que las ranuras; escribe la entrada (`[2207]`) y la ranura
+la lee en la misma muestra y dirección; la ranura escribe la salida (`[2221]`) y el principal la lee en `[2222]` en
+la muestra siguiente, porque el banco 1 es un anillo (`VOICE_ALLOCATION.md` §6.3 D/F).
 
 ### 8.2 Entre DSP del mismo BMC: MXM (banco 4) **[medido en el maestro, DSP3 ↔ DSP4]**
 * Son loads y stores comunes a las zonas M (`80nn`/`81nn`), O (`82nn`/`83nn`), Z (`84nn`/`85nn`), S
@@ -286,6 +289,13 @@ inferido]**
 * Topología de los programas de voz (estático, igual en todos los sintetizadores): DSP0/1 → DSP2/3 → DSP4/5 →
   IOMD; zonas de entrada M ← Z del DSP par del par anterior, O ← Z del DSP impar; S = retorno desde el DSP dos
   posiciones adelante (DSP2 M → DSP0 S, DSP4 M → DSP2 S). **[inferido del corpus; la parte DSP3/DSP4 medida]**
+  **2026-10-22:** en los slaves medido con C-V4: DSP0 → DSP2 M, DSP1 → DSP3 O, DSP2 Z `4nn` → DSP4 M `nn`, DSP3 → DSP5 O,
+  con el mismo número de palabra (`VOICE_ALLOCATION.md` §6.7).
+* **Buzón de pareja (banco 5 `A400`–`A7FF`)** [listado; DSP5 → DSP4 medido con C-V4]: otra vía entre los dos DSP de
+  una pareja, además de MXM. DSP5 → DSP4 `A400`–`A403`, DSP4 → DSP5 `A404`–`A407`, DSP0 → DSP1 `A404`… (§7.1,
+  `VOICE_ALLOCATION.md` §6.2).
+* **Entre slaves** [medido con C-V4]: el slave 1 llega al audio cuando el DSP4 del slave 0 suma sus entradas IOMD
+  `6000`–`6003`. Qué palabra del slave 1 va a cada entrada: abierto.
 
 ### 8.3 IOMD (banco 3): E/S del BMC **[medido parcialmente]**
 * No es memoria compartida: cada palabra es una entrada o una salida, con un DSP dueño configurado por el ARM. Las
@@ -359,7 +369,8 @@ ARM, y el lado ARM (cuándo y cómo se escriben parámetros y voces). Para tiemp
    transferencia `9e` y los "de otra memoria" (`e0`, `e1`, `8x`, `bx`, `cx`, `d8`/`d9`/`dc`/`dd`…; mapa en
    `re/dspmodescan.py`), zona 0x400–0x7FF del banco 5, nibble e bits 7–6 = 10.
 4. Línea de retardo: largo, ventanas en otras ranuras / DSP, oírla por la salida.
-5. IOMD: qué palabra conecta con qué; bus de onda entre BMC; DT1 compartido por el par (sin medir); MXM en los
+5. IOMD: qué palabra conecta con qué; bus de onda entre BMC (el slave 1 entra por `6000`–`6003` del slave 0, palabras
+   exactas sin medir); DT1 compartido sólo por DSP0/DSP1 según la tabla del ARM (sin medir); MXM en los
    slaves (sólo estático) y zonas M/Z del maestro más allá del par DSP3/DSP4.
 6. DSPM (sin estudiar).
 7. Por qué un programa que se pasa del presupuesto deja inestables a los slaves.

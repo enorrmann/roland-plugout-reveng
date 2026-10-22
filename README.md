@@ -39,13 +39,15 @@ What this project is not:
 | Region 0 init hook reading OS RAM and the SD card | works | `examples/mem_name`, `examples/sd_txt` |
 | Own C engine and own region 0 (parameter model), own packaging | plays | `examples/from_scratch/`, `docs/examples_from_scratch_engine_README.md` |
 | Own DSP microcode: sawtooth oscillator at 96 kHz (±1.2 cents) | works | `docs/CUSTOM_OSC.md` |
+| `C-V4`: fully own PLUG-OUT (own region 0, engine and all six main DSP programs, no Roland microcode), eight voices on both slaves | works (sawtooth with gate only) | [`docs/FROM_SCRATCH.md`](docs/FROM_SCRATCH.md), [`docs/VOICE_ALLOCATION.md`](docs/VOICE_ALLOCATION.md) §6 |
 | Wavetable player (WAV → bank 5 → DSP) and `C-WTLIVE` live table | works | `examples/wt_live/`, `examples/from_scratch/re/wt5.py` |
 | Live DSP peek and poke from the host | works | `docs/DSP_HARDWARE.md`, `examples/from_scratch/re/dsplive.py` |
 | S8LAB lab image in PLG1: OSC1 COLOR changes the timbre | works (not monotonic) | `examples/sys8_lab/`, `docs/PLAN.md` |
 
 ### Not done or not verified
 
-* **Own microcode beyond the oscillators above.** Filters, envelopes and effects are still Roland's microcode.
+* **Own microcode beyond the oscillators above.** `C-V4` has no Roland microcode, but its voice is only a sawtooth
+  with a gate: filters, envelopes, LFO and effects are not written yet (Roland's are used only in the older builds).
 * **Noise on OSC1.** The stock engine has no native path for it, and the DSP decides the sound; any version needs
   a code cave (see `docs/CUSTOM_PLUGOUTS.md`).
 * **Wavetable budget.** A table that exceeds the DSP cycle budget can need a power cycle of the device
@@ -56,7 +58,9 @@ What this project is not:
   (local dump, not in git).
 * **Long samples.** A write to the EDM memory from ARM code is still open; not yet written up in `docs/`.
 * **Emulation.** There is no full emulator of the device. The partial emulators (`tools/engine_emu.py`,
-  `examples/from_scratch/re/emu0.py`, `emu1.py`) cover parts of the engine. The DSP ISA was checked on the device by audio.
+  `examples/from_scratch/re/emu0.py`, `emu1.py`) cover parts of the engine, and `examples/from_scratch/emu/` emulates
+  the six DSPs of the slaves running our programs (tested against the `C-V4` hardware result). The DSP ISA was checked
+  on the device by audio.
 * **Other PLUG-OUTs.** The install code accepts the JUNO-60 and SH-101 folders, but the hardware records in
   `docs/` cover the JX-3P family and our own builds.
 
@@ -77,7 +81,7 @@ What this project is not:
 
 | Folder | What it is | Status |
 |---|---|---|
-| `examples/from_scratch/` | own PLUG-OUT in C (`engine/`, `model/`) and the reverse-engineering scripts (`re/`) | engine plays; own microcode: oscillator only |
+| `examples/from_scratch/` | own PLUG-OUT in C (`engine/`, `model/`, `v3/`, `v4/`), the slave DSP emulator (`emu/`) and the reverse-engineering scripts (`re/`) | `C-V4` plays eight voices with only our code and microcode |
 | `examples/sys8_lab/` | S8LAB, the SYSTEM-8 image in PLG1, with the COLOR, cord, MOD and LFO tests | installed; tests run |
 | `examples/wt_live/` | `C-WTLIVE`: send a WAV wavetable to the slaves live (slot 3) | works |
 | `examples/wt_morph/` | `C-MORPH`: one wavetable position morphing with an LFO | design only; no hardware run recorded; options in `docs/OPTIONS.md` |

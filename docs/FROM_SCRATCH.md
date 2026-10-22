@@ -360,6 +360,8 @@ el emulador**: un programa que el emulador da mudo casi seguro estará mudo en e
   hardware ni qué palabra va a qué entrada.
 * **Mono**: la afinación en modo mono no se ha medido con C-V4 (con C-V3L daba ±40 cent).
 * **Nivel**: la mezcla suma hasta ocho sierras de amplitud 1 sin escalar; con acordes grandes puede saturar.
+* **Más de 8 voces**: no hay límite de hardware medido; depende de si el OS entrega más ids de voz. Análisis y prueba
+  propuesta en `VOICE_ALLOCATION.md` §8.
 
 ## 11. Historia (de `MINI_PLUGOUT.md`, 2026-10-21)
 

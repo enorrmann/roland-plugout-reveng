@@ -37,6 +37,10 @@ Taken from Roland's SAW programs (disassembled with `re/dspisa.py dis`) and conf
 | outputs | `[221f]`, `[221b]` | `[2227]`, `[2223]` | `[2221]`, `[221d]` | `[2229]`, `[2225]` |
 | our state (phase) | `0470` (read `0471`) | `0480` (read `0481`) | `0670` (read `0671`) | `0680` (read `0681`) |
 
+2026-10-22 (`VOICE_ALLOCATION.md` §6.3 D, measured with C-V4): bank 1 is a ring, so the main program reads each output
+one sample later at +1 (`[2222]` for `[2221]`, `[222a]` for `[2229]`, …). Inputs are read by the slot in the same
+sample and at the same address the main program wrote, because the main program runs first.
+
 * DCO2 extra inputs, measured by audio on the lab plugin (noise × input, DCO1 level 0) for the panel's
   **Cross Mod** button (OFF / SYNC / METAL), written by the main program (MAIN2/3: `[2209] <- r3`,
   `[220b] <- r1`, …):
