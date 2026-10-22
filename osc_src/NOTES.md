@@ -79,11 +79,12 @@ final displacement.  A unit is kept as instruction text only if the result
 reproduces its bytes exactly; otherwise it is emitted as its exact bytes, with
 a global label at every function entry inside it.
 
-Current split over 9 373 units:
+A unit starts at the reset entry and at every call / tail-call target
+(`tools/gen_functions.py`, 22 933 units).  Split:
 
 ```
-3074 assembled as instructions   (32.8 %)
-6299 emitted as bytes            (67.2 %)
+9089 assembled as instructions   (39.6 %)
+13844 emitted as bytes           (60.4 %)
    0 failed
 ```
 

@@ -25,8 +25,8 @@ readable recovery of the code.  ``--stats`` prints the split.
 from __future__ import annotations
 
 import argparse
+import bisect
 import os
-import pickle
 import subprocess
 import sys
 
@@ -47,14 +47,10 @@ MD.detail = True
 
 
 # Capstone prints some instructions in their widest form.  Measured against
-# arm-none-eabi-as over the whole image (tools/gen_asm.py --measure), only
-# these narrow forms come back wider:
-#
-#     adr                     2 -> 4 bytes   (as picks ADD.W)
-#     b<cond> with a target out of the narrow range   2 -> 4 bytes
-#
-# Everything else (``ldm``, ``stm``, ``cbz``, ``movs``, ...) assembles back to
-# its original size, so the instruction text can be emitted as it is.
+# arm-none-eabi-as over the whole image, of the narrow instructions only ``adr``
+# comes back wider (as picks ADD.W); every other narrow form (``ldm``, ``stm``,
+# ``movs``, ``b<cond>`` ...) assembles back to its original size when its own
+# text is used.
 WIDENING = ("adr",)
 
 
@@ -65,9 +61,23 @@ def widening(ins):
     return ins.mnemonic.split(".")[0] in WIDENING
 
 
-def render(ins):
+# Inside an IT block Capstone prints a 16-bit data-processing instruction as
+# ``subgt r1, r1, #4``.  The assembler accepts that text but encodes the
+# two-operand thumb form (``subgt r1, #4``) -- a different instruction, with
+# different flags.  Such a line is emitted as its bytes instead.
+def simplified(ins):
+    """True when as would fold a three-operand text into a two-operand one."""
+    parts = [p.strip() for p in ins.op_str.split(",")]
+    return len(parts) == 3 and parts[0] == parts[1] and len(ins.bytes) == 2
+
+
+def render(ins, force_bytes=False):
     """Assembly text for one instruction, with cross references symbolic."""
     m, o = ins.mnemonic, ins.op_str
+    if force_bytes:
+        return "\t.byte " + ", ".join("0x%02x" % b for b in ins.bytes)
+    if simplified(ins):
+        return "\t.byte " + ", ".join("0x%02x" % b for b in ins.bytes)
     if m in ("bl", "blx") and ins.operands and ins.operands[0].type == cs.arm.ARM_OP_IMM:
         return "\tbl fn_%08x" % (ins.operands[0].imm & ~1)
     if m in ("cbz", "cbnz") and ins.operands:
@@ -76,20 +86,17 @@ def render(ins):
     if (m[0] == "b" and m not in ("bkpt", "bfc", "bfi") and not m.startswith("bl")
             and m not in ("blx",)
             and ins.operands and ins.operands[0].type == cs.arm.ARM_OP_IMM):
-        # Only the 32-bit forms are emitted as text: for a narrow branch the
-        # assembler would widen b<cond> into b<cond>.w and shift the whole
-        # function.  Narrow branches stay as bytes.
         # as widens a branch whose target is not yet defined, and a target is
-        # only known after linking: keep the bytes, but declare the target so
-        # that the link-time symbol table has it even when the target sits
-        # inside another unit.
+        # only known after linking -- so the bytes are kept, with the target
+        # declared as a symbol so the link-time symbol table has it even when
+        # the target sits inside another unit.
         return "\t.globl fn_%08x\n\t.byte %s" % (
             ins.operands[0].imm & ~1,
             ", ".join("0x%02x" % b for b in ins.bytes))
     return ("\t" + m + " " + o).rstrip()
 
 
-def unit(fn, lines, fallback_bytes=None):
+def unit(fn, lines):
     # the address travels in the section name (see gen_data.py / build_le.py):
     # one section per function, so nothing is padded and objects stay small
     out = ["\t.syntax unified", "\t.thumb",
@@ -127,16 +134,19 @@ def main(argv=None):
     ap.add_argument("--image", default=os.path.join("..", "dumps", "os_full.bin"))
     ap.add_argument("-o", "--out", default="code/asm")
     ap.add_argument("--work", default="build/as")
-    ap.add_argument("--stats", action="store_true")
+    ap.add_argument("--stats", action="store_true",
+                    help="print the first failures (diagnostics)")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args(argv)
 
     with open(args.image, "rb") as f:
         img = f.read()
-    funcs = sorted(set(int(x, 16) for x in open(args.functions) if x.strip()))
-    all_funcs = funcs
+    all_funcs = sorted(set(int(x, 16) for x in open(args.functions) if x.strip()))
+    funcs = all_funcs
     if args.limit:
-        funcs = funcs[:args.limit]
+        funcs = all_funcs[:args.limit]
+        # with a limit, a unit still ends where the next listed unit starts
+        all_funcs = funcs
     os.makedirs(args.out, exist_ok=True)
     os.makedirs(args.work, exist_ok=True)
 
@@ -147,34 +157,52 @@ def main(argv=None):
         if not seg:
             continue
         insns = list(MD.disasm(seg, fn))
+        # An IT block whose body is not emitted as text would leave the
+        # assembler's IT state open and break every instruction after it, so
+        # the whole group is emitted as bytes in that case.
+        forced = set()
+        it_lines = []
+        for k, x in enumerate(insns):
+            if x.mnemonic.startswith("it") and len(x.mnemonic) <= 4:
+                # the mask is one letter per instruction; a trailing "e" (the
+                # last letter) ends the block early, so ``ittt`` guards 3 and
+                # ``itte`` honours the "e" at its position
+                mask = x.op_str.strip()
+                body = mask.index("e") if "e" in mask else len(mask)
+                it_lines.append((k, body))
+        for k, body in it_lines:
+            group = insns[k:k + 1 + body]
+            if any(widening(x) or simplified(x) for x in group) or \
+                    any(x.mnemonic.startswith("it") for x in group[1:]):
+                forced.update(id(x) for x in group)
         decoded = (sum(x.size for x in insns) == len(seg)
-                   and not any(widening(x) for x in insns))
+                   and not any(widening(x) or simplified(x) or id(x) in forced
+                               for x in insns))
         data = None
+        lines = [render(x, id(x) in forced) for x in insns]
         if decoded:
-            data, _err = assemble(args.work, fn, end, unit(fn, [render(x) for x in insns]))
+            data, _err = assemble(args.work, fn, end, unit(fn, lines))
             if data is not None and data != seg[:len(data)]:
                 data = None
         if data is not None and len(data) == len(seg):
             asm_ok += 1
             with open(os.path.join(args.out, "fn_%08x.s" % fn), "w") as f:
-                f.write(unit(fn, [render(x) for x in insns]))
+                f.write(unit(fn, lines))
             continue
         # Byte-exact fallback.  Any function entry that falls inside this unit
         # gets a global label, so a call to it resolves to the right address
         # even though the unit is a plain byte image.
-        import bisect as _bisect
-        lo = _bisect.bisect_right(all_funcs, fn)
-        hi = _bisect.bisect_left(all_funcs, end)
-        nested = all_funcs[lo:hi]
+        lo = bisect.bisect_right(all_funcs, fn)
+        hi = bisect.bisect_left(all_funcs, end)
+        nested = set(all_funcs[lo:hi])
         lines = []
         for off in range(0, len(seg), 2):
             here = fn + off
-            for x in nested:
-                if x == here:
-                    lines.append("\t.global fn_%08x" % x)
-                    lines.append("fn_%08x:" % x)
-            chunk = seg[off:off + 2]
-            lines.append("\t.byte " + ", ".join("0x%02x" % b for b in chunk))
+            if here in nested:
+                lines.append("\t.global fn_%08x" % here)
+                lines.append("fn_%08x:" % here)
+            lines.append("\t.byte " + ", ".join("0x%02x" % b
+                                                 for b in seg[off:off + 2]))
         text2 = unit(fn, lines)
         data2, err = assemble(args.work, fn, end, text2)
         if data2 is not None and data2 == seg:

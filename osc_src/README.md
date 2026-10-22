@@ -1,4 +1,4 @@
-# osc_src — decompiled reconstruction of the SYSTEM-8 OS (`os_full.bin`)
+# osc_src — a source reconstruction of the SYSTEM-8 OS (`os_full.bin`)
 
 `os_full.bin` (2 939 504 B, `0x60000000`–`0x602CDA6F`) is the SYSTEM-8 OS as it
 sits in the master BMC's SDRAM while the synth runs.  The copy in the updater
@@ -29,11 +29,14 @@ osc_src/
 ├── NOTES.md              method, measurements, limitations
 ├── tools/
 │   ├── segment.py        Thumb-2 sweep: code vs data (and the shared cache)
-│   ├── gen_asm.py        code layer  -> code/asm/*.s   (9 373 units)
+│   ├── gen_asm.py        code layer  -> code/asm/*.s   (22 933 units)
 │   ├── gen_data.py       data layer  -> data/*.s + *.c (16 734 runs)
 │   ├── build_le.py       linker: places objects, applies relocations
 │   ├── rebuild.py        driver used by make
 │   ├── verify.py         byte/SHA-256 comparison
+│   ├── stats.py          code/data and text/bytes summary
+│   ├── gen_functions.py  the unit list (reset entry + call targets)
+│   ├── gen_decomp.py     Ghidra-driven decompilation (the C path)
 │   └── selftest_link.py  checks build_le against GNU as/ld
 ├── ghidra/               headless scripts used for the analysis
 ├── code/asm/             generated code (per function)
@@ -57,9 +60,9 @@ lays an object's sections end to end; `build_le.py` reads it back.
 **2. Code (`tools/gen_asm.py` → `code/asm/`)**
 One unit per function, at the function's own address, with `bl`, `b.w`,
 literals and calls as *symbols*: `fn_<target>` for code, and the object carries
-`R_ARM_THM_CALL` / `R_ARM_THM_JUMP24` / `R_ARM_THM_JUMP19` relocations.  3 074
-functions (35 %) assemble straight from their instruction text, producing the
-original bytes.  The rest cannot be reproduced that way — see *limitations* —
+`R_ARM_THM_CALL` / `R_ARM_THM_JUMP24` / `R_ARM_THM_JUMP19` relocations.  9 089
+of the 22 933 units (40 %) assemble straight from their instruction text,
+producing the original bytes.  The rest cannot be reproduced that way — see *limitations* —
 and are emitted as their exact bytes, still with a global label at every
 function entry that falls inside them, so call targets resolve.
 
@@ -77,8 +80,8 @@ identical).
   headless scripts used to analyse the image (import at `0x60000000`,
   Cortex-M, seed functions, export), and `tools/gen_decomp.py` wraps the
   decompiler — that is the starting point if you want per-function C.
-* **A third of the functions come out byte-exact from instruction text; the
-  rest are byte-exact as raw bytes.**  The reasons are assembler-encoding
+* **40 % of the units come out byte-exact from instruction text; the rest are
+  byte-exact as raw bytes.**  The reasons are assembler-encoding
   details, documented in `NOTES.md`: GNU `as` picks a different (equivalent)
   encoding for some instructions (`adds r0, r0, #1` → `adds r0, #1`,
   `ldm.w` without writeback → `ldmia.w`) and widens branches whose target is

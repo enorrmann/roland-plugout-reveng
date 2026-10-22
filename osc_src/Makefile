@@ -34,8 +34,7 @@ selftest:
 
 stats:
 	$(PY) tools/segment.py $(IMAGE)
-	@echo "code units:  $$(ls code/asm/*.s 2>/dev/null | wc -l)"
-	@echo "data units:  $$(ls data/*.s 2>/dev/null | wc -l)"
+	$(PY) tools/stats.py
 
 clean:
 	rm -rf build/obj build/as code/build data/*.s data/*.c data/*.bin

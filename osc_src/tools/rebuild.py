@@ -94,8 +94,12 @@ def main(argv=None):
         f.write("\n".join(objs) + "\n")
     print("rebuild: assembling done, linking %d object(s)" % len(objs))
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    # the object list is passed in a response file: 9 400 paths exceed ARG_MAX
+    rsp = os.path.join(os.path.dirname(os.path.abspath(args.list)), "objects.rsp")
+    with open(rsp, "w") as f:
+        f.write("\n".join(objs) + "\n")
     r = subprocess.run([sys.executable, os.path.join(HERE, "build_le.py"),
-                        "-o", args.out, "--allow-holes"] + objs)
+                        "-o", args.out, "--allow-holes", "@" + rsp])
     if r.returncode:
         return r.returncode
     return subprocess.run([sys.executable, os.path.join(HERE, "verify.py"),

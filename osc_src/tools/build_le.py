@@ -343,6 +343,15 @@ def main(argv=None):
         return selftest_link.main()
     if not args.objects or not args.out:
         ap.error("objects and -o are required")
+    # ``@file``: one object path per line, for link lines beyond ARG_MAX
+    expanded = []
+    for a in args.objects:
+        if a.startswith("@"):
+            with open(a[1:]) as f:
+                expanded.extend(line.strip() for line in f if line.strip())
+        else:
+            expanded.append(a)
+    args.objects = expanded
 
     image = bytearray([args.fill]) * args.size
     covered = bytearray(args.size)
