@@ -1,7 +1,8 @@
 # Plug-out propio desde cero (C-V4): cómo está hecho y cómo reconstruirlo
 
 Estado: 2026-10-22. **C-V4 funciona en el equipo**: ocho voces (cuatro por slave) con su nota, sueltas y en acordes,
-afinadas a ±3 cent (`VOICE_ALLOCATION.md` §6.7). Todo el código y todo el microcódigo de DSP son nuestros. La
+afinadas a ±3 cent (`VOICE_ALLOCATION.md` §6.7). Todo el código y todo el microcódigo de DSP son nuestros (la regla de no usar microcódigo de Roland vale para los
+plug-outs nuestros; el emulador y el estudio sí pueden ejecutarlo desde la copia local, `VOICE_ALLOCATION.md` §7). La
 comprobación de firmas (`emu/sigcheck.py`) no encuentra bytes de Roland en la build.
 
 Este documento sustituye a `examples/from_scratch/MINI_PLUGOUT.md` (diario del 2026-10-21; lo que sigue vigente de él

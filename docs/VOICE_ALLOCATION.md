@@ -486,6 +486,12 @@ Lectura:
 
 ## 7. Comprobación de firmas (sin bytes de Roland)
 
+**Alcance de la regla** (aclarado por el usuario, 2026-10-22): sólo **los plug-outs nuevos que generamos como
+nuestros** deben estar libres de microcódigo de Roland. El emulador, las herramientas de estudio y sus pruebas sí
+pueden ejecutar o leer el microcódigo de Roland, cargándolo en tiempo de ejecución desde la copia local del usuario
+(`engine/build/programs.h`, `plugins/<NOMBRE>`), como hace `engine/programs.py`, y sin guardar bytes de Roland en el
+repositorio. `sigcheck.py` se aplica a las builds de nuestros plug-outs.
+
 `examples/from_scratch/emu/sigcheck.py FICHERO…` busca en una build (`.bin`) cada ventana de 16 bytes (4 palabras de
 32 bits, como están en la imagen) de los 17 programas de Roland de `engine/programs.py`, y en un programa (`.hex`)
 cada serie de 8 palabras de 16 bits. Las ventanas que también están en nuestros programas (marcas genéricas como

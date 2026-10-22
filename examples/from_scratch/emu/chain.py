@@ -22,7 +22,9 @@ when Model.main_first (question F). Registers, flags and hidden registers persis
 What is NOT modelled: the ARM timing (engine writes are injected between samples), the effect slots, bank 2
 (delay lines), the wave bus beyond the two-slave link of Model.link (question C), the real IOMD ownership.
 
-No Roland microcode is used here: the programs are passed in by the caller (ours, v3/make_v3.py, v4/make_v4.py).
+The emulator contains no Roland code: the programs are passed in by the caller. Today the tests pass ours (v3/make_v3.py,
+v4/make_v4.py); running Roland's programs, loaded at run time from the local copy, is allowed for study (the
+no-Roland-microcode rule applies only to our own plug-outs, docs/VOICE_ALLOCATION.md §7).
 """
 import os
 import sys

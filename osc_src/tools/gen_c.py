@@ -364,6 +364,14 @@ class Rewriter:
 
     def run(self, text):
         code = text
+        # a local the decompiler spells with an underscore it did not declare
+        # (`_local_8` / `local_8`, `_uStack_8` / `uStack_8`): one name.  This
+        # comes first: a declared local is not a place.
+        locals_ = set(re.findall(r"(?m)^\s*[A-Za-z_][A-Za-z0-9_ ]*?\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:\[|;)",
+                                code))
+        for name in list(locals_):
+            if name.startswith("_") and name[1:] in locals_:
+                code = re.sub(r"\b%s\b" % re.escape(name), name[1:], code)
         # 1. places.  A read is `*DAT_x` (or `*&DAT_x` when the decompiler
         #    kept the pointer); the place itself is a fixed address, so the
         #    accessor for its width is the right lvalue and the `*` goes away.
@@ -443,13 +451,9 @@ class Rewriter:
 
         # Ghidra's local names are sometimes written with a leading underscore
         # (`_uStack_8` for `uStack_8`): one name
-        # a local the decompiler spells with an underscore it did not declare
-        # (`_local_8` / `local_8`, `_uStack_8` / `uStack_8`): one name
-        locals_ = set(re.findall(r"(?m)^\s*(?:[A-Za-z_][A-Za-z0-9_ ]*?)\b([A-Za-z_][A-Za-z0-9_]*)\s*"
-                                 r"(?:\[|;)", code))
-        for name in list(locals_):
-            if name.startswith("_") and name[1:] in locals_:
-                code = re.sub(r"\b%s\b" % re.escape(name), name[1:], code)
+        # Ghidra's `int3` is its 4-byte integer type (not the <conio.h> call)
+        code = re.sub(r"\(\s*int3\s*\)", "(uint32_t)", code)
+
         # 3b. ``(T *)(frame + off)._3_1_``: a byte of a word, as a value
         code = re.sub(r"\(([^()]*)\)\._([0-7])_1_", r"((\1) >> 8*\2)", code)
         # an assignment needs an lvalue, so a field of the left side of an

@@ -638,7 +638,7 @@ Documento técnico completo: `CUSTOM_OSC.md`.
 
 ## Posibles próximos pasos: emulador (2026-10-17, decidido dejarlo para otra sesión)
 
-> 2026-10-22: hecho en parte, sin Unicorn: `examples/from_scratch/emu/` emula los seis DSP de un slave (y dos slaves)
+> 2026-10-22: plan actualizado en `EMULATOR.md`. Hecho en parte, sin Unicorn: `examples/from_scratch/emu/` emula los seis DSP de un slave (y dos slaves)
 > con nuestros programas, en Python (`VOICE_ALLOCATION.md` §6).
 Idea del usuario: correr los binarios ARM originales en un emulador de CPU y escribir en C sólo el DSP.
 * **Ya resuelto**: núcleos Cortex-M Thumb-2 → Unicorn (ya usado: `re/emu0.py` región 0, `re/emu1.py` región 1,

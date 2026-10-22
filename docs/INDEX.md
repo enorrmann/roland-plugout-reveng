@@ -45,6 +45,7 @@ Status of each item is in the document itself; the scope of the project is in th
 
 | Document | What it covers |
 |---|---|
+| [EMULATOR.md](EMULATOR.md) | Plan para emular un PLUG-OUT de Roland completo: qué existe, qué falta (servicios del OS, banco 6, fidelidad del ISA, línea de retardo, velocidad, maestro) y orden de trabajo. Spanish. |
 | [FROM_SCRATCH.md](FROM_SCRATCH.md) | Plug-out propio desde cero (C-V4, ocho voces medidas): arquitectura, flujo de la voz, microcódigo (`.s`/`.hex`, por qué Python genera ensamblador), motor ARM, región 0, build, instalación, emulador, mapa de ficheros y pendientes. Sustituye a `MINI_PLUGOUT.md`. Spanish. |
 | [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md) | Asignación de voces de Roland por DSP y flujo de datos del slave (familia A), por qué C-V3 no sonaba (preguntas A–H con pruebas en el emulador `examples/from_scratch/emu/`), C-V4 medido (ocho voces), comprobación de firmas y límite de voces. Spanish. |
 | [NOTES.md](NOTES.md) | Working notes of the from-scratch PLUG-OUT: interfaces found, what runs on the device, next steps. Spanish, unfinished. |
