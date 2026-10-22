@@ -12,6 +12,8 @@ Niveles de evidencia (§0–§5; §6 tiene su propia leyenda): **[datos]** = le�
 microcódigo desensamblado (`dump_main.py`); **[ARM]** = leído del código ARM de la región 1; **[medido]** = audio en
 el equipo.
 
+SYSTEM-1: `system-1/VOICE_ALLOCATION.md` (4 voces, dos DSP por BMC, modulación en el maestro).
+
 ## 0. Método
 
 1. `tools/plugout_build.py unpack` de cada `Code8_<n>.Dat` (slot 1, 2, 3) → `region1.bin`.

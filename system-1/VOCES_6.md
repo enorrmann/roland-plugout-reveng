@@ -1,5 +1,11 @@
 # SYSTEM-1 con 6 voces: análisis y plan
 
+> **2026-10-22:** por el camino de PLUG-OUT ya hay **8 voces funcionando** (C-S1V8, `examples/system_1/`,
+> `../docs/examples_system_1_README.md` §7): el OS acepta 8 voces de un asignador de PLUG-OUT y reenvía los ids
+> `0x114`–`0x117`/`0x124`–`0x127` al esclavo. Esto resuelve la pregunta "¿el esclavo acepta esos ids?" de §3 y
+> es la vía 2 de §5 (un PLUG-OUT propio) sin portar el sinte de serie. Lo que sigue es el análisis para parchear el
+> sinte de serie, que sigue abierto.
+
 Objetivo (pedido del 2026-10-22): una versión parcheada del SYSTEM-1 con 6 voces de polifonía en vez de 4. Este
 documento reúne lo medido en las imágenes 1.30 (`FIRMWARE.md`) y lo que falta. **No se ha parcheado ni instalado
 nada.**
@@ -76,8 +82,8 @@ voces con una máscara de bits de un byte (bits 0–3) [código]:
 | `0x128 + v` | disparo (1/0) | `0x128`–`0x12F` |
 | `0x130` | pitch bend | — |
 
-Las voces 4 y 5 usarían `0x114/0x115`, `0x124/0x125` y `0x12C/0x12D`. Falta comprobar que el slave acepta esos ids
-y que nada más los usa [abierto].
+Las voces 4 y 5 usarían `0x114/0x115`, `0x124/0x125` y `0x12C/0x12D`. **El esclavo recibe `0x114`–`0x117` y
+`0x124`–`0x127`** [medido con C-S1V8, 2026-10-22]; los de disparo `0x12C+` no se probaron.
 
 ## 4. Maestro: asignador
 

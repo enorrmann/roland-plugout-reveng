@@ -1,5 +1,7 @@
 # Bus de audio entre los DSP del SYSTEM-8 (slaves → maestro)
 
+SYSTEM-1: `system-1/WAVE_BUS.md` (esclavo → IOMD `6006`–`600D` → maestro B → `A118`/`A119` → salida).
+
 Documento vivo: cada hallazgo lleva su estado y la prueba que lo sostiene. Se actualiza a medida que avanzan las
 pruebas (última revisión: 2026-10-22). Mapa de memoria general: `DSP_ARM_SIDE.md`; ISA: `DSP_ISA_SPEC.md`;
 arquitectura general: `ARCHITECTURE.md`. Este documento es el de **por dónde sale el audio**.

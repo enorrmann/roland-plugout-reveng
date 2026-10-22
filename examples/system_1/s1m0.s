@@ -1,4 +1,4 @@
-; s1m0: slave DSP A main @0x0100: four gated saws -> A150
+; s1m0: slave DSP A main @0x0100: 4 gated saws -> A150
 mov r5, #0.0
 mov r6, #1.0
 mov r7, #0.0

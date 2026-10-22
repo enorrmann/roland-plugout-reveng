@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "device": "SYSTEM-8",
+  "slot": 1,
+  "name": "JX-3P",
+  "model_id": 8,
+  "version": "1.01",
+  "records": 4096,
+  "regions": [
+    {
+      "file": "region0.bin",
+      "stamp": "25-0509_11:30:38",
+      "magic": "SYSTEM-8:Plugout",
+      "tool": "0.0114FA",
+      "load": "0x60800000",
+      "entry": "0x60800000"
+    },
+    {
+      "file": "region1.bin",
+      "stamp": "25-0509_11:30:38",
+      "magic": "SYSTEM-8:Plugout",
+      "tool": "0.0114FA",
+      "load": "0x60200000",
+      "entry": "0x60200000"
+    }
+  ]
+}

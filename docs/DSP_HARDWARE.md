@@ -75,7 +75,9 @@ bits 28-0  mantisa M (29 bits, sin signo)
   palabras del flujo, **la mitad alta primero**.
 * Programa de ranura: empieza con `0a02 ff70` y termina con `0a02 ff70 0b02 00f8 0001` (el `00f8` final es el
   retorno de la ranura). Programa principal del DSP3 del maestro: `0001 0001 … 0b03 0080 7fee 0001`. SYSTEM-1:
-  empieza con `0a02 ff71`.
+  empieza con `0a02 ff71`, mismo final; la memoria de programa termina con un cierre de 7 medias palabras en
+  `0x7FF2` (`0000`, `ld r0,[e000]`, `st r0,[a0xx]`). Mapa de principal/ranuras/secciones de los dos equipos:
+  `DSP_PROGRAM_MEMORY.md`.
 * `0001` = no-op de una palabra.
 
 ### 4.2 Instrucción

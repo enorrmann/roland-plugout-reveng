@@ -364,6 +364,13 @@ el emulador**: un programa que el emulador da mudo casi seguro estará mudo en e
 * **Más de 8 voces**: no hay límite de hardware medido; depende de si el OS entrega más ids de voz. Análisis y prueba
   propuesta en `VOICE_ALLOCATION.md` §8.
 
+* **Port al SYSTEM-1**: C-S1V4 (`examples/system_1/`, `examples_system_1_README.md`) funciona en el equipo (cuatro
+  voces, volumen). Reusa la sierra y el asignador de C-V4.
+* **Mapear parámetros**: en el SYSTEM-1 se capturó qué id manda cada control reenviando al PC cada parámetro que
+  recibe la región 0 (`examples_system_1_README.md` §6). En el SYSTEM-8 la región 0 no recibe esas llamadas; el camino
+  propuesto es comparar valores en `changed(grupo)` del asignador y mandar las diferencias con el envío de `VOICELOG`
+  (§6.3 de ese documento). No hecho.
+
 ## 11. Historia (de `MINI_PLUGOUT.md`, 2026-10-21)
 
 1. **Sierra propia en `asm/`** (`dsp/saw_dco2.s`): igual bit a bit que la de `re/dspasm.py` en simulación

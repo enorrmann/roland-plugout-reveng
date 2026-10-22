@@ -34,6 +34,7 @@ Status of each item is in the document itself; the scope of the project is in th
 | [DSP_ISA.md](DSP_ISA.md) | Instruction set of the DSP as measured on the device. |
 | [DSP_ISA_SPEC.md](DSP_ISA_SPEC.md) | Specification for assembler and compiler writers (used by `asm/`). |
 | [DSP_ISA_DISCREPANCIES.md](DSP_ISA_DISCREPANCIES.md) | Where the measured ISA, the assembler and the disassembler disagree, and what is still open. |
+| [DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md) | Program memory of a DSP on SYSTEM-8 and SYSTEM-1: main program, slots / voice sections, sizes, who enables what, usage variants (main only, sections, overrunning a zone: open). Spanish. |
 | [DSP_ARM_SIDE.md](DSP_ARM_SIDE.md) | DSP ports, banks and the ARM-side configuration (static analysis). |
 | [SLAVE_DSP_READBACK.md](SLAVE_DSP_READBACK.md) | Reading the memory of the slave DSPs from the host: what is verified, the open blockers, and the plan. Spanish. |
 | [MIDI_SYSEX.md](MIDI_SYSEX.md) | MIDI and SysEx routing between the host, the master and the slaves: where a message is received, filtered and echoed, with the tests done and what is still open. Spanish. |
@@ -81,7 +82,11 @@ Kept together in the `system-1/` folder (documents and scripts), at the user's r
 | [../system-1/FIRMWARE.md](../system-1/FIRMWARE.md) | SYSTEM-1 OS images (updater 1.30 unencrypted, plug-in `Code1.Dat` 1.20), extraction, known addresses. Spanish. |
 | [../system-1/VOCES_6.md](../system-1/VOCES_6.md) | 6-voice analysis: slave DSP voice programs and budget, master→slave ids, allocator sites, plan. Spanish. |
 | [../system-1/SH101_POLY.md](../system-1/SH101_POLY.md) | SH-101 PLUG-OUT on SYSTEM-1 to 4 voices: its DSP programs, the slave's program-loading services, plan. Spanish. |
-| [examples_system_1_README.md](examples_system_1_README.md) | C-S1V4: the from-scratch C-V4 ported to the SYSTEM-1 (`examples/system_1/`): the SYSTEM-1 PLUG-OUT interface (SYNINFO, vtables, DSP program queues, audio path slave → master), build, test order, open risks. Built and simulated, not yet tested on the device. Spanish. |
+| [../system-1/ARCHITECTURE.md](../system-1/ARCHITECTURE.md) | SYSTEM-1 architecture (counterpart of ARCHITECTURE.md): chips, what code runs where, flows, DSP windows, tools. Spanish. |
+| [../system-1/VOICE_ALLOCATION.md](../system-1/VOICE_ALLOCATION.md) | SYSTEM-1 voice allocation (counterpart of VOICE_ALLOCATION.md): ids, stock DSP split, PLUG-OUTs, C-S1V4. Spanish. |
+| [../system-1/WAVE_BUS.md](../system-1/WAVE_BUS.md) | SYSTEM-1 audio bus (counterpart of WAVE_BUS.md): slave → master → output, master programs per mode, measurements. Spanish. |
+| [../system-1/DSP_FIT.md](../system-1/DSP_FIT.md) | Does a SYSTEM-8 PLUG-OUT's microcode (JX-3P) fit the SYSTEM-1's 4 DSPs? `dsp_fit.py`: emulated time per program, inter-DSP links, placement search. 4 voices: no; 2 voices: on paper. Spanish. |
+| [examples_system_1_README.md](examples_system_1_README.md) | C-S1V4: the from-scratch C-V4 ported to the SYSTEM-1 (`examples/system_1/`): the SYSTEM-1 PLUG-OUT interface (SYNINFO, vtables, DSP program queues, audio path slave → master), build, test order, open risks, parameter capture (PARAMLOG). Works on the device (notes, chords, volume); 8-voice variant C-S1V8 works too. Spanish. |
 
 ## Clean-room specification
 

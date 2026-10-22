@@ -1,9 +1,11 @@
 # C-S1V4: el plug-out propio C-V4 portado al SYSTEM-1 (`examples/system_1/`)
 
-Estado: 2026-10-22. **C-S1TONE suena en el equipo** [medido]: el OS acepta el PLUG-OUT (id `0x0010`), carga
-nuestros programas y la cadena esclavo → maestro → salida funciona. El VOLUME no actuaba (sonaba muy fuerte):
-la captura de parámetros (§6) mostró que es el id `0x100`, y C-S1V4 lo aplica desde entonces (sin medir aún).
-Notas y acordes de C-S1V4: sin probar. Es el C-V4 del SYSTEM-8
+Estado: 2026-10-22. **C-S1V4 funciona en el equipo** [medido, a oído]: notas sueltas, acordes de cuatro notas y
+el VOLUME del panel. Antes, C-S1TONE comprobó la carga y la cadena esclavo → maestro → salida; el VOLUME no actuaba
+hasta que la captura de parámetros (§6) mostró que es el id `0x100`. Afinación sin medir con instrumento.
+
+**C-S1V8 (8 voces) también funciona** [medido, a oído, 2026-10-22]: ocho notas sostenidas suenan todas, sin cortar
+ninguna. El SYSTEM-1 de serie tiene 4 voces; el OS reenvía al esclavo los ids de las voces 4–7 sin cambios (§7). Es el C-V4 del SYSTEM-8
 ([FROM_SCRATCH.md](FROM_SCRATCH.md)) reescrito para la interfaz de PLUG-OUT del SYSTEM-1: cuatro voces de sierra
 con puerta, polifónicas, todo el código ARM y todo el microcódigo nuestros (ningún byte de Roland; los programas de
 Roland sólo se leyeron para estudiar la interfaz).
@@ -16,6 +18,7 @@ con el simulador `re/dspisa.py`; **[inferido]**; **[abierto]**. Nada está **[me
 ```sh
 sh examples/system_1/build.sh                          # -> plugins/C-S1V4/Script/Code1.Dat (y Code.Dat)
 TONE=1 NAME=C-S1TONE sh examples/system_1/build.sh     # prueba de arranque: la voz 0 suena siempre (La)
+VOICES=8 NAME=C-S1V8 sh examples/system_1/build.sh     # 8 voces de polifonía (medido: funciona)
 python3 examples/system_1/make_s1.py --sim             # simula los tres programas (unos 3 minutos)
 
 python3 tools/plugout_tool.py info                     # SYSTEM-1: slot 1 = SH-2 hoy
@@ -92,6 +95,45 @@ las de Roland porque es la misma instrucción (como los marcadores de inicio y f
 `make_s1.py --sim` (sin hardware): La 440 → 440 cruces por segundo, un acorde de 4 notas llega a 0.78 de pico, sin
 notas la salida es 0 exacto.
 
+### 2.4 Dónde van las voces: programa principal o secciones de voz
+
+Mapa completo, límites y otras variantes (también del SYSTEM-8): [DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md).
+
+**C-S1V4 usa el programa principal** (`s1m0` en `0x0100` del DSP A del esclavo) para las cuatro voces, y apaga las
+ocho secciones de voz del OS (`FC44(i, 0)`). Las secciones quedan sin usar.
+
+La memoria de programa de cada DSP del SYSTEM-1 está dividida así [código]:
+
+```
+0x0000  cabecera (la pone el OS)
+0x0100  principal          <- C-S1V4 / SH-101: aquí va todo
+0x1900  sección de voz 2   <- sinte de serie / SH-2: un programa por sección
+0x3100  sección de voz 3
+0x4900  sección de voz 4
+0x6100  sección de voz 5
+0x7FF2  cierre (7 medias palabras)
+```
+
+Cada sección mide `0x1800` bytes y el OS la enciende o apaga con `FC44(índice, on)` (8 índices = 4 secciones × DSP
+A/B); el principal corre siempre y, por lo visto en los programas de Roland, antes que las secciones [inferido]. El
+tiempo de DSP es el mismo en los dos casos: unas 925 instrucciones por muestra y DSP, sumando principal y secciones.
+
+| | principal (C-S1V4, SH-101) | secciones (sinte de serie, SH-2) |
+|---|---|---|
+| quién lo hace | SH-101: su sinte entero (575 instrucciones) en el principal del DSP A | serie: 4 programas de voz en A y 4 en B, iguales salvo las direcciones de datos de cada voz; SH-2: 2 secciones del DSP A |
+| programas | uno, con las cuatro voces seguidas | uno por sección (4 copias casi iguales) |
+| cambiar el sonido | recargar el principal | cambiar una sección (`FC40`) sin tocar el principal; encender/apagar voces con `FC44` |
+| espacio | `0x0100`–`0x18FF` (6 KiB) para todo | `0x1800` bytes por sección |
+| datos por voz | los elige el programa | cada copia con sus direcciones |
+
+**De qué depende la elección**: no del hardware ni del OS (los dos caminos funcionan en los PLUG-OUTs de Roland),
+sino de lo que haga el sonido. Para C-V4 (cuatro sierras con puerta, 137 instrucciones) un único programa es lo más
+simple y deja `make_s1.py` igual de paramétrico. Las secciones convienen cuando cada voz es un programa grande que
+se quiere cambiar por separado (por ejemplo, formas de onda distintas por oscilador, como el sinte de serie), o para
+apagar voces y ahorrar ciclos. Pasar C-S1V4 a secciones sería: cuatro programas `s1v0`–`s1v3` en `0x1900`…`0x6100`
+del DSP A, `FC44(0/1/4/5, 1)` según el índice → sección de `system-1/SH101_POLY.md` §2, y el principal sólo con la
+suma; no está hecho.
+
 ## 3. La interfaz PLUG-OUT del SYSTEM-1 (OS 1.30)
 
 ### 3.1 SYNINFO [código]
@@ -157,11 +199,11 @@ programa de serie ni de los PLUG-OUTs lee `A030`–`A03F` del esclavo.
 |---|---|---|---|
 | 1 | ~~el OS rechaza el id de modelo `0x0010` o el SYNINFO~~ | **descartado**: aceptado e instalado [medido] | — |
 | 2 | ~~el programa del maestro B no es el que suena~~ | **descartado**: C-S1TONE suena [medido] | — |
-| 2b | el volumen (`0x100` → `C01C` del maestro B con `FCEC(1, …)`) no actúa o silencia | mudo, o el knob no hace nada | PARAMLOG ya confirmó el id; si falla, probar otro id de parámetro o el banco 5 |
-| 3 | `FD6C` no es el banco 5 IEEE | TONE suena, C-S1V4 mudo o desafinado | escribir directamente `0x40101000 + 4·idx` |
-| 4 | el esclavo no recibe `0x110+v`/`0x120+v` | TONE suena, notas mudas | ver qué ids llegan (añadir un registro como `VOICELOG`) |
+| 2b | ~~el volumen no actúa~~ | **resuelto**: `0x100` → `C01C` del maestro B con `FCEC(1, …)` funciona [medido] | — |
+| 3 | ~~`FD6C` no es el banco 5 IEEE~~ | **descartado**: tono y puerta llegan [medido] | — |
+| 4 | ~~el esclavo no recibe `0x110+v`/`0x120+v`~~ | **descartado**: las cuatro voces suenan [medido] | — |
 | 5 | frecuencia de muestreo ≠ 96 kHz | todo desafinado el mismo intervalo | medir y corregir la constante de la sierra |
-| 6 | `C000` del esclavo B queda a 0 | mudo | quitar el `× C000` de `s1m1` |
+| 6 | ~~`C000` del esclavo B queda a 0~~ | **descartado** [medido] | — |
 
 ## 5. Ficheros
 
@@ -235,3 +277,29 @@ USB 1 + DIN, `docs/BASE_FIRMWARE.md` §7.12):
 
 Lo propio de cada equipo es sólo el punto de enganche y la función de envío; el formato `F0 7D 06 …` y
 `paramlog.py` valen igual (en el SYSTEM-8: `paramlog.py --device SYSTEM-8`).
+
+## 7. Ocho voces (C-S1V8, 2026-10-22)
+
+`VOICES=8 NAME=C-S1V8 sh examples/system_1/build.sh`. El número de voces es un parámetro de la build
+(`make_s1.py` lee `VOICES` y escribe `#define NV` en `build/s1_programs.h`; `model.c` y `engine.c` lo toman de ahí).
+
+| | C-S1V4 | C-S1V8 |
+|---|---|---|
+| asignador (región 0) | poly de 4 | poly de 8 (la misma regla: misma nota > libre más antigua > soltada con hold > más antigua) |
+| ids | `0x110`–`0x113`, `0x120`–`0x123` | `0x110`–`0x117`, `0x120`–`0x127` |
+| banco 5 del esclavo | tono `A030`–`A033`, puerta `A038`–`A03B` | tono `A030`–`A037`, puerta `A038`–`A03F` |
+| fase (banco 0) | `0300`–`0331` | `0300`–`0371` |
+| `s1m0` (DSP A del esclavo) | 137 instrucciones | **269** de ≈ 925 por muestra |
+| nivel por voz | 1/4 | 1/8 (un acorde de 8 no satura: 0,57 de pico en la simulación) |
+
+Resultado [medido, a oído]: las ocho voces suenan a la vez y ninguna nota corta a otra. Por lo tanto:
+
+* el OS del maestro **acepta 8 voces** de un asignador de PLUG-OUT y manda al esclavo los ids `0x114`–`0x117` y
+  `0x124`–`0x127` como los de las voces 0–3 (el SYSTEM-1 de serie sólo usa 4);
+* un solo DSP del esclavo hace las ocho voces sobrado de tiempo.
+
+Límites para ir más allá [inferido]: el bloque de velocidades tiene 8 ids (`0x120`–`0x127`; `0x128` empieza el de
+disparo), así que con estos ids el máximo es 8. Notas (`0x110`–`0x11F`) tendrían hueco para 16. Más de 8 voces
+necesitaría otra forma de mandar la puerta (por ejemplo, usar la nota y un valor especial, o los ids de disparo
+`0x128+v`) y comprobar que también llegan; el tiempo de DSP daría para ≈ 25 voces de sierra en el DSP A, y el DSP B
+del esclavo está casi libre. Sin probar.

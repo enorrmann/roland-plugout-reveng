@@ -15,7 +15,9 @@
 #include "syninfo.h"
 #include "s1_programs.h"
 
+#ifndef NV
 #define NV 4
+#endif
 
 /* master parameter services */
 typedef int (*get_fn)(int group, int id);

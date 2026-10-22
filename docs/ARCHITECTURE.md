@@ -1,6 +1,7 @@
 # Arquitectura del SYSTEM-8: hardware, qué código corre dónde, y nuestras herramientas
 
-Resumen para orientarse. El detalle y las pruebas están en `docs/BASE_FIRMWARE.md` §8 (anatomía del OS),
+Resumen para orientarse. El SYSTEM-1 tiene su propio documento: `system-1/ARCHITECTURE.md` (1 esclavo, 2 DSP por
+BMC, otra interfaz de PLUG-OUT). El detalle y las pruebas están en `docs/BASE_FIRMWARE.md` §8 (anatomía del OS),
 `docs/CUSTOM_PLUGOUTS.md` (interfaces de PLUG-OUT, microcódigo) y `docs/NOTES.md`
 (PLUG-OUT propio, ISA del DSP). Estado: 2026-10-15.
 
@@ -76,7 +77,7 @@ cambio sí puede llamar a los servicios del slave (`0x0113FC00`). Cada slave cor
 | Dirección (DSP n = 0..5) | Contenido | ARM puede |
 |---|---|---|
 | `0x41400000 + n·0x100000` (+`0x2000` SD31, +`0x4000` RAW) | banco 0 (DT0): RAM de datos del programa (refs `02nn`/`04nn`/`06nn`), un **anillo** que rota una palabra por muestra (los DSP corren a 96 kHz) | leer (escribir no queda) |
-| `0x41480000 + n·0x100000` | **memoria de programa** (+ dirección de ranura en bytes) | leer y escribir (stores de 32 bits) |
+| `0x41480000 + n·0x100000` | **memoria de programa** (+ dirección de ranura en bytes; 64 KiB; principal `0x0100`, ranuras `0x6000`/`0x8000`/`0xB000`: `DSP_PROGRAM_MEMORY.md` §2) | leer y escribir (stores de 32 bits) |
 | `0x41104318 + n·0x1000` | control y bit de tarea de cada ranura | escribir |
 | `0x41114000 + n·0x4000` | banco 5 / DPC (refs `A0nn`, `+0xB0`) | leer y escribir |
 | `0x41400000 + n·0x100000 + 0xA0000` | bloque de parámetros con rampa (refs `C0nn`, `+0xA0`) | escribir vía OS |
@@ -97,3 +98,11 @@ cambio sí puede llamar a los servicios del slave (`0x0113FC00`). Cada slave cor
 La distinción importante: **dsplive** actúa en los DSP de los **slaves** (voces, se observan por audio) y
 **dsppeek** en los del **maestro** (efectos, se leen directamente). No hay forma conocida de leer la
 memoria de un slave desde el PC.
+
+## 6. Diferencias con el SYSTEM-1 (2026-10-22)
+
+Resumen; detalle en `system-1/ARCHITECTURE.md`. El SYSTEM-1 tiene un solo esclavo y **dos DSP por BMC** (A y B), sus
+ARM no tienen FPU (el SYSTEM-8 sí, VFP: recuento en `system-1/ARCHITECTURE.md` §1.1, `system-1/vfp_count.py`; el código ARM de un PLUG-OUT del SYSTEM-8 no corre allí sin portarlo), la región 0 va en `0x60800000` y la 1 en `0x60200000` (un solo slot, sin reubicación), las dos
+tablas de servicios están en `0x0100FC00`, y la modulación por voz del sinte de serie se calcula en el maestro. Su
+región 0 tiene un objeto modelo que recibe los parámetros (`vt+0x30`); en el SYSTEM-8 no existe ese punto, lo que
+importa para capturar parámetros (`docs/examples_system_1_README.md` §6.3).

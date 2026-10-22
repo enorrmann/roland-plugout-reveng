@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(ROOT, 'asm'))
 sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 're'))
 import asm  # noqa: E402
 
-NV = 4
+NV = int(os.environ.get('VOICES', '4'))         # voices (VOICES=8 build.sh: the 8-voice test, C-S1V8)
 PITCH = [0xA030 + v for v in range(NV)]     # written by the slave ARM (engine.c, FD6C sel 0, idx 0x30 + v)
 GATE = [0xA038 + v for v in range(NV)]      # idem, idx 0x38 + v
 PHASE = [0x0300 + 0x10 * v for v in range(NV)]   # bank 0 ring: store P, read P + 1 one sample later
@@ -39,7 +39,7 @@ OUT_ZERO = [0x6008, 0x6009, 0x600A, 0x600B, 0x600C, 0x600D]
 M_OUT = (0xA118, 0xA119)                    # master B -> the OS's output program on master A
 M_ZERO = [0xA11A, 0xA11B, 0xA11C, 0xA11D]
 M_VOLUME = 0x1C                             # master DSP B parameter for the VOLUME knob (as the SH-2: C01C)
-LEVEL = 0.25                                # four voices of amplitude 1 -> at most 1.0
+LEVEL = 1.0 / NV                            # NV voices of amplitude 1 -> at most 1.0
 
 
 def saw_voice(v, tone=False):
@@ -76,7 +76,7 @@ def saw_voice(v, tone=False):
 
 
 def prog_s1m0(tone=False):
-    L = ['; s1m0: slave DSP A main @0x0100: four gated saws -> A150' + (' (TONE test: voice 0 always on)' if tone else ''),
+    L = [f'; s1m0: slave DSP A main @0x0100: {NV} gated saws -> A150' + (' (TONE test: voice 0 always on)' if tone else ''),
          'mov r5, #0.0', 'mov r6, #1.0', 'mov r7, #0.0']
     for v in range(NV):
         L += saw_voice(v, tone)
@@ -166,6 +166,7 @@ def header(progs, tone):
         '    ' + ', '.join(f'0x{x:08x}' for x in vol[i:i + 8]) for i in range(0, 256, 8)) + '\n};')
     out.append(f'#define M_VOLUME 0x{M_VOLUME:02x}')
     out.append(f'#define F_ONE 0x{float_bits(1.0):08x}u\n#define F_ZERO 0x00000000u')
+    out.append(f'#define NV {NV}')
     out.append(f'#define B5_PITCH 0x{PITCH[0] & 0xFF:02x}\n#define B5_GATE 0x{GATE[0] & 0xFF:02x}')
     return '\n'.join(out) + '\n'
 

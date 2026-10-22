@@ -16,7 +16,9 @@
 #include "syninfo.h"
 #include "s1_programs.h"
 
+#ifndef NV
 #define NV 4
+#endif
 
 typedef int (*get_fn)(int group, int id);
 typedef void (*slot_fn)(int index, int on);
