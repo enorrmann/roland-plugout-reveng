@@ -24,15 +24,16 @@ import asm  # noqa: E402
 
 PITCH = [0xA021, 0xA022]                    # DSP2 / DSP3 bank 5 ids 0x21, 0x22 (ARM: note pitch of voices A, B)
 PHASE = [0x0670, 0x0674]                    # DSP2 / DSP3 ring state: store at S, read at S+1 next sample
-OUT = [0x8404, 0x8405]                      # Z words of DSP2 / DSP3 that DSP4 reads
-IN = [0x8005, 0x8006, 0x8204, 0x8205]       # DSP4 M 005/006 (DSP2) and O 204/205 (DSP3)
+OUT = [0x8404, 0x8405]                      # Z words of DSP3 that DSP4 reads (voices 2, 3)
+OUT2 = [0x8404, 0x8406]                     # DSP2 (voice B moved to Z 406, test of solov2 v2): voice 1 -> M 007
+IN = [0x8005, 0x8007, 0x8204, 0x8205]       # DSP4 M 005 / 007 (DSP2 voices 0, 1), O 204 / 205 (DSP3 voices 2, 3)
 GATE = [0xA078 + k for k in range(4)]       # DSP4 bank 5 ids 0x78..0x7B (ARM: gate of local voice k)
 OUT_L, OUT_R = 0x6020, 0x6021               # IOMD words that reach the output (DSP4 owns IOMD0 0x20-0x24)
 K = 2 * 440.0 / 96000.0
 
 
-def osc(v):
-    """saw of voice v (0 or 1) of this DSP; the saw goes to Z OUT[v]"""
+def osc(v, out):
+    """saw of voice v (0 or 1) of this DSP; the saw goes to Z out[v]"""
     L = [f'ld r0, [{PITCH[v]:04x}]', 'mov r4, r4',
          'add r0, #-4.75:32',                                   # p - 4.75
          f'mul r2, r0, #{math.log(2) / 16!r}:32',               # x = (p - 4.75) ln2 / 16
@@ -45,14 +46,14 @@ def osc(v):
     for _ in range(4):
         L += ['mul r2, r2, #256.0:32', 'min r2, r2, r6']
     L += ['mul r2, r2, #2.0:32', 'subxy r1, r2, r1', f'st r1, [{PHASE[v]:04x}]']   # r1 in [-1, 1): the saw
-    L += [f'st r1, [{OUT[v]:04x}]']
+    L += [f'st r1, [{out[v]:04x}]']
     return L
 
 
-def osc_source():
-    L = ['; solov2 SAW, DSP2 and DSP3 DCO1 slot: voices 0 and 1 of each DSP (make_solov2.py)',
+def osc_source(out=OUT):
+    L = ['; solov2 SAW, DCO1 slot: voices 0 and 1 of one DSP (make_solov2.py)',
          'mov r5, #0.0:32', 'mov r6, #1.0:32']
-    L += osc(0) + osc(1)
+    L += osc(0, out) + osc(1, out)
     return '\n'.join(L) + '\n'
 
 
@@ -73,11 +74,12 @@ def words(text):
     return [0x0A02, 0xFF70] + r.words + [0x0B02, 0x00F8, 0x0001], r
 
 
-def simulate(w_osc, w_gate, pitch, gate, n):
+def simulate(w_osc2, w_osc, w_gate, pitch, gate, n):
     """one sample = DSP2 program, DSP3 program, then DSP4 program; DSP4 reads what DSP2 / DSP3 stored in the
     previous sample (MXM double buffer, docs/DSP_HARDWARE.md 8.2). pitch[v], gate[v](t) for v in 0..3"""
     import dspdis
     import dspisa
+    ins_osc2 = [i for _, i in dspdis.instructions(w_osc2)]
     ins_osc = [i for _, i in dspdis.instructions(w_osc)]
     ins_gate = [i for _, i in dspdis.instructions(w_gate)]
     mem = [{PITCH[0]: pitch[0], PITCH[1]: pitch[1], PHASE[0] + 1: 0.0, PHASE[1] + 1: 0.0} for _ in range(2)]
@@ -87,7 +89,7 @@ def simulate(w_osc, w_gate, pitch, gate, n):
     for t in range(n):
         for k in range(4):
             mem4[GATE[k]] = gate[k](t)
-        mem4[IN[0]], mem4[IN[1]] = mem[0].get(OUT[0], 0.0), mem[0].get(OUT[1], 0.0)
+        mem4[IN[0]], mem4[IN[1]] = mem[0].get(OUT2[0], 0.0), mem[0].get(OUT2[1], 0.0)
         mem4[IN[2]], mem4[IN[3]] = mem[1].get(OUT[0], 0.0), mem[1].get(OUT[1], 0.0)
         for d in range(2):
             m = mem[d]
@@ -96,7 +98,7 @@ def simulate(w_osc, w_gate, pitch, gate, n):
             if d == 1:                                             # DSP3 gets its pitches from ids of its own
                 m[PITCH[0]], m[PITCH[1]] = pitch[2], pitch[3]
             regs = [0.0] * 8
-            for x in ins_osc:
+            for x in (ins_osc2 if d == 0 else ins_osc):
                 dspisa.JUMP = None
                 regs, m, _ = dspisa.run(list(x), regs, m)
             mem[d] = m                                             # run() returns a new dict
@@ -110,8 +112,14 @@ def simulate(w_osc, w_gate, pitch, gate, n):
 
 if __name__ == '__main__':
     osc_text, gate_text = osc_source(), gate_source()
+    osc2_text = osc_source(OUT2)
     w_osc, r_osc = words(osc_text)
+    w_osc2, r_osc2 = words(osc2_text)
     w_gate, r_gate = words(gate_text)
+    open(os.path.join(HERE, 'solov2_osc2.s'), 'w').write(osc2_text)
+    open(os.path.join(HERE, 'solov2_osc2.hex'), 'w').write(
+        '# solov2 SAW, DSP2 DCO1 slot, voice B to Z 406 (make_solov2.py)\n' + '\n'.join('%04x' % x for x in w_osc2) + '\n')
+    print('solov2_osc2:', r_osc2.summary(), 'words', len(w_osc2))
     open(os.path.join(HERE, 'solov2_osc.s'), 'w').write(osc_text)
     open(os.path.join(HERE, 'solov2_gate.s'), 'w').write(gate_text)
     open(os.path.join(HERE, 'solov2_osc.hex'), 'w').write(
@@ -124,7 +132,7 @@ if __name__ == '__main__':
         pitch = [4.75, 4.75, 5.75, 4.75]                           # voice 2 (DSP3, voice 0) one octave up
         gates = [lambda t: 0.0] * 4                                 # noqa: E731
         gates[2] = lambda t: 1.0 if 2000 <= t < 6000 else 0.0       # noqa: E731
-        out = simulate(w_osc, w_gate, pitch, gates, 8000)
+        out = simulate(w_osc2, w_osc, w_gate, pitch, gates, 8000)
         cross = sum(1 for t in range(2100, 5900) if out[t - 1] < 0 <= out[t])
         print('voice 2 alone (880 Hz expected): crossings', cross, '-> %.0f Hz' % (cross * 96000 / 3800))
         print('silent before gate:', round(max(abs(v) for v in out[:2000]), 6),

@@ -225,11 +225,11 @@ Y = palabras a saltear; 3: lee 0). h6 = índice de `28` (banco 0) y de `da`/`de`
 | banco | referencias | contenido | comportamiento medido |
 |---|---|---|---|
 | 0 | `0nnn` | DT0: RAM de datos, 0x800 palabras | **anillo** (§7.2); 2 lecturas por instrucción |
-| 1 | `2nnn` | DT1: memoria compartida por el par de DSP; buzón principal ↔ ranura (`22nn`) | [inferido] compartido; usado como entrada de las ranuras DCO |
+| 1 | `2nnn` | DT1: buzón principal ↔ ranura (`22nn`) | usado como entrada y salida de las ranuras DCO. **2026-10-22:** propio de cada DSP salvo DSP0/DSP1 (tabla del ARM) y, por los listados, **anillo** como el banco 0 [medido con C-V4] (`VOICE_ALLOCATION.md` §6.7) |
 | 2 | `4nnn` | DT2: ventana de la línea de retardo | dos páginas que alternan por muestra; DMA de retardo donde el ARM lo conectó (§8.4) |
 | 3 | `6nnn` | IOMD: palabras de E/S (§8.3) | no es memoria: entradas y salidas con dueño |
 | 4 | `8nnn` | MXM: bus entre DSP, zonas M/O/Z/S de 0x200 palabras | §8.2 |
-| 5 | `Annn` | DPC: memoria simple persistente, 0x400 palabras (0x400–0x7FF: sólo dentro de la muestra) | 1 lectura por instrucción; indexable con h6/h7 (§7.4); el ARM la lee y escribe (mejor lugar para resultados de prueba y **tablas**) |
+| 5 | `Annn` | DPC: memoria simple persistente, 0x400 palabras (0x400–0x7FF: sólo dentro de la muestra; **2026-10-22:** en los principales de Roland es el buzón de la pareja de DSP; DSP5 → DSP4 medido con C-V4, `VOICE_ALLOCATION.md` §6.7) | 1 lectura por instrucción; indexable con h6/h7 (§7.4); el ARM la lee y escribe (mejor lugar para resultados de prueba y **tablas**) |
 | 6 | `Cnnn` | parámetros que escribe el ARM | sólo lectura para el DSP |
 | 7 | `Ennn` | ? (`e013` lo lee el JX como fuente) | [desconocido] |
 

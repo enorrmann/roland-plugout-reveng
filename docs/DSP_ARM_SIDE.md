@@ -17,7 +17,8 @@ decoded with `re/dspisa.py`/`dspdis.py`. Nothing was run on the device.
 ## TL;DR
 
 1. **The reference-word prefix is a 3-bit bank number** (bits 15–13) and the ARM driver's bank table uses the same
-   numbering: 0 = DT0 (`0nnn`), 1 = DT1 (`2nnn`, shared by the DSP pair), 2 = DT2 (`4nnn`, delay-line/tap window),
+   numbering: 0 = DT0 (`0nnn`), 1 = DT1 (`2nnn`; one base for DSP0 and DSP1, one each for DSP2–DSP5 — corrected
+   2026-10-22, §6), 2 = DT2 (`4nnn`, delay-line/tap window),
    3 = IOMD (`6nnn`, I/O mailbox, shared by all 6 DSPs), 4 = MXM (`8nnn`, inter-DSP mixer/bus window),
    5 = DPC (`Annn`), 6 = ENV/parameter block (`Cnnn`, handled by its own API), 7 = `Ennn` (read-only, unidentified).
 2. **The audio buses between DSPs are ordinary `fe` loads/stores to banks 3 and 4**, not `X9bY`. In every synth the
@@ -187,14 +188,14 @@ The table ends at 0x610153C0. Next to it, 0x610153E0 holds `{0x411D0800, 0x411D8
 | ARM address | name | size | notes |
 |---|---|---|---|
 | 0x41400000+n·0x100000 (+0x2000 SD31, +0x4000 RAW) [0x41200000] | DTn0 [DTM0] | 0x800 words | **bank 0** |
-| +0x10000 [0x41210000] | DTn1 [DTM1] | 0x800 words | **bank 1**. DSP0's bank 1 is 0x41510000 (= DT11): DT1 is shared within the pair |
+| +0x10000 [0x41210000] | DTn1 [DTM1] | 0x800 words | **bank 1**. DSP0's bank 1 is 0x41510000 (= DT11), the same as DSP1's. DSP2–DSP5 each have their own (0x41610000…0x41910000, s_boot 0x0111C580). **Corrected 2026-10-22:** only DSP0/DSP1 share it, not every pair (§6) |
 | +0x20000 | (no debug entry) | 0x600 words, IEEE view only | **bank 2** (s_boot table 0x111C628) |
 | +0x30000 (n ≥ 2); 0x411D0000/0x411D8000 for n = 0/1 | MXMnM / MXMnO (+0x800) / MXZn (+0x1000) / MXSn (+0x1800) / MXEn (+0x2000, 0x40 B) | 0x200 words each | **bank 4**. Labelled "(->DSPn)": DSP n's input mixer. Physically DSP2's lives in DSP0's window 0x41430000, and so on |
 | +0x40000 | IPGn | 0x3000 B | page-mapped through ctrl +0x200 (12 × 1 KiB) |
 | +0x60000 | PRGn | 0x10000 B | page-mapped through ctrl +0x100 (16 × 4 KiB) |
 | +0x80000 | program memory (s_boot 0x111C190) | | slot programs |
 | +0xA0000 | ENVn | 0x8000 B (DSP0/1) / 0x4000 B | **bank 6**, `+0xA0` API, 16 B per id |
-| 0x41114000+n·0x4000 [0x41110000] (+0x1000 SD31, +0x2000 RAW) | DPCn [DPCM] | 0x400 words | **bank 5** |
+| 0x41114000+n·0x4000 [0x41110000] (+0x1000 SD31, +0x2000 RAW) | DPCn [DPCM] | 0x400 words | **bank 5** (`A000`–`A3FF`). `A400`–`A7FF` behaves as a window shared by the pair (0,1)/(2,3)/(4,5) in Roland's mains; probably DP01/DP23/DP45 (§6, inferred) |
 | 0x4113C000 (+0x1000 SD31, +0x2000 RAW) | IOMD0 (DSP4/5) 0x00–0xBF, IOMD1 (DSP2/3) 0xC0–0xDF, IOMD2 (DSP0/1) 0xE0–0xFF | 0x100 words | **bank 3**, same address for all 6 DSPs (s_boot 0x111C660) |
 | 0x41130000 / 0x41134000 / 0x41138000 (+0x1000, +0x2000) | DP01 / DP23 / DP45 | 0x400 words each | members of the DSPM object (s_boot 0x01108B94: obj+0x70..+0x90). Not a DSP bank in the driver's table |
 | 0x41240000 / 0x41260000 | PRGM / PRGMPT | 0x10000 B each | DSPM program (+ "PT" = page table?) |
@@ -277,9 +278,13 @@ with a bound check. **This is the same numbering as the microcode reference pref
 **Routing (identical in JX, J106, SH, S100 and the s_data defaults; main programs in DSP0..5 order):**
 * DSP0 stores Z `404–416`, and DSP2 loads M `004–016`. DSP1 stores Z `400–410`, and DSP3 loads O `200–210`.
 * DSP2 stores Z `404–41A`, and DSP4 loads M `005–01A`. DSP3 stores Z `400–414`, and DSP5 loads O `201–214`.
-  So MXM of DSP n: M ← Z of the even DSP of the previous pair, O ← Z of the odd one.
+  So MXM of DSP n: M ← Z of the even DSP of the previous pair, O ← Z of the odd one. The word number is kept
+  (`Z 4nn → M/O nn`): MAIN2 copies `M 0nn → Z 4nn` with the same nn, and the ranges above are ranges of use
+  (MAIN4 does not read M 004) (§6).
 * Feedback: DSP2 stores M `017–019`, and DSP0 loads S `617–619`. DSP4 stores M `01B–01D`, and DSP2 loads
   S `61B–61D`. A store into one's own M area appears in the S area of the DSP two positions back.
+* Pair window (bank 5 `A4nn`, §6): DSP0 stores `A404–A40E`, DSP1 loads them; DSP4 stores `A404–A407`, DSP5 loads
+  them; DSP5 stores `A400–A403`, DSP4 loads them. No main loads what it stores there itself.
 * IOMD: DSP0 loads `E0–E2` (IOMD2 area), DSP4 loads `00–06` and stores `20–24`, `60–66`, DSP5 loads `10–17` and
   stores `B0–B7` (IOMD0 area). These are the slave's outputs to the wave bus and its inputs from it.
 
@@ -335,3 +340,26 @@ CORE1_DSPEnable (m1_tcm 0x011022B4) · 0x011123A2 +0x310 writer · 0x01110054 ta
 port · 0x01110D98 data port · 0x01110CAE IPG remap · 0x01111D34 IDM/EDM DMA · 0x011111FC bank write · 0x0111C190..
 0x0111C700 pointer tables · 0x01108B18 DSP-object constructor (descriptor table 0x01117A94, DSPM gets DP01/23/45) ·
 m1_sdram 0x61003794 IDM/EDM/WVM monitor, 0x6100123C resource usage, 0x6100B84E MXM monitor.
+
+## 6. Verificación y correcciones (2026-10-22, emulador y listados)
+
+Estudio completo en `VOICE_ALLOCATION.md` §6; aquí sólo lo que corrige o amplía este documento. Etiquetas:
+[listado] = microcódigo o binario ARM desensamblado; [inferido] = deducción con la medida que la confirmaría.
+
+* **Banco 1 (DT1) no se comparte por pares** [listado]. La tabla de bancos del OS del slave (`s_boot` `0x0111C580`,
+  vista IEEE) da a DSP0 y DSP1 la misma base `0x41510000`; DSP2–DSP5 tienen `0x41610000`, `0x41710000`,
+  `0x41810000`, `0x41910000`. El TL;DR y la tabla del §1 decían "compartido por el par" en general. Si DSP0/DSP1
+  comparten de verdad la memoria o sólo la ventana del ARM sigue **abierto** (medida: escribir valores distintos en
+  `[2210]` desde DSP0 y DSP1 y leer `0x41410000`/`0x41510000`).
+* **Banco 1 se comporta como anillo** [listado, inferido]: los programas de ranura DCO escriben sus salidas en
+  `[221B]`–`[2229]` (impares) y MAIN2/MAIN3 las leen en `[221C]`–`[222A]` (+1), nunca en la dirección escrita; nadie
+  escribe las pares. MAIN0 guarda `[2200]` y lee `[2201]`. Es el mismo idioma "guardar en S, leer S+1" del banco 0
+  (`DSP_HARDWARE.md` §7.2). Igual en JX-3P, JUNO-60, JUNO-106, JUPITER-4 y JUPITER-8 (`emu/allplugouts.py`). **Medido
+  2026-10-22:** C-V4, que sólo lee las salidas en `+1`, suena con las ocho voces (`VOICE_ALLOCATION.md` §6.7).
+* **Banco 5 `A400`–`A7FF` = buzón de la pareja** [listado; medido con C-V4 para DSP5 → DSP4]: ver la viñeta nueva del §3.1. Explica cómo las
+  voces 2 y 3 (DSP5) llegan a la salida `6020`/`6021` que escribe DSP4, y corrige la idea de que DSP5 sólo reenvía a
+  `60B0` (que no se oye).
+* **MXM conserva el número de palabra** [listado + medido en el maestro]: añadido al §3.1.
+* **Ningún código ARM escribe MXM/IOMD** (§2.4) sigue en pie: el enlace entre slaves por IOMD (`6000`–`6003` que
+  suma MAIN4) lo pone el hardware o el maestro, no el slave. Qué palabra del slave 1 llega a qué entrada del slave 0
+  está **abierto**.

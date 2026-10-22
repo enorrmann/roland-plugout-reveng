@@ -10,4 +10,4 @@ NAME=${NAME:-C-SOLOV2}
 export NAME
 python3 "$SOLOV2/make_solov2.py" > /dev/null
 sed -e "s|^HERE=.*|HERE=$ENG|" -e "s|\"\$HERE/engine.c\"|\"$SOLOV2/engine_solov2.c\"|" -e "s|arm-none-eabi-gcc \$CFLAGS -c|arm-none-eabi-gcc \$CFLAGS \$EXTRA_DEFS -c|" "$ENG/build.sh" > "$SOLOV2/build_engine.sh"
-OWN_PROGS=${OWN_PROGS:-solov2osc=$SOLOV2/solov2_osc.hex,solov2gate=$SOLOV2/solov2_gate.hex,dco2null=$FS/gate/dco2_null.hex} sh "$SOLOV2/build_engine.sh" "$@"
+OWN_PROGS=${OWN_PROGS:-solov2osc=$SOLOV2/solov2_osc.hex,solov2osc2=$SOLOV2/solov2_osc2.hex,solov2gate=$SOLOV2/solov2_gate.hex,dco2null=$FS/gate/dco2_null.hex} sh "$SOLOV2/build_engine.sh" "$@"

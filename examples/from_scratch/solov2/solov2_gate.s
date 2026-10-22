@@ -6,7 +6,7 @@ mov r4, r4
 mul r1, r1, r4
 addxy r7, r7, r1
 ld r4, [a079]
-ld r1, [8006]
+ld r1, [8007]
 mov r4, r4
 mul r1, r1, r4
 addxy r7, r7, r1

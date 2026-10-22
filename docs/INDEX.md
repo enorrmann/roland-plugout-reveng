@@ -45,6 +45,7 @@ Status of each item is in the document itself; the scope of the project is in th
 
 | Document | What it covers |
 |---|---|
+| [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md) | Asignación de voces de Roland por DSP y flujo de datos del slave (familia A), por qué C-V3 no suena (preguntas A–H con pruebas en el emulador `examples/from_scratch/emu/`), candidato v4, plan de medida y comprobación de firmas. Spanish. |
 | [NOTES.md](NOTES.md) | Working notes of the from-scratch PLUG-OUT: interfaces found, what runs on the device, next steps. Spanish, unfinished. |
 | [CUSTOM_OSC.md](CUSTOM_OSC.md) | Own DSP microcode oscillator (C-SAW): description and the audio checks. |
 | [SCRIPTS.md](SCRIPTS.md) | What each script in `examples/from_scratch/re/` does and what it needs. |

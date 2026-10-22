@@ -103,6 +103,10 @@ microcódigo del JX-3P copiado en el build). Son sus 721 líneas; las referencia
 | `60B6` | `[2204]` | [medido en listado] |
 | `60B7` | `[220C]` | [medido en listado] |
 
+**Corrección 2026-10-22 (`VOICE_ALLOCATION.md` §6):** MAIN5 escribe además `A400`–`A403` (banco 5, buzón de la
+pareja) y MAIN4 los suma a `6020`/`6021`: DSP5 procesa las voces 2 y 3 y las entrega a DSP4 [listado]. La frase
+siguiente sólo vale para las palabras `60B0`–`60B7`.
+
 Conclusión de esta sección: **DSP5 no genera la voz; la reenvía**. Las ocho palabras de salida son una copia de lo
 que llega por MXM y por IOMD `6010`–`6017`. Lo que genera la voz está antes, en DSP2/3 y DSP4.
 

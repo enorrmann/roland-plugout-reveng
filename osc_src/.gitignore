@@ -6,3 +6,7 @@ data/*.c
 code/asm/
 code/build/
 decomp/
+c/code/
+c/data/
+c/fwd.h
+c/osc_d.h

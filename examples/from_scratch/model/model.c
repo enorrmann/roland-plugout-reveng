@@ -100,7 +100,36 @@ static int m_get(struct assign *a, int g, int id, int *v) { *v = OS->get(part_of
 static void m_touch(struct assign *a, int g, int id) { OS->touch(part_of(a), (int16_t)g, (int16_t)id); }
 static void m_flush(struct assign *a, int g) { OS->flush(part_of(a), g); }
 
-static void vset(struct assign *a, int id, int v) { a->vt->set(a, G_VOICE, id, v); }
+#ifdef VOICELOG
+/* Diagnostic build (VOICELOG=1 model/build.sh, examples/from_scratch/voicelog/): every note and velocity the
+ * assigner sets for a voice is sent to the PC as SysEx F0 7D 05 <kind> <voice> <value> <note> F7, kind 0 = note
+ * (value = note), 1 = velocity (value = velocity, note = the note the voice plays), voice 0..7 = the global voice id
+ * (slave 0: 0-3, slave 1: 4-7). Only the velocity message carries the note: a note message sent right before it
+ * was not received. Same send path as PEEK. */
+static int vlog_note;                                                  /* note of the voice being set */
+static void vlog(int kind, int voice, int value)
+{
+    uint8_t buf[8] = { 0xF0, 0x7D, 0x05, (uint8_t)kind, (uint8_t)voice, (uint8_t)(value & 0x7F),
+                       (uint8_t)(vlog_note & 0x7F), 0xF7 };
+    uint32_t msg[4], wrap[4];
+    ((void (*)(void *))0x600753CDu)(msg);                              /* Msg ctor */
+    ((uint8_t *)msg)[6] = 4;                                           /* cable 4 */
+    ((void (*)(void *, const void *, int))0x600754BDu)(msg, buf, 8);   /* set SysEx */
+    ((void (*)(void *, void *))0x600754C7u)(wrap, msg);                /* wrap_msg */
+    ((void (*)(int, void *))0x6000345Du)(0x1A20, wrap);                /* router: USB1 + DIN */
+    ((void (*)(void *))0x600753F5u)(wrap);                             /* Wrap dtor */
+    ((void (*)(void *))0x600753E1u)(msg);                              /* Msg dtor */
+}
+#endif
+
+static void vset(struct assign *a, int id, int v)
+{
+#ifdef VOICELOG
+    if (id >= ID_NOTE && id < ID_NOTE + 8) vlog(0, id - ID_NOTE, v);
+    if (id >= ID_VEL && id < ID_VEL + 8) vlog(1, id - ID_VEL, v);
+#endif
+    a->vt->set(a, G_VOICE, id, v);
+}
 static int pget(struct assign *a, int id, int *v) { return a->vt->get(a, G_PATCH, id, v); }
 
 /* voice ids: the upper split half (mode 2) uses voices 4..7 */
@@ -126,6 +155,9 @@ static void play(struct assign *a, int v, int note, int vel)
     struct voice *x = &a->v[v];
     if (x->note != note)
         vset(a, vid(a, ID_NOTE, v), note);
+#ifdef VOICELOG
+    vlog_note = note;
+#endif
     if (!(x->vel == vel && vel))
         vset(a, vid(a, ID_VEL, v), vel);
     x->note = note; x->vel = vel; x->held = 0;

@@ -1,4 +1,4 @@
-; solov2 SAW, DSP2 and DSP3 DCO1 slot: voices 0 and 1 of each DSP (make_solov2.py)
+; solov2 SAW, DCO1 slot: voices 0 and 1 of one DSP (make_solov2.py)
 mov r5, #0.0:32
 mov r6, #1.0:32
 ld r0, [a021]

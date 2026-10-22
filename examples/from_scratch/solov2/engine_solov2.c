@@ -59,7 +59,7 @@ static dspdesc_t main_prog[6] = {                  /* only DSP4 runs our program
 static dspdesc_t empty_x[2] = { EMPTY(SLOT_X), EMPTY(SLOT_X) };              /* DSP0, DSP1 */
 static dspdesc_t empty_6[2] = { EMPTY(SLOT_DCO1), EMPTY(SLOT_DCO1) };          /* DSP4, DSP5: empty DCO1 */
 /* DCO1 slots of DSP2/3: our SAW, two voices per DSP (make_solov2.py); DCO2 slots: our null program */
-static dspdesc_t dco1_prog[2][4] = { { PROG(SLOT_DCO1, SOLOV2OSC), PROG(SLOT_DCO1, SOLOV2OSC), PROG(SLOT_DCO1, SOLOV2OSC), PROG(SLOT_DCO1, SOLOV2OSC) },
+static dspdesc_t dco1_prog[2][4] = { { PROG(SLOT_DCO1, SOLOV2OSC2), PROG(SLOT_DCO1, SOLOV2OSC2), PROG(SLOT_DCO1, SOLOV2OSC2), PROG(SLOT_DCO1, SOLOV2OSC2) },
                                      { PROG(SLOT_DCO1, SOLOV2OSC), PROG(SLOT_DCO1, SOLOV2OSC), PROG(SLOT_DCO1, SOLOV2OSC), PROG(SLOT_DCO1, SOLOV2OSC) } };
 static dspdesc_t dco2_prog[2][4] = { { PROG(SLOT_DCO2, DCO2NULL), PROG(SLOT_DCO2, DCO2NULL), PROG(SLOT_DCO2, DCO2NULL), PROG(SLOT_DCO2, DCO2NULL) },
                                      { PROG(SLOT_DCO2, DCO2NULL), PROG(SLOT_DCO2, DCO2NULL), PROG(SLOT_DCO2, DCO2NULL), PROG(SLOT_DCO2, DCO2NULL) } };
@@ -525,7 +525,10 @@ static void e_param(engine_t *e, int id, int zero, int value)            /* vt+0
 #endif
     if (id >= 0x429 && id < 0x429 + 8) {
         v = id - 0x429 - e->first;                   /* this slave's four voices */
-        if (v >= 0 && v < 4) voice_note[v] = value;
+        if (v >= 0 && v < 4) {
+            voice_note[v] = value;
+            voice_pitch(v, value);                   /* the pitch may arrive after the gate: write it here too */
+        }
         return;
     }
     if (id >= 0x43A && id < 0x43A + 8) {

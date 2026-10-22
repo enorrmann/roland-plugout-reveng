@@ -18,7 +18,7 @@ principal por medio de la mailbox `22nn` (ver `CUSTOM_OSC.md` §2).
 | MAIN2 | 0x0814 | — | DSP2 (osciladores): reenvía lo que lee de MXM (`8005`…) a su Z `8405`…; escribe la sincronía y el metal de DCO2 (`[2209]`, `[220a]`, `[220b]`) [medido por audio] |
 | MAIN3 | 0x07E2 | — | DSP3: como MAIN2, para el otro par de voces del slave [inferido] |
 | MAIN4 | 0x1436 | — | DSP4 (filtro y VCA): copia `8005`–`8016` a `[220E]`–`[2219]`; la envolvente de amplitud `[029D]`; **escribe la salida a IOMD** `6020`–`6024` y `6060`–`6066` (incondicional, al final) [medido, `WAVE_BUS.md` §3] |
-| MAIN5 | 0x1398 | — | DSP5: reenvía a IOMD `60B0`–`60B7` lo que lee de MXM y de `6010`–`6017`; no genera la voz [medido, `WAVE_BUS.md` §2; `60B0`–`60B7` silenciosas] |
+| MAIN5 | 0x1398 | — | DSP5: filtro/VCA de las voces 2 y 3; las entrega a DSP4 por el buzón de pareja `A400`–`A403`, que MAIN4 suma a la salida [listado, `VOICE_ALLOCATION.md` §6]; además copia a IOMD `60B0`–`60B7` (silenciosas [medido]) |
 
 Los tamaños y las palabras de MAIN0/MAIN1 se comprobaron con el SHA-256 de `engine/programs.py`
 (coinciden con el PLUG-OUT JX-3P 1.01, `plugins/JX-3P/Script/Code8_1.Dat`).
@@ -34,7 +34,7 @@ Un BMC esclavo tiene seis DSP (DSP0..DSP5) que comparten IOMD y MXM con sus veci
 | DSP2 | MAIN2 | DCO1 `0x6000`, DCO2 `0xB000` | — | osciladores, voces A y B |
 | DSP3 | MAIN3 | DCO1 `0x6000`, DCO2 `0xB000` | — | osciladores, voces A y B |
 | DSP4 | MAIN4 | efecto en `0xB000` (PLUG-OUT) | — | filtro y VCA, salida a IOMD |
-| DSP5 | MAIN5 | — | — | reenvío a IOMD (`60B0`–`60B7`) |
+| DSP5 | MAIN5 | — | — | voces 2 y 3 → DSP4 por `A400`–`A403`; copia a IOMD `60B0`–`60B7` |
 
 Fuente: `docs/ARCHITECTURE.md` (tabla de slaves) y `docs/WAVE_BUS.md` §2–§3 (listados de MAIN4/MAIN5).
 
