@@ -226,7 +226,8 @@ Herramientas nuevas (todas en `examples/from_scratch/emu/`):
 |---|---|
 | `chain.py` | emulador de un slave (seis DSP) y de dos slaves (`Bmc2`). Bancos por DSP, orden dentro de la muestra, MXM con cerrojo de 1 muestra, ventana de pareja del banco 5, IOMD. Cada hipótesis es un campo de `Model` |
 | `voices.py` | conjuntos de programas (solo nuestros: v3, v4, v4b) y las escrituras de tono y puerta de `engine_v3.c` |
-| `test_chain.py` | pruebas por pregunta (A–H) y de regresión; `python3 test_chain.py [A G …]` |
+| `test_chain.py` | pruebas por pregunta (A–H) y de regresión; `python3 test_chain.py [A G …]` (núcleo en C, segundos; `--py` = `chain.py`, ≈ 10 min) |
+| `cchain.py`, `dspcore.c`, `dspcomp.py` | el mismo emulador con el núcleo en C (`EMULATOR.md` §4 paso 1); `test_core.py` lo compara bit a bit con `chain.py` |
 | `listing.py` | referencias de bus de los programas de Roland, leídas del listado (`--summary`) |
 | `allplugouts.py` | los mismos hechos en todas las imágenes de Roland del repo (`work/unpack/*`, JX-3P) |
 | `sigcheck.py` | comprobación de firmas: que una build o un programa no contenga bytes de Roland (§7) |

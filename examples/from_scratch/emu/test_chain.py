@@ -1,7 +1,8 @@
 """Tests of the voice-chain study (docs/VOICE_ALLOCATION.md §6), one group per question A-H, plus regressions.
 
-    python3 test_chain.py              all tests (about 5 minutes: the DSP simulator is pure Python)
+    python3 test_chain.py              all tests on the C core (cchain.py, a few seconds)
     python3 test_chain.py A G          only the tests whose name contains test_A / test_G
+    python3 test_chain.py --py [...]   on chain.py itself (pure Python, about 10 minutes)
 
 Each test can fail: it checks either a fact read from Roland's listings (study only, needs the local
 engine/build/programs.h; skipped without it) or a prediction of the emulator (chain.py) for a hardware model.
@@ -12,12 +13,14 @@ import os
 import sys
 import traceback
 
+import cchain
 import chain
 import listing
 import sigcheck
 import voices
 
 FS = voices.FS_DIR
+EMU = cchain                        # chain.Slave / chain.Bmc2 with --py
 HI, LO = 81, 69                     # note 81 = 880 Hz, note 69 = 440 Hz (pitch 5.75 / 4.75)
 
 
@@ -37,7 +40,7 @@ def cents(f, ref):
 
 def run(which, model, pitches, gates, n=900, sources=None, words=chain.AUDIBLE):
     """one slave; pitches[lv] = note, gates = local voices on from sample 100. Returns {word: samples after 300}"""
-    s = chain.Slave(voices.programs(which, sources), model)
+    s = EMU.Slave(voices.programs(which, sources), model)
     e = voices.Engine(s)
     for lv, note in enumerate(pitches):
         e.pitch(lv, note)
@@ -142,7 +145,7 @@ LINK_C1 = {0x6060: 0x6000, 0x6061: 0x6001, 0x6062: 0x6002, 0x6063: 0x6003}
 def run2(which, model, n=700):
     """two slaves, only slave 1's local voice 0 plays (880 Hz; its other voices hold the same pitch, because the v3
     gate of voice 0 plays the saw of voice 1, question A); returns slave 0 6020 and slave 1 6020"""
-    b = chain.Bmc2(voices.programs(which), model)
+    b = EMU.Bmc2(voices.programs(which), model)
     e1 = voices.Engine(b.s[1])
     voices.Engine(b.s[0])
     for lv in range(4):
@@ -300,4 +303,8 @@ def main(sel):
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))
+    args = sys.argv[1:]
+    if '--py' in args:
+        args.remove('--py')
+        EMU = chain
+    sys.exit(main(args))

@@ -403,41 +403,78 @@ def mac(w1, w2, regs, imm, out):
     return f'r{d - 8} = ({body}) / 2' if d >= 8 else f'r{d} = {body}'
 
 
+class Layout:
+    """what run() derives from the words alone (also the decoder of emu/dspcomp.py, the C core's front end):
+    t = one letter per body word (A B M J C T N S I R), slots = the words transfers address, imm_words = the
+    immediate stream, n_list = the MAC second words in order, units = body positions numbered as C words count
+    them (ops first, then transfers), used = slot numbers that are references, cls = the class"""
+
+    def __init__(self, ins):
+        t = template(ins)
+        if t is None:
+            raise ValueError(f'unknown template for class {ins[0] >> 5:#x} len {len(ins)}')
+        body = ins[1:]
+        # slot array = every word after the last transfer; the first ones are MAC second words (N), the slots that
+        # a memory transfer (mode fe) points to are references, the remaining slot words are the immediate bit
+        # stream (in order). Transfers with another mode byte do not use a slot. (DSP_ISA_SPEC.md §4.3)
+        last_t = max([i for i, k in enumerate(t) if k == 'T'], default=-1)
+        if last_t >= 0:
+            nN = t.count('M')
+            tail = list(t[last_t + 1:])
+            for i in range(len(tail)):
+                tail[i] = 'N' if i < nN else 'S'
+            t = t[:last_t + 1] + ''.join(tail)
+        # jumps (2026-10-17): a word 009Y in a C position is a unit: jump by the signed 16-bit word number Y >> 1
+        # of the immediate stream / free slots, counted in words from the end of the instruction
+        t = ''.join('J' if k == 'C' and w & 0xFFF0 == 0x0090 else k for w, k in zip(body, t)) + t[len(body):]
+        slot_words = [w for w, k in zip(body, t) if k in 'NS']
+        self.used = set()
+        for w, k in zip(body, t):
+            if k == 'T' and (w >> 4) & 0xFF == 0xFE:
+                self.used.add((w & 15) >> 1)
+        # the immediate stream = the whole slot array (N words included; references too, an op addresses its
+        # immediate by slot number Y >> 1); classes without transfers: the N and I words in order (2026-10-17)
+        self.imm_words = slot_words if last_t >= 0 else [w for w, k in zip(body, t) if k in 'NI']
+        self.imm_refs = set(self.used) if last_t >= 0 else set()
+        self.slots = slot_words if last_t >= 0 else [w for w, k in zip(body, t) if k in 'NR']
+        self.n_list = [w for w, k in zip(body, t) if k == 'N']
+        # predication: units = ops (A/B/M) then transfers, numbered from 1 in position order (DSP_ISA_SPEC.md §8)
+        self.units = [i for i, k in enumerate(t) if k in 'ABMJ'] + [i for i, k in enumerate(t) if k == 'T']
+        self.t, self.body, self.cls = t, body, ins[0] >> 5
+
+    def imm(self):
+        return Imm(self.imm_words, self.imm_refs)
+
+    def jump(self, w):
+        """offset of a jump word 009Y (words from the instruction end)"""
+        n = self.imm_words[(w & 15) >> 1] if (w & 15) >> 1 < len(self.imm_words) else 0
+        return n - 0x10000 if n & 0x8000 else n
+
+    def skipped_unit(self, w, cond):
+        """the unit number a C word skips when its condition is `cond` (0 = none)"""
+        ua, ub = (w >> 4) & 15, w & 15
+        u = ua if cond else ub
+        if (ub if cond else ua) & 8:          # the chosen field only acts if bit 3 of the other field is 0
+            u = 0                             # (sweeps of classes 0x0b8/0x168; `00c1` in 0x148, 2026-10-17)
+        if self.cls == 0x190 and u == 2:      # class 0x190 (A C C): field 2 also skips the op (measured
+            u = 1                             # 2026-10-17, re/dspcreal.py; class-specific unit slots)
+        return u if 1 <= u <= len(self.units) else 0
+
+    def hidden_static(self, pos, w):
+        """value of a 40TY load with mode 1/2 (immediate after the word)"""
+        m, y = (w >> 4) & 3, w & 15
+        rest = list(self.body[pos + 1 + y:]) + [0, 0]
+        return ((rest[0] << 16 | rest[1]) >> (32 - IMMBITS[m])) / 16384
+
+
 def run(ins, regs, mem=None):
     """simulate one instruction; returns (new regs, new mem, text)"""
-    t = template(ins)
-    if t is None:
-        raise ValueError(f'unknown template for class {ins[0] >> 5:#x} len {len(ins)}')
-    body = ins[1:]
-    # slot array = every word after the last transfer; the first ones are MAC second words (N), the slots that
-    # a memory transfer (mode fe) points to are references, the remaining slot words are the immediate bit stream
-    # (in order). Transfers with another mode byte do not use a slot. (DSP_ISA_SPEC.md §4.3)
-    last_t = max([i for i, k in enumerate(t) if k == 'T'], default=-1)
-    if last_t >= 0:
-        nN = t.count('M')
-        tail = list(t[last_t + 1:])
-        for i in range(len(tail)):
-            tail[i] = 'N' if i < nN else 'S'
-        t = t[:last_t + 1] + ''.join(tail)
-    # jumps (2026-10-17): a word 009Y in a C position is a unit: jump by the signed 16-bit word number Y >> 1 of
-    # the immediate stream / free slots, counted in words from the end of the instruction
-    t = ''.join('J' if k == 'C' and w & 0xFFF0 == 0x0090 else k for w, k in zip(body, t)) + t[len(body):]
-    slot_words = [w for w, k in zip(body, t) if k in 'NS']
-    used = set()
-    for w, k in zip(body, t):
-        if k == 'T' and (w >> 4) & 0xFF == 0xFE:
-            used.add((w & 15) >> 1)
-    nN = t.count('N')
-    # the immediate stream = the whole slot array (N words included; references too, an op addresses its
-    # immediate by slot number Y >> 1); classes without transfers: the N and I words in order (2026-10-17)
-    imm_words = slot_words if last_t >= 0 else [w for w, k in zip(body, t) if k in 'NI']
-    imm = Imm(imm_words, {i for i in used} if last_t >= 0 else ())
+    L = Layout(ins)
+    t, body, units, slots, imm_words = L.t, L.body, L.units, L.slots, L.imm_words
+    imm = L.imm()
     out, mem = list(regs), dict(mem or {})
-    slots = slot_words if last_t >= 0 else [w for w, k in zip(body, t) if k in 'NR']
-    n_words = iter([w for w, k in zip(body, t) if k == 'N'])
+    n_words = iter(L.n_list)
     text = []
-    # predication: units = ops (A/B/M) then transfers, numbered from 1 in position order (DSP_ISA_SPEC.md §8)
-    units = [i for i, k in enumerate(t) if k in 'ABMJ'] + [i for i, k in enumerate(t) if k == 'T']
     global FLAGS
     if FLAGS is None:
         FLAGS = CONTEXT_BITS[CONTEXT] + HIGH_BITS
@@ -445,17 +482,11 @@ def run(ins, regs, mem=None):
     unit_res = {}
     upd = {}
     skip = set()
-    cls_ = ins[0] >> 5
     for w, k in zip(body, t):
         if k == 'C':
-            cc, neg, ua, ub = (w >> 9) & 31, (w >> 8) & 1, (w >> 4) & 15, w & 15
-            cond = (bits[cc] == '1') != bool(neg)
-            u = ua if cond else ub
-            if (ub if cond else ua) & 8:          # the chosen field only acts if bit 3 of the other field is 0
-                u = 0                             # (sweeps of classes 0x0b8/0x168; `00c1` in 0x148, 2026-10-17)
-            if cls_ == 0x190 and u == 2:          # class 0x190 (A C C): field 2 also skips the op (measured
-                u = 1                             # 2026-10-17, re/dspcreal.py; class-specific unit slots)
-            if 1 <= u <= len(units):
+            cc, neg = (w >> 9) & 31, (w >> 8) & 1
+            u = L.skipped_unit(w, (bits[cc] == '1') != bool(neg))
+            if u:
                 skip.add(units[u - 1])
     for pos, (w, k) in enumerate(zip(body, t)):
         if pos in skip:
@@ -479,8 +510,7 @@ def run(ins, regs, mem=None):
                 _res[0] = (out[dest], out[dest] == 0)
             unit_res[units.index(pos) + 1] = _res[0]
         elif k == 'J':
-            n = imm_words[(w & 15) >> 1] if (w & 15) >> 1 < len(imm_words) else 0
-            n = n - 0x10000 if n & 0x8000 else n
+            n = L.jump(w)
             global JUMP
             JUMP = n
             text.append(f'jump {n:+d} words')
@@ -492,10 +522,8 @@ def run(ins, regs, mem=None):
             elif m == 3:
                 text.append(f'h{tg} = imm32 (reads 0)')
             else:
-                rest = list(body[pos + 1 + y:]) + [0, 0]
-                v = (rest[0] << 16 | rest[1]) >> (32 - IMMBITS[m])
-                HIDDEN[tg] = v / 16384
-                text.append(f'h{tg} = {v:#x}/16384 = {v / 16384:g}')
+                HIDDEN[tg] = L.hidden_static(pos, w)
+                text.append(f'h{tg} = {int(HIDDEN[tg] * 16384):#x}/16384 = {HIDDEN[tg]:g}')
         elif k == 'C':
             cc, neg, a_, b_ = (w >> 9) & 31, (w >> 8) & 1, (w >> 4) & 15, w & 15
             text.append(f'C: if {"!" if neg else ""}cond{cc} skip unit {a_ or "-"} else skip unit {b_ or "-"}')

@@ -1,6 +1,7 @@
 # Emulador de un PLUG-OUT completo: qué hay, qué falta y en qué orden
 
-Estado: 2026-10-22. Plan, no implementado. Objetivo: ejecutar un PLUG-OUT de Roland (empezando por el JX-3P) en el PC
+Estado: 2026-10-22. Hechos el paso 1 (núcleo del DSP en C) y la velocidad (§3.6: un slave del JX-3P en tiempo real,
+bit a bit igual a `chain.py`); el resto es plan. **Para retomar: §5.** Objetivo: ejecutar un PLUG-OUT de Roland (empezando por el JX-3P) en el PC
 y obtener el mismo audio que el equipo, para estudiar el microcódigo y probar programas propios sin instalarlos.
 
 Etiquetas: **[medido]** = en el equipo; **[código]** = está en nuestro código; **[listado]** = leído del microcódigo
@@ -16,7 +17,10 @@ vale sólo para nuestros plug-outs.
 | pieza | qué hace | límite |
 |---|---|---|
 | `examples/from_scratch/emu/chain.py` | seis DSP de un slave (y dos slaves con `Bmc2`): bancos 0/1 en anillo, MXM con cerrojo de 1 muestra, buzón de pareja `A400`…, IOMD, enlace entre slaves. Cada hipótesis es un campo de `Model` | sólo probado con nuestros programas (pequeños); banco 6 = 0; sin banco 2; Python lento |
-| `examples/from_scratch/emu/test_chain.py` | 20 pruebas; el modelo coincide con la medida de C-V4 (`VOICE_ALLOCATION.md` §6.7) | — |
+| `examples/from_scratch/emu/test_chain.py` | 20 pruebas; el modelo coincide con la medida de C-V4 (`VOICE_ALLOCATION.md` §6.7). Corre sobre el núcleo en C (4,7 s; antes 9 min 36 s); `--py` = `chain.py` | — |
+| `examples/from_scratch/emu/cchain.py` + `dspcore.c` + `dspcomp.py` | **núcleo en C** (paso 1): `cchain.Slave` / `Bmc2` con la interfaz de `chain.py`. `dspcomp.py` decodifica cada instrucción una vez con `dspisa.Layout` (el mismo decodificador que `dspisa.run`, no una copia); `dspcore.c` ejecuta. La `.so` se compila sola en `emu/build/` | misma semántica que `dspisa` (con sus huecos de §3.3) |
+| `examples/from_scratch/emu/dspjit.py` + `dspcore.h` | traducción de cada programa a código nativo y grupos de hilos por muestra (§3.6 punto 2): un slave del JX-3P en tiempo real | GCC 14 `-O2` necesita `-fno-gcse -fno-peephole2` (§3.6) |
+| `examples/from_scratch/emu/test_core.py` | C contra `chain.py`, bit a bit: las 15 756 instrucciones distintas del corpus local desde estados al azar, la cadena JX-3P (MAIN0–5 + DCO) muestra a muestra, los 212 programas del corpus en nativo contra el intérprete, nativo con hilos contra serie (4000 muestras), `quant`, v3/v4, velocidad (tiempo real) | — |
 | `examples/from_scratch/re/dspisa.py` | simulador de una instrucción; 100/100 instrucciones de Roland al azar coinciden con el equipo [medido, `DSP_HARDWARE.md` §10] | huecos de §3.3; flotantes, no enteros |
 | `examples/from_scratch/re/emu1.py`, `tools/engine_emu.py` | región 1 (motor ARM) en Unicorn, servicios del OS `0x0113FC00` interceptados | sólo registran las llamadas; no las conectan a ningún DSP |
 | `examples/from_scratch/re/emu0.py` | región 0 (modelo, asignador) en Unicorn | sin entrada MIDI ni enlace a los slaves |
@@ -99,6 +103,39 @@ y la ventana de cada DSP/ranura (el ARM la conecta: `+0x310`).
    congela por muestra, así que los DSP de una muestra son independientes.
 3. Saltear DSP sin voces activas.
 
+**Hecho el punto 1 (2026-10-22)** [código, `emu/test_core.py`]: el JX-3P en un slave (MAIN0–5 + DCO1/DCO2 SAW en DSP2 y
+DSP3, banco 5 al azar) ejecuta **3 621 instrucciones por muestra** (menos que la estimación de arriba: hay saltos), y el
+núcleo en C hace ≈ 18 M instrucciones/s (un núcleo, `-O2`): **1 s de audio de un slave ≈ 19 s**. Tiempo real pide
+≈ 0,35 G instr/s por slave, unas 20 veces más. El
+núcleo se compila con `-ffp-contract=off`: una multiplicación-suma fusionada (FMA) cambiaría los bits respecto de
+`dspisa`, que redondea cada producto.
+
+**Hecho el punto 2 (2026-10-22)** [código, `emu/test_core.py`]: **un slave del JX-3P corre en tiempo real**
+(1 s de audio en ≈ 0,8 s; ≈ 280 M instr/s), con los mismos bits que el intérprete y que `chain.py`.
+
+* `emu/dspjit.py` traduce cada programa a una función C: palabras como constantes, saltos como `goto`, y las unidades
+  llaman a las mismas funciones inline del intérprete (`emu/dspcore.h`), así que la semántica está en un solo sitio.
+  Cada programa es un objeto propio, compilado en paralelo y guardado en `emu/build/jit/` por el hash de su fuente
+  (JX-3P: ≈ 7 s la primera vez). `cchain.Slave(..., native=True, threads=True)` es el valor por defecto.
+* `quant` sin ramas (escala elegida por el exponente IEEE): la versión con ramas era ≈ 90 % del tiempo por saltos mal
+  predichos. El traductor sólo cuantiza los registros que pueden estar sin cuantizar (`quant` es idempotente).
+* Hilos: un grupo de DSP por hilo dentro de cada muestra (`dspjit.groups`). Van juntos los DSP que comparten una
+  palabra IOMD o el banco 1 (`Model.shared1`); con MXM en la misma muestra o la ventana de pareja inmediata, todo va
+  en un hilo. La ventana de pareja del banco 5 se fusiona al final de la muestra en el orden del modelo, así el
+  resultado no depende de los hilos. El JX-3P da seis grupos; el techo es el DSP más cargado (DSP2/3, ≈ 840 instr.).
+  Los hilos se usan en `run()` / `step(n)` con n ≥ 64.
+* **GCC 14 con `-O2` compiló mal un programa del corpus** (`p0s_003661c`: r2 = −5 en vez de −3 tras la instrucción 86,
+  en la tercera muestra). Se corrige quitando `-fgcse` o `-fpeephole2`; con `-O0`/`-O1`, con la traza o con el
+  sanitizer no aparece, y el sanitizer no encuentra comportamiento indefinido. Causa de fondo sin encontrar. Se
+  compila con `-O2 -fno-gcse -fno-peephole2`; `test_core.py test_native_corpus` (los 212 programas del corpus,
+  nativo contra intérprete) lo vigila.
+* Depuración: `cchain.Slave(..., trace=f)` llama `f(dsp, instrucción, regs, flags, pm, pv)` tras cada instrucción, en
+  el intérprete y en el nativo (compilado aparte con las llamadas).
+
+**Punto 3 no hecho, a propósito:** un DSP sin voces sigue cambiando su estado (envolventes, anillos de memoria), así
+que saltearlo no puede dar los mismos bits; y ya no hace falta para el tiempo real de un slave. Para dos slaves
+(paso 8) la opción exacta es correrlos en paralelo (12 hilos) en C.
+
 ### 3.7 Validación
 
 Comparar el render con capturas del equipo, nota por nota: frecuencia, nivel, envolvente. Referencias: C-SAWPOLY
@@ -109,7 +146,7 @@ Comparar el render con capturas del equipo, nota por nota: frecuencia, nivel, en
 
 | paso | qué | resultado esperado |
 |---|---|---|
-| 1 | Núcleo del DSP en C con la interfaz de `chain.py`; pasar `test_chain.py` con él | mismas 20 pruebas, ≥ 100× más rápido |
+| 1 | **hecho**: núcleo del DSP en C con la interfaz de `chain.py`; pasar `test_chain.py` con él; además código nativo + hilos (§3.6) | 20/20 pruebas en ≈ 5 s (antes 9 min 36 s); `test_core.py`: 15 756 instrucciones y la cadena JX-3P iguales bit a bit a `chain.py`; un slave del JX-3P a 1,23× tiempo real |
 | 2 | Cargador de programas de Roland desde `programs.h` / `region1.bin` (reutilizar `emu/listing.py`, `re/alloc_scan.py`) | MAIN0–5 y DCO del JX-3P cargados en el emulador |
 | 3 | Medir y modelar el banco 6 (§3.2) | rampas y envolventes en el emulador |
 | 4 | Resolver la latencia de carga de las ops (§3.3) | `dspisa` y el núcleo en C corregidos |
@@ -122,7 +159,50 @@ Comparar el render con capturas del equipo, nota por nota: frecuencia, nivel, en
 Cada paso debe tener una prueba que pueda fallar (como `test_chain.py`). Antes de cada medida en el equipo: una
 instalación cada vez, el usuario vuelve a elegir PLG3, nunca dos herramientas de MIDI a la vez.
 
-## 5. Referencias
+## 5. Estado al 2026-10-22 y lo que falta
+
+### 5.1 Hecho (sin commit; el usuario hace los commits)
+
+| qué | dónde | prueba |
+|---|---|---|
+| `dspisa.run()` separado en `dspisa.Layout` (parte estática) + ejecución; mismo comportamiento | `re/dspisa.py` | 148 722 ejecuciones del corpus iguales a la versión anterior (script de la sesión, no guardado) |
+| núcleo en C: intérprete + memoria de `chain.py` | `emu/dspcore.h`, `emu/dspcore.c`, `emu/dspcomp.py`, `emu/cchain.py` | `test_core.py insn` (≈ 5 min), `jx3p`, `ours`, `quant` |
+| traducción a nativo + hilos por grupo de DSP | `emu/dspjit.py` | `test_core.py native` (≈ 2 min), `speed` |
+| `test_chain.py` sobre el núcleo en C (`--py` = `chain.py`) | `emu/test_chain.py` | 20/20 en ≈ 5 s |
+| traza de depuración por instrucción | `cchain.Slave(..., trace=f)` | usada para aislar el fallo de GCC |
+
+Comandos: `cd examples/from_scratch/emu; python3 test_chain.py; python3 test_core.py` (todo, ≈ 8 min; necesita
+`work/corpus*` y `engine/build/programs.h` locales, si faltan esas pruebas se saltean).
+
+### 5.2 Abierto en lo hecho
+
+* **Fallo de GCC 14 `-O2`** (§3.6): sin causa encontrada; se evita con `-fno-gcse -fno-peephole2`. Si se cambia de
+  compilador o de flags, correr `test_core.py native`. Para seguirlo: el caso es `p0s_003661c` (corpus local), estado
+  al azar de `test_native_corpus` (semilla 11), instrucción 86 en la tercera muestra; con la traza activada no aparece.
+* Velocidad: el techo con hilos es el DSP más cargado (DSP2/3, ≈ 840 instr./muestra); `quant` y los accesos a
+  memoria (`rd`/`wr`, con comprobaciones de sello) son lo que queda en el perfil.
+* Punto 3 de §3.6 (saltear DSP sin voces) **no se hace**: no puede ser bit a bit igual.
+* Dos slaves: `cchain.Bmc2` avanza muestra a muestra desde Python (sin hilos). Para el paso 8 hace falta un `run` en C
+  de varios slaves con el enlace `Model.link`, en paralelo (12 hilos).
+* `asm/` (capa de formato del ensamblador) y `dspisa.Layout` siguen siendo dos decodificadores; unificarlos es una
+  tarea aparte (comparar los dos sobre el corpus primero; `DSP_ISA_DISCREPANCIES.md` tiene 4 puntos abiertos).
+
+### 5.3 Siguiente: paso 2 de §4 (cargador de programas de Roland)
+
+Hoy `test_core.jx_programs()` arma el JX-3P a mano: MAIN0–5 en DSP0–5 y `DCO1_SAW` + `DCO2_SAW` en las ranuras de
+DSP2 y DSP3. Falta:
+
+1. leer de `programs.h` / `region1.bin` qué programas hay y su tipo (principal, DCO1, DCO2, efecto) con
+   `re/alloc_scan.py` / `emu/allplugouts.py`;
+2. modelar las ranuras como las registra el motor ARM (`+0x28/+0x40/+0x58`, `+0x70 swap`: DCO1 = tarea 2, DCO2 = 3,
+   efecto = 3; §3.1), con el cambio de programa entre muestras;
+3. una prueba que pueda fallar: por ejemplo, que el JX-3P cargado así dé lo mismo que `jx_programs()`, y que cambiar
+   la forma de onda (SAW → SQR) cambie la salida.
+
+Después: paso 3 (banco 6, medida en el equipo con el usuario), paso 4 (latencia de carga, medida), paso 5 (`emu1.py`
+conectado al núcleo).
+
+## 6. Referencias
 
 `VOICE_ALLOCATION.md` §6 (modelo del slave, emulador actual), `DSP_HARDWARE.md` §7–§10 (memoria, comunicación, modelo
 de ejecución), `DSP_ARM_SIDE.md` (servicios y bancos del ARM), `FROM_SCRATCH.md` (C-V4), `NOTES.md` ("Posibles
