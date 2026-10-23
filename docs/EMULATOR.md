@@ -1,6 +1,6 @@
 # Emulador de un PLUG-OUT completo: qué hay, qué falta y en qué orden
 
-Estado: 2026-10-22. Hechos el paso 1 (núcleo del DSP en C) y la velocidad (§3.6: un slave del JX-3P en tiempo real,
+Estado: 2026-10-23 (velocidad: §3.6.1). Hechos el paso 1 (núcleo del DSP en C) y la velocidad (§3.6: un slave del JX-3P en tiempo real,
 bit a bit igual a `chain.py`); el resto es plan. **Para retomar: §5.** Objetivo: ejecutar un PLUG-OUT de Roland (empezando por el JX-3P) en el PC
 y obtener el mismo audio que el equipo, para estudiar el microcódigo y probar programas propios sin instalarlos.
 
@@ -135,6 +135,52 @@ núcleo se compila con `-ffp-contract=off`: una multiplicación-suma fusionada (
 **Punto 3 no hecho, a propósito:** un DSP sin voces sigue cambiando su estado (envolventes, anillos de memoria), así
 que saltearlo no puede dar los mismos bits; y ya no hace falta para el tiempo real de un slave. Para dos slaves
 (paso 8) la opción exacta es correrlos en paralelo (12 hilos) en C.
+
+### 3.6.1 Más velocidad (2026-10-23) y modelo del SYSTEM-1
+
+Medido con C-S1SY paso 11 (SYSTEM-1: esclavo A + esclavo B + master B, 1264 instrucciones por muestra, nativo, un
+hilo, 96 000 muestras = 1 s de audio). Todos los cambios dan los mismos bits: `test_core.py` completo (corpus de
+instrucciones, cadena JX-3P, 212 programas nativos contra el intérprete) y `make_synth.py --sim-check`:
+
+| cambio | 1 s de audio | M instr/s |
+|---|---|---|
+| antes | 1,207 s | 101 |
+| `pymod` con caminos rápidos exactos para −m ≤ x < 2m (`ph_wrap` / `ph_tri` de una fase; `test_pymod` contra `fmod`) + `-fno-math-errno` | 0,872 s | 139 |
+| `quant` como máscara de bits de la mantisa, en lugar de escalar y convertir a entero | 0,588 s | 206 |
+| la máscara precalculada por exponente: `qmask.h` (`gen_qmask.py`), una carga y un AND | **0,341 s** | **356** |
+
+* `quant` era ≈ 80 % del tiempo: está en la cadena de dependencias de cada instrucción. La máscara deja a 0 los
+  k = 20 + 4s − E bits bajos de la mantisa (k > 52 → un cero con signo; |v| ≥ 512, inf, nan: nada). Es la misma
+  regla que el escalado (la conversión a entero de m·2^p es su suelo). `test_quant` la compara con `quant_ref` y con
+  `dspisa.quant`.
+* **Modelo del SYSTEM-1 en un solo `Slave`.**
+  * `Model.shared5 = ((0, 1),)`: un banco 5 (`A000`–`A3FF`) para dos DSP, como el `A1xx` que el esclavo A escribe
+    y el B lee.
+  * `Model.own_params = (0, 1, 2)`: un banco 6 por DSP (`FCEC(sel, …)`). `cchain.DspView.params` es el banco 6 de
+    ese DSP.
+  * `dspjit.groups` pone en el mismo hilo los DSP que comparten banco 5. `chain.py` implementa las dos opciones
+    igual; `test_s1_shared5` compara el C con `chain.py` muestra a muestra.
+  * `Slave.run(n, [(dsp, dirección)])` registra palabras de cualquier DSP (por ejemplo `A118` del master), no sólo
+    del IOMD.
+* `make_synth.py simulate()` usa ese modelo: una llamada a C por tramo entre eventos, en vez de un bucle de Python
+  por muestra. Antes eran dos `Slave` y copias del banco 5 en cada muestra. 1 s de audio: de 1,87 s a **0,43 s**
+  (tiempo real × 2,3), con 0,08 s de preparación.
+* SYSTEM-8: el slave del JX-3P (6 hilos) pasa de 1,23× a **2,05× tiempo real** (170 M instr/s; `test_speed`).
+* Pruebas nuevas: `test_pymod` (caminos rápidos contra `fmod`) y `test_s1_shared5` (C contra `chain.py` con
+  `shared5` / `own_params` y C-S1SY paso 11). `test_core.py` pasa 9/9 y `test_chain.py` 20/20 (2026-10-23).
+* `dspcomp.decode_program` guarda la decodificación en el `Program`: antes se decodificaba tres veces por `Slave`
+  (`compile_program`, `translate` y `groups`).
+
+Siguientes mejoras posibles, en orden de rentabilidad [inferido, sin medir]:
+
+1. **Sin `quant` tras las ops exactas.** `min`, `max`, `mov rX`, `ph_clamp`, `ph_abs` y `ph_neg` devuelven una de
+   sus entradas, o ±1, o −x. Si las entradas están en la rejilla, el resultado también. Hace falta un análisis en
+   `dspjit.translate`. Sin `quant` el tiempo es 0,13 s en vez de 0,34, aunque sólo una parte de las ops es exacta.
+2. **Audio en vivo.** Un reproductor que corra `Slave.run()` en bloques de, por ejemplo, 256 muestras y los mande a
+   ALSA, con las notas por MIDI desde el PC. Así se puede escuchar un PLUG-OUT propio sin instalarlo.
+3. **Los dos slaves del SYSTEM-8 en paralelo** (12 hilos, §3.6 punto 3).
+4. **El lado ARM** (`engine.c` compilado para el PC, con los servicios del OS simulados) para que los mensajes MIDI
+   lleguen a los DSP como en el equipo (§3.1).
 
 ### 3.7 Validación
 

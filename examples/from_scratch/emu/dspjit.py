@@ -27,7 +27,7 @@ from dspcomp import K_A, K_B, K_M, K_J, K_HID, K_X28, K_XB5, K_XFLAG, K_XMEM
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JIT_DIR = os.path.join(HERE, 'build', 'jit')
-CFLAGS = ['-O2', '-fno-gcse', '-fno-peephole2', '-ffp-contract=off', '-shared', '-fPIC', '-w']
+CFLAGS = ['-O2', '-fno-gcse', '-fno-peephole2', '-ffp-contract=off', '-fno-math-errno', '-shared', '-fPIC', '-w']
 LDFLAGS = []
 ALL = frozenset(range(8))
 _loaded = {}
@@ -187,7 +187,7 @@ def _object(prog, hdr, trace=False):
 def build(progs, trace=False):
     """native functions for a list of chain.Programs: [ctypes function address]. Each program is one object file,
     compiled in parallel and cached by the hash of its source; the set is linked into one library (cached too)."""
-    hdr = open(os.path.join(HERE, 'dspcore.h')).read()
+    hdr = open(os.path.join(HERE, 'dspcore.h')).read() + open(os.path.join(HERE, 'qmask.h')).read()
     os.makedirs(JIT_DIR, exist_ok=True)
     built, running = [], []
 
@@ -246,7 +246,7 @@ def groups(dsp_progs, model):
         for b in order:
             if a != b and refs[a][1] & (refs[b][0] | refs[b][1]):
                 parent[find(a)] = find(b)
-    for a, b in model.shared1:
+    for a, b in tuple(model.shared1) + tuple(getattr(model, 'shared5', ())):
         if a in parent and b in parent:
             parent[find(a)] = find(b)
     out = {}

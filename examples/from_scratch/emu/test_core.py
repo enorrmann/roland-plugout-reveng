@@ -173,6 +173,16 @@ def test_quant():
             assert repr(L.sl_quant(v)) == repr(dspisa.quant(v)), v
 
 
+def test_pymod():
+    """the fast paths of dspcore.h pymod against its fmod form (bits), and against Python's float % (wrap1 of
+    ph_wrap / ph_tri)"""
+    import ctypes as C
+    L = cchain.lib()
+    bad = C.c_double()
+    n = L.sl_pymod_check(2000000, 777, C.byref(bad))
+    assert n == 0, (n, bad.value)
+
+
 def test_insn_corpus():
     if not any(os.path.isdir(d) for d in CORPUS):
         raise Skip('work/corpus missing')
@@ -296,6 +306,36 @@ def test_ours():
         a = [(sp.step(), sp.iomd.get(0x6020, 0.0))[1] for _ in range(300)]
         b = sc.run(300, (0x6020,))[0x6020]
         assert a == b and chain.peak(a) > 0.9, which
+
+
+def test_s1_shared5(n=12):
+    """Model.shared5 / own_params (SYSTEM-1 slave A + B with one bank 5, a bank 6 per DSP, master B): the C core
+    against chain.py sample by sample, with C-S1SY step 11 (examples/system_1_synth) and a note playing"""
+    os.environ['STEP'] = '11'
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'system_1_synth'))
+    import make_synth as ms
+    progs = ms.sources()
+    model = chain.Model(order=(0, 1, 2), shared5=((0, 1),), own_params=(0, 1, 2))
+    panel = dict(ms.panel_defaults(), lfo_pitch=200, lfo_filt=60, lfo_amp=90, cutoff=150, res=120)
+    sl = []
+    for mk in (chain.Slave, cchain.Slave):
+        P = {k: chain.Program(progs[k][0], k) for k in ('s1m0', 's1m1', 's1mm1')}
+        s = mk({0: (P['s1m0'], []), 1: (P['s1m1'], []), 2: (P['s1mm1'], [])}, model)
+        b5 = ms.sim_b5(panel)
+        ms.sim_event(b5, 0, 69)
+        for d, prm in zip(s.d, ms.sim_params(b5, panel)):
+            for k, v in prm.items():
+                d.params[k] = v
+        for k, v in b5.items():
+            s.d[0].bank5[k & 0x3FF] = v
+        sl.append(s)
+    py, c = sl
+    for t in range(n):
+        py.step()
+        c.step()
+        for dn in range(3):
+            assert [py.d[dn].bank5.get(i, 0.0) for i in range(0x400)] == list(c.d[dn].bank5), (t, dn)
+        assert py.iomd.get(0x6006, 0.0) == c.iomd.get(0x6006, 0.0), t
 
 
 def test_speed():

@@ -34,10 +34,10 @@ python3 examples/system_1_synth/make_synth.py --sim-check   # núcleo C contra l
 ```
 
 `--sim` corre en el núcleo C del emulador (`examples/from_scratch/emu/cchain.py`, programas traducidos a código
-nativo): el esclavo A es el DSP 0 de un `cchain.Slave`; el esclavo B y el master B son los DSP 0 y 1 de otro (las
-salidas `6006`/`6007` de B llegan al master por el IOMD compartido en la misma muestra). El banco 5 se copia
-A → B → A alrededor de cada muestra, el mismo modelo de un banco 5 por pareja que la referencia Python
-(`simulate_py`, `re/dspisa.py`). Rendimiento: 16 400 muestras en 2,4 s, frente a 3 440 muestras en 3 min 24 s con
+nativo), en un solo `cchain.Slave`: DSP 0 = esclavo A, DSP 1 = esclavo B, DSP 2 = master B. Con
+`Model.shared5 = ((0, 1),)` A y B tienen un solo banco 5, el mismo modelo que la referencia Python (`simulate_py`,
+`re/dspisa.py`). `Model.own_params` da un banco 6 a cada DSP. Las salidas `6006`/`6007` de B llegan al master por
+el IOMD en la misma muestra ([EMULATOR.md](EMULATOR.md) §3.6.1). Desde el 2026-10-23, 1 s de audio tarda unos 0,4 s. Rendimiento: 16 400 muestras en 2,4 s, frente a 3 440 muestras en 3 min 24 s con
 la referencia (unas 400 veces más rápido). `--sim-check` da salidas idénticas bit a bit en 600 muestras con dos notas
 (una se suelta) [sim], con el panel por defecto y con filtro, resonancia y ambas envolventes activas. Después
 compara, en el núcleo C, los programas empaquetados (`pack()`, §5) con los mismos sin empaquetar (`sources(False)`):

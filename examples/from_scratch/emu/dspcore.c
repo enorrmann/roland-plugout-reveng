@@ -250,7 +250,7 @@ static void *worker(void *arg)
 
 /* ------------------------------------------------------------------ API */
 Slave *sl_new(int ring1, int mxm_shift, int mxm_delay, int dp_pairs, int dp_delay, const int *order, int norder,
-              const int *shared, int nshared)
+              const int *shared, int nshared, const int *shared5, int nshared5, const int *own_params, int nown)
 {
     Slave *s = calloc(1, sizeof *s);
     s->ring1 = ring1, s->mxm_shift = mxm_shift, s->mxm_delay = mxm_delay;
@@ -261,9 +261,13 @@ Slave *sl_new(int ring1, int mxm_shift, int mxm_delay, int dp_pairs, int dp_dela
         Dsp *d = &s->d[n];
         d->n = n;
         d->bank1 = d->bank1_own;
+        d->bank5 = d->bank5_own;
+        d->params = s->params;
         d->in_gen = 1, d->out_gen = 1;
     }
     for (int k = 0; k < nshared; k++) s->d[shared[2 * k + 1]].bank1 = s->d[shared[2 * k]].bank1;
+    for (int k = 0; k < nshared5; k++) s->d[shared5[2 * k + 1]].bank5 = s->d[shared5[2 * k]].bank5;
+    for (int k = 0; k < nown; k++) s->d[own_params[k]].params = s->d[own_params[k]].params_own;
     s->ngroups = 1;                           /* default: everything on the calling thread, model order */
     s->ngroup[0] = norder;
     memcpy(s->group[0], order, norder * sizeof *order);
@@ -341,6 +345,7 @@ void sl_set_state(Slave *s, int dsp, const double *regs, uint32_t flags, uint32_
 
 double *sl_iomd(Slave *s) { return s->iomd; }
 double *sl_params(Slave *s) { return s->params; }
+double *sl_params_dsp(Slave *s, int dsp) { return s->d[dsp].params; }
 double *sl_bank5(Slave *s, int dsp) { return s->d[dsp].bank5; }
 double *sl_bank0(Slave *s, int dsp) { return s->d[dsp].bank0; }
 double *sl_bank1(Slave *s, int dsp) { return s->d[dsp].bank1; }
@@ -360,6 +365,40 @@ double sl_quant(double v) { return quant(v); }
 
 /* quant against quant_ref on n values of every binary exponent -1080..1030 and the edges of each range (random
  * mantissas from `seed`); returns the number of differences (bit patterns), the first one in *bad */
+/* pymod (fast paths) against pymod_ref (fmod) for random x near the fast-path edges and m in {0.5, 1, 2, 512};
+ * returns the number of differing results (bits), the first bad x in *bad */
+int64_t sl_pymod_check(int64_t n, uint64_t seed, double *bad)
+{
+    static const double ms[4] = {0.5, 1.0, 2.0, 512.0};
+    int64_t diff = 0;
+    uint64_t x = seed | 1;
+    for (int64_t k = 0; k < n; k++) {
+        x ^= x << 13, x ^= x >> 7, x ^= x << 17;
+        double m = ms[x & 3];
+        double u = (double)(x >> 11) / 9007199254740992.0;          /* [0, 1) */
+        double e = ldexp(1.0, -(int)((x >> 3) % 60));
+        double cases[10] = {(u * 6 - 3) * m, u * e, -u * e, m, -m, 2 * m, -2 * m, nextafter(m, 0),
+                            nextafter(-m, 0), nextafter(2 * m, 0)};
+        for (int c = 0; c < 10; c++) {
+            double a = pymod(cases[c], m), r = pymod_ref(cases[c], m);
+            if (memcmp(&a, &r, sizeof a)) {
+                if (!diff) *bad = cases[c];
+                diff++;
+            }
+        }
+    }
+    double sp[] = {0.0, -0.0, 4.9e-324, -4.9e-324};
+    for (unsigned c = 0; c < sizeof sp / sizeof *sp; c++)
+        for (int j = 0; j < 4; j++) {
+            double a = pymod(sp[c], ms[j]), r = pymod_ref(sp[c], ms[j]);
+            if (memcmp(&a, &r, sizeof a)) {
+                if (!diff) *bad = sp[c];
+                diff++;
+            }
+        }
+    return diff;
+}
+
 int64_t sl_quant_check(int64_t n, uint64_t seed, double *bad)
 {
     int64_t diff = 0;
@@ -423,9 +462,14 @@ static int step_serial(Slave *s)
     return 0;
 }
 
+/* rec_addr: an IOMD word (0x6000..0x7FFF), or (dsp + 1) << 16 | address = that word as DSP dsp reads it (bank 5
+ * of a DSP, for example) */
 static void record(Slave *s, int64_t k, const int *rec_addr, int nrec, double *rec)
 {
-    for (int j = 0; j < nrec; j++) rec[k * nrec + j] = s->iomd[rec_addr[j] & 0x1FFF];
+    for (int j = 0; j < nrec; j++) {
+        int a = rec_addr[j];
+        rec[k * nrec + j] = a >> 16 ? rd(s, &s->d[(a >> 16) - 1], a & 0xFFFF) : s->iomd[a & 0x1FFF];
+    }
 }
 
 /* chain.py Slave.step, n times; with `rec` the IOMD words rec_addr[0..nrec) are stored after each sample. With more

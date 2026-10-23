@@ -10,6 +10,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
+#include "qmask.h"
 
 #define RING 0x800
 #define NDSP 6
@@ -27,7 +28,10 @@ typedef struct Dsp {
     double bank0[RING];
     double bank1_own[RING];
     double *bank1;
-    double bank5[0x400];
+    double bank5_own[0x400];
+    double *bank5;                /* bank5_own, or the partner's (Model.shared5: one bank 5 for two DSPs) */
+    double *params;               /* bank 6: the slave's, or params_own (Model.own_params: one per DSP) */
+    double params_own[0x2000];
     double own_hi[0x400];         /* bank 5 0x400-0x7FF written in this sample */
     int64_t own_hi_st[0x400];     /* written in sample st - 1 */
     int hi_list[0x400];           /* offsets written in this sample, in order */
@@ -80,22 +84,21 @@ typedef struct { int set; double v; int z; } Res;
 /* dspisa.quant: the smallest s whose floor(m 2^(32-4s)) < 2^29, i.e. m < 2^(4s-3), truncates m to a multiple of
  * 2^-(32-4s); m >= 512 (and inf, nan) is kept. s follows from the binary exponent E of m (m in [2^E, 2^(E+1))):
  * s = clamp((E + 7) >> 2, 0, 3). Without branches: the magnitude decides s, and a branch on it is mispredicted
- * most of the time (it was 90 % of the run time). Scaling by a power of two is exact and m 2^(32-4s) < 2^29, so the
- * integer conversion is the floor of dspisa. quant(quant(x)) = quant(x). quant_ref is the plain form (test_core.py
- * compares the two). */
-static const double QSCALE[4] = {4294967296.0, 268435456.0, 16777216.0, 1048576.0};
-static const double QINV[4] = {1.0 / 4294967296.0, 1.0 / 268435456.0, 1.0 / 16777216.0, 1.0 / 1048576.0};
+ * most of the time (it was 90 % of the run time). quant(quant(x)) = quant(x). quant_ref is the plain form
+ * (test_core.py compares the two). */
 
+/* Truncating |m| to a multiple of 2^-p (p = 32 - 4s) is clearing the mantissa bits below 2^-p: with m in
+ * [2^E, 2^(E+1)) those are the k = 52 - p - E = 20 + 4s - E lowest bits of the IEEE word. k <= 0: nothing to clear;
+ * k > 52: m < 2^-p, the result is a zero with the sign of v; k = 63 clears every bit but the sign, which
+ * is that zero. |v| >= 512, inf and nan (E >= 9) are kept: k = 0. Same bits as the scale-and-convert form (the
+ * integer conversion of m 2^p is its floor); test_core.py test_quant checks it against quant_ref and dspisa. */
 INL double quant(double v)
 {
     uint64_t b;
     memcpy(&b, &v, sizeof b);
-    int e = (int)((b >> 52) & 0x7FF) - 1023;
-    int s = (e + 7) >> 2;
-    s = s < 0 ? 0 : s > 3 ? 3 : s;
-    double m = e >= 9 ? 0.0 : fabs(v);
-    double q = copysign((double)(int64_t)(m * QSCALE[s]) * QINV[s], v);
-    return e >= 9 ? v : q;
+    b &= QMASK[(b >> 52) & 0x7FF];            /* qmask.h (gen_qmask.py): the k rule above, one mask per exponent */
+    memcpy(&v, &b, sizeof v);
+    return v;
 }
 
 static inline double quant_ref(double v)
@@ -108,7 +111,25 @@ static inline double quant_ref(double v)
     return copysign(floor(m * 1048576.0) * (1.0 / 1048576.0), v);
 }
 
-INL double pymod(double x, double m)      /* Python float % */
+static inline double pymod_ref(double x, double m);
+
+/* Python float %. Fast paths for m > 0 and -m <= x < 2m (ph_wrap / ph_tri of a phase: nearly every call), with the
+ * bits of the fmod path: fmod(x, m) = x for |x| < m and = x - m (exact, Sterbenz) for m <= x < 2m; a negative x
+ * gets + m rounded as below, a zero result is +0. test_core.py test_pymod compares the two paths. */
+INL double pymod(double x, double m)
+{
+    if (m > 0) {
+        if (x > 0 && x < m) return x;
+        if (x >= m && x < 2 * m) return x - m;
+        if (x < 0 && x >= -m) {
+            double r = x + m;
+            return r == 0 ? 0.0 : r;
+        }
+    }
+    return pymod_ref(x, m);
+}
+
+static inline double pymod_ref(double x, double m)
 {
     double r = fmod(x, m);
     if (r != 0) {
@@ -165,7 +186,7 @@ INL double rd(Slave *s, Dsp *d, int64_t a)
         int b = (int)((s->t - 1) & 1);
         return s->dp_st[pair][b][i] == s->t ? s->dp[pair][b][i] : 0.0;
     }
-    case 6: return s->params[off];
+    case 6: return d->params[off];
     default: return 0.0;
     }
 }

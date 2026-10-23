@@ -103,7 +103,20 @@ def decode(ins):
 
 def decode_program(prog):
     """[(ops, conds) or None] per instruction of a chain.Program; None = undecodable (fails only if it runs, as in
-    chain.py). Jump units carry the target instruction index in 'a' (-1 = no instruction starts there)."""
+    chain.py). Jump units carry the target instruction index in 'a' (-1 = no instruction starts there). Cached on
+    the Program (compile_program, dspjit.translate and dspjit.groups each ask for it)."""
+    cached = getattr(prog, '_dspcomp_decoded', None)
+    if cached is not None:
+        return cached
+    out = _decode_program(prog)
+    try:
+        prog._dspcomp_decoded = out
+    except AttributeError:
+        pass
+    return out
+
+
+def _decode_program(prog):
     out = []
     for i, ins in enumerate(prog.ins):
         try:

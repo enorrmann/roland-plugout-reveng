@@ -24,6 +24,7 @@ import dspjit
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, 'dspcore.c')
 HDR = os.path.join(HERE, 'dspcore.h')
+QMASK = os.path.join(HERE, 'qmask.h')
 LIB = os.path.join(HERE, 'build', 'dspcore.so')
 _lib = None
 
@@ -31,14 +32,14 @@ _lib = None
 def lib():
     global _lib
     if _lib is None:
-        if not os.path.exists(LIB) or os.path.getmtime(LIB) < max(os.path.getmtime(SRC), os.path.getmtime(HDR)):
+        if not os.path.exists(LIB) or os.path.getmtime(LIB) < max(map(os.path.getmtime, (SRC, HDR, QMASK))):
             os.makedirs(os.path.dirname(LIB), exist_ok=True)
             subprocess.check_call(['cc', *dspjit.CFLAGS, '-pthread', '-o', LIB + '.tmp', SRC, '-lm'])
             os.replace(LIB + '.tmp', LIB)
         L = C.CDLL(LIB)
         P, I, D = C.c_void_p, C.c_int, C.POINTER(C.c_double)
         L.sl_new.restype = P
-        L.sl_new.argtypes = [I, I, I, I, I, C.POINTER(I), I, C.POINTER(I), I]
+        L.sl_new.argtypes = [I, I, I, I, I, C.POINTER(I), I, C.POINTER(I), I, C.POINTER(I), I, C.POINTER(I), I]
         L.sl_free.argtypes = [P]
         L.sl_add_prog.argtypes = [P, I, C.c_void_p, I, C.c_void_p, I, C.c_void_p]
         L.sl_set_progs.argtypes = [P, I, C.POINTER(I), I]
@@ -55,9 +56,13 @@ def lib():
         L.sl_quant.argtypes = [C.c_double]
         L.sl_quant_check.restype = C.c_int64
         L.sl_quant_check.argtypes = [C.c_int64, C.c_uint64, D]
+        L.sl_pymod_check.restype = C.c_int64
+        L.sl_pymod_check.argtypes = [C.c_int64, C.c_uint64, D]
         for f in ('sl_iomd', 'sl_params'):
             getattr(L, f).restype = D
             getattr(L, f).argtypes = [P]
+        L.sl_params_dsp.restype = D
+        L.sl_params_dsp.argtypes = [P, I]
         for f in ('sl_bank5', 'sl_bank0', 'sl_bank1'):
             getattr(L, f).restype = D
             getattr(L, f).argtypes = [P, I]
@@ -120,6 +125,7 @@ class DspView:
     def __init__(self, slave, n):
         self.s, self.n = slave, n
         self.bank5 = C.cast(lib().sl_bank5(slave.h, n), C.POINTER(C.c_double * 0x400)).contents
+        self.params = Words(lib().sl_params_dsp(slave.h, n), 0xC000, 0x2000, slave)   # Model.own_params
         self.bank0 = C.cast(lib().sl_bank0(slave.h, n), C.POINTER(C.c_double * chain.RING)).contents
         self.bank1 = C.cast(lib().sl_bank1(slave.h, n), C.POINTER(C.c_double * chain.RING)).contents
 
@@ -175,8 +181,11 @@ class Slave:
         L = lib()
         order = (C.c_int * 6)(*m.order)
         sh = [x for p in m.shared1 for x in p]
+        s5 = [x for p in getattr(m, 'shared5', ()) for x in p]
+        op = list(getattr(m, 'own_params', ()))
         self.h = L.sl_new(int(m.ring1), m.mxm_shift, m.mxm_delay, int(m.dp_pairs), m.dp_delay, order,
-                          len(m.order), (C.c_int * max(1, len(sh)))(*sh), len(m.shared1))
+                          len(m.order), (C.c_int * max(1, len(sh)))(*sh), len(m.shared1),
+                          (C.c_int * max(1, len(s5)))(*s5), len(s5) // 2, (C.c_int * max(1, len(op)))(*op), len(op))
         self._ids = {}
         per_dsp = {}
         for n, (main, slots) in programs.items():
@@ -235,12 +244,14 @@ class Slave:
             raise RuntimeError(lib().sl_error(self.h).decode())
 
     def run(self, n, words=chain.AUDIBLE):
-        """n samples; {word: [IOMD value after each sample]}"""
-        w = list(words)
+        """n samples; {word: [value after each sample]}: word = an IOMD address, or (dsp, address) = that word as the
+        DSP reads it (its bank 5, ...)"""
+        keys = list(words)
+        w = [(k[0] + 1) << 16 | k[1] if isinstance(k, tuple) else k for k in keys]
         rec = (C.c_double * (n * len(w)))()
         if lib().sl_step(self.h, n, (C.c_int * max(1, len(w)))(*w), len(w), rec):
             raise RuntimeError(lib().sl_error(self.h).decode())
-        return {a: list(rec[k::len(w)]) for k, a in enumerate(w)}
+        return {a: list(rec[k::len(w)]) for k, a in enumerate(keys)}
 
 
 class Bmc2(chain.Bmc2):

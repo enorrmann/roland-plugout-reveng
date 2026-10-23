@@ -51,6 +51,8 @@ class Model:
     mxm_shift: int = 0                 # G: Z[0x400+i] -> M[i + shift]
     mxm_delay: int = 1                 # MXM latency in samples (1 measured on the master)
     shared1: tuple = ()                # E: pairs of DSPs with one bank 1, e.g. ((2, 3),)
+    shared5: tuple = ()                # pairs of DSPs with one bank 5 0x000-0x3FF (SYSTEM-1 slave A / B: ((0, 1),))
+    own_params: tuple = ()             # DSPs with their own bank 6 (SYSTEM-1: FCEC(sel, ...) per DSP)
     dp_pairs: bool = True              # B: bank 5 0x400-0x7FF shared by the pair
     dp_delay: int = 1                  # B: latency of the pair window (1 = latched like MXM)
     order: tuple = (0, 1, 2, 3, 4, 5)  # DSP order inside the sample
@@ -133,6 +135,12 @@ class Program:
 
 
 class Dsp:
+    slave = None                           # set by Slave: d.params resolves the bank 6 this DSP reads
+
+    @property
+    def params(self):
+        return self.own_params if self.n in self.slave.m.own_params else self.slave.params
+
     def __init__(self, n):
         self.n = n
         self.regs = [0.0] * 8
@@ -158,10 +166,15 @@ class Slave:
         self.d = [Dsp(n) for n in range(6)]
         for a, b in self.m.shared1:
             self.d[b].bank1 = self.d[a].bank1
+        for a, b in self.m.shared5:
+            self.d[b].bank5 = self.d[a].bank5
         for n, (main, slots) in programs.items():
             self.d[n].progs = [main] + list(slots) if self.m.main_first else list(slots) + [main]
         self.iomd = {}
         self.params = {}
+        for d in self.d:                             # bank 6 of a DSP in Model.own_params (the others: self.params)
+            d.own_params = {}
+            d.slave = self
         self.dp = {k: {} for k in range(3)}         # pair window as seen this sample
         self.dp_next = {k: {} for k in range(3)}    # writes of this sample (dp_delay 1)
         self.t = 0
@@ -223,7 +236,7 @@ class Slave:
                     self.dp[pair][i] = v
         elif bank == 6:
             if op == 'r':
-                return self.params.get(a, 0.0)
+                return (d.own_params if d.n in self.m.own_params else self.params).get(a, 0.0)
         else:
             if op == 'r':
                 return 0.0

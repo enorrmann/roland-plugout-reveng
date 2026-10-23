@@ -941,40 +941,35 @@ def sim_event(b5, v, note):
 
 def simulate(progs, events, n, panel=None):
     """events: {sample: [(voice, note or None for off)]}; returns master A118 per sample. On the C core of the
-    emulator (examples/from_scratch/emu/cchain.py, native code): slave A = DSP 0 of one cchain.Slave, slave B and
-    master B = DSPs 0 and 1 of another (B's 6006 / 6007 reach the master through the shared IOMD in the same sample),
-    bank 5 copied A -> B -> A around each sample (one bank 5 for the slave pair, as simulate_py). Banks 0 / 1 are
-    whole rings (S+1 per sample). SIM=py: simulate_py (re/dspisa.py, slow); --sim-check compares the two."""
+    emulator (examples/from_scratch/emu/cchain.py, native code), one cchain.Slave: DSP 0 = slave A, DSP 1 = slave B,
+    DSP 2 = master B. Model.shared5 = ((0, 1),): one bank 5 for slave A and B (as simulate_py); Model.own_params:
+    each DSP its own bank 6 (FCEC(sel, ...)); B's 6006 / 6007 reach the master through the IOMD in the same sample.
+    Banks 0 / 1 are whole rings (S+1 per sample). The samples between two events run in one C call. SIM=py:
+    simulate_py (re/dspisa.py, slow); --sim-check compares the two."""
     if os.environ.get('SIM') == 'py':
         return simulate_py(progs, events, n, panel)
-    import ctypes as C
     sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 'emu'))
     import chain
     import cchain
     P = {k: chain.Program(progs[k][0], k) for k in ('s1m0', 's1m1', 's1mm1')}
-    sa = cchain.Slave({0: (P['s1m0'], [])})
-    sb = cchain.Slave({0: (P['s1m1'], []), 1: (P['s1mm1'], [])})
+    model = chain.Model(order=(0, 1, 2), shared5=((0, 1),), own_params=(0, 1, 2))
+    sl = cchain.Slave({0: (P['s1m0'], []), 1: (P['s1m1'], []), 2: (P['s1mm1'], [])}, model)
     panel = panel or panel_defaults()
     b5 = sim_b5(panel)
-    pa, pb, pm = sim_params(b5, panel)
-    sa.params.update(pa)
-    sb.params.update({**pb, **pm})
-    a5, b5c, m5 = sa.d[0].bank5, sb.d[0].bank5, sb.d[1].bank5
+    for d, prm in zip(sl.d, sim_params(b5, panel)):
+        d.params.update(prm)
+    a5 = sl.d[0].bank5
     for k, v in b5.items():
         a5[k & 0x3FF] = v
-    size = C.sizeof(a5)
-    out = []
-    for t in range(n):
-        if t in events:
-            for v, note in events[t]:
-                sim_event(b5, v, note)
-                for k in (PITCH[v], GATE[v], TRIG[v]):
-                    a5[k & 0x3FF] = b5[k]
-        sa.step()
-        C.memmove(b5c, a5, size)
-        sb.step()
-        C.memmove(a5, b5c, size)
-        out.append(m5[M_OUT[0] & 0x3FF])
+    out, t, word = [], 0, (2, M_OUT[0])
+    for te in sorted(e for e in events if e < n) + [n]:
+        if te > t:
+            out += sl.run(te - t, (word,))[word]
+            t = te
+        for v, note in events.get(te, []) if te < n else []:
+            sim_event(b5, v, note)
+            for k in (PITCH[v], GATE[v], TRIG[v]):
+                a5[k & 0x3FF] = b5[k]
     return out
 
 
