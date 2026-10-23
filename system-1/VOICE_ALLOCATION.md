@@ -102,7 +102,7 @@ forma): [A].
 Cada DSP del SYSTEM-1 tiene 32 KiB de programa ([../docs/DSP_PROGRAM_MEMORY.md](../docs/DSP_PROGRAM_MEMORY.md) §3):
 
 ```
-0x0000  cabecera (contador de trama)      0x1900  sección 2      0x4900  sección 4
+0x0000  cabecera del OS (no cargar) 0x1900  sección 2      0x4900  sección 4
 0x0100  PRINCIPAL (hasta 0x18FF, 6 KiB)   0x3100  sección 3      0x6100  sección 5
                                                                  0x7FF2  cierre
 ```
@@ -118,13 +118,14 @@ Cada DSP del SYSTEM-1 tiene 32 KiB de programa ([../docs/DSP_PROGRAM_MEMORY.md](
 | sección | `0x1900` | `0x4900` | `0x1900` | `0x4900` | `0x3100` | `0x6100` | `0x3100` | `0x6100` |
 
 * Los programas se cargan en **sets** `{dirección, bytes, puntero}` terminados en `{0, 0, 0}`, encolados con `FC30`
-  (DSP A) o `FC34` (DSP B) desde `load` (maestro: vt[2] del modelo; esclavo: vt+0x08 del motor) [L], [M]. Ejemplo,
+  (DSP A) o `FC34` (DSP B) desde `load` (maestro: vt[2] del modelo; esclavo: vt+0x08 del motor) [L], [M]. **Nunca
+  con la entrada `0x0000`** (la cabecera del OS): encolarla cuelga el equipo [M] ([WAVE_BUS.md](WAVE_BUS.md) §5.3,
+  con la secuencia de `load` de los PLUG-OUTs de Roland). Ejemplo,
   esclavo de C-S1JX (principal + sección encendida):
 
 ```c
 /* examples/system_1_jx/engine.c */
 static struct s1_prog set_a[] = {
-    { 0x0000, MC_HDR_A004_BYTES, mc_HDR_A004 },     /* cabecera (WAVE_BUS.md §5.3) */
     { 0x1900, MC_SA_SEC_BYTES, mc_SA_SEC },         /* sección 2 */
     { 0x0100, MC_SA_MAIN_BYTES, mc_SA_MAIN },       /* principal */
     { 0x7FF2, MC_CLOSE_A004_BYTES, mc_CLOSE_A004 }, /* cierre */

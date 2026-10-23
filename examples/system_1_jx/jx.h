@@ -2,7 +2,8 @@
  * examples/from_scratch/engine/engine.c) and the four voices, with every DSP write of the SYSTEM-8 layout
  * (S8 DSP d, id) sent to where s1jx.py put that program on the SYSTEM-1:
  *
- *   bank 5 (B):      S8 DSP d, id -> word b5_index[d][id - 0x20] of d's chip, OS service 0x0100FD6C(sel, obj, bits)
+ *   bank 5 (B):      S8 DSP d, id -> b5_index[d][id - 0x20]: a bank-5 word of d's chip (0x0100FD6C(sel, obj, bits))
+ *                    or, for parameters the program only reads, a bank-6 id (0x8000 | sel << 8 | id, FCEC)
  *                    (sel = word >> 8: A000+ / A100+; the same code on master and slave, system-1/DSP_FIT.md)
  *   bank 6 (P):      S8 DSP d, id -> SYSTEM-1 DSP b6_sel[d] of d's chip, id + b6_off[d], 0x0100FCEC(sel, id, bits)
  *
@@ -15,8 +16,11 @@
 
 typedef struct { uint16_t src, when, nwhen, expr, nexpr, t0; uint8_t nt; } mout_t;
 typedef struct { uint8_t bank, dsp, ramp, flag; uint16_t id; } mtgt_t;
-#include "model.h"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+#include "model.h"                 /* vel_curve; the model's byte code only with JX_RUNTIME_MODEL */
 #include "s1jx.h"
+#pragma GCC diagnostic pop
 
 #ifndef JX_CHIP
 #error JX_CHIP: 0 = master (region 0), 1 = slave (region 1)
@@ -39,11 +43,15 @@ static void dsp_bank(int dsp, int id, float v)
     if ((dsp & 1) != JX_CHIP || id < 0x20 || id >= 0x50)
         return;
     uint16_t w = b5_index[dsp][id - 0x20];
-    if (w != 0xFFFF)
+    if (w == 0xFFFF)
+        return;
+    if (w & 0x8000)                                   /* a parameter the program only reads: bank 6 */
+        ((env_fn)SVC(0xEC))((w >> 8) & 1, w & 0xFF, fbits(v));
+    else
         b5_write(w, fbits(v));
 }
 
-static void dsp_param(int dsp, int id, float v)
+__attribute__((unused)) static void dsp_param(int dsp, int id, float v)
 {
     if ((dsp & 1) != JX_CHIP || id >= 0x100)
         return;
@@ -51,6 +59,10 @@ static void dsp_param(int dsp, int id, float v)
 }
 
 /* ---- parameter model ------------------------------------------------------------------------------------- */
+/* Default build: the start-up state is a table computed on the PC (s1jx.state_table: jx_state0 / jx_state1) and
+   copied here; no float maths and almost no time in load (the runtime evaluation, JX_RUNTIME_MODEL, was the
+   suspect of the hang at PLUG-OUT selection, 2026-10-22). JX_RUNTIME_MODEL=1 keeps the evaluator for when the
+   panel is mapped to JX-3P ids. */
 
 typedef struct jx {
     int32_t val[NPARAM];
@@ -62,6 +74,7 @@ static jx_t jx;
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+#ifdef JX_RUNTIME_MODEL
 static int pidx(int id)
 {
     int lo = 0, hi = NPARAM - 1;
@@ -166,6 +179,8 @@ static void run_outputs(unsigned first, unsigned count)
     }
 }
 
+#endif /* JX_RUNTIME_MODEL */
+
 /* ---- voices (engine.c note_pitch / note_gate; local voice lv 0..3 of one SYSTEM-8 slave) ------------------ */
 
 static void active_flags(void)
@@ -203,6 +218,7 @@ static void jx_gate(int lv, int vel)
 
 static void jx_init(void)
 {
+#ifdef JX_RUNTIME_MODEL
     for (int i = 0; i < NPARAM; i++)
         jx.val[i] = 0;
     for (unsigned j = 0; j < N(jx_defaults); j++) {
@@ -210,17 +226,33 @@ static void jx_init(void)
         if (i >= 0)
             jx.val[i] = jx_defaults[j].v;
     }
+#endif
     for (int v = 0; v < 4; v++) { jx.note[v] = 60; jx.on[v] = 0; }
     jx.ready = 0;
 }
 
 /* every output in the JX-3P's refresh order, what engine.c adds outside the model, and the voices */
+#define JX_STATE_(c) jx_state##c
+#define JX_STATE(c) JX_STATE_(c)
 static void jx_send_state(void)
 {
+#ifdef JX_NO_STATE
+    jx.ready = 1;                     /* NO_STATE=1 build.sh: no start-up writes at all (diagnostic) */
+    return;
+#endif
+#ifdef JX_RUNTIME_MODEL
     run_outputs(CONST_FIRST, CONST_COUNT);
     for (unsigned j = 0; j < N(refresh_order); j++)
         run_outputs(src_first[refresh_order[j]], src_count[refresh_order[j]]);
     dsp_param(4, 0x4a, 1.0f);                                 /* e_unmute: MAIN4's output level */
+#else
+    for (unsigned j = 0; j < N(JX_STATE(JX_CHIP)); j++) {
+        if (JX_STATE(JX_CHIP)[j].kind == 0)
+            b5_write(JX_STATE(JX_CHIP)[j].idx, JX_STATE(JX_CHIP)[j].bits);
+        else
+            ((env_fn)SVC(0xEC))(JX_STATE(JX_CHIP)[j].sel, JX_STATE(JX_CHIP)[j].idx, JX_STATE(JX_CHIP)[j].bits);
+    }
+#endif
     for (int lv = 0; lv < 4; lv++) {
         jx_pitch(lv, jx.note[lv]);
         jx_gate(lv, jx.on[lv] ? 100 : 0);
@@ -229,6 +261,7 @@ static void jx_send_state(void)
 }
 
 /* a parameter change (panel / MIDI mapping to JX-3P ids: not done yet, docs) */
+#ifdef JX_RUNTIME_MODEL
 __attribute__((unused)) static void jx_param(int id, int value)
 {
     int i = pidx(id);
@@ -237,3 +270,4 @@ __attribute__((unused)) static void jx_param(int id, int value)
     jx.val[i] = value;
     run_outputs(src_first[i], src_count[i]);
 }
+#endif

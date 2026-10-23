@@ -105,7 +105,7 @@ ocho secciones de voz del OS (`FC44(i, 0)`). Las secciones quedan sin usar.
 La memoria de programa de cada DSP del SYSTEM-1 está dividida así [código]:
 
 ```
-0x0000  cabecera (la pone el OS)
+0x0000  cabecera (la pone el OS; un PLUG-OUT no debe encolarla: cuelga el equipo, system-1/WAVE_BUS.md §5.3)
 0x0100  principal          <- C-S1V4 / SH-101: aquí va todo
 0x1900  sección de voz 2   <- sinte de serie / SH-2: un programa por sección
 0x3100  sección de voz 3

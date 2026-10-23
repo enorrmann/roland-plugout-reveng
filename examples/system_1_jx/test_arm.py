@@ -5,8 +5,9 @@
     python3 test_arm.py notes      # only the tests whose name contains 'notes'
 
 * no_vfp: the images have no floating-point instructions (system-1/vfp_count.py: the SYSTEM-1 has no FPU).
-* queues: load queues, per DSP, exactly the program sets s1jx.py made (addresses, lengths, words), the two slave
-  sections are switched on (FC44 0 / 2) after all eight were switched off.
+* queues: load queues, per DSP, exactly the program sets s1jx.py made (addresses, lengths, words), never the frame
+  header at 0x0000 (it hangs the device, C-S1JX7), and the two slave sections are switched on (FC44 0 / 2) after all
+  eight were switched off.
 * state: after load, every bank-5 / bank-6 write equals the Python model (model_full.py through test_model) plus
   engine.c's extra (P4:0x4a), routed as s1jx.Plan says, within 0.1 % (C float32 vs Python); and nothing else is
   written. Master and slave each write only their own chip's programs.
@@ -152,10 +153,14 @@ def expected(chip, notes=()):
             continue
         if kind == 'B':
             idx = pl.b5_index(d, i)
-            if idx is not None:
+            if idx is not None and idx & 0x8000:                  # a parameter moved to bank 6 (s1jx Plan.p6)
+                out[('P', (idx >> 8) & 1, idx & 0xFF)] = v
+            elif idx is not None:
                 out[('B', idx)] = v
         elif i < 0x100:
             out[('P', J.PLACE['MAIN%d' % d][0] & 1, i + pl.b6off['MAIN%d' % d])] = v
+    for sel in (0, 1):
+        out[('P', sel, J.ZERO_ID)] = 0.0          # the ZERO word of every DSP (s1jx.ZERO_ID)
     return out
 
 
@@ -191,7 +196,7 @@ def test_queues():
             for (s1, addr), w in progs.items():
                 if s1 == dsp:
                     assert got.get(addr) == w, f'{J.S1_NAMES[dsp]} @{addr:#x}: not the s1jx program'
-            assert 0 in got and 0x7FF2 in got, (J.S1_NAMES[dsp], sorted(got))
+            assert 0 not in got and 0x7FF2 in got, (J.S1_NAMES[dsp], sorted(got))   # 0x0000: hangs the device
     sec = [r[:2] for off, r in s.log if off == 0x44]
     assert sec[:8] == [[i, 0] for i in range(8)] and sorted(sec[8:]) == [[0, 1], [2, 1]], sec
 
@@ -230,7 +235,10 @@ def test_notes():
     for k, v in got.items():
         assert k in exp and close(v, exp[k]), (k, v, exp.get(k))
     mine = [v for v in voices if v < 2]
-    assert len(mine) == 2 and all(('B', plan().b5_index(0, 0x21 + 0x12 * (v & 1))) in got for v in mine), got
+    def where(d, i):
+        x = plan().b5_index(d, i)
+        return ('P', (x >> 8) & 1, x & 0xFF) if x & 0x8000 else ('B', x)
+    assert len(mine) == 2 and all(where(0, 0x21 + 0x12 * (v & 1)) in got for v in mine), got
     s, e = slave()
     s.vt(e, 2)
     s.log.clear()

@@ -1,6 +1,17 @@
 #!/bin/sh
 # C-S1JX: the JX-3P's own DSP microcode (one DCO, 4 voices) on the SYSTEM-1 (docs/examples_system_1_jx_README.md).
 #   examples/system_1_jx/build.sh            -> plugins/C-S1JX/Script/Code1.Dat (and Code.Dat, the same file)
+#   SLAVE_TEST=1 NAME=C-S1JXS ...             diagnostic: JX-3P on the slave only, minimal master program (model.c)
+#   RUNTIME_MODEL=1 ...                       the parameter model evaluated on the ARM (soft float) instead of the table
+#   V4_PROGS=1 NAME=C-S1JX4 ...              diagnostic: C-S1V4's DSP programs with our ARM code (model.c, engine.c)
+#   NO_MAIN1=1 ...                           diagnostic: slave B main = an empty program instead of MAIN1
+#   NOJUMP=UNIT[,UNIT] ...                   diagnostic: the unit's jumps neutralized (s1jx.nojump)
+#   TRUNC=UNIT:lo:hi ...                     diagnostic: only instructions lo..hi-1 of a unit (s1jx.truncate)
+#   NO_STATE=1 ...                           diagnostic: no start-up writes
+#   SEC_A_EMPTY=1 ...                        diagnostic: an empty program of ours in the slave A section
+#   NO_MAIN5=1 ...                           diagnostic: slave A main = an empty program instead of MAIN5
+#   NO_SEC_A=1 ...                           diagnostic: slave A section (MAIN3) left off
+#   NO_SEC_B=1 ...                            diagnostic: slave B section (DCO1 of voices 2/3) left off (engine.c)
 # Needs plugins/JX-3P (the microcode is read from it at build time; build/ and the plugin folder hold Roland bytes:
 # never commit them), arm-none-eabi-gcc/ld/objcopy and Python 3. Run test_s1jx.py before installing.
 set -e
@@ -9,11 +20,12 @@ ROOT=$(cd "$HERE/../.." && pwd)
 S1=$ROOT/examples/system_1
 B=$HERE/build
 NAME=${NAME:-C-S1JX}
-MODEL_ID=${MODEL_ID:-0x0011}
+MODEL_ID=${MODEL_ID:-0x0010}
 mkdir -p "$B"
 python3 "$HERE/s1jx.py"
+[ -n "$V4_PROGS" ] && python3 "$S1/make_s1.py" >/dev/null
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
- -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -I$S1 -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID"
+ -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -I$S1 -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${SLAVE_TEST:+-DJX_SLAVE_TEST} ${NO_SEC_B:+-DJX_NO_SEC_B} ${RUNTIME_MODEL:+-DJX_RUNTIME_MODEL} ${V4_PROGS:+-DJX_V4_PROGS} ${NO_STATE:+-DJX_NO_STATE} ${NO_MAIN1:+-DJX_NO_MAIN1} ${NO_SEC_A:+-DJX_NO_SEC_A} ${NO_MAIN5:+-DJX_NO_MAIN5} ${SEC_A_EMPTY:+-DJX_SEC_A_EMPTY}"
 LIBGCC=$(arm-none-eabi-gcc -mcpu=cortex-m3 -mthumb -mfloat-abi=soft -print-libgcc-file-name)
 for r in 0 1; do
     if [ $r = 0 ]; then SRC=model.c; BASE=0x60800000; CODE=0x9000; else SRC=engine.c; BASE=0x60200000; CODE=0x1000; fi

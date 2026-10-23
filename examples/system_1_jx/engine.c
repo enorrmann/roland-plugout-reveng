@@ -11,21 +11,46 @@ typedef void (*slot_fn)(int index, int on);
 
 static int os_get(int g, int id) { return ((get_fn)SVC(0x00))(g, id); }
 
-/* the sets as the SYSTEM-1 PLUG-OUTs queue them (frame header 0x0, main, section, close) */
+/* the sets as the SYSTEM-1 PLUG-OUTs queue them in load (main, section, close; never the frame header at 0x0000,
+   which hangs the device: C-S1JX7, 2026-10-22) */
 static struct s1_prog set_a[] = {
-    { 0x0000, MC_HDR_A004_BYTES, mc_HDR_A004 },
+#ifdef JX_SEC_A_EMPTY
+    { 0x1900, MC_EMPTY_BYTES, mc_EMPTY },          /* SEC_A_EMPTY=1 build.sh: our empty program in the section */
+#else
     { 0x1900, MC_SA_SEC_BYTES, mc_SA_SEC },
+#endif
+#ifdef JX_NO_MAIN5
+    { 0x0100, MC_EMPTY_BYTES, mc_EMPTY },          /* NO_MAIN5=1 build.sh: MAIN5 replaced by an empty main */
+#else
     { 0x0100, MC_SA_MAIN_BYTES, mc_SA_MAIN },
+#endif
     { 0x7FF2, MC_CLOSE_A004_BYTES, mc_CLOSE_A004 },
     { 0, 0, 0 },
 };
 static struct s1_prog set_b[] = {
-    { 0x0000, MC_HDR_A005_BYTES, mc_HDR_A005 },
+#ifdef JX_NO_MAIN1
+    { 0x0100, MC_EMPTY_BYTES, mc_EMPTY },          /* NO_MAIN1=1 build.sh: MAIN1 replaced by an empty main */
+#else
     { 0x0100, MC_SB_MAIN_BYTES, mc_SB_MAIN },
+#endif
     { 0x1900, MC_SB_SEC_BYTES, mc_SB_SEC },
     { 0x7FF2, MC_CLOSE_A005_BYTES, mc_CLOSE_A005 },
     { 0, 0, 0 },
 };
+#ifdef JX_V4_PROGS
+/* C-S1JX4: C-S1V4's slave programs in our sets (main, close), no section */
+#include "../system_1/build/s1_programs.h"
+static struct s1_prog set_a4[] = {
+    { 0x0100, MC_S1M0_BYTES, mc_S1M0 },
+    { 0x7FF2, MC_CLOSE_A004_BYTES, mc_CLOSE_A004 },
+    { 0, 0, 0 },
+};
+static struct s1_prog set_b4[] = {
+    { 0x0100, MC_S1M1_BYTES, mc_S1M1 },
+    { 0x7FF2, MC_CLOSE_A005_BYTES, mc_CLOSE_A005 },
+    { 0, 0, 0 },
+};
+#endif
 /* FC44 index -> section: 0 = A 0x1900, 2 = B 0x1900 (system-1/SH101_POLY.md section 2) */
 enum { SEC_A_1900 = 0, SEC_B_1900 = 2 };
 
@@ -40,10 +65,19 @@ static void e_load(engine_t *e)                                           /* vt+
     (void)e;
     for (int i = 0; i < 8; i++)
         ((slot_fn)SVC(0x44))(i, 0);
+#ifdef JX_V4_PROGS
+    ((s1_queue_fn)SVC(0x30))(set_a4);
+    ((s1_queue_fn)SVC(0x34))(set_b4);
+#else
     ((s1_queue_fn)SVC(0x30))(set_a);
     ((s1_queue_fn)SVC(0x34))(set_b);
-    ((slot_fn)SVC(0x44))(SEC_A_1900, 1);
-    ((slot_fn)SVC(0x44))(SEC_B_1900, 1);
+#ifndef JX_NO_SEC_A
+    ((slot_fn)SVC(0x44))(SEC_A_1900, 1);           /* NO_SEC_A=1 build.sh: left off (diagnostic) */
+#endif
+#ifndef JX_NO_SEC_B
+    ((slot_fn)SVC(0x44))(SEC_B_1900, 1);           /* NO_SEC_B=1 build.sh: left off (DSP B time test) */
+#endif
+#endif
     jx_send_state();
 }
 

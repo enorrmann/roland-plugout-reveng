@@ -20,6 +20,12 @@ Needs plugins/JX-3P (the microcode is read from it, as the build does). What eac
   one DSP do not overlap, nor do the OS's; bank-5 words have one owner; IOMD within the pools.
 * sizes: each program location fits its zone (slave main 0x100-0x18FF, sections 0x1800, master B 0x1000-0x5FF1,
   master A 0x100-0x6DF1).
+* access_limits: every final program respects the per-instruction access limits of the DSP (at most 2 bank-0 loads,
+  1 bank-5 load and 1 bank-5 store per instruction) and our stricter rule of ONE bank-5 access per instruction (a
+  load with a store never appears in Roland's SYSTEM-8 programs and was in the half of MAIN3 that hung); the
+  relocation without split_bank5 is refused by the emulator.
+* device_history: the emulator's access check against the diagnostic builds installed on 2026-10-22 (plugins/, local):
+  it refuses exactly the ones that hung.
 * budget: instructions executed per sample on each SYSTEM-1 DSP (emulator, random inputs) <= 925 (master A: 925 -
   40 for the OS output program).
 """
@@ -75,12 +81,43 @@ def harness(p, key_of):
     return p.relocate(f), index, ld, st
 
 
+def special(pl, chip, addr, op, s1=None):
+    """the key of a relocated word that is not plain memory of the unit: ZERO (bank 6), the parameters moved to bank 6
+    (s1jx Plan.p6), DUMP and the same-DSP MXM ring mailboxes (bank 0); None otherwise"""
+    if addr == 0xC000 | J.ZERO_ID:
+        return ('ZERO',)
+    if s1 is not None and addr >> 12 == 0xC and (addr & 0xFFF) in pl.p6_ids[s1]:
+        return ('P6',) + pl.p6_ids[s1][addr & 0xFFF]
+    if addr == pl.dump0[chip]:
+        return ('DUMP', chip)
+    for key, a in pl.ringmail.get(chip, {}).items():
+        if addr == a + (1 if op == 'ld' else 0):
+            return ('RM', key)
+    return None
+
+
 def key_original(pl, u):
+    chip = J.CHIP[J.PLACE[u][0]]
+
     def k(r):
         new = pl.map(u, r)
+        sp = special(pl, chip, new, r.op, J.PLACE[u][0])
+        if sp:
+            return sp
         if new >> 12 == 0xC or (ring(r.addr) and ring(new)):
             return None
         return new
+    return k
+
+
+def key_relocated_of(pl, u):
+    chip = J.CHIP[J.PLACE[u][0]]
+
+    def k(r):
+        sp = special(pl, chip, r.addr, r.op, J.PLACE[u][0])
+        if sp:
+            return sp
+        return None if ring(r.addr) or r.addr >> 12 == 0xC else r.addr
     return k
 
 
@@ -90,10 +127,13 @@ def key_relocated(r):
 
 def run(progs, index, ld, st, b6ids, seed, n=3000):
     """progs: [word lists] in one DSP; inputs = loaded-only keys; returns the stored words' bits per sample"""
-    s = cchain.Slave({0: (chain.Program(progs[0], 'p0'), [chain.Program(w, f'p{i + 1}') for i, w in
-                                                          enumerate(progs[1:])])}, native=False, threads=False)
+    # the harness moves every external word to bank 5 of one emulated DSP: it breaks the bank-5 access limit on
+    # purpose (it never goes to a device), so these programs are built with strict=False
+    s = cchain.Slave({0: (chain.Program(progs[0], 'p0', strict=False),
+                          [chain.Program(w, f'p{i + 1}', strict=False) for i, w in enumerate(progs[1:])])},
+                     native=False, threads=False)
     rng = random.Random(seed)
-    inputs = sorted(ld - st, key=repr)
+    inputs = sorted((x for x in ld - st if x != ('ZERO',)), key=repr)   # ZERO stays 0
     outs = sorted(st, key=repr)
     rec = []
     for t in range(n):
@@ -119,7 +159,7 @@ def unit_pair(u, scramble=False):
     p0 = pl.p[u]
     p1 = R.Prog(pl.reloc[u], u + "'")
     w0, i0, ld0, st0 = harness(p0, key_original(pl, u))
-    w1, i1, ld1, st1 = harness(p1, key_relocated)
+    w1, i1, ld1, st1 = harness(p1, key_relocated_of(pl, u))
     return pl, (w0, i0, ld0, st0), (w1, i1, ld1, st1)
 
 
@@ -155,7 +195,7 @@ def test_scramble():
     assert r.ok, r.errors
     scr = [0x0A02, 0xFF70] + r.words + [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001]
     for u in J.UNITS:
-        w, idx, ld, st = harness(R.Prog(pl.words[u], u), key_relocated)
+        w, idx, ld, st = harness(R.Prog(pl.words[u], u), key_relocated_of(pl, u))
         b6 = b6_pairs(pl, u, False)
         a = run([w], idx, ld, st, b6, seed=7)
         b = run([scr, w], idx, ld, st, b6, seed=7)
@@ -173,19 +213,20 @@ def test_handoff():
     for dco, main in J.HANDOFF.items():
         a = [R.Prog(pl.reloc[main], main), R.Prog(pl.reloc[dco], dco)]
         b = [R.Prog(pl.words[main], main), R.Prog(scr, 'scr'), R.Prog(pl.words[dco], dco)]
+        kf = key_relocated_of(pl, main)
         keys = {}
         for p in a + b:
             for x in p.refs:
-                k = key_relocated(x)
+                k = kf(x)
                 if k is not None:
                     keys.setdefault(k, None)
         index = {k: 0x040 + i for i, k in enumerate(sorted(keys, key=repr))}
-        f = lambda x: x.addr if key_relocated(x) is None else 0xA000 | index[key_relocated(x)]
+        f = lambda x: x.addr if kf(x) is None else 0xA000 | index[kf(x)]
         wa = [p.relocate(f) for p in a]
         wb = [p.relocate(f) for p in b]
-        ld = {key_relocated(x) for p in a + b for x in p.refs if x.op == 'ld'} - {None}
-        st_main = {key_relocated(x) for p in (a[0], b[0]) for x in p.refs if x.op == 'st'} - {None}
-        st_dco = {key_relocated(x) for x in a[1].refs if x.op == 'st'} - {None}
+        ld = {kf(x) for p in a + b for x in p.refs if x.op == 'ld'} - {None}
+        st_main = {kf(x) for p in (a[0], b[0]) for x in p.refs if x.op == 'st'} - {None}
+        st_dco = {kf(x) for x in a[1].refs if x.op == 'st'} - {None}
         b6 = b6_pairs(pl, main, False)
         ra = run(wa, index, ld, st_main | st_dco, b6, seed=11)
         rb = run(wb, index, ld, st_main | st_dco, b6, seed=11)
@@ -203,15 +244,23 @@ def test_memory():
             for u in J.UNITS:
                 if J.CHIP[J.PLACE[u][0]] != chip:
                     continue
-                a = sorted(r.addr & 0xFFF for r in R.Prog(pl.words[u], u).refs if r.addr >> 12 == bank)
+                shared = {pl.dump0[chip]} | {x + d for x in pl.ringmail.get(chip, {}).values() for d in (0, 1)}
+                a = sorted(r.addr & 0xFFF for r in R.Prog(pl.words[u], u).refs if r.addr >> 12 == bank
+                           and r.addr not in shared)
                 if not a:
                     continue
-                reach = pl.p[u].ring_reach(bank) or 0
+                reach = max(pl.p[u].ring_reach(0x0) or 0, pl.p[u].ring_reach(0x2) or 0)
                 spans.append((a[0], a[-1] + reach + 1, u))
                 assert a[-1] + reach < 0x800, (u, hex(a[-1]))
             spans.sort()
             for (lo1, hi1, u1), (lo2, hi2, u2) in zip(spans, spans[1:]):
                 assert hi1 <= lo2, f'chip {chip} bank {bank:x}: {u1} {lo1:#x}-{hi1:#x} overlaps {u2} {lo2:#x}'
+    for chip in (0, 1):
+        ends = [hi for lo, hi, u in []]
+        rm = sorted(pl.ringmail.get(chip, {}).values())
+        assert all(b - a >= 2 for a, b in zip(rm, rm[1:])), 'ring mailboxes need a stride of 2'
+        assert not rm or rm[0] > pl.dump0[chip] + 16, 'DUMP too close to the ring mailboxes'
+        assert (rm[-1] + 2 if rm else pl.dump0[chip] + 1) <= J.B0_TOP
     for s1 in range(4):
         used = {}
         for u in J.UNITS:
@@ -228,6 +277,77 @@ def test_memory():
     up = [a for a in pl.iomd.values() if a in J.IOMD_UP]
     assert len(down) + len(up) == len(pl.iomd), pl.iomd
     print(f'    IOMD: {len(down)} of {len(J.IOMD_DOWN)} down, {len(up)} of {len(J.IOMD_UP)} up')
+
+
+def test_access_limits():
+    """every final program respects the per-instruction access limits (emulator check chain.access_violations,
+    DSP_HARDWARE.md 7.3); positive control: the relocation before split_bank5 / the ring mailboxes is refused"""
+    pl, words = plan()
+    for s1, addr, units, w in pl.programs():
+        bad = chain.access_violations([i for _, i in R.dspdis.instructions(w)])
+        assert not bad, (J.S1_NAMES[s1], hex(addr), bad[:3])
+        per = {}
+        for r in R.Prog(w).refs:
+            if r.addr >> 12 == 0xA:
+                per[r.ins] = per.get(r.ins, 0) + 1
+        two = [k for k, n in per.items() if n > 1]
+        assert not two, (J.S1_NAMES[s1], hex(addr), 'more than one bank-5 access', two[:5])
+        chain.Program(w, 'final')                                   # STRICT: must load
+    refused = []
+    for u in ('MAIN2', 'MAIN3', 'DCO1@2', 'DCO1@3'):
+        try:
+            chain.Program(pl.reloc[u], u)
+        except ValueError:
+            refused.append(u)
+    assert refused == ['MAIN2', 'MAIN3', 'DCO1@2', 'DCO1@3'], refused
+    print(f'    final programs pass; unsplit relocation refused for {", ".join(refused)}')
+
+
+# what the LAST installed version of each diagnostic build did on the device (2026-10-22/23; plugins/<NAME> holds that
+# version) and which slave sections it switched on (set order: 0 = A). Rebuilding a name changes its entry: keep
+# this table in step (docs/examples_system_1_jx_README.md section 10). None = hung for a cause the checks do not
+# explain yet (C-S1JXS 7th version, 2026-10-23: the open case of section 10.5).
+DEVICE = {'C-S1JXS': (None, {0, 1}), 'C-S1JXB': (True, {0}), 'C-S1JXM': (False, {0}), 'C-S1JXP': (False, set()),
+          'C-S1JXQ': (False, {0}), 'C-S1JXR': (False, {0}), 'C-S1JX5': (False, set()), 'C-S1JX6': (False, set()),
+          'C-S1JXH': (False, {0}), 'C-S1JXJ': (True, {0}), 'C-S1JXH1': (False, {0})}
+
+
+def test_device_history():
+    """the access checks against the builds that were installed (plugins/<NAME>, local, skipped if absent): a build
+    hung exactly when a program it ran broke the access limits (chain.access_violations) or had a bank-5 load and
+    store in one instruction (the frame-header hangs, C-S1JX4/7, are an ARM-side matter: test_arm.py test_queues)"""
+    import subprocess
+    import tempfile
+    sys.path.insert(0, os.path.join(J.ROOT, 'system-1'))
+    import s1_progs as S
+    seen = 0
+    for name, (hung, on) in DEVICE.items():
+        dat = os.path.join(J.ROOT, 'plugins', name, 'Script', 'Code1.Dat')
+        if not os.path.exists(dat):
+            continue
+        d = tempfile.mkdtemp()
+        subprocess.run([sys.executable, os.path.join(J.ROOT, 'tools', 'plugout_build.py'), 'unpack', dat, d],
+                       check=True, stdout=subprocess.DEVNULL)
+        bad = 0
+        for r, base in (('region0', 0x60800000), ('region1', 0x60200000)):
+            img = open(os.path.join(d, r + '.bin'), 'rb').read()
+            for k, st in enumerate(S.sets(img, base)):
+                for a, n, p in st:
+                    runs = a in (0x100, 0x1000) or (r == 'region1' and a == 0x1900 and k in on)
+                    if a in S.CODE and runs:
+                        w = S.words(img, base, p, n)
+                        bad += len(chain.access_violations([i for _, i in R.dspdis.instructions(w)]))
+                        per = {}
+                        for r in R.Prog(w).refs:
+                            if r.addr >> 12 == 0xA:
+                                per.setdefault(r.ins, set()).add(r.op)
+                        bad += sum(1 for ops in per.values() if ops == {'ld', 'st'})
+        if hung is None:
+            print(f'    {name}: hung, cause unknown; the checks find {bad} violations')
+            continue
+        assert bool(bad) == hung, (name, hung, bad)
+        seen += 1
+    print(f'    {seen} installed builds: the check agrees with the device')
 
 
 LIMITS = {(J.MA, 0x100): 0x6DF2, (J.MB, 0x1000): 0x5FF2, (J.SA, 0x100): 0x1900, (J.SA, 0x1900): 0x3100,

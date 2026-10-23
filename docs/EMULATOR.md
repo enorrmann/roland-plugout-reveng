@@ -195,6 +195,13 @@ Comandos: `cd examples/from_scratch/emu; python3 test_chain.py; python3 test_cor
   anterior. Una de las dos cosas: `newton` con inmediato tiene otra semántica, o Roland encadena registros entre
   programas. Sin resolver; las pruebas de C-S1JX comparan programas entre sí (bit a bit) y no dependen de ello.
 
+* **Límites de acceso por instrucción** (2026-10-23): el intérprete hace todos los accesos de una instrucción, pero el
+  hardware no (banco 5 ≤ 1 carga y ≤ 1 store, banco 0 ≤ 2 cargas y ≤ 2 stores, banco 6 ≤ 2 cargas). Programas que
+  pasaban el emulador colgaron el SYSTEM-1. Desde ahora `chain.Program` (y por tanto `cchain`) **rechaza** un programa
+  que incumpla esos límites (`chain.access_violations`, `STRICT`; `strict=False` sólo para arneses de prueba que no
+  van al equipo). Comprobado contra las builds instaladas: rechaza exactamente las que colgaron por esa causa
+  (`examples/system_1_jx/test_s1jx.py` `device_history`).
+
 ### 5.3 Siguiente: paso 2 de §4 (cargador de programas de Roland)
 
 Hoy `test_core.jx_programs()` arma el JX-3P a mano: MAIN0–5 en DSP0–5 y `DCO1_SAW` + `DCO2_SAW` en las ranuras de

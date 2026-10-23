@@ -57,12 +57,73 @@ class Model:
     link: dict = field(default_factory=dict)   # C: {slave-1 IOMD word: slave-0 IOMD word}, 1 sample late
 
 
-class Program:
-    """a decoded program: instruction list and word offsets (for jumps)"""
+STRICT = True     # Program refuses code that breaks the hardware's per-instruction access limits (access_violations)
 
-    def __init__(self, words, name=''):
+
+def access_violations(ins_list):
+    """[(instruction index, what)] for instructions that break the per-instruction memory-access limits of the DSP
+    (docs/DSP_HARDWARE.md 7.3): bank-0 loads <= 2 (more: only the last is valid), bank-0 stores <= 2 (more never
+    appears in Roland's code; 3 hung the SYSTEM-1, C-S1JXH MAIN3 instruction 55, 2026-10-23), bank-6 loads <= 2 (the
+    same: more never appears; 3 hung the SYSTEM-1, C-S1JXH1 MAIN1 instruction 48), bank-5 loads <= 1 and
+    bank-5 stores <= 1 (more: none is done; on the SYSTEM-1 a program with such instructions hung the device, C-S1JXQ
+    2026-10-22, docs/examples_system_1_jx_README.md section 10), transfers <= 6. The interpreter does not model these limits (it
+    performs every access), so a program that breaks them would pass the emulator and fail on the device: hence the
+    check. Literal (mode fe) and indexed transfers (X28Y bank 0, XdaY/Xd0Y.. bank 5) are counted."""
+    out = []
+    for k, ins in enumerate(ins_list):
+        try:
+            L = dspisa.Layout(list(ins))
+        except ValueError:
+            continue
+        slot_pos = [i for i, t in enumerate(L.t) if t in 'NS']
+        n0 = s0 = l5 = s5 = l6 = nt = 0
+        for w, t in zip(L.body, L.t):
+            if t != 'T':
+                continue
+            mode, store = (w >> 4) & 0xFF, w >> 12 >= 8
+            if mode == 0x9B:                                  # condition flags: no memory
+                continue
+            nt += 1
+            if mode == 0xFE:
+                s = (w & 15) >> 1
+                bank = L.body[slot_pos[s]] >> 12 if s < len(slot_pos) else None
+            elif mode == 0x28:
+                bank = 0x0
+            elif mode in (0xDA, 0xDE, 0xDB, 0xDF) or 0xD0 <= mode <= 0xD7:
+                bank = 0xA
+            else:
+                continue
+            if bank == 0x0 and not store:
+                n0 += 1
+            elif bank == 0x0:
+                s0 += 1
+            elif bank == 0xC and not store:
+                l6 += 1
+            elif bank == 0xA:
+                if store:
+                    s5 += 1
+                else:
+                    l5 += 1
+        bad = [m for m, c in (('bank-0 loads %d > 2' % n0, n0 > 2), ('bank-0 stores %d > 2' % s0, s0 > 2),
+                              ('bank-5 loads %d > 1' % l5, l5 > 1), ('bank-6 loads %d > 2' % l6, l6 > 2),
+                              ('bank-5 stores %d > 1' % s5, s5 > 1), ('transfers %d > 6' % nt, nt > 6)) if c]
+        if bad:
+            out.append((k, ', '.join(bad)))
+    return out
+
+
+class Program:
+    """a decoded program: instruction list and word offsets (for jumps). With STRICT (default), a program that breaks
+    the per-instruction access limits of the hardware is refused (access_violations)."""
+
+    def __init__(self, words, name='', strict=None):
         self.name = name
         self.ins = [i for _, i in dspdis.instructions(words)]
+        if STRICT if strict is None else strict:
+            bad = access_violations(self.ins)
+            if bad:
+                raise ValueError(f'{name or "program"}: breaks the DSP access limits at {len(bad)} instructions, '
+                                 f'first {bad[:3]}')
         self.pos = {}
         p = 0
         for k, i in enumerate(self.ins):

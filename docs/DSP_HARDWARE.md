@@ -248,6 +248,11 @@ Estado entre muestras: cargar de S + 1, guardar en S. Retardo variable: transfer
 * Latencia de carga: una instrucción (la op de la instrucción siguiente todavía ve el valor viejo).
 * Una op y una carga al mismo registro en la misma instrucción se **suman**.
 * Hasta 6 transferencias por instrucción.
+* **Banco 0: como mucho 2 stores por instrucción; banco 6: como mucho 2 cargas** [medido en el SYSTEM-1, 2026-10-23:
+  3 colgaron el equipo; en todo el código de Roland, SYSTEM-8 y SYSTEM-1, nunca hay más de 2]. En el SYSTEM-1 los
+  límites del banco 5 también se cumplen o el equipo se cuelga, y los DSP del esclavo sólo guardan en `A100`–`A1FF`
+  [inferido de los programas de Roland]. Detalle y bisecciones: `examples_system_1_jx_README.md` §5, §10. El
+  emulador comprueba estos límites al cargar un programa (`emu/chain.py`, `access_violations`).
 
 ### 7.4 Transferencias indexadas y tablas **[medido 2026-10-17: maestro DSP3 exacto, slaves por audio]**
 | modo | dirección | memoria |

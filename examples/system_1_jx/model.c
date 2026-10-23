@@ -202,22 +202,39 @@ static struct assign assigner = { .vt = assign_vt };
 
 struct model { const void *const *vt; };
 
-/* the sets every SYSTEM-1 PLUG-OUT queues on the master (frame header 0x0, main, section ends, close) */
+/* the sets as the SYSTEM-1 PLUG-OUTs queue them on the master in load (main, section ends, close). Never the
+   frame header at 0x0000: Roland's engines keep it in their tables but queue from the next entry; queuing it
+   hangs the device (C-S1JX7, 2026-10-22) */
 static struct s1_prog set_master_a[] = {
-    { 0x0000, MC_HDR_A01D_BYTES, mc_HDR_A01D },
     { 0x0100, MC_MA_MAIN_BYTES, mc_MA_MAIN },
     { 0x6DF2, MC_END_BYTES, mc_END },
     { 0x7FF2, MC_CLOSE_A01D_BYTES, mc_CLOSE_A01D },
     { 0, 0, 0 },
 };
 static struct s1_prog set_master_b[] = {
-    { 0x0000, MC_HDR_A004_BYTES, mc_HDR_A004 },
     { 0x5FF2, MC_END_BYTES, mc_END },
     { 0x6FF2, MC_END_BYTES, mc_END },
     { 0x1000, MC_MB_MAIN_BYTES, mc_MB_MAIN },
     { 0x7FF2, MC_CLOSE_A004_BYTES, mc_CLOSE_A004 },
     { 0, 0, 0 },
 };
+
+#ifdef JX_V4_PROGS
+/* C-S1JX4 (V4_PROGS=1 build.sh): C-S1V4's DSP programs (measured good) with our ARM code and writes, to tell our
+   relocated Roland programs from the rest */
+#include "../system_1/build/s1_programs.h"
+static struct s1_prog set_master_test[] = {
+    { 0x1000, MC_S1MM1_BYTES, mc_S1MM1 },
+    { 0, 0, 0 },
+};
+#elif defined(JX_SLAVE_TEST)
+/* C-S1JXS (SLAVE_TEST=1 build.sh): the master runs only a minimal program (as C-S1V4's) that plays the slave's voices
+   2 and 3; nothing of the JX-3P on the master DSPs. To tell a hang of the master programs from the rest. */
+static struct s1_prog set_master_test[] = {
+    { 0x1000, MC_MB_TEST_BYTES, mc_MB_TEST },
+    { 0, 0, 0 },
+};
+#endif
 
 static int m_nop(struct model *m) { (void)m; return 0; }
 
@@ -241,8 +258,12 @@ static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x
 static void m_load(struct model *m)                                      /* vt+0x08 */
 {
     (void)m;
+#if defined(JX_SLAVE_TEST) || defined(JX_V4_PROGS)
+    ((s1_queue_fn)SVC(0x34))(set_master_test);
+#else
     ((s1_queue_fn)SVC(0x30))(set_master_a);
     ((s1_queue_fn)SVC(0x34))(set_master_b);
+#endif
     set_volume(volume);
     jx_send_state();
 }

@@ -52,8 +52,8 @@ Evidencia: **[M]** medido en el equipo · **[L]** leído en el OS 1.30 o en los 
 | 5 (`A000`–`A1FF`) | **uno por chip, compartido por A y B** | persiste | `FD6C(sel, obj, bits)` (§4.2) | [M] (`A150` de A a B en C-S1V4) |
 | 6 (`Cnnn`) | por DSP | persiste | `FCEC(sel, id, bits)` inmediato, `FCE4` con rampa [A] | [M] (`C01C` del maestro B) |
 
-Palabras del banco 5 reservadas por el sistema [L]: `A004`, `A005`, `A01D` (contador de trama de las cabeceras y los
-cierres, §5.3); `A006`–`A009` (el ARM del esclavo de serie); `A118`–`A11D` en el maestro (salida, §5.1).
+Palabras del banco 5 reservadas por el sistema [L]: `A004`, `A005`, `A01D` (contador de trama de la cabecera del OS
+y de los cierres, §5.3); `A006`–`A009` (el ARM del esclavo de serie); `A118`–`A11D` en el maestro (salida, §5.1).
 
 ---
 
@@ -190,25 +190,51 @@ st r2, [a11d]
 
 En qué DSP del maestro corre cada uno de los dos programas del maestro: [A].
 
-### 5.3 Cabeceras y cierres de la memoria de programa [L]
+### 5.3 Cabecera `0x0000` y cierre `0x7FF2`: qué se carga en `load` [M], [L]
 
-Todos los PLUG-OUTs del SYSTEM-1 cargan en cada DSP una cabecera en `0x0000` y un cierre en `0x7FF2` que mantienen
-un contador de trama en el banco 5 (`A01D` maestro A, `A004` maestro B y esclavo A, `A005` esclavo B). Nuestra
-versión (C-S1JX, `s1jx.frame_header`; mismas palabras que la de Roland):
+Cada DSP empieza su muestra en una **cabecera** en `0x0000` y la termina con un **cierre** en `0x7FF2`; los dos
+mantienen un contador de trama en el banco 5 (`A01D` maestro A, `A004` maestro B y esclavo A, `A005` esclavo B). La
+cabecera la pone el OS.
+
+**Regla: un PLUG-OUT nunca encola la entrada `0x0000` en `load`.** Hacerlo cuelga el equipo al seleccionar el
+PLUG-OUT (error fatal del OS, todas las luces del panel encendidas, sólo sale apagando) [M]: la cabecera es código que
+el DSP está ejecutando. Los PLUG-OUTs de Roland tienen la entrada `0x0000` en sus tablas de programas (por eso
+aparece al leer las imágenes), pero sus motores pasan a `FC30`/`FC34` un puntero a la **entrada siguiente** [L].
+Secuencia real de `load`, observada ejecutando el código de Roland en Unicorn (`examples/system_1_jx/test_arm.py`,
+arnés `Region` con mapeo bajo demanda):
+
+| PLUG-OUT | región | llamadas en `load` (direcciones de cada set encolado) |
+|---|---|---|
+| SH-101 | 1 (esclavo) | `FC44(0…7, 0)`; `FC30 {0x100, 0x7FF2}`; `FC34 {0x100, 0x7FF2}` |
+| SH-2 | 1 | `FC44(0, 1)`, `FC44(4, 1)`, el resto 0; `FC30 {0x100, 0x7FF2, 0x3100}`, `FC30 {0x1900, 0x100, 0x7FF2, 0x3100}`, `FC30 {0x3100}`; `FC34 {0x100, 0x7FF2}` |
+| PROMARS | 1 | `FC44(0, 1)`, `FC44(2, 1)`, el resto 0; `FC30 {0x100, 0x7FF2}`, `FC30 {0x1900, 0x100, 0x7FF2}`; `FC34 {0x100, 0x1900, 0x7FF2}`, `FC34 {0x1900, 0x7FF2}` |
+| SH-101, SH-2, PROMARS | 0 (maestro) | `FC30 {0x100, 0x6DF2, 0x7FF2}`, `FC30 {0x6DF2, 0x7FF2}`; `FC34 {0x1000, 0x7FF2}`, `FC34 {0x5FF2, 0x6FF2, 0x1000, 0x7FF2}`, `FC34 {0x6FF2, 0x1000, 0x7FF2}`; dos `FC38` y tres `FC3C` (colas de datos: puntero a la región 0, `0x110001D` / `0x110001F`, un tercer valor) |
+
+Ninguno encola `0x0000`. Los varios `FC30`/`FC34` de un mismo `load` son sets que se solapan (sufijos de una misma
+tabla); qué hacen las colas de datos `FC38`/`FC3C` no está estudiado [A] (nuestros PLUG-OUTs no las usan y
+funcionan).
+
+Para referencia, la cabecera de Roland (la misma en los tres; nuestra versión ensamblada, `s1jx.frame_header`, es
+idéntica byte a byte). **No hay que cargarla**:
 
 ```dsp
-; cabecera @0x0000 del DSP cuyo contador es A004
+; cabecera @0x0000 del DSP cuyo contador es A004 (la pone el OS; NO encolarla)
 ld r0, [a004]
 cmp r0, r0, #0
 ld r0, [e021]
 cond !12, 1, 0 | st r0, [a004] | st r0, [a004]
 ```
 
+El cierre sí se encola (C-S1V4, Roland):
+
 ```dsp
 ; cierre @0x7FF2 (precedido de una media palabra 0000): contador de trama E000 -> A004
 ld r0, [e000]
 st r0, [a004]
 ```
+
+Cómo se encontró: bisección en el equipo con builds de diagnóstico de C-S1JX
+([../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md) §10).
 
 ---
 
@@ -233,9 +259,13 @@ st r0, [a004]
    compartir palabras sin querer (es un banco común).
 4. Escribir el banco 5 desde el ARM sólo con `sel` 0/1 (`A000`–`A1FF`).
 5. Esclavo → maestro: `6006`–`600D` (8 palabras) y `6026`–`602D` (8 más); maestro → esclavo: `600E`–`6021` (20).
-6. Seguir el patrón de sets de Roland: cabecera `0x0000`, programas, finales de sección vacíos, cierre `0x7FF2`
-   ([../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md) §3).
+6. **Nunca encolar `0x0000`** (cuelga el equipo, §5.3). Encolar programas, finales de sección vacíos y el cierre
+   `0x7FF2`, como los PLUG-OUTs de Roland en su `load`.
 7. Presupuesto ≈ 925 instrucciones por muestra y DSP (no medido en el SYSTEM-1: el mismo chip que el SYSTEM-8 [I]).
+8. **Límites de acceso por instrucción** (incumplirlos cuelga el equipo [M]): banco 5 ≤ 1 carga y ≤ 1 store (mejor:
+   un solo acceso), banco 0 ≤ 2 cargas y ≤ 2 stores, banco 6 ≤ 2 cargas. Los DSP del esclavo guardan sólo en
+   `A100`–`A1FF` [I]. El emulador rechaza los programas que los incumplen (`emu/chain.py access_violations`).
+   Detalle: [../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md) §5.
 
 ---
 
@@ -256,5 +286,6 @@ st r0, [a004]
 | dato | fuente |
 |---|---|
 | cadena de audio de C-S1TONE/C-S1V4, VOLUME | [log/WAVE_BUS_LOG.md](log/WAVE_BUS_LOG.md) §4; [../docs/examples_system_1_README.md](../docs/examples_system_1_README.md) §2.2, §6 |
-| `FD6C` idéntico en maestro y esclavo; sets y cabeceras de Roland; `6026`–`602D` | esta revisión (2026-10-22), `system-1/s1_progs.py`, [DSP_FIT.md](DSP_FIT.md) §4 |
+| `FD6C` idéntico en maestro y esclavo; `6026`–`602D` | esta revisión (2026-10-22), `system-1/s1_progs.py`, [DSP_FIT.md](DSP_FIT.md) §4 |
+| `load` de Roland (no encola `0x0000`); el cuelgue al encolarla | §5.3; [../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md) §10 |
 | programas de serie del maestro y del esclavo | [log/WAVE_BUS_LOG.md](log/WAVE_BUS_LOG.md) §2, §3; [VOCES_6.md](VOCES_6.md) |

@@ -74,7 +74,8 @@ que registra `engine_v3.c`):
 Dos DSP por BMC (A y B). Memoria de programa de 32 KiB (lo más alto que se escribe es el cierre en `0x7FF2`–`0x7FFF`).
 
 ```
-0x0000 ─ cabecera (la escribe el OS: sets de serie {0x0000, 0x1E bytes, …}; los PLUG-OUTs no la tocan)
+0x0000 ─ cabecera (la escribe el OS: sets de serie {0x0000, 0x1E bytes, …}). Los PLUG-OUTs NO la encolan: hacerlo
+         cuelga el equipo [medido, C-S1JX7, 2026-10-22; ../system-1/WAVE_BUS.md §5.3]
 0x0100 ─ PRINCIPAL ─────────────── hasta 0x18FF (6 KiB)
 0x1900 ─ sección 2 ──────────────── hasta 0x30FF (6 KiB)
 0x3100 ─ sección 3                  hasta 0x48FF
