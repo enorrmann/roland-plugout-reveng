@@ -19,7 +19,8 @@ Estado: 2026-10-23.
    los límites por instrucción (`chain.access_violations`). Un `mov rN, rN` de relleno sólo se escribe en el
    código sin empaquetar y desaparece al empaquetar.
 3. **Operaciones independientes fusionadas.** Dos o tres ops que no dependen entre sí van en una instrucción
-   (`op1 | op2`, A+B, A+A+B). Todas leen antes de escribir. `pack()` con `FUSE=1` lo hace automáticamente.
+   (`op1 | op2`, A+B, A+A+B). Todas leen antes de escribir. Lo hace el planificador `asm/dspsched.py` (§5),
+   reordenando dentro de las dependencias. `pack()` con `FUSE=1` es la versión anterior, sólo con vecinas.
 4. **Sin cargas repetidas.** Un valor que ya está en un registro o en memoria de la misma muestra no se vuelve a
    cargar (por ejemplo, la puerta: una carga por voz y por muestra, que también sirve para la copia hacia el DSP B).
 5. **Validación bit a bit en el emulador.** Toda optimización se compara con la versión sin optimizar en el núcleo
@@ -113,3 +114,69 @@ las unidades leen antes de escribir.
 
 `--sim-check` del paso 11: núcleo C = referencia Python, y fusionado = sin empaquetar, bit a bit (4 paneles, entre
 ellos dos de LFO) [sim, 2026-10-23].
+
+## 5. Planificador de instrucciones (`asm/dspsched.py`)
+
+Común a los dos equipos. Entra el programa como lo escriben los generadores: una op o una transferencia por
+línea, el retardo de una carga como relleno `mov rN, rN` y comentarios con `;`. Sale el mismo programa en menos
+instrucciones:
+* las ops independientes van juntas (`op1 | op2 | op3`);
+* las cargas y los guardados van en las instrucciones de las ops;
+* los rellenos desaparecen;
+* las unidades se reordenan hasta donde dejan las dependencias. `pack()` sólo unía una línea con la instrucción de
+  antes, en el orden del programa.
+
+```python
+import dspsched
+lines = dspsched.schedule(lines)       # lista de instrucciones en texto, lista para el ensamblador
+```
+
+Semántica que conserva, la del emulador (medida en el equipo):
+* todas las unidades de una instrucción leen antes de que ninguna escriba;
+* un registro cargado se puede usar desde la instrucción siguiente;
+* un guardado lee el registro al empezar la instrucción.
+
+Dependencias (i antes que j en el programa) y distancia mínima en instrucciones:
+
+| dependencia | distancia |
+|---|---|
+| leer un registro que escribió una op o una carga | 1 |
+| escribir un registro que se leyó antes | 0 (puede ir en la misma instrucción) |
+| escribir un registro escrito antes | 1 |
+| misma dirección (bancos 0, 1 y 5 cada 0x800, IOMD cada 0x2000): carga tras guardado | 1 |
+| misma dirección: guardado tras carga | 0 |
+| misma dirección: dos guardados | 1 |
+| una línea que no entiende (otra op, una condición) | barrera: instrucción propia, nada la cruza |
+
+Límites por instrucción: los probados en el equipo con `pack()` y `FUSE` (C-S1SY8 … C-S1SY11).
+* Como mucho 3 ops, todas de un solo destino (`OPS`).
+* Como mucho 3 transferencias, sin repetir dirección: banco 0 ≤ 2 cargas y ≤ 2 guardados, los demás bancos ≤ 1
+  de cada.
+* La instrucción tiene que ensamblar.
+
+Prioridad: el camino de dependencias más largo hasta el final del programa (camino crítico) y, a igualdad, el
+orden del programa.
+
+Resultados [sim, 2026-10-23]:
+
+| programa | antes | con el planificador | validación |
+|---|---|---|---|
+| SYSTEM-1, C-S1SY DSP A (paso 12) | 640 (`pack()` + `FUSE`) | **553** | `--pack-check` idéntico en 5 paneles; `test_s1_sched` (bancos 0 y 5 de los tres DSP, palabra a palabra) |
+| SYSTEM-1, C-S1SY DSP B (paso 12) | 603 | **471** | ídem |
+| SYSTEM-8, voz de 4 voces de C-MINI2 (`make_poly.py --opt`: `ph_wrap` + planificador) | 210 (`poly.hex`, wrap manual) | **88** | `test_s8_poly_opt`: planificada = sin planificar bit a bit; mismo tono y nivel que `poly.hex` |
+
+`check_optimized` después del planificador: C-S1SY A 2 `transfer-only` y 8 `fusable`, B 4 y 8; `poly_opt` 2
+`transfer-only`. Son las que no caben por los límites de puertos o de plantilla.
+
+Al validar con todo el estado apareció una diferencia de la simulación, no del planificador. `simulate()`
+escribía el tono como double de Python y el ARM escribe float32 (`pitch_bits`), que cae en la rejilla. Al guardar
+el registro recién cargado sin una unidad de por medio, salía el valor crudo. Ahora `sim_event` escribe float32,
+como el equipo (regla 6).
+
+Uso:
+* C-S1SY: `STEP=12` (o `SCHED=1` con otro paso) en `make_synth.py` / `build.sh`.
+* C-MINI2: `OPT=1 NAME=C-MINI2O sh examples/from_scratch/mini/build.sh`; sin `OPT` se sigue usando `poly.hex`.
+
+[abierto] Ninguna de las dos variantes se ha probado todavía en el equipo. C-S1V4 y C-V4 todavía no pasan por el
+planificador.
+

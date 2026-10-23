@@ -51,6 +51,7 @@ python3 examples/system_1_synth/make_synth.py --sim-check    # además: núcleo 
 | `STAGE` | 4 | sólo con `STEP=0` |
 | `VOICES` | 8 | voces |
 | `PACK` | 1 | empaqueta `ld`/`st` en las instrucciones de las ops (`pack()`); 0 = una unidad por instrucción |
+| `SCHED` | 1 desde `STEP=12`, si no 0 | planificador `asm/dspsched.py` en lugar de `pack()` |
 | `FUSE` | 1 desde `STEP=11`, si no 0 | fusiona ops independientes en una instrucción (`op1 \| op2`) |
 | `RESCOMP` | 0 | resonancia compensada por el corte (autooscilación) |
 | `RES_MAX` | 3,6 (4,4 con `RESCOMP=1`) | realimentación del filtro con la resonancia al máximo |
@@ -718,6 +719,41 @@ one, so the two cannot disagree about which word is which.
 Each line is checked before it is printed: the listing re-assembles it, and a
 line that does not give back its own words is kept verbatim instead. That is
 the reason `report["reassembly"]` exists; on the corpus it is 0.
+```
+
+### `asm/dspsched.py`
+
+```
+List scheduler for our DSP microcode (SYSTEM-1 and SYSTEM-8: same ISA). docs/MICROCODE_OPTIMIZATION.md §5.
+
+    import dspsched
+    packed = dspsched.schedule(lines)          # one-unit lines (with "mov rN, rN" fillers) -> instruction texts
+
+The input is the plain program the generators write: one op or one transfer per line, a load delay written as a
+"mov rN, rN" filler, comments with ';'. The output does the same thing in fewer instructions: independent ops share
+an instruction ("op1 | op2 | op3"), loads and stores go into op instructions, the fillers are gone, and the units are
+reordered as far as the dependencies allow (pack() of make_synth.py only merged a line into the instruction before
+it, in program order).
+
+Semantics the schedule keeps (the emulator's, measured on the hardware; DSP_HARDWARE.md, pack() comment):
+  * every unit of an instruction reads before any unit writes;
+  * a loaded register is usable from the next instruction on; a store reads the register as the instruction starts;
+  * memory: a load after a store to the same address comes one instruction later; a store after a load may share
+    the load's instruction; two stores to one address keep their order (one instruction apart).
+
+Dependencies (i before j in program order -> minimum instruction distance):
+  register read after write (op or load result) 1; write after read 0; write after write 1;
+  same address (normalised: banks 0 / 1 / 5 repeat every 0x800, IOMD every 0x2000): store -> load 1, load -> store 0,
+  store -> store 1. Anything the scheduler does not understand (an unknown op, a condition) is a barrier: everything
+  before it comes first, it gets an instruction of its own, everything after it comes after.
+
+Limits per instruction (the ones proven on the device with pack() / FUSE: C-S1SY8 .. C-S1SY11): at most 3 ops, all of
+the one-destination kinds in OPS; at most 3 transfers, no address twice, bank-0 loads <= 2, bank-0 stores <= 2, any
+other bank <= 1 load and <= 1 store; and the instruction must assemble (asm.Assembler).
+
+Priority: the longest dependency path to the end of the program (critical path), then program order. Validation:
+the scheduled program must give the same samples as the unscheduled one in the emulator (make_synth.py --pack-check,
+test_sched.py).
 ```
 
 ### `asm/isa.py`
@@ -2373,6 +2409,9 @@ Per voice: AR envelope (rate KA attack / KR release, branch free), SAW at its pi
 vibrato, times the envelope. The four voices are summed (scale 1/4) into IOMD 6020 (canal 1) and 6021 (canal 0).
 
     python3 make_poly.py          -> poly.s, poly.hex
+    python3 make_poly.py --opt    -> also poly_opt.s / poly_opt.hex: the same voice with ph_wrap (Roland's form)
+                                     instead of the manual wraps, scheduled by asm/dspsched.py
+                                     (docs/MICROCODE_OPTIMIZATION.md); poly.hex (tested on the device) stays
     python3 make_poly.py --sim    -> four voices in re/dspisa.py: each gate pulse must give its own pitch
 ```
 
@@ -2704,7 +2743,9 @@ Options (environment variables):
                  10 the saw with ph_wrap (Roland's form) instead of the 11-op manual wrap: DSP A 517
                  11 LFO per voice (own phase restarted at each note, own S&H), -> filter / -> amp bipolar
                     (128 = 0, below = inverted LFO); op fusion on (FUSE): DSP A 576, B 603 (works on the device)
+                 12 the list scheduler asm/dspsched.py instead of pack(): DSP A 553, B 471 (emulator only)
                   0 the first all-at-once design (silent on the device; reference only)
+  SCHED=0|1     schedule with asm/dspsched.py instead of pack() (default 1 from STEP 12)
   FUSE=0|1      fuse independent ops into one instruction as Roland (default 1 from STEP 11, docs/
                 MICROCODE_OPTIMIZATION.md); every build runs tools/check_optimized.py on the programs
   PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit
@@ -2760,7 +2801,7 @@ as reference. The filter ADSR is still to come.
                                          only when the emulator, simulate() or the instruction forms change)
 ```
 
-Environment: `FUSE` (default '1' if STEP >= 11 else '0'), `GMAX` (default '0.7'), `PACK` (default '1'), `PAD` (default '0'), `RESCOMP` (default '0'), `RES_MAX` (default '4.4' if RESCOMP else '3.6'), `SIM`, `SIM_CHECK_N` (default '600'), `SIM_JOBS` (default '0'), `SIM_N` (default '9600'), `SIM_PACK_N` (default '19200'), `STAGE` (default '4'), `STEP` (default '8'), `VOICES` (default '8')
+Environment: `FUSE` (default '1' if STEP >= 11 else '0'), `GMAX` (default '0.7'), `PACK` (default '1'), `PAD` (default '0'), `RESCOMP` (default '0'), `RES_MAX` (default '4.4' if RESCOMP else '3.6'), `SCHED` (default '1' if STEP >= 12 else '0'), `SIM`, `SIM_CHECK_N` (default '600'), `SIM_JOBS` (default '0'), `SIM_N` (default '9600'), `SIM_PACK_N` (default '19200'), `STAGE` (default '4'), `STEP` (default '8'), `VOICES` (default '8')
 
 ### `examples/system_1_synth/paramlog.py`
 

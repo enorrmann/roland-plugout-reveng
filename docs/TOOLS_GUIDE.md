@@ -51,6 +51,7 @@ python3 examples/system_1_synth/make_synth.py --sim-check    # además: núcleo 
 | `STAGE` | 4 | sólo con `STEP=0` |
 | `VOICES` | 8 | voces |
 | `PACK` | 1 | empaqueta `ld`/`st` en las instrucciones de las ops (`pack()`); 0 = una unidad por instrucción |
+| `SCHED` | 1 desde `STEP=12`, si no 0 | planificador `asm/dspsched.py` en lugar de `pack()` |
 | `FUSE` | 1 desde `STEP=11`, si no 0 | fusiona ops independientes en una instrucción (`op1 \| op2`) |
 | `RESCOMP` | 0 | resonancia compensada por el corte (autooscilación) |
 | `RES_MAX` | 3,6 (4,4 con `RESCOMP=1`) | realimentación del filtro con la resonancia al máximo |

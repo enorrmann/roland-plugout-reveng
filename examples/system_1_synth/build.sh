@@ -21,7 +21,9 @@ Options (environment variables):
                  10 the saw with ph_wrap (Roland's form) instead of the 11-op manual wrap: DSP A 517
                  11 LFO per voice (own phase restarted at each note, own S&H), -> filter / -> amp bipolar
                     (128 = 0, below = inverted LFO); op fusion on (FUSE): DSP A 576, B 603 (works on the device)
+                 12 the list scheduler asm/dspsched.py instead of pack(): DSP A 553, B 471 (emulator only)
                   0 the first all-at-once design (silent on the device; reference only)
+  SCHED=0|1     schedule with asm/dspsched.py instead of pack() (default 1 from STEP 12)
   FUSE=0|1      fuse independent ops into one instruction as Roland (default 1 from STEP 11, docs/
                 MICROCODE_OPTIMIZATION.md); every build runs tools/check_optimized.py on the programs
   PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit

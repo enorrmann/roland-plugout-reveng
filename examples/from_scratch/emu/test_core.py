@@ -372,6 +372,66 @@ def test_s1_pipeline(n=6000):
     assert outs[0] == outs[1]
 
 
+def test_s1_sched(n=4000):
+    """asm/dspsched.py (C-S1SY step 12) against the unscheduled programs: every bank-5 and bank-0 word of the three
+    DSPs and the output, sample by sample, with notes and the LFO"""
+    os.environ['STEP'] = '12'
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'system_1_synth'))
+    import importlib
+    import make_synth as ms
+    ms = importlib.reload(ms)
+    model = chain.Model(order=(0, 1, 2), shared5=((0, 1),), own_params=(0, 1, 2))
+    panel = dict(ms.panel_defaults(), lfo_rate=220, lfo_pitch=200, lfo_filt=60, lfo_amp=90, lfo_wave=4,
+                 cutoff=150, res=120, lfo_delay=30, osc1_wave=1, osc2_wave=2)
+    outs = []
+    for progs in (ms.sources(True), ms.sources(False)):
+        P = {k: chain.Program(progs[k][0], k) for k in ('s1m0', 's1m1', 's1mm1')}
+        s = cchain.Slave({0: (P['s1m0'], []), 1: (P['s1m1'], []), 2: (P['s1mm1'], [])}, model)
+        b5 = ms.sim_b5(panel)
+        for d, prm in zip(s.d, ms.sim_params(b5, panel)):
+            d.params.update(prm)
+        for k, v in b5.items():
+            s.d[0].bank5[k & 0x3FF] = v
+        rec = []
+        for k, t in enumerate(range(0, n, 500)):
+            ms.sim_event(b5, k % 8, 50 + k if k % 3 else None)
+            for a in (ms.PITCH[k % 8], ms.GATE[k % 8], ms.TRIG[k % 8]):
+                s.d[0].bank5[a & 0x3FF] = b5[a]
+            rec += s.run(500, [(2, 0xA118)])[(2, 0xA118)]
+            rec.append([list(s.d[i].bank5) for i in range(3)])
+            rec.append([[s.d[i].bank0[(a - s.t) & 0x7FF] for a in range(0x200, 0x500)] for i in range(2)])
+        outs.append(rec)
+    assert outs[0] == outs[1]
+    os.environ['STEP'] = '11'
+
+
+def test_s8_poly_opt(n=12000):
+    """SYSTEM-8 C-MINI2 voice (dsp/make_poly.py): the --opt variant (ph_wrap + asm/dspsched.py) against the same
+    voice unscheduled, bit for bit (every bank-0 / bank-5 word and 6020 / 6021); and against poly.hex (manual wrap,
+    tested on the device): the same pitch and level of each voice"""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dsp'))
+    import make_poly as mp
+    progs = {'sched': mp.words(mp.source_opt())[0], 'plain': mp.words(mp.source_opt(scheduled=False))[0],
+             'orig': mp.words(mp.source())[0]}
+    res = {}
+    for name, w in progs.items():
+        s = cchain.Slave({5: (chain.Program(w, name), [])})
+        pitches = [3.75, 4.75, 4.0, 5.25]
+        for k in range(mp.NV):
+            s.p_bank(5, mp.PITCH[k] & 0x3FF, pitches[k])
+        out = {}
+        for k in range(mp.NV):                     # voice k alone, then all four
+            for j in range(mp.NV):
+                s.p_bank(5, mp.GATE[j] & 0x3FF, 1.0 if j == k else 0.0)
+            out[k] = s.run(n, (0x6020, 0x6021))
+        res[name] = (out, [list(s.d[5].bank5)], [list(s.d[5].bank0)])
+    assert res['sched'] == res['plain']
+    for k in range(4):
+        a, b = res['sched'][0][k][0x6020][n // 2:], res['orig'][0][k][0x6020][n // 2:]
+        fa, fb = chain.freq(a), chain.freq(b)
+        assert abs(fa - fb) < 0.01 * fb and abs(chain.peak(a) - chain.peak(b)) < 0.01, (k, fa, fb)
+
+
 def test_speed():
     progs = voices.programs('v4')
     sp = chain.Slave(progs)

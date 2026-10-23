@@ -72,6 +72,7 @@ primer diseño, que lo metía todo de una vez (`STEP=0`, §6), no sonó, y no ha
 | 10 | sierra con `ph_wrap rD, r3, rY` (forma de Roland) en vez del wrap manual de 11 ops ([MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md)) | 517 / 652 | [sim] La 440 = 439,98 Hz como antes |
 | 11 | LFO por voz (§7.3): fase propia reiniciada en cada nota y S&H propio, ruido global; → filtro y → amplitud bipolares (128 = 0); fusión de ops (`FUSE=1`) | 576 / 603 | [medido] C-S1SY11 "funciona muy bien" (2026-10-23): primera build con ops fusionadas en el SYSTEM-1 |
 | 11 bis | → pitch bipolar; formas en el orden del panel: sine, triangle, saw, square, sample & glide, sample & hold (§7.3) | 640 / 603 | [sim] `--sim-check` idéntico |
+| 12 | planificador de instrucciones `asm/dspsched.py` en lugar de `pack()` ([MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md) §5) | 553 / 471 | [sim] `--pack-check` y `test_s1_sched` idénticos; sin probar en el equipo |
 
 ## 3. Cómo llega cada valor a cada DSP (SYSTEM-1)
 

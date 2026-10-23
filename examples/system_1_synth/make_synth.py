@@ -31,6 +31,7 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 sys.path.insert(0, os.path.join(ROOT, 'asm'))
 sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 're'))
 import asm  # noqa: E402
+import dspsched  # noqa: E402
 
 NV = int(os.environ.get('VOICES', '8'))
 STEP = int(os.environ.get('STEP', '8'))     # incremental steps on top of C-S1V8 (STEPS below)
@@ -695,13 +696,15 @@ def pack(lines):
 
 
 PACK = os.environ.get('PACK', '1') == '1'   # pack() the step programs (Roland's packing); PACK=0 = one unit per line
+# step 12: the list scheduler asm/dspsched.py instead of pack() (reorders within the dependencies; MICROCODE_OPTIMIZATION.md §5)
+SCHED = os.environ.get('SCHED', '1' if STEP >= 12 else '0') == '1'
 
 
 def step_program(lines, packed=None):
     """as program(), without the automatic scheduling (the step code places its own load delays as C-S1V8);
     PACK=1 packs transfers into the ops' instructions"""
     if packed if packed is not None else PACK:
-        lines = pack(lines)
+        lines = dspsched.schedule(lines) if SCHED else pack(lines)
     r = assemble(lines)
     return [0x0A02, 0xFF71] + r.words + [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001], r, lines
 
@@ -944,7 +947,7 @@ def sim_params(b5, panel):
 def sim_b5(panel):
     b5 = b5_from_panel(panel)
     for v in range(NV):
-        b5[PITCH[v]], b5[GATE[v]], b5[TRIG[v]] = (69 - 12) / 12.0, 0.0, 0.0
+        b5[PITCH[v]], b5[GATE[v]], b5[TRIG[v]] = f32((69 - 12) / 12.0), 0.0, 0.0     # float32, as pitch_bits
     return b5
 
 
@@ -952,7 +955,7 @@ def sim_event(b5, v, note):
     if note is None:
         b5[GATE[v]] = 0.0
     else:
-        b5[PITCH[v]] = (note - 12) / 12.0
+        b5[PITCH[v]] = f32((note - 12) / 12.0)          # the ARM writes float32 bits (pitch_bits)
         b5[GATE[v]] = 1.0
         b5[TRIG[v]] = 1.0 - b5[TRIG[v]]
 

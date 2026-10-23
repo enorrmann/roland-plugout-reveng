@@ -1,9 +1,7 @@
-ld r0, [6006]
-ld r1, [6007] | ld r7, [c01c]
-mul r0, r0, r7 | mul r1, r1, r7
-st r0, [a118]
-mov r2, #0.0 | st r1, [a119]
-st r2, [a11a]
+mov r2, #0.0 | ld r0, [6006] | ld r7, [c01c]
+mul r0, r0, r7 | ld r1, [6007] | st r2, [a11a]
+mul r1, r1, r7 | st r0, [a118]
+st r1, [a119]
 st r2, [a11b]
 st r2, [a11c]
 st r2, [a11d]
