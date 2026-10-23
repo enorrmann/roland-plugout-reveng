@@ -17,8 +17,13 @@ Options (environment variables):
                   7 waves: selector position 2 = square, 3 = triangle, others saw
                   8 filter ADSR (faders 0x182..0x185) and env amount (0x181)
                   9 LFO on DSP A: rate 0x162, shape 0x160, delay 0x161, -> pitch 0x163 / filter 0x164 /
-                    amp 0x165 (emulator only so far; DSP A 693 instructions, most tried 708)
+                    amp 0x165 (works on the device, 2026-10-23; DSP A 693 instructions)
+                 10 the saw with ph_wrap (Roland's form) instead of the 11-op manual wrap: DSP A 517
+                 11 LFO per voice (own phase restarted at each note, own S&H), -> filter / -> amp bipolar
+                    (128 = 0, below = inverted LFO); op fusion on (FUSE): DSP A 576, B 603 (works on the device)
                   0 the first all-at-once design (silent on the device; reference only)
+  FUSE=0|1      fuse independent ops into one instruction as Roland (default 1 from STEP 11, docs/
+                MICROCODE_OPTIMIZATION.md); every build runs tools/check_optimized.py on the programs
   PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit
                 per instruction: STEP=7 PACK=0 is over the time budget of slave DSP A and hangs the device
   NAME=...      plug-out name shown on the device and plugins/ folder (default C-S1SY); max 16 characters
@@ -54,6 +59,7 @@ NAME=${NAME:-C-S1SY}
 MODEL_ID=${MODEL_ID:-0x0010}
 mkdir -p "$B"
 python3 "$HERE/make_synth.py"
+python3 "$ROOT/tools/check_optimized.py" "$HERE"/s1m0.s "$HERE"/s1m1.s "$HERE"/s1mm1.s || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
  -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG}"
 for r in 0 1; do

@@ -13,5 +13,6 @@ for i in 0 1 2 3 4 5; do
     OWN="$OWN,dco1_w$i=$HERE/prog/dco1_w$i.txt,dco2_w$i=$WT2/dco2_w$i.txt"
 done
 OWN=${OWN#,}
+python3 "$ROOT/tools/check_optimized.py" "$HERE"/prog/dco1_w*.txt "$WT2"/dco2_w*.txt || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
 DSPTEST= WAVETABLE=1 NAME=C-PWM OWN_PROGS="$OWN" "$ENGINE/build.sh" "$ROOT/plugins/JX-3P" "$ROOT/plugins/C-PWM"
 echo "built $ROOT/plugins/C-PWM"

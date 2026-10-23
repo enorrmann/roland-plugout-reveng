@@ -1,4 +1,4 @@
-# s1mm1, own SYSTEM-1 program (make_synth.py STEP=9)
+# s1mm1, own SYSTEM-1 program (make_synth.py STEP=11)
 0a02
 ff71
 0c03
@@ -9,10 +9,10 @@ ff71
 7fe2
 6007
 c01c
-0902
+1503
 0407
-1804
 1447
+0c03
 8fe0
 a118
 1805

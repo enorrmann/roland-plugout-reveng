@@ -67,7 +67,10 @@ primer diseño, que lo metía todo de una vez (`STEP=0`, §6), no sonó, y no ha
 | 7 empaquetado | el paso 7 empaquetado (`PACK=1`, por defecto) | 587 / 460 | [medido] ondas ok |
 | 8 | ADSR del filtro por voz en el DSP B (empaquetado): faders `0x182`–`0x185` → `C050`–`C053` del DSP B, cantidad `0x181` → `C04C`; corte = base + cantidad × env + key track; estado en el bloque de voz de B + `0x10` (bloques de `0x20`) | 587 / 660 | [medido] |
 | 8 bis | cantidad bipolar: `0x181` = 128 → 0; 0 → −8 octavas (envolvente invertida); 255 → +8 octavas (sólo cambia la tabla `amount_bits` del ARM) | 587 / 660 | instalado, sin confirmar |
-| 9 | LFO en el DSP A (§7.2): rate `0x162`, shape `0x160`, delay `0x161`, → pitch `0x163`, → filtro `0x164`, → amplitud `0x165` → `C058`–`C05D`, `C060`–`C064` del DSP A; el corte (base + LFO) pasa a B por `A180+v` | 693 / 652 (700 con `RESCOMP=1`) | [sim]; C-S1SY9 instalado, sin confirmar |
+| 9 | LFO global en el DSP A (§7.2): rate `0x162`, shape `0x160`, delay `0x161`, → pitch `0x163`, → filtro `0x164`, → amplitud `0x165` → `C058`–`C05D`, `C060`–`C064` del DSP A; el corte (base + LFO) pasa a B por `A180+v` | 693 / 652 (700 con `RESCOMP=1`) | [sim]; C-S1SY9 instalado, sin confirmar |
+| 10 | sierra con `ph_wrap rD, r3, rY` (forma de Roland) en vez del wrap manual de 11 ops ([MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md)) | 517 / 652 | [sim] La 440 = 439,98 Hz como antes |
+| 11 | LFO por voz (§7.3): fase propia reiniciada en cada nota y S&H propio, ruido global; → filtro y → amplitud bipolares (128 = 0); fusión de ops (`FUSE=1`) | 576 / 603 | [medido] C-S1SY11 "funciona muy bien" (2026-10-23): primera build con ops fusionadas en el SYSTEM-1 |
+| 11 bis | → pitch bipolar; formas en el orden del panel: sine, triangle, saw, square, sample & glide, sample & hold (§7.3) | 640 / 603 | [sim] `--sim-check` idéntico |
 
 ## 3. Cómo llega cada valor a cada DSP (SYSTEM-1)
 
@@ -261,6 +264,40 @@ referencia Python, y empaquetado = sin empaquetar, bit a bit.
 
 Instalado sin probar todavía, 2026-10-23: `STEP=9 NAME=C-S1SY9 sh examples/system_1_synth/build.sh` (`RESCOMP=0`: DSP A 693,
 B 652 instrucciones) [abierto].
+
+### 7.3 LFO por voz (paso 11)
+
+Cambios respecto a §7.2:
+* **El LFO se calcula por voz** (`step_lfo_voice`).
+  * La fase está en el bloque de la voz, en `V8_PHASE[v] + 8`. Vuelve a 0 cuando cambia el disparo de la voz:
+    `d = (disparo − último)²` y `fase −= fase·d`.
+  * El S&H va en `+10` y el último disparo en `+12`.
+  * Sólo el ruido (con su contador de Weyl) sigue siendo global.
+* **Las profundidades → filtro (`0x164`) y → amplitud (`0x165`) son bipolares**, con 128 = 0:
+  * filtro: F = 4·(v − 128)/127 octavas;
+  * amplitud: M = 0,5·(v − 128)/127, con la voz `×(1 + f·(M·lfo − |M|))`. `|M|` va en `C05E` del DSP A. Con M < 0
+    es el mismo trémolo sobre el LFO invertido.
+* **Las copias de puerta y disparo hacia el DSP B** se hacen con las mismas cargas del LFO: ya no se cargan dos
+  veces.
+* **11 bis** (2026-10-23, después de probarlo en el equipo):
+  * → pitch (`0x163`) también bipolar: P = b·|b| octavas, con b = (v − 128)/127 (128 = 0, ±1 octava en los
+    extremos, fino cerca del centro);
+  * las formas siguen el orden del panel del SYSTEM-1 que dio el usuario: 0 sine, 1 triangle, 2 saw, 3 square,
+    4 sample & glide, 5 sample & hold. Los coeficientes son `C060`–`C065` del DSP A;
+  * sine = t·(1,5 − 0,5·t²) del triángulo t;
+  * sample & glide: `g += k·(h − g)`, con `k = min(1, 4·rate)` (constante de tiempo = período / 8) y estado en
+    `0240 + 2v`;
+  * el DSP A pasa a 640 instrucciones.
+
+Medido en el núcleo C (2026-10-23) [sim]:
+
+| qué | resultado |
+|---|---|
+| formas (rate 192, → pitch al máximo) | sine: error máximo 0,020 frente a sen; triangle, saw, square de −1 a +1; S&G suave (salto máximo entre muestras 0,0008); S&H en escalones |
+| → pitch 0 / 64 / 128 / 192 / 255 | ±1 / ±0,25 / 0 / ±0,25 / ±1 octavas; 0 y 64 con el signo invertido |
+| fase por voz | voz 0 en t = 0 y voz 1 en t = 3000 empiezan cada una en 0,00016 (un incremento); voz 0 redisparada en t = 4000: de 0,639 a 0,00016 |
+| → filtro 0 / 64 / 128 / 192 / 255, corte 128 | ±3,84 / ±1,93 / 0 / ±1,93 / ±3,84 octavas; 0 y 64 con el signo invertido |
+| → amplitud 0 / 64 / 128 / 192 / 255, cuadrada | RMS mitad alta / baja: 0 / 0,0706, 0,035 / 0,0706, 0,0706 / 0,0706, 0,0706 / 0,035, 0,0706 / 0,0009 |
 
 ## 8. Interfaz con el panel
 

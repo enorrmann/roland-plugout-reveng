@@ -9,6 +9,7 @@ ROOT=$(cd "$HERE/../.." && pwd)
 ENGINE=$ROOT/examples/from_scratch/engine
 WT2=$ROOT/examples/from_scratch/re/dspexp/own/wt2
 python3 "$HERE/make.py"
+python3 "$ROOT/tools/check_optimized.py" "$HERE"/prog/morph_dco1.txt "$WT2"/dco2_w*.txt || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
 OWN=""
 for i in 0 1 2 3 4 5; do
     OWN="$OWN,dco1_w$i=$HERE/prog/morph_dco1.txt,dco2_w$i=$WT2/dco2_w$i.txt"

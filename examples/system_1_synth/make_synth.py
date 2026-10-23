@@ -282,17 +282,33 @@ NOISE_K = 7.31275                                  # noise: n = wrap(K n + w), w
 NOISE_W = 166008623 / 2 ** 28                      # odd multiple of 2^-28, period 2^29 samples; n alone cycled after
                                                    # 7194 samples = 13 Hz, emulator 2026-10-23)
 # shape 0..5 -> (triangle, saw, square, S&H, noise) [inferido: order of the SYSTEM-1 panel not checked]
+#  10  the saw of C-S1V8 with ph_wrap (Roland's form: ph_wrap rD, r3, rY) instead of the 11-op manual wrap
+#  11  LFO per voice: each voice its own phase (restarted at its note start) and S&H; the noise source stays global.
+#      -> filter / -> amp bipolar: 128 = 0, below = inverted LFO. Voice x (1 + f (M lfo - |M|)): M > 0 = tremolo
+#      down from full level, M < 0 the same on the inverted LFO (C05E = |M|). Per voice ring block V8_PHASE[v]:
+#      +0/+2 DCO phases, +4 fade, +6 modulated pitch, +8 LFO phase, +10 S&H, +12 last trigger, +14 amp term
+A6_LAMPABS = 0x5E
+V11_LPH, V11_SH, V11_TRIG, V11_AMP = 8, 10, 12, 14   # offsets in the voice block
+# step 11: shape 0..5 = the SYSTEM-1 panel (user, 2026-10-23): sine, triangle, saw, square, sample & glide,
+# sample & hold -> coefficients C060..C065 of (sine, tri, saw, square, S&G, S&H). Sine = t (1.5 - 0.5 t^2) of the
+# triangle t; S&G glides to the S&H value, g += k (h - g), k = min(1, SG_K x rate) (time constant = period / 8)
+LFO_WAVES11 = [tuple(1 if i == k else 0 for i in range(6)) for k in range(6)]
+SG_K = 4.0
+V11_SG = [0x0240 + 2 * v for v in range(NV)]          # S&G state of voice v (ring, S / S+1)
 LFO_WAVES = [(1, 0, 0, 0, 0), (0, 1, 0, 0, 0), (0, -1, 0, 0, 0), (0, 0, 1, 0, 0), (0, 0, 0, 1, 0), (0, 0, 0, 0, 1)]
 
 
 def v8_saw(P):
     """C-S1V8's saw (examples/system_1/make_s1.py saw_voice) on r0 = pitch - 4.75 (+ offset), phase ring P:
-    the new phase is left in r1; uses r2, r3, r5 = 0, r6 = 1"""
+    the new phase is left in r1; uses r2, r3 (steps <= 9 also r5 = 0, r6 = 1)"""
     L = [f'ld r1, [{P + 1:04x}]', 'mov r4, r4',
          f'mul r2, r0, #{EXP_IN!r}', 'mov r3, #0.041666666666666664:32',
          'ymacd r3, r2, #0.16666666666666666', 'ymacd r3, r2, #0.5', 'ymacd r3, r2, #1.0', 'ymacd r3, r2, #1.0']
     L += ['mul r3, r3, r3'] * 4
-    L += ['mul r3, r3, #0.009166666666666667', 'addxy r1, r3, r1', 'addxy r2, r1, #-1.0', 'max r2, r2, r5']
+    L += ['mul r3, r3, #0.009166666666666667', 'addxy r1, r3, r1']
+    if STEP >= 10:                               # step 10: one ph_wrap (Roland's form, X = r3) instead of 11 ops
+        return L + ['ph_wrap r1, r3, r1', f'st r1, [{P:04x}]']
+    L += ['addxy r2, r1, #-1.0', 'max r2, r2, r5']           # steps <= 9 as installed: manual wrap (lint warns)
     L += ['mul r2, r2, #256.0', 'min r2, r2, r6'] * 4
     L += ['mul r2, r2, #2.0', 'subxy r1, r2, r1', f'st r1, [{P:04x}]']
     return L
@@ -328,18 +344,68 @@ def step_lfo():
             f'ld r4, [c0{A6_LAMP:02x}]', 'add r7, #-1.0', 'mul r0, r7, r4', f'st r0, [{LFO_M:04x}]']
 
 
+def step_noise():
+    """step 11: the global noise source (as step 9) -> LFO_NZ; uses r0, r2"""
+    return ['; noise: n = wrap(K n + w), w = Weyl counter',
+            f'ld r2, [{LFO_NZ + 1:04x}]', f'ld r0, [{LFO_W + 1:04x}]', 'mov r1, r1', f'add r0, #{NOISE_W!r}:32',
+            'ph_wrap r0, r3, r0', f'st r0, [{LFO_W:04x}]', f'mul r2, r2, #{NOISE_K!r}', 'addxy r2, r2, r0',
+            'ph_wrap r2, r3, r2', f'st r2, [{LFO_NZ:04x}]']
+
+
+def step_lfo_voice(v):
+    """step 11: LFO of voice v (own phase restarted at the note start, own S&H), fade, cutoff -> A180+v, amp term ->
+    block + 14, pitch -> r0 (and block + 6, A178+v unmodulated); also the gate / trigger copies for DSP B.
+    Uses r0..r4, r7 (r5 / r6 kept); ends with r7 = 0."""
+    P = V8_PHASE[v]
+    w = lambda i: f'ld r4, [c0{A6_LWAVE + i:02x}]'  # noqa: E731
+    return [f'; voice {v}: LFO, phase restarted when the trigger changes',
+            f'ld r1, [{P + V11_LPH + 1:04x}]', f'ld r4, [c0{A6_LRATE:02x}]', f'ld r3, [{TRIG[v]:04x}]',
+            f'ld r2, [{P + V11_TRIG + 1:04x}]', 'mov r0, r0', f'st r3, [{P + V11_TRIG:04x}]',
+            f'st r3, [{STEP_TB[v]:04x}]',
+            'subxy r2, r2, r3', 'mul r2, r2, r2', 'mad r1, r1, -r2',        # d = 1 at a new note: phase 0
+            'addxy r0, r1, r4', 'ph_wrap r1, r3, r0', f'st r1, [{P + V11_LPH:04x}]', 'subxy r0, r1, r0',   # 2 at a wrap
+            f'ld r3, [{P + V11_SH + 1:04x}]', f'ld r2, [{LFO_NZ:04x}]', 'mov r4, r4',
+            'subxy r4, r3, r2', 'mul r4, r4, r0', 'mad r3, r4, #0.5', f'st r3, [{P + V11_SH:04x}]',
+            f'; voice {v}: sample & glide g += k (h - g)', f'ld r4, [c0{A6_LRATE:02x}]', f'ld r2, [{V11_SG[v] + 1:04x}]',
+            'mov r0, r0', f'mul r4, r4, #{SG_K!r}', 'subxy r0, r2, r3', 'min r4, r4, r6', 'mad r2, r0, r4',
+            f'st r2, [{V11_SG[v]:04x}]',
+            f'; voice {v}: shape = sine, tri, saw, square, S&G, S&H x C060..C065',
+            w(5), 'mov r0, r0', 'mul r7, r3, r4', w(4), 'mov r0, r0', 'mad r7, r2, r4', w(2), 'mov r0, r0',
+            'mad r7, r1, r4', w(3), 'mul r3, r1, #256.0', 'ph_clamp r3, r3, -r3', 'mad r7, r3, r4',
+            w(1), 'ph_tri r3, r3, -r1', 'mad r7, r3, r4',
+            'mul r0, r3, r3', w(0), 'mul r0, r0, #-0.5', 'add r0, #1.5', 'mul r0, r0, r3', 'mad r7, r0, r4',
+            f'; voice {v}: fade (0 -> 1 from the gate), lf = lfo x fade',
+            f'ld r2, [{V9_FADE[v] + 1:04x}]', f'ld r4, [c0{A6_LDELAY:02x}]', f'ld r3, [{GATE[v]:04x}]', 'mov r0, r0',
+            f'st r3, [{STEP_GB[v]:04x}]', 'addxy r2, r2, r4', 'mul r2, r2, r3', 'min r2, r2, r6',
+            f'st r2, [{V9_FADE[v]:04x}]', 'mul r1, r7, r2',
+            f'; voice {v}: amp term f (M lfo - |M|), cutoff = C05D + F lf, pitch + P lf',
+            f'ld r4, [c0{A6_LAMP:02x}]', f'ld r3, [c0{A6_LAMPABS:02x}]', 'mov r0, r0', 'mul r0, r1, r4',
+            'mad r0, r2, -r3', f'st r0, [{P + V11_AMP:04x}]',
+            f'ld r4, [c0{A6_LFILT:02x}]', f'ld r3, [c0{A6_CUT:02x}]', 'mov r0, r0', 'mad r3, r1, r4',
+            f'st r3, [{STEP_CB[v]:04x}]',
+            f'ld r0, [{PITCH[v]:04x}]', f'ld r4, [c0{A6_LPITCH:02x}]', 'mov r7, r7', f'st r0, [{STEP_PB[v]:04x}]',
+            'mad r0, r1, r4', f'st r0, [{V9_PM[v]:04x}]', 'mov r7, #0.0']
+
+
 def step_s1m0():
     per_voice = STEP >= 3
     L = [f'; s1m0 (STEP {STEP}): slave DSP A main @0x0100: {NV} voices x (DCO1 + DCO2 saws) '
          + ('-> A151+v' if per_voice else 'x gate -> A150'),
          'mov r5, #0.0', 'mov r6, #1.0', 'mov r7, #0.0']
-    if STEP >= 9:
+    if STEP >= 11:
+        L += step_noise()
+    elif STEP >= 9:
         L += step_lfo() + ['mov r7, #0.0']
     gate = lambda v: [] if per_voice else [f'ld r4, [{GATE[v]:04x}]', 'mov r4, r4', 'mul r1, r1, r4']  # noqa: E731
     for v in range(NV):
         P = V8_PHASE[v]
-        L += [f'; voice {v}: DCO1'] + (['mov r7, #0.0'] if per_voice and v else [])
-        if STEP >= 9:                                    # fade -> r2, pitch + f P lfo -> r0 and V9_PM
+        if STEP >= 11:
+            L += step_lfo_voice(v) + [f'; voice {v}: DCO1']
+        else:
+            L += [f'; voice {v}: DCO1'] + (['mov r7, #0.0'] if per_voice and v else [])
+        if STEP >= 11:
+            pass
+        elif STEP >= 9:                                    # fade -> r2, pitch + f P lfo -> r0 and V9_PM
             L += [f'ld r2, [{V9_FADE[v] + 1:04x}]', f'ld r4, [c0{A6_LDELAY:02x}]', f'ld r3, [{GATE[v]:04x}]',
                   'mov r5, r5', 'addxy r2, r2, r4', 'mul r2, r2, r3', 'min r2, r2, r6', f'st r2, [{V9_FADE[v]:04x}]',
                   f'ld r0, [{PITCH[v]:04x}]', f'ld r4, [{LFO_P:04x}]', 'mov r5, r5', f'st r0, [{STEP_PB[v]:04x}]',
@@ -371,10 +437,15 @@ def step_s1m0():
         else:
             L += ['mul r1, r1, #0.5']
         L += gate(v) + ['addxy r7, r7, r1']
-        if STEP >= 9:                                    # tremolo, cutoff -> A180+v
+        if STEP >= 11:                                   # tremolo (amp term of this sample)
+            L += [f'ld r4, [{V8_PHASE[v] + V11_AMP:04x}]', 'mov r5, r5', 'mad r7, r7, r4']
+        elif STEP >= 9:                                  # tremolo, cutoff -> A180+v
             L += [f'; voice {v}: LFO to amp and cutoff', f'ld r3, [{V9_FADE[v]:04x}]', f'ld r4, [{LFO_M:04x}]',
                   'mov r5, r5', 'mul r4, r3, r4', 'mad r7, r7, r4', f'ld r4, [{LFO_F:04x}]',
                   f'ld r0, [c0{A6_CUT:02x}]', 'mov r5, r5', 'mad r0, r3, r4', f'st r0, [{STEP_CB[v]:04x}]']
+        if STEP >= 11:                                   # the gate / trigger copies are in step_lfo_voice
+            L += [f'st r7, [{STEP_XV[v]:04x}]']
+            continue
         if per_voice:
             L += [f'st r7, [{STEP_XV[v]:04x}]', f'ld r4, [{GATE[v]:04x}]', 'mov r5, r5', f'st r4, [{STEP_GB[v]:04x}]']
         if STEP >= 4:
@@ -511,9 +582,13 @@ def _bank(addr):
 class _Ins:
     def __init__(self):
         self.op, self.xf = None, []           # op text; transfers (kind, reg, addr)
+        self.more = []                        # further ops fused into this instruction (FUSE)
+
+    def ops(self):
+        return ([self.op] if self.op else []) + self.more
 
     def text(self):
-        parts = ([self.op] if self.op else []) + [f'{k} r{r}, [{a:04x}]' for k, r, a in self.xf]
+        parts = self.ops() + [f'{k} r{r}, [{a:04x}]' for k, r, a in self.xf]
         return ' | '.join(parts)
 
     def loads(self):
@@ -523,13 +598,32 @@ class _Ins:
         return {r for k, r, _ in self.xf if k == 'st'}
 
     def op_writes(self):
-        return {int(_re.findall(r'\br(\d)\b', self.op)[0])} if self.op else set()
+        return {_op_regs(o)[0] for o in self.ops()}
+
+    def op_reads(self):
+        return set().union(*[_op_regs(o)[1] for o in self.ops()]) if self.ops() else set()
 
     def ports_ok(self, kind, addr):
         if len(self.xf) >= 3 or any(a == addr for _, _, a in self.xf):
             return False
         same = sum(1 for k, _, a in self.xf if k == kind and _bank(a) == _bank(addr))
         return same < (2 if _bank(addr) == 0 else 1)
+
+
+# op fusion (step 11, FUSE=1): independent ops share one instruction, as Roland ("addxy r2, r2, #0 | ph_wrap r0,
+# r3, r0", SH-2 on the SYSTEM-1); all units read before they write. Only ops with one destination register.
+FUSE = os.environ.get('FUSE', '1' if STEP >= 11 else '0') == '1'
+_FUSABLE = {'mul', 'mad', 'addxy', 'subxy', 'add', 'min', 'max', 'mov', 'ph_wrap', 'ph_tri', 'ph_clamp', 'ymacd'}
+_READS_DEST = {'mad', 'ymacd', 'add'}
+
+
+def _op_regs(op):
+    """(destination, registers read) of a one-destination op"""
+    regs = [int(t) for t in _re.findall(r'\br(\d)\b', op)]
+    if not regs:
+        return None, set()
+    reads = set(regs[1:]) | ({regs[0]} if op.split()[0] in _READS_DEST else set())
+    return regs[0], reads
 
 
 def _assembles(text):
@@ -565,6 +659,17 @@ def pack(lines):
             if _assembles(cur.text()):
                 continue
             cur.op = None
+        # FUSE: or joins its ops if it neither reads nor rewrites what they write (and keeps off the loads); a store
+        # already in the instruction reads before x writes, as in the unfused order
+        if FUSE and cur is not None and cur.op is not None and x.split()[0] in _FUSABLE \
+                and all(o.split()[0] in _FUSABLE for o in cur.ops()) and len(cur.ops()) < 3:
+            d, rd = _op_regs(x)
+            if d is not None and not (rd & cur.op_writes()) and d not in cur.op_writes() \
+                    and not (regs & cur.loads()):
+                cur.more.append(x)
+                if _assembles(cur.text()):
+                    continue
+                cur.more.pop()
         cur = _Ins()
         cur.op = x
         out.append(cur)
@@ -670,18 +775,28 @@ def lfo_delay(v):
 
 
 def lfo_pitch(v):
-    """-> pitch depth in octaves: up to 1 (squared: fine vibrato at the low end)"""
+    """-> pitch depth in octaves: up to 1 (squared: fine vibrato at the low end); step 11: bipolar, 128 = 0,
+    -1 .. +1 octave as b |b| (b = bipolar(v))"""
+    if STEP >= 11:
+        b = bipolar(v)
+        return b * abs(b)
     return (v / 255.0) ** 2
 
 
+def bipolar(v):
+    """knob 0..255 -> -1..+1, 128 = 0 (step 11)"""
+    return max(-1.0, (v - 128) / 127.0)
+
+
 def lfo_filt(v):
-    """-> cutoff depth in octaves: up to 4"""
-    return 4.0 * v / 255.0
+    """-> cutoff depth in octaves: up to 4 (step 11: bipolar, -4 .. +4, 128 = 0)"""
+    return 4.0 * (bipolar(v) if STEP >= 11 else v / 255.0)
 
 
 def lfo_amp(v):
-    """-> half the tremolo depth (voice x 1 + f M (lfo - 1): 1 - 2M .. 1, full knob 0 .. 1)"""
-    return 0.5 * v / 255.0
+    """-> M: voice x 1 + f M (lfo - 1) (1 - 2M .. 1, full knob 0 .. 1); step 11: bipolar -0.5 .. +0.5, voice x
+    1 + f (M lfo - |M|)"""
+    return 0.5 * (bipolar(v) if STEP >= 11 else v / 255.0)
 
 
 def env_amount(v):
@@ -748,7 +863,11 @@ def header(progs):
     out.append(table('lfo_pitch_bits', [lfo_pitch(v) for v in range(256)]))
     out.append(table('lfo_filt_bits', [lfo_filt(v) for v in range(256)]))
     out.append(table('lfo_amp_bits', [lfo_amp(v) for v in range(256)]))
-    out.append(table('lfo_wave_bits', [c for w in LFO_WAVES for c in w], 5))
+    out.append(f'#define A6_LAMPABS 0x{A6_LAMPABS:02x}')
+    out.append(table('lfo_ampabs_bits', [abs(lfo_amp(v)) for v in range(256)]))
+    lw = LFO_WAVES11 if STEP >= 11 else LFO_WAVES
+    out.append(f'#define LFO_NW {len(lw[0])}')
+    out.append(table('lfo_wave_bits', [c for w in lw for c in w], len(lw[0])))
     return '\n'.join(out) + '\n'
 
 
@@ -756,7 +875,8 @@ def header(progs):
 def panel_defaults():
     return dict(osc1_wave=0, osc1_level=255, osc2_wave=0, osc2_level=128, cutoff=255, res=0, amount=0, kt=0,
                 fenv=(0, 128, 0, 60), aenv=(0, 128, 255, 60),
-                lfo_rate=128, lfo_wave=0, lfo_delay=0, lfo_pitch=0, lfo_filt=0, lfo_amp=0)
+                lfo_rate=128, lfo_wave=0, lfo_delay=0, lfo_pitch=128 if STEP >= 11 else 0, lfo_filt=128 if STEP >= 11 else 0,
+                lfo_amp=128 if STEP >= 11 else 0)
 
 
 def f32(x):
@@ -788,8 +908,9 @@ def sim_params(b5, panel):
     if STEP >= 9:
         pa.update({0xC000 + A6_LRATE: f32(lfo_rate(panel['lfo_rate'])), 0xC000 + A6_LDELAY: f32(lfo_delay(panel['lfo_delay'])),
                    0xC000 + A6_LPITCH: f32(lfo_pitch(panel['lfo_pitch'])), 0xC000 + A6_LFILT: f32(lfo_filt(panel['lfo_filt'])),
-                   0xC000 + A6_LAMP: f32(lfo_amp(panel['lfo_amp'])), 0xC000 + A6_CUT: b5[CUT]})
-        for i, c in enumerate(LFO_WAVES[panel['lfo_wave']]):
+                   0xC000 + A6_LAMP: f32(lfo_amp(panel['lfo_amp'])), 0xC000 + A6_CUT: b5[CUT],
+                   0xC000 + A6_LAMPABS: f32(abs(lfo_amp(panel['lfo_amp'])))})
+        for i, c in enumerate((LFO_WAVES11 if STEP >= 11 else LFO_WAVES)[panel['lfo_wave']]):
             pa[0xC000 + A6_LWAVE + i] = float(c)
     pb = {0xC000: 1.0, 0xC000 + B6_CUT: b5[CUT], 0xC000 + B6_RES: b5[RES], 0xC000 + B6_KT: b5[KT],
           0xC000 + B6_GAIN: b5[COMP] / 2}
@@ -867,7 +988,7 @@ def simulate_py(progs, events, n, panel=None):
     b5 = sim_b5(panel)
     pa, pb, pm = sim_params(b5, panel)
     span = 0x20 if STEP >= 8 else 0x10
-    rings = {'s1m0': [x + o for x in A_BASE for o in range(0, 16, 2)] + [LFO_PH, LFO_NZ, LFO_SH, LFO_W],
+    rings = {'s1m0': [x + o for x in A_BASE for o in range(0, 16, 2)] + [LFO_PH, LFO_NZ, LFO_SH, LFO_W] + V11_SG,
              's1m1': [x + o for x in (STEP_B_BASE if STEP else B_BASE) for o in range(0, span, 2)]}
     mem = {'s1m0': {}, 's1m1': {}}
     mem_m = dict(pm)
@@ -939,8 +1060,13 @@ def sim_check(progs):
                 fenv=(10, 90, 60, 40), aenv=(5, 100, 200, 30))
     panels = [('defaults', None), ('filter + envelopes', filt)]
     if STEP >= 9:
-        lfo = dict(filt, lfo_rate=230, lfo_delay=40, lfo_pitch=160, lfo_filt=150, lfo_amp=200)
-        panels += [('LFO triangle', dict(lfo, lfo_wave=0)), ('LFO S&H', dict(lfo, lfo_wave=4))]
+        lfo = dict(filt, lfo_rate=230, lfo_delay=40, lfo_pitch=160 if STEP < 11 else 60, lfo_filt=150 if STEP < 11 else 40,
+                   lfo_amp=200 if STEP < 11 else 60)
+        if STEP >= 11:
+            panels += [('LFO sine', dict(lfo, lfo_wave=0)), ('LFO S&G', dict(lfo, lfo_wave=4)),
+                       ('LFO S&H', dict(lfo, lfo_wave=5))]
+        else:
+            panels += [('LFO triangle', dict(lfo, lfo_wave=0)), ('LFO S&H', dict(lfo, lfo_wave=4))]
     os.environ['SIM'] = 'c'
     for name, panel in panels:
         c = simulate(progs, ev, n, panel)

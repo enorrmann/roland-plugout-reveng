@@ -8,5 +8,6 @@ ENG=$GATE/../engine
 NAME=${NAME:-C-GATE}
 export NAME
 python3 "$GATE/../dsp/make_chain.py" > /dev/null
+python3 "$GATE/../../../tools/check_optimized.py" "$GATE"/../dsp/dsp2_osc.hex "$GATE"/../dsp/dsp4_gate.hex "$GATE"/dco2_null.hex || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
 sed -e "s|^HERE=.*|HERE=$ENG|" -e "s|\"\$HERE/engine.c\"|\"$GATE/engine_gate.c\"|" -e "s|arm-none-eabi-gcc \$CFLAGS -c|arm-none-eabi-gcc \$CFLAGS \$EXTRA_DEFS -c|" "$ENG/build.sh" > "$GATE/build_engine.sh"
 OWN_PROGS=${OWN_PROGS:-osc=$GATE/../dsp/dsp2_osc.hex,gate=$GATE/../dsp/dsp4_gate.hex,dco2null=$GATE/dco2_null.hex} sh "$GATE/build_engine.sh" "$@"

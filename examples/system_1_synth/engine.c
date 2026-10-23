@@ -121,7 +121,7 @@ static const uint16_t panel_id[P_N] = { 0x174, 0x175, 0x187, 0x188, 0x189, 0x18A
                                         0x17D, 0x17F, 0x186, 0x167, 0x16C, 0x181, 0x182, 0x183, 0x184, 0x185,
                                         0x162, 0x160, 0x161, 0x163, 0x164, 0x165 };
 static uint8_t panel[P_N] = { 255, 128, 0, 128, 255, 60, 3, 3, 128, 255, 0, 0, 0, 0, 128, 0, 128, 0, 60,
-                              128, 0, 0, 0, 0, 0 };
+                              128, 0, 0, STEP >= 11 ? 128 : 0, STEP >= 11 ? 128 : 0, STEP >= 11 ? 128 : 0 };   /* 11: bipolar */
 
 static void panel_apply(int p)
 {
@@ -174,11 +174,15 @@ static void panel_apply(int p)
     case P_LDELAY: b6(0, A6_LDELAY, lfo_delay_bits[v[P_LDELAY]]); break;
     case P_LPITCH: b6(0, A6_LPITCH, lfo_pitch_bits[v[P_LPITCH]]); break;
     case P_LFILT: b6(0, A6_LFILT, lfo_filt_bits[v[P_LFILT]]); break;
-    case P_LAMP: b6(0, A6_LAMP, lfo_amp_bits[v[P_LAMP]]); break;
+    case P_LAMP:
+        b6(0, A6_LAMP, lfo_amp_bits[v[P_LAMP]]);
+        if (STEP >= 11)
+            b6(0, A6_LAMPABS, lfo_ampabs_bits[v[P_LAMP]]);              /* step 11: |M| */
+        break;
     case P_LWAVE: {
         int w = v[P_LWAVE] > 5 ? 5 : v[P_LWAVE];
-        for (int i = 0; i < 5; i++)
-            b6(0, A6_LWAVE + i, lfo_wave_bits[5 * w + i]);
+        for (int i = 0; i < LFO_NW; i++)                       /* 5 coefficients (step 9), 6 (step 11) */
+            b6(0, A6_LWAVE + i, lfo_wave_bits[LFO_NW * w + i]);
         break;
     }
 #else
