@@ -100,7 +100,7 @@ mul r3, r3, r3
 mul r3, r3, r3
 mul r0, r3, r3
 mul r0, r0, #0.02879793265790644
-min r0, r0, #0.95
+min r0, r0, #0.7
 ld r1, [0407]
 ld r2, [0409]
 ld r3, [040b]
@@ -185,7 +185,7 @@ mul r3, r3, r3
 mul r3, r3, r3
 mul r0, r3, r3
 mul r0, r0, #0.02879793265790644
-min r0, r0, #0.95
+min r0, r0, #0.7
 ld r1, [0417]
 ld r2, [0419]
 ld r3, [041b]
@@ -270,7 +270,7 @@ mul r3, r3, r3
 mul r3, r3, r3
 mul r0, r3, r3
 mul r0, r0, #0.02879793265790644
-min r0, r0, #0.95
+min r0, r0, #0.7
 ld r1, [0427]
 ld r2, [0429]
 ld r3, [042b]
@@ -355,7 +355,7 @@ mul r3, r3, r3
 mul r3, r3, r3
 mul r0, r3, r3
 mul r0, r0, #0.02879793265790644
-min r0, r0, #0.95
+min r0, r0, #0.7
 ld r1, [0437]
 ld r2, [0439]
 ld r3, [043b]
@@ -440,7 +440,7 @@ mul r3, r3, r3
 mul r3, r3, r3
 mul r0, r3, r3
 mul r0, r0, #0.02879793265790644
-min r0, r0, #0.95
+min r0, r0, #0.7
 ld r1, [0447]
 ld r2, [0449]
 ld r3, [044b]
@@ -525,7 +525,7 @@ mul r3, r3, r3
 mul r3, r3, r3
 mul r0, r3, r3
 mul r0, r0, #0.02879793265790644
-min r0, r0, #0.95
+min r0, r0, #0.7
 ld r1, [0457]
 ld r2, [0459]
 ld r3, [045b]
@@ -610,7 +610,7 @@ mul r3, r3, r3
 mul r3, r3, r3
 mul r0, r3, r3
 mul r0, r0, #0.02879793265790644
-min r0, r0, #0.95
+min r0, r0, #0.7
 ld r1, [0467]
 ld r2, [0469]
 ld r3, [046b]
@@ -695,7 +695,7 @@ mul r3, r3, r3
 mul r3, r3, r3
 mul r0, r3, r3
 mul r0, r0, #0.02879793265790644
-min r0, r0, #0.95
+min r0, r0, #0.7
 ld r1, [0477]
 ld r2, [0479]
 ld r3, [047b]
