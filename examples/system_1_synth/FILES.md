@@ -10,7 +10,7 @@ con dos DSP cada uno (A y B). El nombre dice dónde corre cada programa:
 | archivo | chip | DSP | dirección | qué hace | lo carga |
 |---|---|---|---|---|---|
 | `s1m0.s` | esclavo | A | `0x0100` (programa principal) | las 8 voces: DCO1 + DCO2 (+ copia de puerta, disparo y tono a `A1xx` para el DSP B); `m0` = main del DSP 0 (A) | `engine.c`, cola `FC30` |
-| `s1m1.s` | esclavo | B | `0x0100` (programa principal) | por voz: ADSR del VCA y filtro paso bajo; mezcla → IOMD `6006`/`6007` hacia el maestro; `m1` = main del DSP 1 (B) | `engine.c`, cola `FC34` |
+| `s1m1.s` | esclavo | B | `0x0100` (programa principal) | por voz: ADSR del VCA, ADSR del filtro y filtro paso bajo; mezcla → IOMD `6006`/`6007` hacia el maestro; `m1` = main del DSP 1 (B) | `engine.c`, cola `FC34` |
 | `s1c0.s` | esclavo | A | `0x7FF2` (cierre, final de la memoria de programa) | contador de trama `E000` → `A004`, como todo PLUG-OUT del SYSTEM-1; `c0` = close del DSP A | `engine.c`, cola `FC30` |
 | `s1c1.s` | esclavo | B | `0x7FF2` (cierre) | contador de trama `E000` → `A005`; `c1` = close del DSP B | `engine.c`, cola `FC34` |
 | `s1mm1.s` | maestro | B | `0x1000` | `6006`/`6007` del esclavo × VOLUME (`C01C`) → `A118`/`A119`, que lee el programa de salida del OS en el DSP A del maestro; `mm1` = master, main del DSP 1 (B) | `model.c`, cola `FC34` del maestro |

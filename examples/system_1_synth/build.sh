@@ -1,5 +1,5 @@
 #!/bin/sh
-# C-S1SY: C-S1V8 + DCO2, ADSR VCA, low-pass filter (docs/examples_system_1_synth_README.md). sh build.sh --help
+# C-S1SY: C-S1V8 + DCO2, ADSR VCA, low-pass filter, filter ADSR (docs/examples_system_1_synth_README.md). sh build.sh --help
 # Needs arm-none-eabi-gcc/ld/objcopy and Python 3. No Roland file is read: all code and microcode are ours.
 usage() {
     cat <<'TXT'
@@ -10,11 +10,12 @@ Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force -
 Then select the PLUG-OUT on the panel.
 
 Options (environment variables):
-  STEP=n        incremental step (default 7). Each one adds one thing to the previous one:
+  STEP=n        incremental step (default 8). Each one adds one thing to the previous one:
                   1 DCO2 (second saw, +7 cents)          2 OSC1/OSC2 levels from the panel
                   3 per-voice transport DSP A -> B       4 amp ADSR (DSP B)
                   5 OSC ranges + OSC2 fine tune          6 4-pole low-pass (cutoff, resonance, key track)
                   7 waves: selector position 2 = square, 3 = triangle, others saw
+                  8 filter ADSR (faders 0x182..0x185) and env amount (0x181)
                   0 the first all-at-once design (silent on the device; reference only)
   PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit
                 per instruction: STEP=7 PACK=0 is over the time budget of slave DSP A and hangs the device
@@ -30,7 +31,7 @@ Options (environment variables):
   STAGE=n       only with STEP=0: how much of the all-at-once design (1..4)
 
 Examples:
-  sh examples/system_1_synth/build.sh                                (STEP=7, packed -> plugins/C-S1SY)
+  sh examples/system_1_synth/build.sh                                (STEP=8, packed -> plugins/C-S1SY)
   GMAX=0.9 NAME=C-S1SYG sh examples/system_1_synth/build.sh
   PARAMLOG=1 NAME=C-S1SYL sh examples/system_1_synth/build.sh
   STEP=7 python3 examples/system_1_synth/make_synth.py --sim       (DSP programs + simulation only)

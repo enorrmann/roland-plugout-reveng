@@ -1,12 +1,13 @@
 # C-S1SY: sintetizador sustractivo de 8 voces para el SYSTEM-1 (`examples/system_1_synth/`)
 
-Estado: 2026-10-23. **Pasos 1–7 funcionan en el equipo** [medido, a oído]:
+Estado: 2026-10-23. **Pasos 1–8 funcionan en el equipo** [medido, a oído]:
 * 8 voces, cada una con DCO1 + DCO2;
 * forma de onda, nivel y range por oscilador, más fine tune en OSC2;
 * ADSR de VCA;
-* filtro paso bajo de 4 polos con cutoff, resonancia y key track.
+* filtro paso bajo de 4 polos con cutoff, resonancia y key track;
+* ADSR de filtro con cantidad bipolar.
 
-Falta la ADSR del filtro. Extiende C-S1V8 ([examples_system_1_README.md](examples_system_1_README.md) §7). Todo el
+Extiende C-S1V8 ([examples_system_1_README.md](examples_system_1_README.md) §7). Todo el
 código ARM y el microcódigo son nuestros; los programas de Roland sólo se leyeron para estudiar los mecanismos. Qué
 es cada archivo: `examples/system_1_synth/FILES.md`.
 
@@ -17,11 +18,11 @@ binarios de Roland (estudio), **[inferido]**, **[abierto]**.
 
 ```sh
 sh examples/system_1_synth/build.sh --help             # todas las opciones
-sh examples/system_1_synth/build.sh                    # STEP=7 empaquetado -> plugins/C-S1SY/Script/Code1.Dat
+sh examples/system_1_synth/build.sh                    # STEP=8 empaquetado -> plugins/C-S1SY/Script/Code1.Dat
 python3 tools/plugout_tool.py install plugins/C-S1SY --slot 1 --force --no-patches -y
 ```
 
-Después de instalar hay que seleccionar el PLUG-OUT en el panel. Opciones de la build: `STEP` (paso, por defecto 7),
+Después de instalar hay que seleccionar el PLUG-OUT en el panel. Opciones de la build: `STEP` (paso, por defecto 8),
 `PACK` (empaquetado, por defecto 1), `GMAX` (tope del filtro, por defecto 0,7), `NAME`, `PARAMLOG`, `PAD`, `VOICES`.
 
 ## 2. Pasos
@@ -41,7 +42,8 @@ primer diseño, que lo metía todo de una vez (`STEP=0`, §6), no sonó, y no ha
 | 7 + `PAD` | prueba de presupuesto: el paso 6 con 144 `mov r4, r4` al final del DSP A | 826 / 703 | **[medido] cuelga** |
 | 6 empaquetado | el paso 6 con las transferencias empaquetadas como Roland (§5) | 507 / 460 | [medido] igual que el 6; [sim] mismas muestras bit a bit |
 | 7 empaquetado | el paso 7 empaquetado (`PACK=1`, por defecto) | 587 / 460 | [medido] ondas ok |
-| 8 | ADSR del filtro | — | pendiente |
+| 8 | ADSR del filtro por voz en el DSP B (empaquetado): faders `0x182`–`0x185` → `C050`–`C053` del DSP B, cantidad `0x181` → `C04C`; corte = base + cantidad × env + key track; estado en el bloque de voz de B + `0x10` (bloques de `0x20`) | 587 / 660 | [medido] |
+| 8 bis | cantidad bipolar: `0x181` = 128 → 0; 0 → −8 octavas (envolvente invertida); 255 → +8 octavas (sólo cambia la tabla `amount_bits` del ARM) | 587 / 660 | instalado, sin confirmar |
 
 ## 3. Cómo llega cada valor a cada DSP (SYSTEM-1)
 
@@ -151,7 +153,7 @@ Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py 
 | `0x17A` | pitch env amount (CC 22) | 0–255 | — |
 | `0x17B` / `0x17C` | pitch env attack / decay (CC 23 / 24) | 0–255 | — |
 | `0x17D` / `0x17F` | cutoff / resonancia | 0–255 | paso 6 |
-| `0x181` / `0x186` | filter env amount / key track | 0–255 | paso 6 (key track) |
+| `0x181` / `0x186` | filter env amount (bipolar, 128 = 0) / key track | 0–255 | pasos 8 / 6 |
 | `0x182`–`0x185` | ADSR del filtro | 0–255 | paso 8 |
 | `0x187`–`0x18A` | ADSR del VCA | 0–255 | paso 4 |
 | — | HPF cutoff | no llegó nada (ni parámetro ni CC) [abierto] | — |

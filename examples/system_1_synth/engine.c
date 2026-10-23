@@ -109,14 +109,15 @@ static void panel_all(void)
    (FCEC(1, id, bits), the way Roland's SH-2 hands panel values to a slave DSP); step 5: OSC ranges and OSC2 fine
    tune -> parameters C044..C046 of DSP A (FCEC(0, ...)); step 6: cutoff, resonance (+ input gain), key track ->
    parameters C048..C04B of DSP B; step 7: wave selectors -> saw / square / triangle coefficients C050..C055 of
-   DSP A */
+   DSP A; step 8: filter ADSR and env amount -> C050..C053, C04C of DSP B */
 typedef void (*param_fn)(int sel, int id, uint32_t value);
 static void b6(int sel, int id, uint32_t bits) { ((param_fn)SVC(0xEC))(sel, id, bits); }
 
-enum { P_L1, P_L2, P_AA, P_AD, P_AS, P_AR, P_R1, P_R2, P_F2, P_CUT, P_RES, P_KT, P_W1, P_W2, P_N };
+enum { P_L1, P_L2, P_AA, P_AD, P_AS, P_AR, P_R1, P_R2, P_F2, P_CUT, P_RES, P_KT, P_W1, P_W2,
+       P_FAMT, P_FA, P_FD, P_FS, P_FR, P_N };
 static const uint16_t panel_id[P_N] = { 0x174, 0x175, 0x187, 0x188, 0x189, 0x18A, 0x16A, 0x16F, 0x170,
-                                        0x17D, 0x17F, 0x186, 0x167, 0x16C };
-static uint8_t panel[P_N] = { 255, 128, 0, 128, 255, 60, 3, 3, 128, 255, 0, 0, 0, 0 };
+                                        0x17D, 0x17F, 0x186, 0x167, 0x16C, 0x181, 0x182, 0x183, 0x184, 0x185 };
+static uint8_t panel[P_N] = { 255, 128, 0, 128, 255, 60, 3, 3, 128, 255, 0, 0, 0, 0, 128, 0, 128, 0, 60 };
 
 static void panel_apply(int p)
 {
@@ -147,6 +148,17 @@ static void panel_apply(int p)
     }
 #else
     case P_W1: case P_W2: break;
+#endif
+#if STEP >= 8
+    case P_FAMT: b6(1, B6_AMT, amount_bits[v[P_FAMT]]); break;                     /* step 8: DSP B parameters */
+    case P_FA: case P_FD: case P_FS: case P_FR:
+        b6(1, B6_FENV + 0, level_bits[v[P_FS]]);
+        b6(1, B6_FENV + 1, attack_bits[v[P_FA]]);
+        b6(1, B6_FENV + 2, decay_bits[v[P_FD]]);
+        b6(1, B6_FENV + 3, decay_bits[v[P_FR]]);
+        break;
+#else
+    case P_FAMT: case P_FA: case P_FD: case P_FS: case P_FR: break;
 #endif
     default:
         if (STEP >= 4) {

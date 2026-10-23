@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 're'))
 import asm  # noqa: E402
 
 NV = int(os.environ.get('VOICES', '8'))
-STEP = int(os.environ.get('STEP', '7'))     # incremental steps on top of C-S1V8 (STEPS below)
+STEP = int(os.environ.get('STEP', '8'))     # incremental steps on top of C-S1V8 (STEPS below)
 STAGE = int(os.environ.get('STAGE', '4'))   # the first all-at-once design (STEP=0): silent on hw 2026-10-23
 AMP_ENV, FILTER, FILT_ENV = STAGE >= 2, STAGE >= 3, STAGE >= 4
 FS = 96000.0
@@ -235,7 +235,7 @@ STEP_GB = [0xA160 + v for v in range(NV)]   # gate copied by DSP A for DSP B (B 
 STEP_TB = [0xA168 + v for v in range(NV)]
 STEP_AENV_B = 0xC040
 B6_AENV = 0x40
-STEP_B_BASE = [0x0400 + 0x10 * v for v in range(NV)]
+STEP_B_BASE = [0x0400 + (0x20 if STEP >= 8 else 0x10) * v for v in range(NV)]   # step 8: 0x20 (filter ADSR state)
 #   5  OSC1 range, OSC2 range (0x16A / 0x16F: 64'..2' = -3..+2 octaves) and OSC2 fine tune (0x170: +-1 semitone)
 #      -> parameters C044 / C045 / C046 of DSP A (FCEC(0, id, bits), as Roland); the fixed +7 cents goes away
 B6_RANGE1, B6_RANGE2, B6_FINE2 = 0x44, 0x45, 0x46
@@ -251,6 +251,10 @@ B_Y = [0x6, 0x8, 0xA, 0xC]                  # ring offsets of the 4 stage output
 #      C050..C052 (OSC1) / C053..C055 (OSC2) of DSP A (FCEC(0, ...)); square = ph_clamp(256 x phase), triangle =
 #      ph_tri(phase), both in the form of Roland's SH-2 (X = r3)
 B6_WAVE1, B6_WAVE2 = 0x50, 0x53
+#   8  filter ADSR per voice on DSP B (faders 0x182..0x185 -> C050..C053 of DSP B: sustain, attack, decay, release;
+#      amount 0x181 -> C04C, bipolar: 128 = 0, 0 = -8 .. 255 = +8 octaves): cutoff = base + amount x env + key track; state at B voice block + 0x10
+B6_FENV, B6_AMT = 0x50, 0x4C                # parameters of DSP B (DSP A's C050.. are the waves: other DSP)
+B_FE = 0x10                                 # filter ADSR state: env +0x10, latch +0x12, last trigger +0x14
 STEP_WAVES = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 0, 0), (1, 0, 0), (1, 0, 0)]   # selector 0..5: 2nd square, 3rd tri
 V8_PHASE = [0x0300 + 0x10 * v for v in range(NV)]
 V8_MIX = 0xA150
@@ -347,10 +351,18 @@ def step_filter_voice(v):
     b = STEP_B_BASE[v]
     y = [b + o for o in B_Y]
     L = [f'; voice {v}: amp ADSR'] + step_adsr(b, b + 2, b + 4, STEP_GB[v], STEP_TB[v], STEP_AENV_B)
-    L += [f'; voice {v}: low-pass', f'ld r7, [{STEP_XV[v]:04x}]', f'ld r6, [c0{B6_GAIN:02x}]',
-          f'ld r0, [c0{B6_CUT:02x}]', f'ld r3, [{STEP_PB[v]:04x}]', f'ld r4, [c0{B6_KT:02x}]',
-          'mul r7, r7, r1', 'mul r7, r7, r6',
-          'add r3, #-4.75', 'mad r0, r4, r3', f'min r0, r0, #{CUT_HI}', f'max r0, r0, #{CUT_LO}']
+    if STEP >= 8:                                        # x = A151+v x amp env, then the filter ADSR -> r1
+        L += [f'ld r7, [{STEP_XV[v]:04x}]', 'mul r7, r7, r1']
+        L += [f'; voice {v}: filter ADSR'] + step_adsr(b + B_FE, b + B_FE + 2, b + B_FE + 4, STEP_GB[v], STEP_TB[v],
+                                                       0xC000 + B6_FENV)
+        L += [f'; voice {v}: low-pass', f'ld r6, [c0{B6_GAIN:02x}]', f'ld r0, [c0{B6_CUT:02x}]',
+              f'ld r2, [c0{B6_AMT:02x}]', f'ld r3, [{STEP_PB[v]:04x}]', f'ld r4, [c0{B6_KT:02x}]',
+              'mul r7, r7, r6', 'mad r0, r2, r1']
+    else:
+        L += [f'; voice {v}: low-pass', f'ld r7, [{STEP_XV[v]:04x}]', f'ld r6, [c0{B6_GAIN:02x}]',
+              f'ld r0, [c0{B6_CUT:02x}]', f'ld r3, [{STEP_PB[v]:04x}]', f'ld r4, [c0{B6_KT:02x}]',
+              'mul r7, r7, r1', 'mul r7, r7, r6']
+    L += ['add r3, #-4.75', 'mad r0, r4, r3', f'min r0, r0, #{CUT_HI}', f'max r0, r0, #{CUT_LO}']
     L += exp2_to('r0', 'r0') + [f'mul r0, r0, #{G_440!r}', f'min r0, r0, #{G_MAX}']
     L += [f'ld r1, [{y[0] + 1:04x}]', f'ld r2, [{y[1] + 1:04x}]', f'ld r3, [{y[2] + 1:04x}]', f'ld r4, [{y[3] + 1:04x}]',
           f'ld r6, [c0{B6_RES:02x}]',
@@ -569,7 +581,8 @@ def resonance(v):
 
 
 def env_amount(v):
-    return 8.0 * v / 255.0
+    """filter env amount knob: bipolar, 128 = 0, 0 = -8 octaves (inverted envelope), 255 = +8 octaves"""
+    return 8.0 * max(-1.0, (v - 128) / 127.0)
 
 
 # wave selector 0..5 -> (saw, pulse threshold, pulse, triangle), all at level 1
@@ -613,6 +626,7 @@ def header(progs):
     out.append(f'#define B5_LEVEL1 {idx(STEP_LEVEL1)}\n#define B5_LEVEL2 {idx(STEP_LEVEL2)}')
     out.append(f'#define B6_AENV 0x{B6_AENV:02x}')
     out.append(f'#define B6_CUT 0x{B6_CUT:02x}\n#define B6_RES 0x{B6_RES:02x}\n#define B6_GAIN 0x{B6_GAIN:02x}\n#define B6_KT 0x{B6_KT:02x}')
+    out.append(f'#define B6_FENV 0x{B6_FENV:02x}\n#define B6_AMT 0x{B6_AMT:02x}')
     out.append(f'#define B6_WAVE1 0x{B6_WAVE1:02x}\n#define B6_WAVE2 0x{B6_WAVE2:02x}')
     out.append('/* wave selector 0..5 -> saw, square, triangle coefficients */')
     out.append(table('step_wave_bits', [c for w in STEP_WAVES for c in w], 3))
