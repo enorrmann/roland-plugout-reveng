@@ -226,6 +226,9 @@ class Plan:
                     self.words[u] = self.p[u].relocate(lambda r, u=u: self.map(u, r))
         self.reloc = dict(self.words)           # the pure relocation, before our glue (test_s1jx.py test_units)
         self._handoff()
+        self.prestage = dict(self.words)        # with the handoff, before _stage (test_s1jx.py test_stage)
+        self._stage()
+        self.presplit = dict(self.words)        # with the handoff and the staging, before split_bank5 (test_split)
         for u in self.words:
             self.words[u] = split_bank5(self.words[u], u, self.dump0[CHIP[PLACE[u][0]]] + 1)
 
@@ -247,6 +250,44 @@ class Plan:
             w = self.words[dco]
             assert w[:2] == [0x0A02, 0xFF70]
             self.words[dco] = w[:2] + ld.words + w[2:]
+
+    def _stage(self):
+        """at most 2 loads of ARM-written words (banks 5, 6 and IOMD together) per instruction: no SYSTEM-1 program
+        and no build that ran on the device has more; the JX-3P's MAIN0/MAIN1 have 4 instructions with 3 (a keep_b5
+        parameter + 2 bank-6 ones), and MAIN1 1-110 with one of them hung the SYSTEM-1 (C-S1JXK, 2026-10-23). These
+        programs have jumps, so the instruction is not split: a prologue right after the start marker (before every
+        jump: relative jumps keep their targets) copies the bank-5 word to a bank-0 word of the chip (same sample, same
+        ring position) and the instruction loads it from there (a bank-6 word if the instruction has no bank-5 one)"""
+        import asm
+        self.stage = {0: {}, 1: {}}             # chip -> {bank-5 / bank-6 address: bank-0 address}
+        for u, w in self.words.items():
+            chip = CHIP[PLACE[u][0]]
+            per = {}
+            for r in R.Prog(w).refs:
+                if r.op == 'ld' and r.addr >> 12 in (0xA, 0xC, 0x6):
+                    per.setdefault(r.ins, []).append(r)
+            fix = [rs for rs in per.values() if len(rs) > 2]
+            if not fix:
+                continue
+            w = list(w)
+            mine = []
+            for rs in fix:
+                r = sorted(rs, key=lambda r: (r.addr >> 12 != 0xA, r.addr))[0]     # a bank-5 word first
+                st = self.stage[chip]
+                if r.addr not in st:
+                    base = max([a + 2 for a in self.ringmail.get(chip, {}).values()] + [self.dump0[chip] + 0x11])
+                    st[r.addr] = base + len(st)
+                    assert st[r.addr] < B0_TOP, (chip, hex(st[r.addr]))
+                w[r.pos] = st[r.addr]
+                if r.addr not in mine:
+                    mine.append(r.addr)
+            L = [f'ld r{k}, [{a:04x}]' for k, a in enumerate(mine)] + ['mov r4, r4']
+            for k in range(0, len(mine), 2):
+                L.append(' | '.join(f'st r{j}, [{self.stage[chip][mine[j]]:04x}]' for j in range(k, min(k + 2, len(mine)))))
+            a = asm.Assembler().assemble('\n'.join(L) + '\n')
+            assert a.ok, a.errors
+            assert w[:2] == [0x0A02, 0xFF70]
+            self.words[u] = w[:2] + a.words + w[2:]
 
     @staticmethod
     def model_targets():

@@ -1,8 +1,9 @@
 # C-S1JX: el microcódigo del JX-3P en el SYSTEM-1, un DCO, 4 voces (`examples/system_1_jx/`)
 
-Estado: 2026-10-23. **En puesta en marcha en el equipo: todavía se cuelga.** Se encontraron y corrigieron cinco
-causas de cuelgue (§5); queda al menos una más, en el esclavo B (MAIN1 o el DCO1), §10.5. Las pruebas sin hardware
-(9 de microcódigo, 4 de ARM, 20 de la cadena del emulador) pasan.
+Estado: 2026-10-23. **En pausa: todavía se cuelga.** Se encontraron cinco causas de cuelgue y una sexta inferida
+(§5); queda al menos una más en MAIN1 (esclavo B), §10.7. Las pruebas sin hardware
+(11 de microcódigo, 4 de ARM, 20 de la cadena del emulador) pasan. Análisis sin equipo: §12 (firmas contra el
+SYSTEM-1), §13 (timing entre DSP), §14 (el OS no valida los programas).
 
 Es un PLUG-OUT de prueba pedido por el usuario: usa **el código DSP de Roland** (los programas del JX-3P, leídos en la
 build desde `plugins/JX-3P`) y nuestro código ARM. Por eso `build/` y `plugins/C-S1JX*/` llevan bytes de Roland: **no
@@ -14,7 +15,7 @@ Leyenda: **[medido]** en el equipo · **[emulador]** · **[unicorn]** (ARM emula
 ## 1. Uso
 
 ```sh
-python3 examples/system_1_jx/test_s1jx.py       # microcódigo: 9 pruebas (≈ 30 s)
+python3 examples/system_1_jx/test_s1jx.py       # microcódigo: 11 pruebas (≈ 40 s)
 sh examples/system_1_jx/build.sh                # -> plugins/C-S1JX/Script/Code1.Dat (y Code.Dat)
 python3 examples/system_1_jx/test_arm.py        # código ARM de las dos regiones: 4 pruebas (≈ 1 min)
 python3 tools/plugout_tool.py install plugins/C-S1JX --slot 1 --force --no-patches -y   # sustituye al slot 1
@@ -116,6 +117,8 @@ apagando) y se localizó por bisección (§10). Todas las comprueban `test_s1jx.
 | 4 | **Banco 6: como mucho 2 cargas por instrucción** | C-S1JXH1, MAIN1 instrucción 48 (3 cargas tras pasar un parámetro al banco 6); nunca más de 2 en el código de Roland |
 | 5 | **Nuestra regla: un solo acceso al banco 5 por instrucción; los DSP sólo guardan en `A100`–`A1FF`** | una carga con un store del banco 5 no aparece nunca en los programas del SYSTEM-8 y estaba en la mitad de MAIN3 que colgaba; todos los programas de Roland del esclavo del SYSTEM-1 guardan sólo en `A1xx` (`A000`–`A0FF` es lo que escribe el ARM con `FD6C sel 0`). Ninguna de las dos está aislada por una prueba propia [inferido] |
 
+| 6 | **Bancos 5, 6 e IOMD juntos: como mucho 2 cargas por instrucción** [inferido, **no confirmado**] | ningún programa del SYSTEM-1 ni ninguna build que corrió bien tiene más; el JX-3P tiene 4 (MAIN0 41/287, MAIN1 48/294: un parámetro `keep_b5` + 2 del banco 6) y C-S1JXK (MAIN1 1–110, con la 48) colgó. Pero C-S1JXB y C-S1JXS **con** la regla siguen colgando (§10.7). En programas con saltos se cumple con un prólogo (`Plan._stage`, `test_stage`) |
+
 Nota: los límites 3 y 4 no estaban documentados; el SYSTEM-8 sólo había medido "los stores al banco 0 no cuentan"
 para el límite del banco 5 ([DSP_HARDWARE.md](DSP_HARDWARE.md) §7.3).
 
@@ -146,6 +149,8 @@ mapeado.
 | `units` | cada programa original contra el reubicado (sin relevo ni partición), solo en un DSP, entradas externas iguales: salidas iguales **bit a bit** 3000 muestras |
 | `scramble` | ningún programa final depende de registros/banderas que deje otro |
 | `handoff` | §4.1 (y falla sin el relevo) |
+| `split` | `split_bank5` no cambia ningún store: cada unidad antes de partir (con el relevo) contra la final, bit a bit 3000 muestras. Con `units` y `handoff`: los programas finales calculan lo mismo que los de Roland **en el emulador** (§13: el timing entre DSP no). Control negativo: con las cargas sobrantes antes del store, falla en la muestra 0 |
+| `nojump` | `NOJUMP=MAIN0/MAIN1` **no** es el programa de Roland: los stores difieren (MAIN0 654 de 3000 muestras, MAIN1 362, semilla 0; con la semilla 5 no se nota). Las builds `NOJUMP` sólo sirven para diagnosticar cuelgues |
 | `memory` | anillos, buzones de anillo, `DUMP`, ids del banco 6, banco 5 e IOMD sin solapes |
 | `access_limits` | los programas finales cumplen §5 (reglas 2–5); la reubicación sin partir instrucciones es rechazada por el emulador (control positivo) |
 | `device_history` | el criterio de §5 contra las builds instaladas (`plugins/`, local): coincide con el equipo en las 11 |
@@ -244,6 +249,8 @@ stores al banco 0 (en el original el tercero era al banco 1) ⇒ regla 3. Con la
 
 ### 10.6 Siguientes pasos (para retomar)
 
+**Superado por §10.7** (los pasos de abajo se hicieron el 2026-10-23; quedan como registro).
+
 Sigue colgándose el esclavo completo con todas las reglas. Partes ya medidas como buenas: el esclavo A completo
 (MAIN5 + MAIN3). Por probar, una instalación cada una:
 
@@ -253,8 +260,35 @@ Sigue colgándose el esclavo completo con todas las reglas. Partes ya medidas co
    MAIN1 con `NOJUMP=MAIN1 TRUNC=MAIN1:1:N` a partir de la instrucción 27.
 3. Con el esclavo bueno: la build completa (el maestro con el JX-3P, sin probar con las reglas).
 
+Cortes guiados por §12 en vez de mitades (MAIN1, `SLAVE_TEST=1 NO_SEC_B=1`), cada uno separa un grupo de sospechosos:
+
+| build | instrucciones de MAIN1 | sospechosos que añade |
+|---|---|---|
+| `TRUNC=MAIN1:1:111` | 1–110 | sólo combinaciones clase/longitud nuevas (41, 60, 68, 84, 108); clases ya vistas |
+| `TRUNC=MAIN1:1:184` | 1–183 | clases nuevas `0x5f0`, `0x6c8`, `0x5a4`, `0x568` y `cc 19` (120); ningún salto |
+| completo | 1–526 | los 8 saltos (desde la 184) |
+
+Si la primera cuelga, la clase/longitud cuenta y se biseca dentro de 27–110; si sólo cuelga la tercera, son los
+saltos. El DCO1 (sección B) se prueba igual: sus primeras instrucciones sospechosas son la 29 (clase/longitud) y la 58
+(clase `0x584`).
+
 Antes de cada instalación: `python3 examples/system_1_jx/test_s1jx.py` (y actualizar `DEVICE` en `test_s1jx.py` con
 el resultado de cada build que se reconstruya).
+
+### 10.7 Sexta tanda: cortes guiados por §12 y regla 6 (2026-10-23; abierto)
+
+| build | qué llevaba | resultado |
+|---|---|---|
+| C-S1JXB (2.ª) | esclavo A + MAIN1 completo (reglas 1–5), sin sección B | cuelgue ⇒ MAIN1 |
+| C-S1JXK | ídem con `TRUNC=MAIN1:1:111` (sin saltos, sin `cc 19`, sin clases nuevas) | cuelgue ⇒ entre 27 y 110; la 48 tiene 3 cargas de parámetros ⇒ regla 6 [inferido] |
+| C-S1JXS (8.ª) | esclavo completo con las reglas 1–6 (prólogo en MAIN1) | cuelgue |
+| C-S1JXB (3.ª) | esclavo A + MAIN1 con las reglas 1–6, sin sección B | **cuelgue al instalar** |
+
+Estado: MAIN1 sigue colgando con todas las reglas conocidas; la regla 6 no basta (o no es la causa). Lo que sigue
+sin probar de MAIN1 1–110 (§12, firma completa no vista en el SYSTEM-1 ni en el equipo): 39, 41, 49, 59, 60, 64, 65,
+67, 68, 81, 82, 84, 106, 107, 108 (`raw`, sin decodificar), 110. Para retomar: `TRUNC=MAIN1:1:111` con el prólogo
+(¿basta la regla 6 para ese tramo?) y, si cuelga, bisección de 27–110. El usuario paró aquí: el equipo no resulta
+fiable (cuelga incluso al instalar) y el avance es lento.
 
 ## 11. Ficheros
 
@@ -267,6 +301,90 @@ el resultado de cada build que se reconstruya).
 | `examples/system_1_jx/model.c` / `engine.c` | región 0 (asignador, carga del maestro, VOLUME) / región 1 (carga del esclavo, secciones, voces) |
 | `examples/system_1_jx/build.sh` | build y variantes de diagnóstico (§1) |
 | `examples/system_1_jx/test_s1jx.py`, `test_arm.py` | §7 |
+| `examples/system_1_jx/sigdiff.py` | §12: rasgos de instrucción no vistos en el SYSTEM-1 |
+| `examples/system_1_jx/timing.py` | §13: latencia de los buzones entre los dos DSP de un chip |
 | `examples/from_scratch/emu/chain.py` | `access_violations` / `STRICT`: el emulador rechaza programas fuera de los límites |
 
 Usa `examples/system_1/syninfo.h`, `link.ld` y `make_s1.py` (cierres) de C-S1V4 sin cambiarlos.
+
+## 12. Firmas de instrucción contra el SYSTEM-1 (`sigdiff.py`)
+
+Responde "¿qué usa el C-S1JX que ningún programa de Roland del SYSTEM-1 usa?" sin instalar nada. Sirve para elegir
+los cortes de la bisección, no sustituye a la medida: un rasgo no visto en el SYSTEM-1 es **sospechoso, no prueba**.
+
+```sh
+python3 examples/system_1_jx/sigdiff.py --suspects     # programas finales; sólo lo que tampoco corrió bien en el equipo
+python3 examples/system_1_jx/sigdiff.py --units        # por unidad, antes de concatenar
+python3 examples/system_1_jx/sigdiff.py --dat plugins/C-S1JXS/Script/Code1.Dat   # una build instalada
+python3 examples/system_1_jx/sigdiff.py --corpus       # qué usa el SYSTEM-1
+```
+
+Referencias:
+
+| referencia | qué | programas |
+|---|---|---|
+| SYSTEM-1 | los sets de programas del OS 1.30 (`work/sys1_v130/app_master.bin`, `app_slave.bin`) y de SH-101, SH-2, PROMARS para SYSTEM-1 | 216 distintos |
+| S8 | los programas del JX-3P en el SYSTEM-8 | 7 |
+| dev | lo que **corrió en el equipo sin colgar**: la última versión instalada de cada build que `test_s1jx.DEVICE` marca como no colgada (`plugins/<NOMBRE>`, local), sólo las ubicaciones que ejecutaba | C-S1JXM, P, Q, R, 5, 6, H, H1 |
+
+Rasgos por instrucción (cada uno por separado, y la firma completa): clase (`cabecera >> 5`); clase y longitud;
+mnemónicos de las operaciones (`asm/disasm.py`; `raw` si no se decodifica); número de accesos por (banco, ld/st);
+modo de transferencia distinto de `fe`; saltos `009Y`; por cada unidad C, su código de condición y si puede saltarse
+una operación o una transferencia (de qué banco); número de transferencias.
+
+El SYSTEM-1 **nunca** usa [código, 2026-10-23]: saltos; `setflags` (`X9bY`); `mad`; códigos de condición fuera de
+{0, 4, 5, 7, 9, 11, 12, 13, 15, 17, 20, 21}; más de 1 acceso al banco 5, más de 2 al banco 0 o al banco 6 por
+instrucción (reglas 2–4 de §5); 8 clases que el JX-3P sí usa (`0x340`, `0x4b4`, `0x4b8`, `0x568`, `0x584`, `0x5a4`,
+`0x5f0`, `0x6c8`). `setflags`, `mad` y las clases `0x0d8`, `0x188`, `0x220`, `0x2f0`, `0x398` sí corrieron en el
+equipo (esclavo A, C-S1JXM): no causan cuelgues.
+
+Resultado sobre los programas finales (2026-10-23, `--suspects`):
+
+| ubicación | rasgos no vistos en el SYSTEM-1 | de ellos, tampoco en "dev" |
+|---|---|---|
+| maestro A (MAIN0 + MAIN2) | 29 | 24: clases `0x568`, `0x5a4`, `0x5f0`, `0x6c8`; 15 combinaciones clase/longitud; **saltos** (8); `cc 19` |
+| maestro B (MAIN4 + DCO1 + cola) | 25 | 18: clases `0x340`, `0x4b8`, `0x584`, `0x6c8`, `0x4b4`; 13 clase/longitud |
+| esclavo A (MAIN5; MAIN3) | 8 | **0** (coherente con el equipo: el esclavo A no cuelga) |
+| esclavo B (MAIN1) | 28 | 24: los mismos que MAIN0 (MAIN0 y MAIN1 son el mismo programa con otras direcciones) |
+| esclavo B (DCO1) | 20 | 18: los mismos que el DCO1 del maestro B |
+
+Lectura para el cuelgue abierto del esclavo B (§10.5): los candidatos son los **saltos** de MAIN1 (instrucciones 184,
+187, 237, 240, 430, 433, 483, 486), **`cc 19`** (120, 366), las clases nuevas de MAIN1 (desde la 111) y las del DCO1
+(desde la 58). MAIN1 1–26 corrió sin colgar; la primera instrucción sospechosa de MAIN1 es la 41 (sólo por clase/longitud;
+la clase `0x180` sí aparece en el SYSTEM-1) [inferido].
+
+## 13. Timing entre los dos DSP de un chip (`timing.py`)
+
+Los dos DSP de un chip **corren a la vez** y comparten el banco 5. Un buzón escrito por uno y leído por el otro se ve
+en la misma muestra sólo si el store va antes que la carga, en ciclos. El emulador ejecuta los DSP uno detrás de otro,
+así que **no puede ver esto**, y las pruebas de §7 tampoco (comparan cada programa por separado).
+
+`python3 examples/system_1_jx/timing.py [muestras]`: el ciclo de cada instrucción es su posición en la secuencia
+ejecutada (traza del emulador, saltos incluidos), más la cabecera del OS (4 instrucciones) y, en el maestro A, el
+programa de salida del OS (40). Se supone [inferido] que los dos DSP de un chip empiezan la muestra en el mismo ciclo.
+Margen: 8 ciclos. Latencia que tenía el SYSTEM-8: MXM 1 muestra; principal → su DCO 0 (mismo DSP, el principal antes);
+DCO → principal 1; relevo `r2`/`r3` 0.
+
+Resultado (2026-10-23, 100 muestras): **45 palabras con un timing distinto al del SYSTEM-8**:
+
+| palabras | dónde | S1 / S8 | efecto |
+|---|---|---|---|
+| entradas del DCO (`DCO` principal → DCO) y relevo `r2`/`r3` | maestro (MAIN2 → DCO1@2) y esclavo (MAIN3 → DCO1@3) | 1 / 0 (**tarde**) o carrera | el DCO calcula con los valores de la muestra anterior; el paso de Newton empieza desde `r2`/`r3` de la muestra anterior |
+| MXM MAIN1 → MAIN3 (`MZ 1`) | esclavo | 0 / 1 (**antes**) | MAIN3 ve el valor de esta muestra |
+| 10 entradas del DCO | MAIN2 → DCO1@2, MAIN3 → DCO1@3 | **carrera** (escrituras y lecturas se cruzan) | depende del ciclo exacto y del camino de los saltos de MAIN1 |
+| MXM MAIN2 → MAIN4, salidas del DCO → principal | | igual que el SYSTEM-8 | — |
+
+No explica cuelgues. Sí explica que el C-S1JX pueda **no sonar igual** aunque no se cuelgue: son desfases de una
+muestra (10 µs) en señales de control, probablemente inaudibles salvo en el DCO (fase/Newton) [inferido]. Corregirlo
+pide cambiar dónde corre cada programa (no el código de Roland). Por ejemplo, MAIN3 como principal del esclavo A y
+MAIN5 en la sección: MAIN3 escribiría hacia el ciclo 60–190, antes de que el DCO1@3 lea (≥ 455). Sin probar: cambia
+el esclavo A, que hoy funciona en el equipo; MAIN5 (5016 bytes) cabe en la sección (6 KiB).
+
+## 14. ¿Impone el OS los límites de acceso? (firmware 1.30 del esclavo)
+
+No, en lo encontrado. Las rutinas del esclavo que escriben la memoria de los DSP (`0x6005362E`, `0x60053708`,
+`0x60053852`, destinos `0x40150000` / `0x40170000` = DSP A / B) copian bloques de `0x200` palabras con el DMA
+(`0x60055D32` / `0x60055CF0`) **sin leer el contenido** [código]. `0x6000345C`–`0x60003612` es una prueba de memoria
+(escribe 0 y un patrón, y compara) [código]. Por tanto los límites de §5 son del **hardware del DSP**, no una
+validación del OS, y no hay una tabla de reglas que leer en el firmware. Abierto: no se siguió el camino completo
+desde la cola de `FC30` (`0x60003ECF`, cola `0x600603E0`) hasta estas rutinas.

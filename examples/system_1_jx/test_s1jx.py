@@ -22,8 +22,11 @@ Needs plugins/JX-3P (the microcode is read from it, as the build does). What eac
   master A 0x100-0x6DF1).
 * access_limits: every final program respects the per-instruction access limits of the DSP (at most 2 bank-0 loads,
   1 bank-5 load and 1 bank-5 store per instruction) and our stricter rule of ONE bank-5 access per instruction (a
-  load with a store never appears in Roland's SYSTEM-8 programs and was in the half of MAIN3 that hung); the
-  relocation without split_bank5 is refused by the emulator.
+  load with a store never appears in Roland's SYSTEM-8 programs and was in the half of MAIN3 that hung), and at most
+  2 loads of banks 5 / 6 / IOMD together (rule 6: never more on the SYSTEM-1; 3 hung it, C-S1JXK); the relocation
+  without split_bank5 is refused by the emulator.
+* stage: the prologue of Plan._stage (rule 6 in programs with jumps) changes no store (inputs in the DSP word
+  format: a parameter staged through bank 0 is rounded to it, as every ARM-written word already is).
 * device_history: the emulator's access check against the diagnostic builds installed on 2026-10-22 (plugins/, local):
   it refuses exactly the ones that hung.
 * budget: instructions executed per sample on each SYSTEM-1 DSP (emulator, random inputs) <= 925 (master A: 925 -
@@ -125,8 +128,11 @@ def key_relocated(r):
     return None if ring(r.addr) or r.addr >> 12 == 0xC else r.addr
 
 
-def run(progs, index, ld, st, b6ids, seed, n=3000):
-    """progs: [word lists] in one DSP; inputs = loaded-only keys; returns the stored words' bits per sample"""
+def run(progs, index, ld, st, b6ids, seed, n=3000, quant=False):
+    """progs: [word lists] in one DSP; inputs = loaded-only keys; returns the stored words' bits per sample.
+    quant: inputs in the DSP's word format (as the ARM writes them; the emulator otherwise keeps any double, which a
+    store to bank 0 would round)"""
+    q = cchain.lib().sl_quant if quant else float
     # the harness moves every external word to bank 5 of one emulated DSP: it breaks the bank-5 access limit on
     # purpose (it never goes to a device), so these programs are built with strict=False
     s = cchain.Slave({0: (chain.Program(progs[0], 'p0', strict=False),
@@ -139,9 +145,9 @@ def run(progs, index, ld, st, b6ids, seed, n=3000):
     for t in range(n):
         if t % 250 == 0:
             for i in b6ids:
-                s.params[0xC000 + i[1]] = rng.choice([0.0, 1.0, rng.uniform(-1, 1)]) if True else 0
+                s.params[0xC000 + i[1]] = q(rng.choice([0.0, 1.0, rng.uniform(-1, 1)]))
         for k in inputs:
-            s.p_bank(0, index[k], rng.choice([0.0, 1.0, rng.uniform(-1, 1)]))
+            s.p_bank(0, index[k], q(rng.choice([0.0, 1.0, rng.uniform(-1, 1)])))
         s.step()
         rec.append(tuple(struct.pack('<d', s.d[0].bank5[index[k]]) for k in outs))
     return rec
@@ -163,9 +169,9 @@ def unit_pair(u, scramble=False):
     return pl, (w0, i0, ld0, st0), (w1, i1, ld1, st1)
 
 
-def same_inputs(a, b, b6a, b6b, seed):
+def same_inputs(a, b, b6a, b6b, seed, quant=False):
     """run a and b with the same random sequence: the keys must match one to one (sorted order)"""
-    return run([a[0]], a[1], a[2], a[3], b6a, seed), run([b[0]], b[1], b[2], b[3], b6b, seed)
+    return run([a[0]], a[1], a[2], a[3], b6a, seed, quant=quant), run([b[0]], b[1], b[2], b[3], b6b, seed, quant=quant)
 
 
 # ---------------------------------------------------------------- tests
@@ -236,6 +242,87 @@ def test_handoff():
         print(f'    {main} -> {dco}: {len(cols)} DCO outputs equal for {len(ra)} samples')
 
 
+def test_split():
+    """split_bank5 (the instructions cut to respect the access limits) changes no store: every unit before the split
+    (with the handoff) against the final unit, same harness, same random inputs, bit for bit 3000 samples. With
+    test_units (original = relocation) and test_handoff (relocation = relocation + handoff) the final unit programs
+    compute what the Roland programs compute (in the emulator; the timing between DSPs is timing.py's matter)"""
+    pl, words = plan()
+    for u in J.UNITS:
+        a, b = pl.presplit[u], pl.words[u]
+        if a == b:
+            print(f'    {u}: not split')
+            continue
+        pa, pb = R.Prog(a, u), R.Prog(b, u + "'")
+        ka, kb = key_relocated_of(pl, u), key_relocated_of(pl, u)
+        wa = harness(pa, ka)
+        wb = harness(pb, kb)
+        assert sorted(wa[1], key=repr) == sorted(wb[1], key=repr), (u, set(wa[1]) ^ set(wb[1]))
+        b6 = b6_pairs(pl, u, False)
+        ra, rb = same_inputs(wa, wb, b6, b6, seed=hash(u) & 0xFFFF)
+        bad = next((t for t, (x, y) in enumerate(zip(ra, rb)) if x != y), None)
+        assert bad is None, f'{u}: the split changes the stores from sample {bad}'
+        n = len(list(R.dspdis.instructions(b))) - len(list(R.dspdis.instructions(a)))
+        print(f'    {u}: +{n} instructions, {len(wa[3])} stored words equal for {len(ra)} samples')
+
+
+def test_stage():
+    """Plan._stage (the prologue that copies a parameter to bank 0 when an instruction would load more than 2 words of
+    banks 5 / 6 / IOMD) changes no store: before against after, same harness, bit for bit 3000 samples"""
+    pl, words = plan()
+    n = 0
+    for u in J.UNITS:
+        a, b = pl.prestage[u], pl.presplit[u]
+        if a == b:
+            continue
+        wa = harness(R.Prog(a, u), key_relocated_of(pl, u))
+        wb = harness(R.Prog(b, u), key_relocated_of(pl, u))
+        assert sorted(wa[1], key=repr) == sorted(wb[1], key=repr), (u, set(wa[1]) ^ set(wb[1]))
+        b6 = b6_pairs(pl, u, False)
+        for seed in range(8):        # quantized inputs: the staged word goes through bank 0 (rounded to the word format)
+            ra, rb = same_inputs(wa, wb, b6, b6, seed=seed, quant=True)
+            bad = next((t for t, (x, y) in enumerate(zip(ra, rb)) if x != y), None)
+            assert bad is None, f'{u}: the staging changes the stores from sample {bad} (seed {seed})'
+        n += 1
+        print(f'    {u}: {len(wa[3])} stored words equal for {len(ra)} samples, 8 seeds')
+    assert n, 'nothing staged'
+
+
+def param_loads(w):
+    """[instruction] with more than 2 loads of banks 5 / 6 / IOMD (our rule 6, Plan._stage)"""
+    per = {}
+    for r in R.Prog(w).refs:
+        if r.op == 'ld' and r.addr >> 12 in (0xA, 0xC, 0x6):
+            per[r.ins] = per.get(r.ins, 0) + 1
+    return [k for k, n in per.items() if n > 2]
+
+
+def test_nojump():
+    """NOJUMP=MAIN0/MAIN1 (diagnostic builds C-S1JXJ) is not the Roland program: with the jump words neutralized both
+    branches run and the stores differ (expected to differ; if they did not, the jumps would be dead code)"""
+    pl, words = plan()
+    old = os.environ.get('NOJUMP')
+    try:
+        for u in ('MAIN0', 'MAIN1'):
+            os.environ['NOJUMP'] = u
+            a, b = pl.words[u], J.nojump(pl.words[u], u)
+            wa = harness(R.Prog(a, u), key_relocated_of(pl, u))
+            wb = harness(R.Prog(b, u), key_relocated_of(pl, u))
+            b6 = b6_pairs(pl, u, False)
+            for seed in range(12):           # some random input sequences never take the other branch (seed 5)
+                ra, rb = same_inputs(wa, wb, b6, b6, seed=seed)
+                bad = [t for t, (x, y) in enumerate(zip(ra, rb)) if x != y]
+                if bad:
+                    break
+            assert bad, f'{u}: NOJUMP gives the same stores'
+            print(f'    {u}: NOJUMP differs in {len(bad)} of {len(ra)} samples (seed {seed}, from sample {bad[0]})')
+    finally:
+        if old is None:
+            os.environ.pop('NOJUMP', None)
+        else:
+            os.environ['NOJUMP'] = old
+
+
 def test_memory():
     pl, words = plan()
     for chip in (0, 1):
@@ -244,7 +331,8 @@ def test_memory():
             for u in J.UNITS:
                 if J.CHIP[J.PLACE[u][0]] != chip:
                     continue
-                shared = {pl.dump0[chip]} | {x + d for x in pl.ringmail.get(chip, {}).values() for d in (0, 1)}
+                shared = {pl.dump0[chip]} | {x + d for x in pl.ringmail.get(chip, {}).values() for d in (0, 1)} | \
+                    set(pl.stage[chip].values())
                 a = sorted(r.addr & 0xFFF for r in R.Prog(pl.words[u], u).refs if r.addr >> 12 == bank
                            and r.addr not in shared)
                 if not a:
@@ -292,6 +380,8 @@ def test_access_limits():
                 per[r.ins] = per.get(r.ins, 0) + 1
         two = [k for k, n in per.items() if n > 1]
         assert not two, (J.S1_NAMES[s1], hex(addr), 'more than one bank-5 access', two[:5])
+        three = param_loads(w)
+        assert not three, (J.S1_NAMES[s1], hex(addr), 'more than 2 loads of banks 5/6/IOMD', three[:5])
         chain.Program(w, 'final')                                   # STRICT: must load
     refused = []
     for u in ('MAIN2', 'MAIN3', 'DCO1@2', 'DCO1@3'):
@@ -306,8 +396,8 @@ def test_access_limits():
 # what the LAST installed version of each diagnostic build did on the device (2026-10-22/23; plugins/<NAME> holds that
 # version) and which slave sections it switched on (set order: 0 = A). Rebuilding a name changes its entry: keep
 # this table in step (docs/examples_system_1_jx_README.md section 10). None = hung for a cause the checks do not
-# explain yet (C-S1JXS 7th version, 2026-10-23: the open case of section 10.5).
-DEVICE = {'C-S1JXS': (None, {0, 1}), 'C-S1JXB': (True, {0}), 'C-S1JXM': (False, {0}), 'C-S1JXP': (False, set()),
+# explain yet (C-S1JXS 8th and C-S1JXB 3rd versions, 2026-10-23: with rules 1-6 they still hang, section 10.7).
+DEVICE = {'C-S1JXS': (None, {0, 1}), 'C-S1JXB': (None, {0}), 'C-S1JXK': (True, {0}), 'C-S1JXM': (False, {0}), 'C-S1JXP': (False, set()),
           'C-S1JXQ': (False, {0}), 'C-S1JXR': (False, {0}), 'C-S1JX5': (False, set()), 'C-S1JX6': (False, set()),
           'C-S1JXH': (False, {0}), 'C-S1JXJ': (True, {0}), 'C-S1JXH1': (False, {0})}
 
@@ -342,6 +432,7 @@ def test_device_history():
                             if r.addr >> 12 == 0xA:
                                 per.setdefault(r.ins, set()).add(r.op)
                         bad += sum(1 for ops in per.values() if ops == {'ld', 'st'})
+                        bad += len(param_loads(w))
         if hung is None:
             print(f'    {name}: hung, cause unknown; the checks find {bad} violations')
             continue

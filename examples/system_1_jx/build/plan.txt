@@ -1,8 +1,8 @@
-master A @0x0100: MAIN0 + MAIN2  7154 bytes
+master A @0x0100: MAIN0 + MAIN2  7180 bytes
 master B @0x1000: MAIN4 + DCO1@2 + TAIL  9380 bytes
 slave A @0x0100: MAIN5  5016 bytes
 slave A @0x1900: MAIN3  2042 bytes
-slave B @0x0100: MAIN1  5018 bytes
+slave B @0x0100: MAIN1  5044 bytes
 slave B @0x1900: DCO1@3  4132 bytes
   MAIN0   b0 -0x1e0  b1 -0x10b  b6 +0x0
   MAIN1   b0 -0x18  b1 +0xbd  b6 +0x0
@@ -12,9 +12,7 @@ slave B @0x1900: DCO1@3  4132 bytes
   MAIN5   b0 -0x1e0  b1 -0x112  b6 +0x0
   DCO1@2  b0 -0xec  b1 +0x0  b6 +0x0
   DCO1@3  b0 -0x131  b1 +0x0  b6 +0x0
-master bank 5: 50 words, A020-A137
-    A020 ('P', 0, 37)
-    A021 ('P', 0, 55)
+master bank 5: 48 words, A100-A137
     A100 ('P', 0, 46)
     A101 ('P', 0, 47)
     A102 ('P', 0, 64)
@@ -63,9 +61,7 @@ master bank 5: 50 words, A020-A137
     A135 ('OUT', 24609)
     A136 ('REG', 2, 2)
     A137 ('REG', 2, 3)
-slave bank 5: 39 words, A020-A124
-    A020 ('P', 1, 37)
-    A021 ('P', 1, 55)
+slave bank 5: 37 words, A100-A124
     A100 ('P', 1, 46)
     A101 ('P', 1, 47)
     A102 ('P', 1, 64)
