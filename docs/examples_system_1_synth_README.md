@@ -160,16 +160,72 @@ Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py 
 
 ## 9. Mejoras anotadas
 
-* **Curvas y tiempos de las envolventes parametrizables** (pedido 2026-10-23): hoy los faders van de 1 ms a 10 s
-  con una ley exponencial fija y el ataque apunta a 1,25 (`make_synth.py`: `env_time`, `attack_rate`,
-  `decay_rate`). Se puede hacer configurable:
-  * el rango de tiempos y la ley del fader (tablas distintas generadas en el PC), para imitar los tiempos de
-    respuesta de distintos sintes;
-  * la curva: el objetivo del ataque (1,25 da un ataque casi lineal y un valor cercano a 1, uno más exponencial), y
-    caídas lineales en lugar de exponenciales.
+* **Curvas y tiempos de las envolventes parametrizables: prioridad.** Al oído las envolventes de C-S1SY8 se notan
+  **algo toscas** (2026-10-23). Hoy, en `make_synth.py` (`env_time`, `attack_rate`, `decay_rate`, `step_adsr`):
+  * cada fader va de 1 ms a 10 s con una sola ley exponencial: `0.001 · 10000^(v/255)`;
+  * el ataque es exponencial hacia 1,25 y se corta en 1;
+  * la caída y el release son exponenciales y llegan a 1/1000 en el tiempo del fader;
+  * el sustain es lineal, `v/255`.
 
-  Todo se elige en el ARM, con tablas y un parámetro `C0xx` más para el objetivo del ataque. El coste en el DSP es
-  de cero o una instrucción.
+  Qué se puede hacer configurable, casi todo en el ARM:
+  * **Rango y ley de cada fader por separado** (A, D, R). Por ejemplo, un ataque de 0,5 ms a 5 s y un release de
+    2 ms a 15 s. La ley puede ser exponencial, cuadrática o por tramos, como en los sintes reales. Son tablas
+    distintas generadas por `make_synth.py` con opciones de build.
+  * **Curva del ataque**: el objetivo (1,25 hoy) como parámetro `C0xx`. Cerca de 1 da una curva más exponencial,
+    tipo RC; más alto, una más lineal. Coste en el DSP: cambiar `#1.25` por una carga.
+  * **Curva de caída y release**: exponencial (hoy) o lineal, con un paso constante por muestra y un tope en 0 o
+    en S. Una curva intermedia mezcla las dos con un parámetro. Coste: unas 3–4 instrucciones por envolvente.
+  * **Suavizado del parámetro**: hoy un cambio de fader salta de golpe en el DSP. Podría seguir una rampa, con
+    `FCE4`, el servicio con rampa que Roland usa y que no está mapeado, o con un paso de suavizado en el DSP.
+  * **Perfiles**: conjuntos de tablas con nombre para imitar distintos sintes (rápido / medio / lento, tipo
+    SH-101, tipo JX-3P), elegidos con una opción de build o más adelante con un control del panel.
+
 * **Simulador más rápido**: el actual (`re/dspisa.py`) tarda minutos para unos miles de muestras de 8 voces. Hasta
   mejorarlo, las pruebas se hacen directamente en el equipo.
 * **Buscar el presupuesto exacto del SYSTEM-1** (entre 682 y 826) con `PAD=n`, si hace falta apurar.
+
+### 9.1 Más mejoras posibles (lista para la siguiente sesión)
+
+Por orden aproximado de coste. Cada una se hace como un paso nuevo, con una instalación.
+
+* **Controles ya mapeados y sin usar** (§8):
+  * **Sub oscilador** (`0x176`): onda cuadrada una octava abajo, sacada de la fase del DCO1 con `ph_clamp`.
+    Unas 4 instrucciones por voz en el DSP A.
+  * **Ruido** (`0x177`): un generador LCG global en el DSP B, que se suma antes del filtro. Unas 5 instrucciones más
+    1 por voz.
+  * **Color OSC1/OSC2** (`0x168`/`0x16D`): ancho de pulso de la cuadrada (umbral `ph_clamp(256·(fase − t))`). Es
+    un parámetro `C0xx` más por oscilador y 1 instrucción.
+  * **Pitch env** (`0x17A`–`0x17C`): una envolvente AD por voz que se suma al tono. El DSP A no tiene sitio para
+    ella (587 de 682), así que habría que calcularla en el DSP B y pasarla por `A1xx`, con una muestra de retraso.
+  * **LFO** (`0x162`): un LFO global en el DSP B hacia el tono y/o el corte. Faltan por capturar los destinos y la
+    forma de onda.
+* **Botón de tipo de filtro del panel → 2 polos / 4 polos** (pendiente, pedido 2026-10-23):
+  * Primero capturar su id con PARAMLOG, con el PLUG-OUT seleccionado. Puede ser uno de los selectores de patch de
+    la SYNINFO (`0x171`, `0x172`, `0x178`, `0x179`, `0x17E`…), que todavía no se han visto.
+  * En el DSP B, la salida del filtro se toma de `y2` (−12 dB/oct) o de `y4` (−24 dB/oct). Hay dos formas:
+    * sin saltos: mezclar `y2·a + y4·(1 − a)` con `a` como parámetro `C0xx` de 0 o 1, por unas 3 instrucciones
+      por voz;
+    * más barato: guardar en la palabra que se suma a la salida la etapa elegida.
+  * La realimentación de resonancia debería salir de la misma etapa, con k máxima distinta: un filtro de 2 polos
+    con realimentación de `y2` oscila con k ≈ 2. Hay que ajustar `RES_MAX` y la compensación por modo.
+  * Coste: un parámetro `C0xx` más en el DSP B, de 0 a 6 instrucciones por voz; el DSP B tiene margen (660).
+* **HPF**: en la captura no llegó nada. Hay que repetirla y, si sigue sin llegar, mirar la tabla de controles
+  `0xC0`–`0xE5` de la SYNINFO y cómo la configura el SH-2.
+* **Velocidad**: hoy la puerta vale 0 o 1. La velocidad (`0x120+v`) podría escalar el VCA y/o la cantidad de la
+  envolvente del filtro.
+* **Presupuesto**: buscar el límite exacto del DSP A (entre 682 y 826) con `PAD=n`. Para ganar margen:
+  * reescribir la sierra de C-S1V8 con `ph_wrap`, como Roland, que ahorra unas 10 instrucciones por oscilador;
+  * mover la copia de puerta, disparo y tono del DSP A al ARM con `FD6C sel 1` (`A1xx`), como el SH-2.
+* **Afinación**: la sierra de C-S1V8 lleva la constante calibrada en el SYSTEM-8, que podría estar unos 54 cents
+  baja según `make_s1.py`. Conviene medir con un afinador o con captura USB.
+* **Simulador**: hacerlo rápido para poder volver a validar antes de instalar. Se puede usar el núcleo C
+  `emu/cchain.py` en lugar de `re/dspisa.py`.
+* **Envolventes**: tiempos y curvas configurables (arriba).
+
+### 9.2 Estado al cerrar la sesión del 2026-10-23
+
+* Instalado en el SYSTEM-1: **C-S1SY8** (`STEP=8`, empaquetado, `GMAX` 0,7, cantidad de la envolvente del filtro
+  bipolar). El paso 8 está confirmado en el equipo; la cantidad bipolar está instalada pero sin confirmar.
+* `sh examples/system_1_synth/build.sh` reconstruye exactamente eso (opciones: `--help`).
+* El USB del SYSTEM-1 se desconectó solo tres veces durante la sesión. Antes de cada instalación conviene comprobar
+  `amidi -l`.
