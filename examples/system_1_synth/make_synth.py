@@ -15,7 +15,9 @@ does: pack()). The design above (STEP=0, STAGE=1..4) is the first all-at-once at
 as reference. The filter ADSR is still to come.
 
     python3 make_synth.py           -> s1*.s / s1*.hex here, build/s1_programs.h
-    python3 make_synth.py --sim     -> also simulate notes through slave A, slave B and master B (slow)
+    python3 make_synth.py --sim     -> also simulate notes through slave A, slave B and master B (emulator C core,
+                                       seconds; SIM=py: the Python reference, minutes)
+    python3 make_synth.py --sim-check -> C core against the Python reference, sample by sample
 """
 import math
 import os
@@ -427,7 +429,8 @@ def step_m1():
 # Roland's SH-2 (system-1/s1_progs.py --listing) puts up to 3 loads / stores in one instruction with an op
 # ("mul r1, r0, r7 | st r1, [6006] | ld r0, [a100]") and uses a loaded register in the very next instruction. All
 # units of an instruction read before they write. pack() merges our one-unit lines that way and drops the
-# "mov rN, rN" load fillers; make_synth.py --sim compares the packed program with the unpacked one sample by sample.
+# "mov rN, rN" load fillers; make_synth.py --sim-check compares the packed programs with the unpacked ones sample by
+# sample on the emulator's C core (sim_check).
 import re as _re
 _XFER = _re.compile(r'^(ld|st) r(\d), \[([0-9a-f]{4})\]$')
 
@@ -516,7 +519,8 @@ def step_program(lines, packed=None):
     return [0x0A02, 0xFF71] + r.words + [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001], r, lines
 
 
-def sources():
+def sources(packed=None):
+    """packed: as step_program (None = PACK)"""
     if STEP == 0:
         return {
             's1m0': program(prog_s1m0()),
@@ -526,9 +530,9 @@ def sources():
             's1c1': close(0xA005),
         }
     return {
-        's1m0': step_program(step_s1m0()),
-        's1m1': step_program(step_s1m1()),
-        's1mm1': step_program(step_m1()),
+        's1m0': step_program(step_s1m0(), packed),
+        's1m1': step_program(step_s1m1(), packed),
+        's1mm1': step_program(step_m1(), packed),
         's1c0': close(0xA004),
         's1c1': close(0xA005),
     }
@@ -660,42 +664,101 @@ def b5_from_panel(p):
     return {k: float(struct.unpack('<f', struct.pack('<f', x))[0]) for k, x in b5.items()}
 
 
+def sim_params(b5, panel):
+    """bank-6 parameters (FCEC from the ARM) of DSP A, DSP B and master B, as engine.c writes them"""
+    pa = {0xC000: 1.0, 0xC000 + B6_RANGE1: 0.0, 0xC000 + B6_RANGE2: 0.0, 0xC000 + B6_FINE2: 0.0}   # 8', fine centre
+    for base, wv in ((B6_WAVE1, panel['osc1_wave']), (B6_WAVE2, panel['osc2_wave'])):
+        for i in range(3):
+            pa[0xC000 + base + i] = float(STEP_WAVES[wv][i])
+    pb = {0xC000: 1.0, 0xC000 + B6_CUT: b5[CUT], 0xC000 + B6_RES: b5[RES], 0xC000 + B6_KT: b5[KT],
+          0xC000 + B6_GAIN: b5[COMP] / 2}
+    for i in range(4):
+        pb[0xC000 + B6_AENV + i] = b5[AENV + i]
+        if STEP >= 8:
+            pb[0xC000 + B6_FENV + i] = b5[FENV + i]
+    if STEP >= 8:
+        pb[0xC000 + B6_AMT] = b5[AMT]
+    return pa, pb, {0xC000 + M_VOLUME: 1.0}
+
+
+def sim_b5(panel):
+    b5 = b5_from_panel(panel)
+    for v in range(NV):
+        b5[PITCH[v]], b5[GATE[v]], b5[TRIG[v]] = (69 - 12) / 12.0, 0.0, 0.0
+    return b5
+
+
+def sim_event(b5, v, note):
+    if note is None:
+        b5[GATE[v]] = 0.0
+    else:
+        b5[PITCH[v]] = (note - 12) / 12.0
+        b5[GATE[v]] = 1.0
+        b5[TRIG[v]] = 1.0 - b5[TRIG[v]]
+
+
 def simulate(progs, events, n, panel=None):
-    """events: {sample: [(voice, note or None for off)]}; returns (master A118 per sample, slave B count)"""
+    """events: {sample: [(voice, note or None for off)]}; returns master A118 per sample. On the C core of the
+    emulator (examples/from_scratch/emu/cchain.py, native code): slave A = DSP 0 of one cchain.Slave, slave B and
+    master B = DSPs 0 and 1 of another (B's 6006 / 6007 reach the master through the shared IOMD in the same sample),
+    bank 5 copied A -> B -> A around each sample (one bank 5 for the slave pair, as simulate_py). Banks 0 / 1 are
+    whole rings (S+1 per sample). SIM=py: simulate_py (re/dspisa.py, slow); --sim-check compares the two."""
+    if os.environ.get('SIM') == 'py':
+        return simulate_py(progs, events, n, panel)
+    import ctypes as C
+    sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 'emu'))
+    import chain
+    import cchain
+    P = {k: chain.Program(progs[k][0], k) for k in ('s1m0', 's1m1', 's1mm1')}
+    sa = cchain.Slave({0: (P['s1m0'], [])})
+    sb = cchain.Slave({0: (P['s1m1'], []), 1: (P['s1mm1'], [])})
+    panel = panel or panel_defaults()
+    b5 = sim_b5(panel)
+    pa, pb, pm = sim_params(b5, panel)
+    sa.params.update(pa)
+    sb.params.update({**pb, **pm})
+    a5, b5c, m5 = sa.d[0].bank5, sb.d[0].bank5, sb.d[1].bank5
+    for k, v in b5.items():
+        a5[k & 0x3FF] = v
+    size = C.sizeof(a5)
+    out = []
+    for t in range(n):
+        if t in events:
+            for v, note in events[t]:
+                sim_event(b5, v, note)
+                for k in (PITCH[v], GATE[v], TRIG[v]):
+                    a5[k & 0x3FF] = b5[k]
+        sa.step()
+        C.memmove(b5c, a5, size)
+        sb.step()
+        C.memmove(a5, b5c, size)
+        out.append(m5[M_OUT[0] & 0x3FF])
+    return out
+
+
+def simulate_py(progs, events, n, panel=None):
+    """the reference in Python (re/dspisa.py, minutes): dict memories, the ring words of the voice blocks moved by
+    hand (S -> S+1), registers 0 at the start of each program"""
     import dspdis
     import dspisa
     code = {k: [i for _, i in dspdis.instructions(progs[k][0])] for k in ('s1m0', 's1m1', 's1mm1')}
-    b5 = b5_from_panel(panel or panel_defaults())
-    for v in range(NV):
-        b5[PITCH[v]], b5[GATE[v]], b5[TRIG[v]] = (69 - 12) / 12.0, 0.0, 0.0
+    panel = panel or panel_defaults()
+    b5 = sim_b5(panel)
+    pa, pb, pm = sim_params(b5, panel)
+    span = 0x20 if STEP >= 8 else 0x10
     rings = {'s1m0': [x + o for x in A_BASE for o in range(0, 16, 2)],
-             's1m1': [x + o for x in B_BASE for o in range(0, 16, 2)]}
+             's1m1': [x + o for x in (STEP_B_BASE if STEP else B_BASE) for o in range(0, span, 2)]}
     mem = {'s1m0': {}, 's1m1': {}}
-    mem_m = {0xC000 + M_VOLUME: 1.0}
+    mem_m = dict(pm)
     out = []
     for t in range(n):
         for v, note in events.get(t, []):
-            if note is None:
-                b5[GATE[v]] = 0.0
-            else:
-                b5[PITCH[v]] = (note - 12) / 12.0
-                b5[GATE[v]] = 1.0
-                b5[TRIG[v]] = 1.0 - b5[TRIG[v]]
+            sim_event(b5, v, note)
         for key in ('s1m0', 's1m1'):
             m = mem[key]
             for s in sorted(rings[key], reverse=True):
                 m[s + 1] = m.get(s, 0.0)
-            m[0xC000] = 1.0
-            if key == 's1m1':                            # bank-6 parameters of DSP B (FCEC from the ARM)
-                for i in range(4):
-                    m[0xC000 + B6_AENV + i] = b5[AENV + i]
-                m[0xC000 + B6_CUT], m[0xC000 + B6_RES], m[0xC000 + B6_KT] = b5[CUT], b5[RES], b5[KT]
-                m[0xC000 + B6_GAIN] = b5[COMP] / 2
-            else:                                        # DSP A: ranges 8', fine tune centre, saw
-                m[0xC000 + B6_RANGE1] = m[0xC000 + B6_RANGE2] = m[0xC000 + B6_FINE2] = 0.0
-                for base, wv in ((B6_WAVE1, SIM_WAVES[0]), (B6_WAVE2, SIM_WAVES[1])):
-                    for i in range(3):
-                        m[0xC000 + base + i] = float(STEP_WAVES[wv][i])
+            m.update(pb if key == 's1m1' else pa)
             m.update(b5)
             regs = [0.0] * 8
             for x in code[key]:
@@ -716,9 +779,6 @@ def simulate(progs, events, n, panel=None):
     return out
 
 
-SIM_WAVES = [0, 0]                          # wave selector of OSC1 / OSC2 in simulate()
-
-
 def freq(seq):
     cross = [t for t in range(1, len(seq)) if seq[t - 1] < 0 <= seq[t]]
     return (len(cross) - 1) * FS / (cross[-1] - cross[0]) if len(cross) > 2 else 0.0
@@ -735,6 +795,8 @@ def main():
     open(os.path.join(HERE, 'build', 's1_programs.h'), 'w').write(header(progs))
     if '--sim' in sys.argv:
         sim_report(progs)
+    if '--sim-check' in sys.argv:
+        sim_check(progs)
 
 
 def sim_report(progs):
@@ -745,6 +807,34 @@ def sim_report(progs):
     print('8 notes: peak %.3f' % max(abs(x) for x in seq[200:]))
     seq = simulate(progs, {}, 2000)
     print('no notes: peak %.6f' % max(abs(x) for x in seq))
+
+
+def sim_check(progs):
+    """the C core against the Python reference, sample by sample (SIM_CHECK_N samples, 2 notes, one released); then
+    (steps) the packed programs against the unpacked ones on the C core (SIM_PACK_N samples, 8 notes, released)"""
+    n = int(os.environ.get('SIM_CHECK_N', '600'))
+    ev = {0: [(0, 69)], 50: [(1, 64)], n // 2: [(0, None)]}
+    filt = dict(panel_defaults(), osc1_wave=1, osc2_wave=2, cutoff=120, res=200, amount=220, kt=128,
+                fenv=(10, 90, 60, 40), aenv=(5, 100, 200, 30))
+    os.environ['SIM'] = 'c'
+    for name, panel in (('defaults', None), ('filter + envelopes', filt)):
+        c = simulate(progs, ev, n, panel)
+        py = simulate_py(progs, ev, n, panel)
+        bad = [t for t in range(n) if c[t] != py[t]]
+        print('sim check, %s, %d samples: %s (peak %.4f)' % (name, n, 'identical' if not bad else
+              '%d differ, first at %d: C %r, Python %r' % (len(bad), bad[0], c[bad[0]], py[bad[0]]), max(map(abs, c))))
+    if STEP == 0:
+        return
+    n = int(os.environ.get('SIM_PACK_N', '19200'))
+    ev = {0: [(v, 48 + 3 * v) for v in range(NV)], n // 2: [(v, None) for v in range(0, NV, 2)]}
+    packed, unpacked = sources(True), sources(False)
+    for name, panel in (('defaults', None), ('filter + envelopes', filt)):
+        a = simulate(packed, ev, n, panel)
+        b = simulate(unpacked, ev, n, panel)
+        bad = [t for t in range(n) if a[t] != b[t]]
+        print('pack check, %s, %d samples: %s (peak %.4f)' % (name, n, 'identical' if not bad else
+              '%d differ, first at %d: packed %r, unpacked %r' % (len(bad), bad[0], a[bad[0]], b[bad[0]]),
+              max(map(abs, a))))
 
 
 if __name__ == '__main__':

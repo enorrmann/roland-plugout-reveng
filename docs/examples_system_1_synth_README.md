@@ -11,7 +11,7 @@ Extiende C-S1V8 ([examples_system_1_README.md](examples_system_1_README.md) §7)
 código ARM y el microcódigo son nuestros; los programas de Roland sólo se leyeron para estudiar los mecanismos. Qué
 es cada archivo: `examples/system_1_synth/FILES.md`.
 
-Etiquetas: **[medido]** = probado en el equipo, **[sim]** = simulador `re/dspisa.py`, **[código]** = visto en los
+Etiquetas: **[medido]** = probado en el equipo, **[sim]** = simulador (`re/dspisa.py` o su núcleo C, §1), **[código]** = visto en los
 binarios de Roland (estudio), **[inferido]**, **[abierto]**.
 
 ## 1. Uso
@@ -24,6 +24,29 @@ python3 tools/plugout_tool.py install plugins/C-S1SY --slot 1 --force --no-patch
 
 Después de instalar hay que seleccionar el PLUG-OUT en el panel. Opciones de la build: `STEP` (paso, por defecto 8),
 `PACK` (empaquetado, por defecto 1), `GMAX` (tope del filtro, por defecto 0,7), `NAME`, `PARAMLOG`, `PAD`, `VOICES`.
+
+Simulación sin equipo:
+
+```sh
+python3 examples/system_1_synth/make_synth.py --sim         # La 440, 8 notas, silencio: unos 2 s
+SIM=py python3 examples/system_1_synth/make_synth.py --sim  # lo mismo con el simulador de referencia (minutos)
+python3 examples/system_1_synth/make_synth.py --sim-check   # núcleo C contra la referencia, muestra a muestra
+```
+
+`--sim` corre en el núcleo C del emulador (`examples/from_scratch/emu/cchain.py`, programas traducidos a código
+nativo): el esclavo A es el DSP 0 de un `cchain.Slave`; el esclavo B y el master B son los DSP 0 y 1 de otro (las
+salidas `6006`/`6007` de B llegan al master por el IOMD compartido en la misma muestra). El banco 5 se copia
+A → B → A alrededor de cada muestra, el mismo modelo de un banco 5 por pareja que la referencia Python
+(`simulate_py`, `re/dspisa.py`). Rendimiento: 16 400 muestras en 2,4 s, frente a 3 440 muestras en 3 min 24 s con
+la referencia (unas 400 veces más rápido). `--sim-check` da salidas idénticas bit a bit en 600 muestras con dos notas
+(una se suelta) [sim], con el panel por defecto y con filtro, resonancia y ambas envolventes activas. Después
+compara, en el núcleo C, los programas empaquetados (`pack()`, §5) con los mismos sin empaquetar (`sources(False)`):
+19 200 muestras, 8 notas, la mitad soltadas a mitad, los mismos dos paneles. Todo `--sim-check` tarda
+unos 80 s, casi todos de la referencia Python. Las longitudes salen de `SIM_CHECK_N` (600) y `SIM_PACK_N` (19 200).
+
+La referencia antes de este cambio tenía dos huecos en el paso 8, ya corregidos: no escribía los parámetros `C050`–`C053`
+(ADSR del filtro) ni `C04C` (cantidad) del DSP B, y movía a mano el anillo con el paso de bloque 0x10 de B en vez
+de 0x20. El núcleo C mueve los bancos 0 y 1 enteros como anillos (S+1 por muestra).
 
 ## 2. Pasos
 
@@ -106,6 +129,9 @@ Resultados:
 * paso 7: el DSP A pasa de 826 a 587;
 * [sim] el paso 6 empaquetado da las mismas muestras que sin empaquetar (1600 muestras, tres notas, filtro y
   resonancia; diferencia 0,0);
+* [sim] el paso 8 empaquetado (DSP A 587, B 660, master 9 instrucciones; sin empaquetar 826 / 1031 / 13) da salidas
+  idénticas bit a bit a las de sin empaquetar (`make_synth.py --sim-check`, 2026-10-23: 19 200 muestras, 8 notas,
+  4 soltadas; panel por defecto y panel con filtro, resonancia y ambas envolventes);
 * [medido] el paso 6 y el paso 7 empaquetados funcionan igual en el equipo. Con eso queda confirmado que **una carga
   se puede usar en la instrucción siguiente**.
 
