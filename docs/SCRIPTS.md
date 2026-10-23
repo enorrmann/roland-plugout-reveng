@@ -200,3 +200,9 @@ install to run the lab.
 
 Scripts write their outputs to `work/…` (and `dumps/`) at the repo root, so run
 them from the repository root.
+
+## Documentation checks
+
+| command | what |
+|---|---|
+| `python3 tools/doccheck.py FILE.md…` | assembles every fenced `dsp` code block of the technical documents (WAVE_BUS, VOICE_ALLOCATION of both devices); exit 1 if one fails |

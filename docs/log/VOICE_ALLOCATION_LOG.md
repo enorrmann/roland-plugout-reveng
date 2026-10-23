@@ -1,3 +1,5 @@
+> **Bitácora (congelada el 2026-10-22).** Texto original de `docs/VOICE_ALLOCATION.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`VOICE_ALLOCATION.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`VOICE_ALLOCATION.md`](../VOICE_ALLOCATION.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
+
 # Asignación de voces de Roland: qué DSP hace qué (estudio, 2026-10-22)
 
 Objetivo: saber, con datos, qué programa corre en cada DSP y cómo viaja una voz (tono, puerta, osciladores,

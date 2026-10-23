@@ -1,4 +1,4 @@
-"""Signature check: no Roland microcode in a build or in our programs (docs/VOICE_ALLOCATION.md §7).
+"""Signature check: no Roland microcode in a build or in our programs (docs/log/VOICE_ALLOCATION_LOG.md §7).
 
     python3 sigcheck.py FILE...      FILE = a built region (.bin) or a program (.hex / .txt, 16-bit words)
 

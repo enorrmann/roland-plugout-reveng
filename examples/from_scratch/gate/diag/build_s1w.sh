@@ -1,5 +1,5 @@
 #!/bin/sh
-# Slave-1 output search (docs/WAVE_BUS.md §4q): mini's engine with a fixed drone per slave (440 Hz slave 0,
+# Slave-1 output search (docs/log/WAVE_BUS_LOG.md §4q): mini's engine with a fixed drone per slave (440 Hz slave 0,
 # 660 Hz slave 1) and our voice written to every IOMD word 6000-601F (make_voice.py, DRONE + ALLOUT).
 #   NAME=C-S1W examples/from_scratch/gate/diag/build_s1w.sh
 set -e

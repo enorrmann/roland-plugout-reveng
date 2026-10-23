@@ -17,7 +17,7 @@ python3 system-1/dsp_fit.py --budget 945 --reserve-ma 0 --samples 4000
 
 Necesita `examples/from_scratch/engine/build/programs.h` (lo crea `examples/from_scratch/engine/build.sh` a partir de
 `plugins/JX-3P`). El microcódigo se lee de esa copia local en tiempo de ejecución; no se copia nada al repo
-(alcance de la regla de [VOICE_ALLOCATION.md](../docs/VOICE_ALLOCATION.md) §7). Tarda unos 10 s con 1500 muestras.
+(alcance de la regla de [VOICE_ALLOCATION_LOG.md](../docs/log/VOICE_ALLOCATION_LOG.md) §7). Tarda unos 10 s con 1500 muestras.
 Código de salida 0 si cabe, 1 si no.
 
 | opción | por defecto | qué es |
@@ -44,7 +44,7 @@ Código de salida 0 si cabe, 1 si no.
    * salida audible `6020`/`6021`.
 3. **Reparto en el SYSTEM-1**: prueba todas las asignaciones de los programas principales a los cuatro DSP (esclavo
    A/B, maestro A/B); cada ranura (DCO, efecto) va a uno de los dos DSP del **mismo chip** que su principal, porque se
-   hablan por el banco 1 (que A y B comparten [inferido], `VOICE_ALLOCATION.md` §3.1). Condiciones:
+   hablan por el banco 1 (que A y B comparten [inferido], `VOICE_ALLOCATION.md` §3.2). Condiciones:
    * cada DSP ≤ `--budget` (el maestro A con `--reserve-ma` ya ocupado);
    * palabras esclavo → maestro ≤ 8 (IOMD `6006`–`600D`; la salida de audio cuenta aquí si sale del esclavo);
    * palabras maestro → esclavo ≤ 20 (`600E`–`6021`).

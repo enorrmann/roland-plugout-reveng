@@ -1,3 +1,5 @@
+> **Bitácora (congelada el 2026-10-22).** Texto original de `docs/WAVE_BUS.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`WAVE_BUS.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`WAVE_BUS.md`](../WAVE_BUS.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
+
 # Bus de audio entre los DSP del SYSTEM-8 (slaves → maestro)
 
 SYSTEM-1: `system-1/WAVE_BUS.md` (esclavo → IOMD `6006`–`600D` → maestro B → `A118`/`A119` → salida).

@@ -639,7 +639,7 @@ Documento técnico completo: `CUSTOM_OSC.md`.
 ## Posibles próximos pasos: emulador (2026-10-17, decidido dejarlo para otra sesión)
 
 > 2026-10-22: plan actualizado en `EMULATOR.md`. Hecho en parte, sin Unicorn: `examples/from_scratch/emu/` emula los seis DSP de un slave (y dos slaves)
-> con nuestros programas, en Python (`VOICE_ALLOCATION.md` §6).
+> con nuestros programas, en Python (`log/VOICE_ALLOCATION_LOG.md` §6).
 > 2026-10-22 (más tarde): núcleo del DSP en C, código nativo e hilos: un slave del JX-3P en tiempo real, bit a bit igual
 > a `chain.py`. Estado y pendientes en `EMULATOR.md` §5.
 Idea del usuario: correr los binarios ARM originales en un emulador de CPU y escribir en C sólo el DSP.
@@ -960,7 +960,7 @@ Pendiente (osciladores, cuando se retome):
 
 ## C-V4: plug-out propio de ocho voces (2026-10-22)
 
-Detalle en `FROM_SCRATCH.md` (cómo se construye) y `VOICE_ALLOCATION.md` §6–§8 (análisis, emulador, medida, límite de
+Detalle en `FROM_SCRATCH.md` (cómo se construye) y `log/VOICE_ALLOCATION_LOG.md` §6–§8 (análisis, emulador, medida, límite de
 voces). Resumen:
 * `C-V3` sólo sonaba la voz 0. El emulador nuevo (`examples/from_scratch/emu/`, 20 pruebas) encontró tres errores en
   nuestra cadena: el desfase de MXM que no existe, las voces de DSP5 hacia `60B0` (no se oye) y la falta de la suma de

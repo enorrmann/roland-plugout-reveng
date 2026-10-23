@@ -6,7 +6,7 @@
     python3 system-1/dsp_fit.py --voices 2            # only the voice-0/1 chain (DSP0 -> DSP2 -> DSP4)
     python3 system-1/dsp_fit.py --budget 900 --reserve-ma 60 --samples 4000
 
-Study only (docs/VOICE_ALLOCATION.md §7 scope): Roland's programs are read at run time from the local copy
+Study only (docs/log/VOICE_ALLOCATION_LOG.md §7 scope): Roland's programs are read at run time from the local copy
 `examples/from_scratch/engine/build/programs.h` (made by engine/build.sh from plugins/JX-3P), run in the C emulator
 (`examples/from_scratch/emu/cchain.py`) and disassembled with `emu/listing.py`. Nothing is copied into the repo.
 MAIN0/MAIN1 of programs.h carry the same-size envelope patches of engine/programs.py; the count is the same.

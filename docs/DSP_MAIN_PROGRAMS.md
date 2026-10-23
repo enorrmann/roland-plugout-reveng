@@ -1,6 +1,6 @@
 # Programas principales de los DSP (MAIN0–MAIN5): qué son y dónde corren
 
-Estado: 2026-10-21 (correcciones del 2026-10-22 marcadas; flujo completo en `VOICE_ALLOCATION.md` §6.2). Descripción de los seis programas principales del microcódigo de voz del JX-3P (PLUG-OUT de
+Estado: 2026-10-21 (correcciones del 2026-10-22 marcadas; flujo completo en `log/VOICE_ALLOCATION_LOG.md` §6.2). Descripción de los seis programas principales del microcódigo de voz del JX-3P (PLUG-OUT de
 Roland), con qué parte de la voz hace cada uno y en qué DSP corre. Las etiquetas: **[medido]** = observado en el
 equipo o por audio; **[inferido]** = deducido del listado estático de Roland, sin prueba en el equipo;
 **[abierto]** = sin resolver.
@@ -17,8 +17,8 @@ principal por medio de la mailbox `22nn` (ver `CUSTOM_OSC.md` §2).
 | MAIN1 | 0x139A | 2509 | igual que MAIN0 para la segunda voz del par (A/B con otras direcciones) |
 | MAIN2 | 0x0814 | — | DSP2 (osciladores): reenvía lo que lee de MXM (`8005`…) a su Z `8405`…; escribe la sincronía y el metal de DCO2 (`[2209]`, `[220a]`, `[220b]`) [medido por audio] |
 | MAIN3 | 0x07E2 | — | DSP3: como MAIN2, para el otro par de voces del slave [inferido] |
-| MAIN4 | 0x1436 | — | DSP4 (filtro y VCA): copia `8005`–`8016` a `[220E]`–`[2219]`; la envolvente de amplitud `[029D]`; **escribe la salida a IOMD** `6020`–`6024` y `6060`–`6066` (incondicional, al final) [medido, `WAVE_BUS.md` §3] |
-| MAIN5 | 0x1398 | — | DSP5: filtro/VCA de las voces 2 y 3; las entrega a DSP4 por el buzón de pareja `A400`–`A403`, que MAIN4 suma a la salida [listado, `VOICE_ALLOCATION.md` §6]; además copia a IOMD `60B0`–`60B7` (silenciosas [medido]) |
+| MAIN4 | 0x1436 | — | DSP4 (filtro y VCA): copia `8005`–`8016` a `[220E]`–`[2219]`; la envolvente de amplitud `[029D]`; **escribe la salida a IOMD** `6020`–`6024` y `6060`–`6066` (incondicional, al final) [medido, `log/WAVE_BUS_LOG.md` §3] |
+| MAIN5 | 0x1398 | — | DSP5: filtro/VCA de las voces 2 y 3; las entrega a DSP4 por el buzón de pareja `A400`–`A403`, que MAIN4 suma a la salida [listado, `log/VOICE_ALLOCATION_LOG.md` §6]; además copia a IOMD `60B0`–`60B7` (silenciosas [medido]) |
 
 Los tamaños y las palabras de MAIN0/MAIN1 se comprobaron con el SHA-256 de `engine/programs.py`
 (coinciden con el PLUG-OUT JX-3P 1.01, `plugins/JX-3P/Script/Code8_1.Dat`).
@@ -36,15 +36,15 @@ Un BMC esclavo tiene seis DSP (DSP0..DSP5) que comparten IOMD y MXM con sus veci
 | DSP4 | MAIN4 | efecto en `0xB000` (PLUG-OUT) | — | filtro y VCA, salida a IOMD |
 | DSP5 | MAIN5 | — | — | voces 2 y 3 → DSP4 por `A400`–`A403`; copia a IOMD `60B0`–`60B7` |
 
-Fuente: `docs/ARCHITECTURE.md` (tabla de slaves) y `docs/WAVE_BUS.md` §2–§3 (listados de MAIN4/MAIN5).
+Fuente: `docs/ARCHITECTURE.md` (tabla de slaves) y `docs/log/WAVE_BUS_LOG.md` §2–§3 (listados de MAIN4/MAIN5).
 
 **Qué no está resuelto:**
 - ~~**[abierto]** En qué esclavo corre MAIN0 y en cuál MAIN1~~ **Resuelto 2026-10-22:** los dos slaves corren los seis
   principales; MAIN0 en el DSP0 y MAIN1 en el DSP1 de **cada** slave (voces locales 0–1 y 2–3) [código `e_load`;
-  medido con C-SAWPOLY y C-V4, `VOICE_ALLOCATION.md` §6].
+  medido con C-SAWPOLY y C-V4, `log/VOICE_ALLOCATION_LOG.md` §6].
 - **[abierto]** El camino completo de la envolvente de amplitud: ENV2 de MAIN0 → DSP2 → DSP4 (`[0261]` → MXM `840A`
   → `[029D]`), con una contradicción señalada en `WAVE_BUS.md` (§4k-ter, línea 348).
-- **[abierto]** Por qué sólo algunas palabras de salida llegan al audio (`WAVE_BUS.md` §5).
+- **[abierto]** Por qué sólo algunas palabras de salida llegan al audio (`log/WAVE_BUS_LOG.md` §5).
 
 ## 3. Envolventes y LFO dentro de MAIN0/MAIN1
 
@@ -55,7 +55,7 @@ Localización en el listado de MAIN0 (`dsp/dump_main.py MAIN0`, numeración de i
 - LFO: rate `A028` ← `0x3EF`/`0x6CF`, forma `A02C` ← `0x6CD`, delay `A02D` ← `0x6CE` (`NOTES.md` "ISA del DSP").
 - Salidas de envolventes y LFO a MXM `8405`–`8416` (líneas 613–636).
 
-Experimentos previos (`WAVE_BUS.md` §4k–§4p): con env2 = 0 desaparece el ataque lento aunque env1 = 255, y al revés
+Experimentos previos (`log/WAVE_BUS_LOG.md` §4k–§4p): con env2 = 0 desaparece el ataque lento aunque env1 = 255, y al revés
 vuelve; el ataque lento lo da ENV2 [medido, dos sentidos].
 
 ## 4. Cómo reproducir el listado
@@ -75,5 +75,5 @@ que se instala. `re/dspmc.py` `words()` da las palabras en orden de ejecución (
   al fichero. Un programa más largo que el registrado no se ejecuta entero (`engine/build.sh`).
 - Regla vigente del usuario (2026-10-21): cada componente conserva el DSP y la ranura que Roland le asignó (oscilador
   en DSP2/3, LFO y envolvente en DSP0/1, filtro y VCA en DSP4/5); se reemplaza el programa en su mismo DSP y ranura, y
-  no se mueve ni se reúne con otra función (`docs/WAVE_BUS.md` §4g). Un intento de desactivar ENV/LFO sin tocar MAIN0/MAIN1
+  no se mueve ni se reúne con otra función (`docs/log/WAVE_BUS_LOG.md` §4g). Un intento de desactivar ENV/LFO sin tocar MAIN0/MAIN1
   (dejar el código, no usarlo) va primero; reemplazar MAIN0/MAIN1 es el paso siguiente, no el primero.

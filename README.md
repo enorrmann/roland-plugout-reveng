@@ -39,7 +39,7 @@ What this project is not:
 | Region 0 init hook reading OS RAM and the SD card | works | `examples/mem_name`, `examples/sd_txt` |
 | Own C engine and own region 0 (parameter model), own packaging | plays | `examples/from_scratch/`, `docs/examples_from_scratch_engine_README.md` |
 | Own DSP microcode: sawtooth oscillator at 96 kHz (±1.2 cents) | works | `docs/CUSTOM_OSC.md` |
-| `C-V4`: fully own PLUG-OUT (own region 0, engine and all six main DSP programs, no Roland microcode), eight voices on both slaves | works (sawtooth with gate only) | [`docs/FROM_SCRATCH.md`](docs/FROM_SCRATCH.md), [`docs/VOICE_ALLOCATION.md`](docs/VOICE_ALLOCATION.md) §6 |
+| `C-V4`: fully own PLUG-OUT (own region 0, engine and all six main DSP programs, no Roland microcode), eight voices on both slaves | works (sawtooth with gate only) | [`docs/FROM_SCRATCH.md`](docs/FROM_SCRATCH.md), [`docs/VOICE_ALLOCATION.md`](docs/VOICE_ALLOCATION.md) §7 |
 | Wavetable player (WAV → bank 5 → DSP) and `C-WTLIVE` live table | works | `examples/wt_live/`, `examples/from_scratch/re/wt5.py` |
 | Live DSP peek and poke from the host | works | `docs/DSP_HARDWARE.md`, `examples/from_scratch/re/dsplive.py` |
 | S8LAB lab image in PLG1: OSC1 COLOR changes the timbre | works (not monotonic) | `examples/sys8_lab/`, `docs/PLAN.md` |

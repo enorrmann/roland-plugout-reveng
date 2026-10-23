@@ -1,4 +1,4 @@
-"""v4: our own MAIN0-MAIN5 with the data flow found in docs/VOICE_ALLOCATION.md §6 (no Roland bytes).
+"""v4: our own MAIN0-MAIN5 with the data flow found in docs/log/VOICE_ALLOCATION_LOG.md §6 (no Roland bytes).
 
 Changes against v3 (make_v3.py), one per question of the study:
   A / D  the DCO2 slot writes [2221] / [2229]; bank 1 is a ring, so the main program reads them one sample later at

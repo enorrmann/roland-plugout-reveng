@@ -3,7 +3,7 @@
     python3 patch_ids.py                 -> base check and the ENV, PIT and FLT tables
     python3 patch_ids.py "ENV2 ATTACK"   -> id of one name
 
-Method (2026-10-21, docs/WAVE_BUS.md §4l-§4m):
+Method (2026-10-21, docs/log/WAVE_BUS_LOG.md §4l-§4m):
   1. Read every <value> that has <name>, <range> and <default> in document order (system fields without range are skipped).
   2. Find the base b such that id = b + index matches the INIT patch of model/params.py (100 % of its entries).
   3. Check the names against the model (engine/model_spec.py: env_value uses 0x6ef / 0x6f4 for ENV1 / ENV2).

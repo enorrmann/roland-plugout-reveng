@@ -1,4 +1,4 @@
-"""Tests of the voice-chain study (docs/VOICE_ALLOCATION.md §6), one group per question A-H, plus regressions.
+"""Tests of the voice-chain study (docs/log/VOICE_ALLOCATION_LOG.md §6), one group per question A-H, plus regressions.
 
     python3 test_chain.py              all tests on the C core (cchain.py, a few seconds)
     python3 test_chain.py A G          only the tests whose name contains test_A / test_G

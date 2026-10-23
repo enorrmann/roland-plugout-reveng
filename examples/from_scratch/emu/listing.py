@@ -5,7 +5,7 @@ and MAIN1 carry the envelope patches of programs.py, which do not touch any bus 
 asm/disasm.py, as dsp/dump_main.py does.
 
     python3 listing.py MAIN4                  loads and stores of banks 1, 3, 4, 5 per instruction
-    python3 listing.py --summary              the cross-program facts used by docs/VOICE_ALLOCATION.md §6
+    python3 listing.py --summary              the cross-program facts used by docs/log/VOICE_ALLOCATION_LOG.md §6
 """
 import os
 import re

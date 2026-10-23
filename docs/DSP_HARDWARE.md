@@ -227,11 +227,11 @@ Y = palabras a saltear; 3: lee 0). h6 = índice de `28` (banco 0) y de `da`/`de`
 | banco | referencias | contenido | comportamiento medido |
 |---|---|---|---|
 | 0 | `0nnn` | DT0: RAM de datos, 0x800 palabras | **anillo** (§7.2); 2 lecturas por instrucción |
-| 1 | `2nnn` | DT1: buzón principal ↔ ranura (`22nn`) | usado como entrada y salida de las ranuras DCO. **2026-10-22:** propio de cada DSP salvo DSP0/DSP1 (tabla del ARM) y, por los listados, **anillo** como el banco 0 [medido con C-V4] (`VOICE_ALLOCATION.md` §6.7) |
+| 1 | `2nnn` | DT1: buzón principal ↔ ranura (`22nn`) | usado como entrada y salida de las ranuras DCO. **2026-10-22:** propio de cada DSP salvo DSP0/DSP1 (tabla del ARM) y, por los listados, **anillo** como el banco 0 [medido con C-V4] (`log/VOICE_ALLOCATION_LOG.md` §6.7) |
 | 2 | `4nnn` | DT2: ventana de la línea de retardo | dos páginas que alternan por muestra; DMA de retardo donde el ARM lo conectó (§8.4) |
 | 3 | `6nnn` | IOMD: palabras de E/S (§8.3) | no es memoria: entradas y salidas con dueño |
 | 4 | `8nnn` | MXM: bus entre DSP, zonas M/O/Z/S de 0x200 palabras | §8.2 |
-| 5 | `Annn` | DPC: memoria simple persistente, 0x400 palabras (0x400–0x7FF: sólo dentro de la muestra; **2026-10-22:** en los principales de Roland es el buzón de la pareja de DSP; DSP5 → DSP4 medido con C-V4, `VOICE_ALLOCATION.md` §6.7) | 1 lectura por instrucción; indexable con h6/h7 (§7.4); el ARM la lee y escribe (mejor lugar para resultados de prueba y **tablas**) |
+| 5 | `Annn` | DPC: memoria simple persistente, 0x400 palabras (0x400–0x7FF: sólo dentro de la muestra; **2026-10-22:** en los principales de Roland es el buzón de la pareja de DSP; DSP5 → DSP4 medido con C-V4, `log/VOICE_ALLOCATION_LOG.md` §6.7) | 1 lectura por instrucción; indexable con h6/h7 (§7.4); el ARM la lee y escribe (mejor lugar para resultados de prueba y **tablas**) |
 | 6 | `Cnnn` | parámetros que escribe el ARM | sólo lectura para el DSP |
 | 7 | `Ennn` | ? (`e013` lo lee el JX como fuente) | [desconocido] |
 
@@ -275,7 +275,7 @@ ranuras DCO `2207`, `2209`–`220c`), banco 5 (`a1fe`/`a2fe` en las ranuras de e
 inferido]**
 **2026-10-22** [medido con C-V4]: el principal corre antes que las ranuras; escribe la entrada (`[2207]`) y la ranura
 la lee en la misma muestra y dirección; la ranura escribe la salida (`[2221]`) y el principal la lee en `[2222]` en
-la muestra siguiente, porque el banco 1 es un anillo (`VOICE_ALLOCATION.md` §6.3 D/F).
+la muestra siguiente, porque el banco 1 es un anillo (`log/VOICE_ALLOCATION_LOG.md` §6.3 D/F).
 
 ### 8.2 Entre DSP del mismo BMC: MXM (banco 4) **[medido en el maestro, DSP3 ↔ DSP4]**
 * Son loads y stores comunes a las zonas M (`80nn`/`81nn`), O (`82nn`/`83nn`), Z (`84nn`/`85nn`), S
@@ -292,10 +292,10 @@ la muestra siguiente, porque el banco 1 es un anillo (`VOICE_ALLOCATION.md` §6.
   IOMD; zonas de entrada M ← Z del DSP par del par anterior, O ← Z del DSP impar; S = retorno desde el DSP dos
   posiciones adelante (DSP2 M → DSP0 S, DSP4 M → DSP2 S). **[inferido del corpus; la parte DSP3/DSP4 medida]**
   **2026-10-22:** en los slaves medido con C-V4: DSP0 → DSP2 M, DSP1 → DSP3 O, DSP2 Z `4nn` → DSP4 M `nn`, DSP3 → DSP5 O,
-  con el mismo número de palabra (`VOICE_ALLOCATION.md` §6.7).
+  con el mismo número de palabra (`log/VOICE_ALLOCATION_LOG.md` §6.7).
 * **Buzón de pareja (banco 5 `A400`–`A7FF`)** [listado; DSP5 → DSP4 medido con C-V4]: otra vía entre los dos DSP de
   una pareja, además de MXM. DSP5 → DSP4 `A400`–`A403`, DSP4 → DSP5 `A404`–`A407`, DSP0 → DSP1 `A404`… (§7.1,
-  `VOICE_ALLOCATION.md` §6.2).
+  `log/VOICE_ALLOCATION_LOG.md` §6.2).
 * **Entre slaves** [medido con C-V4]: el slave 1 llega al audio cuando el DSP4 del slave 0 suma sus entradas IOMD
   `6000`–`6003`. Qué palabra del slave 1 va a cada entrada: abierto.
 

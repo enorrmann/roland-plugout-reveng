@@ -343,7 +343,7 @@ m1_sdram 0x61003794 IDM/EDM/WVM monitor, 0x6100123C resource usage, 0x6100B84E M
 
 ## 6. Verificación y correcciones (2026-10-22, emulador y listados)
 
-Estudio completo en `VOICE_ALLOCATION.md` §6; aquí sólo lo que corrige o amplía este documento. Etiquetas:
+Estudio completo en `log/VOICE_ALLOCATION_LOG.md` §6; aquí sólo lo que corrige o amplía este documento. Etiquetas:
 [listado] = microcódigo o binario ARM desensamblado; [inferido] = deducción con la medida que la confirmaría.
 
 * **Banco 1 (DT1) no se comparte por pares** [listado]. La tabla de bancos del OS del slave (`s_boot` `0x0111C580`,
@@ -355,7 +355,7 @@ Estudio completo en `VOICE_ALLOCATION.md` §6; aquí sólo lo que corrige o ampl
   `[221B]`–`[2229]` (impares) y MAIN2/MAIN3 las leen en `[221C]`–`[222A]` (+1), nunca en la dirección escrita; nadie
   escribe las pares. MAIN0 guarda `[2200]` y lee `[2201]`. Es el mismo idioma "guardar en S, leer S+1" del banco 0
   (`DSP_HARDWARE.md` §7.2). Igual en JX-3P, JUNO-60, JUNO-106, JUPITER-4 y JUPITER-8 (`emu/allplugouts.py`). **Medido
-  2026-10-22:** C-V4, que sólo lee las salidas en `+1`, suena con las ocho voces (`VOICE_ALLOCATION.md` §6.7).
+  2026-10-22:** C-V4, que sólo lee las salidas en `+1`, suena con las ocho voces (`log/VOICE_ALLOCATION_LOG.md` §6.7).
 * **Banco 5 `A400`–`A7FF` = buzón de la pareja** [listado; medido con C-V4 para DSP5 → DSP4]: ver la viñeta nueva del §3.1. Explica cómo las
   voces 2 y 3 (DSP5) llegan a la salida `6020`/`6021` que escribe DSP4, y corrige la idea de que DSP5 sólo reenvía a
   `60B0` (que no se oye).

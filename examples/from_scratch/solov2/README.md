@@ -2,7 +2,7 @@
 
 Ejemplo nuevo a partir de `dsp/make_solo.py` y `gate/engine_solo.c` (`solo`). `solo` ponía las ocho voces en el
 programa principal de DSP4, sin osciladores en DSP2/DSP3. `solov2` respeta la asignación de Roland
-(`docs/WAVE_BUS.md` §4g): cada componente queda en el DSP y la ranura que Roland le asigna.
+(`docs/log/WAVE_BUS_LOG.md` §4g): cada componente queda en el DSP y la ranura que Roland le asigna.
 
 | componente | DSP | ranura | voces del slave |
 |---|---|---|---|

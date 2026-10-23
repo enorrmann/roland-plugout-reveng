@@ -7,7 +7,7 @@ y obtener el mismo audio que el equipo, para estudiar el microcódigo y probar p
 Etiquetas: **[medido]** = en el equipo; **[código]** = está en nuestro código; **[listado]** = leído del microcódigo
 desensamblado; **[documentado]** = en otro documento del repo; **[inferido]** = deducción sin medir.
 
-**Regla de microcódigo** (`VOICE_ALLOCATION.md` §7): el emulador y sus pruebas **pueden** ejecutar el microcódigo de
+**Regla de microcódigo** (`log/VOICE_ALLOCATION_LOG.md` §7): el emulador y sus pruebas **pueden** ejecutar el microcódigo de
 Roland. Se carga en tiempo de ejecución desde la copia local del usuario (`engine/build/programs.h`,
 `plugins/<NOMBRE>`), como hace `engine/programs.py`, y no se guardan bytes de Roland en el repositorio. La prohibición
 vale sólo para nuestros plug-outs.
@@ -17,7 +17,7 @@ vale sólo para nuestros plug-outs.
 | pieza | qué hace | límite |
 |---|---|---|
 | `examples/from_scratch/emu/chain.py` | seis DSP de un slave (y dos slaves con `Bmc2`): bancos 0/1 en anillo, MXM con cerrojo de 1 muestra, buzón de pareja `A400`…, IOMD, enlace entre slaves. Cada hipótesis es un campo de `Model` | sólo probado con nuestros programas (pequeños); banco 6 = 0; sin banco 2; Python lento |
-| `examples/from_scratch/emu/test_chain.py` | 20 pruebas; el modelo coincide con la medida de C-V4 (`VOICE_ALLOCATION.md` §6.7). Corre sobre el núcleo en C (4,7 s; antes 9 min 36 s); `--py` = `chain.py` | — |
+| `examples/from_scratch/emu/test_chain.py` | 20 pruebas; el modelo coincide con la medida de C-V4 (`log/VOICE_ALLOCATION_LOG.md` §6.7). Corre sobre el núcleo en C (4,7 s; antes 9 min 36 s); `--py` = `chain.py` | — |
 | `examples/from_scratch/emu/cchain.py` + `dspcore.c` + `dspcomp.py` | **núcleo en C** (paso 1): `cchain.Slave` / `Bmc2` con la interfaz de `chain.py`. `dspcomp.py` decodifica cada instrucción una vez con `dspisa.Layout` (el mismo decodificador que `dspisa.run`, no una copia); `dspcore.c` ejecuta. La `.so` se compila sola en `emu/build/` | misma semántica que `dspisa` (con sus huecos de §3.3) |
 | `examples/from_scratch/emu/dspjit.py` + `dspcore.h` | traducción de cada programa a código nativo y grupos de hilos por muestra (§3.6 punto 2): un slave del JX-3P en tiempo real | GCC 14 `-O2` necesita `-fno-gcse -fno-peephole2` (§3.6) |
 | `examples/from_scratch/emu/test_core.py` | C contra `chain.py`, bit a bit: las 15 756 instrucciones distintas del corpus local desde estados al azar, la cadena JX-3P (MAIN0–5 + DCO) muestra a muestra, los 212 programas del corpus en nativo contra el intérprete, nativo con hilos contra serie (4000 muestras), `quant`, v3/v4, velocidad (tiempo real) | — |
@@ -87,7 +87,7 @@ y la ventana de cada DSP/ranura (el ARM la conecta: `+0x310`).
 ### 3.5 Detalles del slave aún abiertos y el maestro
 
 * Slave: si el buzón `A400` llega en la misma muestra o en la siguiente; orden de los DSP dentro de la muestra; qué
-  palabras del slave 1 entran en `6000`–`6003` del slave 0 (`VOICE_ALLOCATION.md` §6.6). Para sonar no importan; para
+  palabras del slave 1 entran en `6000`–`6003` del slave 0 (`log/VOICE_ALLOCATION_LOG.md` §6.6). Para sonar no importan; para
   coincidir bit a bit, sí.
 * Maestro (sólo si se quiere la salida final): DSP del maestro con su microcódigo (efectos globales, master, reverb;
   está en el OS, `m1_tcm`), la región 0 con entrada MIDI y panel, y el bus de onda slaves → maestro (correspondencia
@@ -212,6 +212,6 @@ conectado al núcleo).
 
 ## 6. Referencias
 
-`VOICE_ALLOCATION.md` §6 (modelo del slave, emulador actual), `DSP_HARDWARE.md` §7–§10 (memoria, comunicación, modelo
+`log/VOICE_ALLOCATION_LOG.md` §6 (modelo del slave, emulador actual), `DSP_HARDWARE.md` §7–§10 (memoria, comunicación, modelo
 de ejecución), `DSP_ARM_SIDE.md` (servicios y bancos del ARM), `FROM_SCRATCH.md` (C-V4), `NOTES.md` ("Posibles
 próximos pasos: emulador", plan original con Unicorn y JIT).

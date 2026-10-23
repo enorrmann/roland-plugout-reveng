@@ -24,7 +24,7 @@ What is NOT modelled: the ARM timing (engine writes are injected between samples
 
 The emulator contains no Roland code: the programs are passed in by the caller. Today the tests pass ours (v3/make_v3.py,
 v4/make_v4.py); running Roland's programs, loaded at run time from the local copy, is allowed for study (the
-no-Roland-microcode rule applies only to our own plug-outs, docs/VOICE_ALLOCATION.md §7).
+no-Roland-microcode rule applies only to our own plug-outs, docs/log/VOICE_ALLOCATION_LOG.md §7).
 """
 import os
 import sys
@@ -45,7 +45,7 @@ RING = 0x800
 
 @dataclass
 class Model:
-    """the hardware hypotheses; the defaults are the model that agrees with every measurement (docs/VOICE_ALLOCATION.md §6)"""
+    """the hardware hypotheses; the defaults are the model that agrees with every measurement (docs/log/VOICE_ALLOCATION_LOG.md §6)"""
     ring1: bool = True                 # D: bank 1 is a ring like bank 0
     main_first: bool = True            # F: main program before the slot programs, in the same DSP
     mxm_shift: int = 0                 # G: Z[0x400+i] -> M[i + shift]

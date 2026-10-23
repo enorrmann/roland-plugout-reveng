@@ -3,7 +3,7 @@
 Estado: 2026-10-22. **Construido y probado sin hardware** (emulador DSP + Unicorn). **Sin instalar en el equipo.**
 Es un PLUG-OUT de prueba pedido por el usuario: usa **el código DSP de Roland** (los programas del JX-3P, leídos en
 la build desde `plugins/JX-3P`) y nuestro código ARM. Por eso `build/` y `plugins/C-S1JX/` llevan bytes de Roland:
-**no se suben al repo** (la regla de [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md) §7 sigue valiendo para nuestros
+**no se suben al repo** (la regla de [log/VOICE_ALLOCATION_LOG.md](log/VOICE_ALLOCATION_LOG.md) §7 sigue valiendo para nuestros
 PLUG-OUTs propios; este es la excepción pedida).
 
 Leyenda: **[medido]** en el equipo · **[emulador]** · **[unicorn]** (ARM emulado) · **[código]** · **[inferido]** ·

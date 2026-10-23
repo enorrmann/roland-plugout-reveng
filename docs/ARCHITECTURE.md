@@ -69,7 +69,7 @@ cambio sí puede llamar a los servicios del slave (`0x0113FC00`). Cada slave cor
 | Nota MIDI o tecla | OS del maestro → asignador de la región 0 (`note_on`) → `set(parte, grupo, id, valor)` del kernel (ids de voz `0x429+v`, `0x43A+v`) → el maestro manda rangos de ids modificados → el slave llama a `vt+0x30(id, valor)` del engine → el engine escribe parámetros del DSP (`+0xA0`/`+0xA4`/`+0xB0`) |
 | Perilla del panel | STM32 → OS → kernel de parámetros (ids de patch `0x6CD…`) → slave → engine `vt+0x30` |
 | Microcódigo de las voces | engine `vt+8`: registra programas (`+0x28/+0x40/+0x58`); el slave los copia a la memoria de programa de sus DSP; `+0x70` cambia el programa de una ranura en marcha |
-| Audio | DSP de los slaves (voces) → maestro (efectos, master) → DAC / audio USB (`arecord -D hw:SYSTEM8,0`). El slave 1 llega a través del slave 0: su DSP4 suma las entradas IOMD `6000`–`6003` a su salida `6020`/`6021` [medido 2026-10-22, `VOICE_ALLOCATION.md` §6.7] |
+| Audio | DSP de los slaves (voces) → maestro (efectos, master) → DAC / audio USB (`arecord -D hw:SYSTEM8,0`). El slave 1 llega a través del slave 0: su DSP4 suma las entradas IOMD `6000`–`6003` a su salida `6020`/`6021` [medido 2026-10-22, `log/VOICE_ALLOCATION_LOG.md` §6.7] |
 | MIDI hacia el PC | sólo desde el maestro: región 0 u hooks llamando al router del OS. Los slaves **no** tienen salida |
 
 ## 4. Mapa de memoria de un DSP (igual en maestro y slaves, cada uno ve los suyos)

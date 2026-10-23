@@ -1,4 +1,4 @@
-"""The data-flow facts of docs/VOICE_ALLOCATION.md §6, checked on every Roland PLUG-OUT image in the repo (study only).
+"""The data-flow facts of docs/log/VOICE_ALLOCATION_LOG.md §6, checked on every Roland PLUG-OUT image in the repo (study only).
 
     python3 allplugouts.py            images: work/unpack/*/region1.bin and the JX-3P of engine/build/jx
 

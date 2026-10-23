@@ -54,7 +54,7 @@ que registra `engine_v3.c`):
 * Descriptores: `{dirección, bytes, bytes, puntero, 2 palabras del OS}`; **uno por DSP**, no se comparten (con uno
   compartido se silenciaba un swap de cada dos) [medido].
 * Programas vacíos: DSP0, 1, 2, 3 y 5 pueden tener el principal vacío; **un principal vacío en DSP4 silencia todo**
-  [medido, `WAVE_BUS.md` §4l]. A las ranuras DCO registradas se les pone un programa nulo propio
+  [medido, `log/WAVE_BUS_LOG.md` §4l]. A las ranuras DCO registradas se les pone un programa nulo propio
   (`gate/dco2_null.hex`) en lugar de dejarlas sin programa [código].
 
 ### 2.3 Usos

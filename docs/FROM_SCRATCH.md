@@ -1,8 +1,8 @@
 # Plug-out propio desde cero (C-V4): cómo está hecho y cómo reconstruirlo
 
 Estado: 2026-10-22. **C-V4 funciona en el equipo**: ocho voces (cuatro por slave) con su nota, sueltas y en acordes,
-afinadas a ±3 cent (`VOICE_ALLOCATION.md` §6.7). Todo el código y todo el microcódigo de DSP son nuestros (la regla de no usar microcódigo de Roland vale para los
-plug-outs nuestros; el emulador y el estudio sí pueden ejecutarlo desde la copia local, `VOICE_ALLOCATION.md` §7). La
+afinadas a ±3 cent (`log/VOICE_ALLOCATION_LOG.md` §6.7). Todo el código y todo el microcódigo de DSP son nuestros (la regla de no usar microcódigo de Roland vale para los
+plug-outs nuestros; el emulador y el estudio sí pueden ejecutarlo desde la copia local, `log/VOICE_ALLOCATION_LOG.md` §7). La
 comprobación de firmas (`emu/sigcheck.py`) no encuentra bytes de Roland en la build.
 
 Este documento sustituye a `examples/from_scratch/MINI_PLUGOUT.md` (diario del 2026-10-21; lo que sigue vigente de él
@@ -95,11 +95,11 @@ Las reglas del hardware que hacen que esto funcione, todas comprobadas en el equ
 | **Banco 1** (`2nnn`) y banco 0 son **anillos**: lo guardado en R en la muestra n se lee en R+1 en la n+1 | el principal escribe la entrada del oscilador (`[2207]`) y la ranura la lee en la misma muestra; la ranura escribe la salida (`[2221]`) y el principal la lee **en `[2222]`** en la muestra siguiente | [medido] con C-V4 |
 | El **principal corre antes** que las ranuras de su DSP | por eso la entrada se lee en la misma dirección | [inferido] del anillo + C-SAW afinado |
 | **Banco 5 `A400`–`A7FF`** es un buzón compartido por la pareja (0,1), (2,3), (4,5) | DSP5 deja sus voces en `A400`/`A401`, DSP4 las suma | [medido] con C-V4 |
-| Sólo **`6020`/`6021`** (IOMD de DSP4) llegan al audio; `60B0`–`60B7` no | la mezcla final va a `6020` y `6021` | [medido] `WAVE_BUS.md` §4b |
+| Sólo **`6020`/`6021`** (IOMD de DSP4) llegan al audio; `60B0`–`60B7` no | la mezcla final va a `6020` y `6021` | [medido] `log/WAVE_BUS_LOG.md` §4b |
 | El **slave 1** no llega al audio por su propio `6020`; llega al slave 0 por IOMD `6000`–`6003` | DSP4 suma `6000`–`6003` y escribe `6060`–`6063` | [medido] con C-V4 (qué palabra exacta: abierto) |
 
 Los errores de v3 eran justo tres de estas reglas: leía M 005/006 en DSP4 (desfase inventado), mandaba las voces 2 y 3 a
-`60B0` y no sumaba al otro slave (`VOICE_ALLOCATION.md` §6.3).
+`60B0` y no sumaba al otro slave (`log/VOICE_ALLOCATION_LOG.md` §6.3).
 
 ## 3. El microcódigo: ficheros `.s`, `.hex` y por qué hay ensamblador dentro de los `.py`
 
@@ -296,7 +296,7 @@ con el equipo (MIDI/ALSA) a la vez. `voicelog.py` graba el audio con `arecord -D
 
 ## 8. Verificar sin el equipo: el emulador
 
-`emu/` (detalle en `VOICE_ALLOCATION.md` §6):
+`emu/` (detalle en `log/VOICE_ALLOCATION_LOG.md` §6):
 
 ```sh
 cd examples/from_scratch/emu
@@ -362,7 +362,7 @@ el emulador**: un programa que el emulador da mudo casi seguro estará mudo en e
 * **Mono**: la afinación en modo mono no se ha medido con C-V4 (con C-V3L daba ±40 cent).
 * **Nivel**: la mezcla suma hasta ocho sierras de amplitud 1 sin escalar; con acordes grandes puede saturar.
 * **Más de 8 voces**: no hay límite de hardware medido; depende de si el OS entrega más ids de voz. Análisis y prueba
-  propuesta en `VOICE_ALLOCATION.md` §8.
+  propuesta en `log/VOICE_ALLOCATION_LOG.md` §8.
 
 * **Port al SYSTEM-1**: C-S1V4 (`examples/system_1/`, `examples_system_1_README.md`) funciona en el equipo (cuatro
   voces, volumen). Reusa la sierra y el asignador de C-V4.
@@ -384,11 +384,11 @@ el emulador**: un programa que el emulador da mudo casi seguro estará mudo en e
    | `60B0` | no sale (440 Hz ausente en los dos canales) |
    | `60B1` | no sale (660 Hz ausente) |
 
-   El barrido completo de palabras IOMD está en `WAVE_BUS.md` §4b.
+   El barrido completo de palabras IOMD está en `log/WAVE_BUS_LOG.md` §4b.
 3. C-MINI / C-MINI2 / C-SUB3: voz monofónica con los principales de Roland; sólo el slave 0 llegaba al audio.
 4. C-SAWPOLY (2026-10-22): cadena de Roland con nuestras sierras: ocho voces, el slave 1 sí llega [medido]. Contenía
    microcódigo de Roland, sólo para medir.
-5. C-V3 / C-V3L: principales propios; sólo sonaba la voz 0. El emulador explicó por qué (`VOICE_ALLOCATION.md` §6.3).
+5. C-V3 / C-V3L: principales propios; sólo sonaba la voz 0. El emulador explicó por qué (`log/VOICE_ALLOCATION_LOG.md` §6.3).
 6. **C-V4**: los tres arreglos; ocho voces [medido].
 
 Decisiones de entonces que siguen en pie: puerta y tono por el banco 5 con los ids del JX-3P (los usa el asignador de la
