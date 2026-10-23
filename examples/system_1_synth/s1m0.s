@@ -1,10 +1,11 @@
-; s1m0 (STEP 5): slave DSP A main @0x0100: 8 voices x (DCO1 + DCO2 saws) -> A151+v
+; s1m0 (STEP 6): slave DSP A main @0x0100: 8 voices x (DCO1 + DCO2 saws) -> A151+v
 mov r5, #0.0
 mov r6, #1.0
 mov r7, #0.0
 ; voice 0: DCO1
 ld r0, [a030]
 mov r4, r4
+st r0, [a178]
 add r0, #-4.75
 ld r4, [c044]
 mov r4, r4
@@ -91,6 +92,7 @@ st r4, [a168]
 mov r7, #0.0
 ld r0, [a031]
 mov r4, r4
+st r0, [a179]
 add r0, #-4.75
 ld r4, [c044]
 mov r4, r4
@@ -177,6 +179,7 @@ st r4, [a169]
 mov r7, #0.0
 ld r0, [a032]
 mov r4, r4
+st r0, [a17a]
 add r0, #-4.75
 ld r4, [c044]
 mov r4, r4
@@ -263,6 +266,7 @@ st r4, [a16a]
 mov r7, #0.0
 ld r0, [a033]
 mov r4, r4
+st r0, [a17b]
 add r0, #-4.75
 ld r4, [c044]
 mov r4, r4
@@ -349,6 +353,7 @@ st r4, [a16b]
 mov r7, #0.0
 ld r0, [a034]
 mov r4, r4
+st r0, [a17c]
 add r0, #-4.75
 ld r4, [c044]
 mov r4, r4
@@ -435,6 +440,7 @@ st r4, [a16c]
 mov r7, #0.0
 ld r0, [a035]
 mov r4, r4
+st r0, [a17d]
 add r0, #-4.75
 ld r4, [c044]
 mov r4, r4
@@ -521,6 +527,7 @@ st r4, [a16d]
 mov r7, #0.0
 ld r0, [a036]
 mov r4, r4
+st r0, [a17e]
 add r0, #-4.75
 ld r4, [c044]
 mov r4, r4
@@ -607,6 +614,7 @@ st r4, [a16e]
 mov r7, #0.0
 ld r0, [a037]
 mov r4, r4
+st r0, [a17f]
 add r0, #-4.75
 ld r4, [c044]
 mov r4, r4

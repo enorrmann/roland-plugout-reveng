@@ -1,5 +1,41 @@
-; s1m1 (STEP 5): slave DSP B main @0x0100: sum of A151+v x amp ADSR -> x C000 -> 6006 / 6007
+; s1m1 (STEP 6): slave DSP B main @0x0100: out = sum of the last sample's filter outputs x C000; per voice amp ADSR + 4-pole low-pass
 mov r7, #0.0
+ld r0, [040d]
+mov r5, r5
+addxy r7, r7, r0
+ld r1, [041d]
+mov r5, r5
+addxy r7, r7, r1
+ld r0, [042d]
+mov r5, r5
+addxy r7, r7, r0
+ld r1, [043d]
+mov r5, r5
+addxy r7, r7, r1
+ld r0, [044d]
+mov r5, r5
+addxy r7, r7, r0
+ld r1, [045d]
+mov r5, r5
+addxy r7, r7, r1
+ld r0, [046d]
+mov r5, r5
+addxy r7, r7, r0
+ld r1, [047d]
+mov r5, r5
+addxy r7, r7, r1
+ld r6, [c000]
+mul r7, r7, #0.16666666666666666
+mul r7, r7, r6
+st r7, [6006]
+st r7, [6007]
+mov r0, #0.0
+st r0, [6008]
+st r0, [6009]
+st r0, [600a]
+st r0, [600b]
+st r0, [600c]
+st r0, [600d]
 mov r5, #0.0
 mov r6, #1.0
 ; voice 0: amp ADSR
@@ -41,10 +77,52 @@ subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
 st r1, [0400]
-ld r0, [a151]
+; voice 0: low-pass
+ld r7, [a151]
+ld r6, [c04a]
+ld r0, [c048]
+ld r3, [a178]
+ld r4, [c04b]
+mul r7, r7, r1
+mul r7, r7, r6
+add r3, #-4.75
+mad r0, r4, r3
+min r0, r0, #6.5
+max r0, r0, #-8.0
+mul r2, r0, #0.04332169878499658
+mov r3, #0.041666666666666664:32
+ymacd r3, r2, #0.16666666666666666
+ymacd r3, r2, #0.5
+ymacd r3, r2, #1.0
+ymacd r3, r2, #1.0
+mul r3, r3, r3
+mul r3, r3, r3
+mul r3, r3, r3
+mul r0, r3, r3
+mul r0, r0, #0.02879793265790644
+min r0, r0, #0.95
+ld r1, [0407]
+ld r2, [0409]
+ld r3, [040b]
+ld r4, [040d]
+ld r6, [c049]
 mov r5, r5
-mul r0, r0, r1
-addxy r7, r7, r0
+mad r7, r6, -r4
+ph_clamp r7, r3, -r7
+subxy r5, r1, r7
+mad r1, r5, r0
+st r1, [0406]
+subxy r5, r2, r1
+mad r2, r5, r0
+st r2, [0408]
+subxy r5, r3, r2
+mad r3, r5, r0
+st r3, [040a]
+subxy r5, r4, r3
+mad r4, r5, r0
+st r4, [040c]
+mov r5, #0.0
+mov r6, #1.0
 ; voice 1: amp ADSR
 ld r1, [0411]
 ld r2, [0413]
@@ -84,10 +162,52 @@ subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
 st r1, [0410]
-ld r0, [a152]
+; voice 1: low-pass
+ld r7, [a152]
+ld r6, [c04a]
+ld r0, [c048]
+ld r3, [a179]
+ld r4, [c04b]
+mul r7, r7, r1
+mul r7, r7, r6
+add r3, #-4.75
+mad r0, r4, r3
+min r0, r0, #6.5
+max r0, r0, #-8.0
+mul r2, r0, #0.04332169878499658
+mov r3, #0.041666666666666664:32
+ymacd r3, r2, #0.16666666666666666
+ymacd r3, r2, #0.5
+ymacd r3, r2, #1.0
+ymacd r3, r2, #1.0
+mul r3, r3, r3
+mul r3, r3, r3
+mul r3, r3, r3
+mul r0, r3, r3
+mul r0, r0, #0.02879793265790644
+min r0, r0, #0.95
+ld r1, [0417]
+ld r2, [0419]
+ld r3, [041b]
+ld r4, [041d]
+ld r6, [c049]
 mov r5, r5
-mul r0, r0, r1
-addxy r7, r7, r0
+mad r7, r6, -r4
+ph_clamp r7, r3, -r7
+subxy r5, r1, r7
+mad r1, r5, r0
+st r1, [0416]
+subxy r5, r2, r1
+mad r2, r5, r0
+st r2, [0418]
+subxy r5, r3, r2
+mad r3, r5, r0
+st r3, [041a]
+subxy r5, r4, r3
+mad r4, r5, r0
+st r4, [041c]
+mov r5, #0.0
+mov r6, #1.0
 ; voice 2: amp ADSR
 ld r1, [0421]
 ld r2, [0423]
@@ -127,10 +247,52 @@ subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
 st r1, [0420]
-ld r0, [a153]
+; voice 2: low-pass
+ld r7, [a153]
+ld r6, [c04a]
+ld r0, [c048]
+ld r3, [a17a]
+ld r4, [c04b]
+mul r7, r7, r1
+mul r7, r7, r6
+add r3, #-4.75
+mad r0, r4, r3
+min r0, r0, #6.5
+max r0, r0, #-8.0
+mul r2, r0, #0.04332169878499658
+mov r3, #0.041666666666666664:32
+ymacd r3, r2, #0.16666666666666666
+ymacd r3, r2, #0.5
+ymacd r3, r2, #1.0
+ymacd r3, r2, #1.0
+mul r3, r3, r3
+mul r3, r3, r3
+mul r3, r3, r3
+mul r0, r3, r3
+mul r0, r0, #0.02879793265790644
+min r0, r0, #0.95
+ld r1, [0427]
+ld r2, [0429]
+ld r3, [042b]
+ld r4, [042d]
+ld r6, [c049]
 mov r5, r5
-mul r0, r0, r1
-addxy r7, r7, r0
+mad r7, r6, -r4
+ph_clamp r7, r3, -r7
+subxy r5, r1, r7
+mad r1, r5, r0
+st r1, [0426]
+subxy r5, r2, r1
+mad r2, r5, r0
+st r2, [0428]
+subxy r5, r3, r2
+mad r3, r5, r0
+st r3, [042a]
+subxy r5, r4, r3
+mad r4, r5, r0
+st r4, [042c]
+mov r5, #0.0
+mov r6, #1.0
 ; voice 3: amp ADSR
 ld r1, [0431]
 ld r2, [0433]
@@ -170,10 +332,52 @@ subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
 st r1, [0430]
-ld r0, [a154]
+; voice 3: low-pass
+ld r7, [a154]
+ld r6, [c04a]
+ld r0, [c048]
+ld r3, [a17b]
+ld r4, [c04b]
+mul r7, r7, r1
+mul r7, r7, r6
+add r3, #-4.75
+mad r0, r4, r3
+min r0, r0, #6.5
+max r0, r0, #-8.0
+mul r2, r0, #0.04332169878499658
+mov r3, #0.041666666666666664:32
+ymacd r3, r2, #0.16666666666666666
+ymacd r3, r2, #0.5
+ymacd r3, r2, #1.0
+ymacd r3, r2, #1.0
+mul r3, r3, r3
+mul r3, r3, r3
+mul r3, r3, r3
+mul r0, r3, r3
+mul r0, r0, #0.02879793265790644
+min r0, r0, #0.95
+ld r1, [0437]
+ld r2, [0439]
+ld r3, [043b]
+ld r4, [043d]
+ld r6, [c049]
 mov r5, r5
-mul r0, r0, r1
-addxy r7, r7, r0
+mad r7, r6, -r4
+ph_clamp r7, r3, -r7
+subxy r5, r1, r7
+mad r1, r5, r0
+st r1, [0436]
+subxy r5, r2, r1
+mad r2, r5, r0
+st r2, [0438]
+subxy r5, r3, r2
+mad r3, r5, r0
+st r3, [043a]
+subxy r5, r4, r3
+mad r4, r5, r0
+st r4, [043c]
+mov r5, #0.0
+mov r6, #1.0
 ; voice 4: amp ADSR
 ld r1, [0441]
 ld r2, [0443]
@@ -213,10 +417,52 @@ subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
 st r1, [0440]
-ld r0, [a155]
+; voice 4: low-pass
+ld r7, [a155]
+ld r6, [c04a]
+ld r0, [c048]
+ld r3, [a17c]
+ld r4, [c04b]
+mul r7, r7, r1
+mul r7, r7, r6
+add r3, #-4.75
+mad r0, r4, r3
+min r0, r0, #6.5
+max r0, r0, #-8.0
+mul r2, r0, #0.04332169878499658
+mov r3, #0.041666666666666664:32
+ymacd r3, r2, #0.16666666666666666
+ymacd r3, r2, #0.5
+ymacd r3, r2, #1.0
+ymacd r3, r2, #1.0
+mul r3, r3, r3
+mul r3, r3, r3
+mul r3, r3, r3
+mul r0, r3, r3
+mul r0, r0, #0.02879793265790644
+min r0, r0, #0.95
+ld r1, [0447]
+ld r2, [0449]
+ld r3, [044b]
+ld r4, [044d]
+ld r6, [c049]
 mov r5, r5
-mul r0, r0, r1
-addxy r7, r7, r0
+mad r7, r6, -r4
+ph_clamp r7, r3, -r7
+subxy r5, r1, r7
+mad r1, r5, r0
+st r1, [0446]
+subxy r5, r2, r1
+mad r2, r5, r0
+st r2, [0448]
+subxy r5, r3, r2
+mad r3, r5, r0
+st r3, [044a]
+subxy r5, r4, r3
+mad r4, r5, r0
+st r4, [044c]
+mov r5, #0.0
+mov r6, #1.0
 ; voice 5: amp ADSR
 ld r1, [0451]
 ld r2, [0453]
@@ -256,10 +502,52 @@ subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
 st r1, [0450]
-ld r0, [a156]
+; voice 5: low-pass
+ld r7, [a156]
+ld r6, [c04a]
+ld r0, [c048]
+ld r3, [a17d]
+ld r4, [c04b]
+mul r7, r7, r1
+mul r7, r7, r6
+add r3, #-4.75
+mad r0, r4, r3
+min r0, r0, #6.5
+max r0, r0, #-8.0
+mul r2, r0, #0.04332169878499658
+mov r3, #0.041666666666666664:32
+ymacd r3, r2, #0.16666666666666666
+ymacd r3, r2, #0.5
+ymacd r3, r2, #1.0
+ymacd r3, r2, #1.0
+mul r3, r3, r3
+mul r3, r3, r3
+mul r3, r3, r3
+mul r0, r3, r3
+mul r0, r0, #0.02879793265790644
+min r0, r0, #0.95
+ld r1, [0457]
+ld r2, [0459]
+ld r3, [045b]
+ld r4, [045d]
+ld r6, [c049]
 mov r5, r5
-mul r0, r0, r1
-addxy r7, r7, r0
+mad r7, r6, -r4
+ph_clamp r7, r3, -r7
+subxy r5, r1, r7
+mad r1, r5, r0
+st r1, [0456]
+subxy r5, r2, r1
+mad r2, r5, r0
+st r2, [0458]
+subxy r5, r3, r2
+mad r3, r5, r0
+st r3, [045a]
+subxy r5, r4, r3
+mad r4, r5, r0
+st r4, [045c]
+mov r5, #0.0
+mov r6, #1.0
 ; voice 6: amp ADSR
 ld r1, [0461]
 ld r2, [0463]
@@ -299,10 +587,52 @@ subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
 st r1, [0460]
-ld r0, [a157]
+; voice 6: low-pass
+ld r7, [a157]
+ld r6, [c04a]
+ld r0, [c048]
+ld r3, [a17e]
+ld r4, [c04b]
+mul r7, r7, r1
+mul r7, r7, r6
+add r3, #-4.75
+mad r0, r4, r3
+min r0, r0, #6.5
+max r0, r0, #-8.0
+mul r2, r0, #0.04332169878499658
+mov r3, #0.041666666666666664:32
+ymacd r3, r2, #0.16666666666666666
+ymacd r3, r2, #0.5
+ymacd r3, r2, #1.0
+ymacd r3, r2, #1.0
+mul r3, r3, r3
+mul r3, r3, r3
+mul r3, r3, r3
+mul r0, r3, r3
+mul r0, r0, #0.02879793265790644
+min r0, r0, #0.95
+ld r1, [0467]
+ld r2, [0469]
+ld r3, [046b]
+ld r4, [046d]
+ld r6, [c049]
 mov r5, r5
-mul r0, r0, r1
-addxy r7, r7, r0
+mad r7, r6, -r4
+ph_clamp r7, r3, -r7
+subxy r5, r1, r7
+mad r1, r5, r0
+st r1, [0466]
+subxy r5, r2, r1
+mad r2, r5, r0
+st r2, [0468]
+subxy r5, r3, r2
+mad r3, r5, r0
+st r3, [046a]
+subxy r5, r4, r3
+mad r4, r5, r0
+st r4, [046c]
+mov r5, #0.0
+mov r6, #1.0
 ; voice 7: amp ADSR
 ld r1, [0471]
 ld r2, [0473]
@@ -342,19 +672,49 @@ subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
 st r1, [0470]
-ld r0, [a158]
-mov r5, r5
-mul r0, r0, r1
-addxy r7, r7, r0
-ld r6, [c000]
-mul r7, r7, #0.08333333333333333
+; voice 7: low-pass
+ld r7, [a158]
+ld r6, [c04a]
+ld r0, [c048]
+ld r3, [a17f]
+ld r4, [c04b]
+mul r7, r7, r1
 mul r7, r7, r6
-st r7, [6006]
-st r7, [6007]
-mov r0, #0.0
-st r0, [6008]
-st r0, [6009]
-st r0, [600a]
-st r0, [600b]
-st r0, [600c]
-st r0, [600d]
+add r3, #-4.75
+mad r0, r4, r3
+min r0, r0, #6.5
+max r0, r0, #-8.0
+mul r2, r0, #0.04332169878499658
+mov r3, #0.041666666666666664:32
+ymacd r3, r2, #0.16666666666666666
+ymacd r3, r2, #0.5
+ymacd r3, r2, #1.0
+ymacd r3, r2, #1.0
+mul r3, r3, r3
+mul r3, r3, r3
+mul r3, r3, r3
+mul r0, r3, r3
+mul r0, r0, #0.02879793265790644
+min r0, r0, #0.95
+ld r1, [0477]
+ld r2, [0479]
+ld r3, [047b]
+ld r4, [047d]
+ld r6, [c049]
+mov r5, r5
+mad r7, r6, -r4
+ph_clamp r7, r3, -r7
+subxy r5, r1, r7
+mad r1, r5, r0
+st r1, [0476]
+subxy r5, r2, r1
+mad r2, r5, r0
+st r2, [0478]
+subxy r5, r3, r2
+mad r3, r5, r0
+st r3, [047a]
+subxy r5, r4, r3
+mad r4, r5, r0
+st r4, [047c]
+mov r5, #0.0
+mov r6, #1.0

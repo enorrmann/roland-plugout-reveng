@@ -62,7 +62,7 @@ K_SAW = 2 * 440.0 / FS                      # phase step of A 440 (phase -1..1)
 G_440 = 2 * math.pi * 440.0 / FS            # one-pole coefficient of 440 Hz
 EXP_IN = math.log(2) / 16                   # 2^c = (e^(c ln2 / 16))^16, e^y by 4 Taylor terms
 CUT_LO, CUT_HI = -8.0, 6.5                  # cutoff limits in octaves from 440 Hz (1.7 Hz .. 40 kHz before g clamp)
-G_MAX = 0.95
+G_MAX = 0.7                                 # k (g / (2 - g))^4 < 1 at Nyquist for k = RES_MAX (0.95 self-oscillated, sim)
 RES_MAX = 3.6
 
 
@@ -241,6 +241,13 @@ STEP_B_BASE = [0x0400 + 0x10 * v for v in range(NV)]
 #      -> parameters C044 / C045 / C046 of DSP A (FCEC(0, id, bits), as Roland); the fixed +7 cents goes away
 B6_RANGE1, B6_RANGE2, B6_FINE2 = 0x44, 0x45, 0x46
 FINE_SPAN = 1.0 / 12                        # octaves at either end of the fine tune knob
+#   6  4-pole low-pass per voice on DSP B (after the amp ADSR): cutoff 0x17D, resonance 0x17F, key track 0x186 ->
+#      parameters C048 cutoff (octaves from 440 Hz), C049 k, C04A input gain (1 + k/2) / 2, C04B key track of DSP B
+#      (FCEC(1, ...)); DSP A copies the pitch (A030+v -> A178+v). Saturation with ph_clamp (as Roland's SH-2).
+#      B outputs the sum of the last sample's filter outputs (one sample later), so r7 is free inside a voice
+B6_CUT, B6_RES, B6_GAIN, B6_KT = 0x48, 0x49, 0x4A, 0x4B
+STEP_PB = [0xA178 + v for v in range(NV)]
+B_Y = [0x6, 0x8, 0xA, 0xC]                  # ring offsets of the 4 stage outputs in a B voice block
 V8_PHASE = [0x0300 + 0x10 * v for v in range(NV)]
 V8_MIX = 0xA150
 
@@ -267,7 +274,10 @@ def step_s1m0():
     for v in range(NV):
         P = V8_PHASE[v]
         L += [f'; voice {v}: DCO1'] + (['mov r7, #0.0'] if per_voice and v else [])
-        L += [f'ld r0, [{PITCH[v]:04x}]', 'mov r4, r4', 'add r0, #-4.75']
+        L += [f'ld r0, [{PITCH[v]:04x}]', 'mov r4, r4']
+        if STEP >= 6:
+            L += [f'st r0, [{STEP_PB[v]:04x}]']
+        L += ['add r0, #-4.75']
         if STEP >= 5:
             L += [f'ld r4, [c0{B6_RANGE1:02x}]', 'mov r4, r4', 'addxy r0, r0, r4']
         L += v8_saw(P)
@@ -314,8 +324,40 @@ def step_adsr(e, latch, pt, gate, trig, prm):
             'subxy r4, r1, r4', 'mad r1, r4, r0', 'min r1, r1, r6', f'st r1, [{e:04x}]']
 
 
+def step_filter_voice(v):
+    """step 6: voice v on DSP B: amp ADSR, x = A151+v x env x gain, cutoff -> g, 4 one-pole stages with feedback"""
+    b = STEP_B_BASE[v]
+    y = [b + o for o in B_Y]
+    L = [f'; voice {v}: amp ADSR'] + step_adsr(b, b + 2, b + 4, STEP_GB[v], STEP_TB[v], STEP_AENV_B)
+    L += [f'; voice {v}: low-pass', f'ld r7, [{STEP_XV[v]:04x}]', f'ld r6, [c0{B6_GAIN:02x}]',
+          f'ld r0, [c0{B6_CUT:02x}]', f'ld r3, [{STEP_PB[v]:04x}]', f'ld r4, [c0{B6_KT:02x}]',
+          'mul r7, r7, r1', 'mul r7, r7, r6',
+          'add r3, #-4.75', 'mad r0, r4, r3', f'min r0, r0, #{CUT_HI}', f'max r0, r0, #{CUT_LO}']
+    L += exp2_to('r0', 'r0') + [f'mul r0, r0, #{G_440!r}', f'min r0, r0, #{G_MAX}']
+    L += [f'ld r1, [{y[0] + 1:04x}]', f'ld r2, [{y[1] + 1:04x}]', f'ld r3, [{y[2] + 1:04x}]', f'ld r4, [{y[3] + 1:04x}]',
+          f'ld r6, [c0{B6_RES:02x}]',
+          'mad r7, r6, -r4',                             # u = x - k y4
+          'ph_clamp r7, r3, -r7']                        # saturate to [-1, 1]
+    for i, (prev, cur) in enumerate((('r7', 'r1'), ('r1', 'r2'), ('r2', 'r3'), ('r3', 'r4'))):
+        L += [f'subxy r5, {cur}, {prev}', f'mad {cur}, r5, r0', f'st {cur}, [{y[i]:04x}]']
+    return L
+
+
 def step_s1m1():
     """C-S1V8's slave B program (steps 1, 2); from step 3 the per-voice mix"""
+    if STEP >= 6:
+        L = [f'; s1m1 (STEP {STEP}): slave DSP B main @0x0100: out = sum of the last sample\'s filter outputs x C000;'
+             ' per voice amp ADSR + 4-pole low-pass', 'mov r7, #0.0']
+        for v in range(NV):
+            L += [f'ld r{v & 1}, [{STEP_B_BASE[v] + B_Y[3] + 1:04x}]', f'addxy r7, r7, r{v & 1}']
+        L += ['ld r6, [c000]', f'mul r7, r7, #{2.0 / (1.5 * NV)!r}', 'mul r7, r7, r6',
+              f'st r7, [{OUT_L:04x}]', f'st r7, [{OUT_R:04x}]', 'mov r0, #0.0']
+        L += [f'st r0, [{x:04x}]' for x in OUT_ZERO]
+        L += ['mov r5, #0.0', 'mov r6, #1.0']
+        for v in range(NV):
+            L += step_filter_voice(v)
+            L += ['mov r5, #0.0', 'mov r6, #1.0']        # the ADSR of the next voice needs them again
+        return schedule(L)
     if STEP >= 3:
         L = [f'; s1m1 (STEP {STEP}): slave DSP B main @0x0100: sum of A151+v x '
              + ('amp ADSR' if STEP >= 4 else 'gate') + ' -> x C000 -> 6006 / 6007',
@@ -465,6 +507,8 @@ def header(progs):
     out.append(f'#define B5_FENV {idx(FENV)}\n#define B5_AENV {idx(AENV)}')
     out.append(f'#define B5_LEVEL1 {idx(STEP_LEVEL1)}\n#define B5_LEVEL2 {idx(STEP_LEVEL2)}')
     out.append(f'#define B6_AENV 0x{B6_AENV:02x}')
+    out.append(f'#define B6_CUT 0x{B6_CUT:02x}\n#define B6_RES 0x{B6_RES:02x}\n#define B6_GAIN 0x{B6_GAIN:02x}\n#define B6_KT 0x{B6_KT:02x}')
+    out.append(table('gain_bits', [(1 + resonance(v) / 2) / 2 for v in range(256)]))
     out.append(f'#define B6_RANGE1 0x{B6_RANGE1:02x}\n#define B6_RANGE2 0x{B6_RANGE2:02x}\n#define B6_FINE2 0x{B6_FINE2:02x}')
     out.append('/* OSC range 0..5 (64\' .. 2\') -> octaves; OSC2 fine tune 0..255 -> octaves (128 = 0) */')
     out.append(table('range_bits', [r - 3.0 for r in range(6)]))
@@ -523,6 +567,8 @@ def simulate(progs, events, n, panel=None):
             if key == 's1m1':                            # bank-6 parameters of DSP B (FCEC from the ARM)
                 for i in range(4):
                     m[0xC000 + B6_AENV + i] = b5[AENV + i]
+                m[0xC000 + B6_CUT], m[0xC000 + B6_RES], m[0xC000 + B6_KT] = b5[CUT], b5[RES], b5[KT]
+                m[0xC000 + B6_GAIN] = b5[COMP] / 2
             else:                                        # DSP A: ranges 8', fine tune centre
                 m[0xC000 + B6_RANGE1] = m[0xC000 + B6_RANGE2] = m[0xC000 + B6_FINE2] = 0.0
             m.update(b5)
