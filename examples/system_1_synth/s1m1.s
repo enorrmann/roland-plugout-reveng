@@ -64,8 +64,7 @@ mad r4, r3, #1.25
 subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
-st r1, [0410] | ld r6, [c04a]
-ld r0, [c048]
+st r1, [0410] | ld r6, [c04a] | ld r0, [a180]
 ld r2, [c04c] | ld r3, [a178]
 mul r7, r7, r6 | ld r4, [c04b]
 mad r0, r2, r1
@@ -144,8 +143,7 @@ mad r4, r3, #1.25
 subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
-st r1, [0430] | ld r6, [c04a]
-ld r0, [c048]
+st r1, [0430] | ld r6, [c04a] | ld r0, [a181]
 ld r2, [c04c] | ld r3, [a179]
 mul r7, r7, r6 | ld r4, [c04b]
 mad r0, r2, r1
@@ -224,8 +222,7 @@ mad r4, r3, #1.25
 subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
-st r1, [0450] | ld r6, [c04a]
-ld r0, [c048]
+st r1, [0450] | ld r6, [c04a] | ld r0, [a182]
 ld r2, [c04c] | ld r3, [a17a]
 mul r7, r7, r6 | ld r4, [c04b]
 mad r0, r2, r1
@@ -304,8 +301,7 @@ mad r4, r3, #1.25
 subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
-st r1, [0470] | ld r6, [c04a]
-ld r0, [c048]
+st r1, [0470] | ld r6, [c04a] | ld r0, [a183]
 ld r2, [c04c] | ld r3, [a17b]
 mul r7, r7, r6 | ld r4, [c04b]
 mad r0, r2, r1
@@ -384,8 +380,7 @@ mad r4, r3, #1.25
 subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
-st r1, [0490] | ld r6, [c04a]
-ld r0, [c048]
+st r1, [0490] | ld r6, [c04a] | ld r0, [a184]
 ld r2, [c04c] | ld r3, [a17c]
 mul r7, r7, r6 | ld r4, [c04b]
 mad r0, r2, r1
@@ -464,8 +459,7 @@ mad r4, r3, #1.25
 subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
-st r1, [04b0] | ld r6, [c04a]
-ld r0, [c048]
+st r1, [04b0] | ld r6, [c04a] | ld r0, [a185]
 ld r2, [c04c] | ld r3, [a17d]
 mul r7, r7, r6 | ld r4, [c04b]
 mad r0, r2, r1
@@ -544,8 +538,7 @@ mad r4, r3, #1.25
 subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
-st r1, [04d0] | ld r6, [c04a]
-ld r0, [c048]
+st r1, [04d0] | ld r6, [c04a] | ld r0, [a186]
 ld r2, [c04c] | ld r3, [a17e]
 mul r7, r7, r6 | ld r4, [c04b]
 mad r0, r2, r1
@@ -624,8 +617,7 @@ mad r4, r3, #1.25
 subxy r4, r1, r4
 mad r1, r4, r0
 min r1, r1, r6
-st r1, [04f0] | ld r6, [c04a]
-ld r0, [c048]
+st r1, [04f0] | ld r6, [c04a] | ld r0, [a187]
 ld r2, [c04c] | ld r3, [a17f]
 mul r7, r7, r6 | ld r4, [c04b]
 mad r0, r2, r1

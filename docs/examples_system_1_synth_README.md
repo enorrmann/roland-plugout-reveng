@@ -67,6 +67,7 @@ primer diseño, que lo metía todo de una vez (`STEP=0`, §6), no sonó, y no ha
 | 7 empaquetado | el paso 7 empaquetado (`PACK=1`, por defecto) | 587 / 460 | [medido] ondas ok |
 | 8 | ADSR del filtro por voz en el DSP B (empaquetado): faders `0x182`–`0x185` → `C050`–`C053` del DSP B, cantidad `0x181` → `C04C`; corte = base + cantidad × env + key track; estado en el bloque de voz de B + `0x10` (bloques de `0x20`) | 587 / 660 | [medido] |
 | 8 bis | cantidad bipolar: `0x181` = 128 → 0; 0 → −8 octavas (envolvente invertida); 255 → +8 octavas (sólo cambia la tabla `amount_bits` del ARM) | 587 / 660 | instalado, sin confirmar |
+| 9 | LFO en el DSP A (§7.2): rate `0x162`, shape `0x160`, delay `0x161`, → pitch `0x163`, → filtro `0x164`, → amplitud `0x165` → `C058`–`C05D`, `C060`–`C064` del DSP A; el corte (base + LFO) pasa a B por `A180+v` | 693 / 652 (700 con `RESCOMP=1`) | [sim]; C-S1SY9 instalado, sin confirmar |
 
 ## 3. Cómo llega cada valor a cada DSP (SYSTEM-1)
 
@@ -86,7 +87,7 @@ Así lo hace Roland en el SH-2 [código] (`python3 system-1/s1_progs.py work/unp
 C-S1SY sigue ese esquema. Solo la puerta, el disparo y el tono pasan por una copia del DSP A, porque ese camino se
 probó primero. El SH-2 los escribe desde el ARM con `FD6C sel 1` (`A1xx`); en nuestro caso eso no está probado.
 
-## 4. Presupuesto de tiempo del DSP A del esclavo [medido]
+## 4. Presupuesto de tiempo de los DSP del esclavo [medido]
 
 | programa del DSP A | instrucciones (una unidad cada una) | resultado |
 |---|---|---|
@@ -100,6 +101,16 @@ cuelga el equipo y hay que apagarlo y encenderlo. Para diseñar se toma **682 co
 
 Con el empaquetado (§5), las 587 instrucciones del paso 7 funcionan, así que una instrucción con hasta tres
 transferencias cuesta como una sola [inferido: lo mismo que se midió en el SYSTEM-8 con A/A/B].
+
+DSP B del esclavo:
+
+| programa del DSP B | instrucciones | resultado |
+|---|---|---|
+| paso 6 sin empaquetar | 703 | funciona |
+| paso 8 empaquetado + `RESCOMP=1` (C-S1SYR) | 708 | funciona (2026-10-23) |
+
+**708 es el máximo probado del DSP B.** No se ha buscado su límite superior. Si el DSP B tiene el mismo límite que
+el A, está entre 708 y 826.
 
 ## 5. Empaquetado de transferencias, como Roland [medido]
 
@@ -157,10 +168,99 @@ mismo con `ph_clamp`: la variante se elige por el bit de negación de Y. Roland 
 * `g = 2π·440·2^c / 96000`, con `c` = corte + key track·(nota − La 440) en octavas. `2^c` se calcula como en los
   osciladores, con 4 términos de Taylor y 4 cuadrados.
 * El tope de `g` es `GMAX`, 0,7 por defecto. [sim] Con k = 3,6 el bucle es inestable a la frecuencia de Nyquist si
-  k·(g/(2 − g))⁴ ≥ 1, es decir, si g ≳ 0,83. Con 0,95 quedaba oscilando después de soltar la nota. Por encima de
-  0,7 el filtro puede autooscilar con el corte alto: se ajusta a oído con `GMAX=0.9 sh build.sh`.
+  k·(g/(2 − g))⁴ ≥ 1, es decir, si g ≳ 0,83. Con 0,95 quedaba oscilando después de soltar la nota. Esa oscilación
+  es a 48 kHz (Nyquist), no en la banda de audio [sim, núcleo C, 2026-10-23]: `GMAX` cambia el sonido pero no da
+  autooscilación audible (§7.1).
 * Ganancia de entrada `(1 + k/2)/2`: compensa la pérdida de graves con resonancia y deja margen a la saturación. La
   mezcla final multiplica por 2.
+
+### 7.1 Autooscilación (`RESCOMP`)
+
+Umbral del bucle lineal: hay oscilación si k > k_crit(g) = 4·c(g), con la frecuencia donde la fase de
+z⁻¹·H(z)⁴ es −π, H(z) = g / (1 − (1 − g)·z⁻¹):
+
+| corte | g | k_crit | frecuencia de oscilación |
+|---|---|---|---|
+| 50 Hz | 0,0033 | 4,01 | 50 Hz |
+| 1 kHz | 0,065 | 4,29 | 1,07 kHz |
+| 3 kHz | 0,196 | 5,04 | 3,74 kHz |
+| 8 kHz | 0,524 | 9,60 | 17,8 kHz |
+| — | 0,9 | 2,23 | 48 kHz |
+
+En una escalera analógica (Juno-106) k_crit = 4 en todo el rango. Aquí la muestra de retardo de la
+realimentación y la integración de Euler suben el umbral con el corte. Con `RES_MAX` = 3,6 el filtro no autooscila
+nunca. El bucle lineal da la misma respuesta que el programa real en el núcleo C: nota de 50 ms, soltada; resonancia
+255; nivel 0,5 s después de soltar [sim]:
+
+| variante | corte 76 Hz | 239 Hz | 748 Hz | 2,34 kHz | 7,33 kHz | 19,9 kHz |
+|---|---|---|---|---|---|---|
+| por defecto (k 3,6) | se apaga | se apaga | se apaga | se apaga | se apaga | se apaga |
+| `RES_MAX=4.3` | oscila | oscila | oscila | se apaga | se apaga | se apaga |
+| `RES_MAX=5` | oscila | oscila | oscila | oscila | se apaga | se apaga |
+| `RESCOMP=1` (k 4,4·c(g)) | oscila | oscila (242 Hz) | oscila (786 Hz) | oscila (2,77 kHz) | se apaga | se apaga |
+| `GMAX=0.9` / `0.95` (k 3,6) | — | — | — | — | se apaga | 48 kHz |
+
+`RESCOMP=1` multiplica k por c(min(g, 0,4)) = 1 + 0,778·g + 2,778·g², un ajuste de k_crit/4 con un error del 1,2 %
+hasta g = 0,4. Son 6 instrucciones por voz en el DSP B: 708 instrucciones en vez de 660 (empaquetado), con
+`--sim-check` idéntico. Por encima de g = 0,4 (corte de unos 6 kHz) no hay compensación completa y el filtro no
+autooscila. La oscilación sale por encima del corte nominal (+1,5 % a 239 Hz, +5 % a 748 Hz, +18 % a 2,34 kHz), igual que el
+umbral.
+
+[medido, C-S1SYR, 2026-10-23, a oído] `RESCOMP=1 NAME=C-S1SYR sh examples/system_1_synth/build.sh` funciona en el
+equipo y el filtro autooscila. Problemas abiertos:
+* [abierto] la oscilación se queda trabada: sigue sonando después de soltar la nota. El filtro va detrás del VCA, así
+  que el ADSR de amplitud no la apaga [inferido];
+* [medido, a oído] el usuario prefiere el sonido sin `RESCOMP` ("suena feo"); las builds normales quedan con `RESCOMP=0`;
+* [abierto] la oscilación depende de que haya volumen en los osciladores. En una escalera analógica arranca sola, por
+  el ruido, aunque los osciladores estén a cero. Aquí, sin entrada, el estado del filtro se queda en 0.
+
+### 7.2 LFO (paso 9)
+
+Todo en el DSP A del esclavo; el DSP B sólo cambia una carga (`C048` → `A180+v`) y se queda en 700 instrucciones
+con `RESCOMP=1`, por debajo de su máximo probado de 708 (§4).
+
+* **Global**, una vez por muestra, antes de las voces:
+  * fase `p += rate` en el anillo `0280`/`0281`, envuelta con `ph_wrap` a [−1, 1) (como Roland);
+  * `r = p_sin_envolver − p` vale 2 en cada vuelta y 0 en el resto;
+  * ruido `n = wrap(7,31275·n + w)` (`0282`), con un contador de Weyl `w = wrap(w + 0,618430…)` (`0286`, inmediato
+    de 32 bits). Sin `w`, `n` se repetía cada 7194 muestras (13 Hz) [sim]. Con `w`, en 600 000 muestras
+    hubo 596 989 valores distintos, en 10 franjas de entre 59 523 y 60 289 [sim];
+  * S&H `h += r/2·(n − h)` (`0284`): toma un valor de ruido nuevo en cada vuelta;
+  * forma `lfo = a·tri(p) + b·p + c·ph_clamp(256·p) + d·h + e·n`, con `a`–`e` = `C060`–`C064`. La tabla
+    `lfo_wave_bits` asigna shape 0–5 a triángulo, sierra +, sierra −, cuadrada, S&H y ruido. [inferido] El orden
+    del panel del SYSTEM-1 no está comprobado;
+  * productos de la muestra: `LFO_P = lfo·P` (`0288`), `LFO_F = lfo·F` (`028A`), `LFO_M = M·(lfo − 1)` (`028C`).
+* **Por voz** (fade `f` en el anillo `V8_PHASE[v] + 4`):
+  * `f = min((f + paso)·puerta, 1)`: sube de 0 a 1 de forma lineal desde la puerta y vuelve a 0 al soltar;
+  * tono `+= f·LFO_P`, guardado en `V8_PHASE[v] + 6` para el DCO2. El key track de B usa el tono sin LFO;
+  * voz `×= 1 + f·LFO_M`, es decir, de 1 − 2M a 1: el trémolo baja desde el nivel pleno;
+  * corte `= C05D + f·LFO_F` → `A180+v`. El ARM escribe el cutoff en `C05D` del DSP A, en vez de en `C048` del B.
+* **Perillas** (tablas del ARM):
+  * rate: 0,05·800^(v/255) Hz, de 0,05 a 40 Hz;
+  * delay: 5·(v/255)² s hasta el pleno (0 = inmediato);
+  * → pitch: (v/255)² octavas, hasta ±1;
+  * → filtro: 4·v/255 octavas;
+  * → amplitud: `M` = v/510.
+
+  Rate y delay están en la rejilla de los registros (`on_grid`, múltiplos de 2^−32). Así el parámetro da los mismos
+  bits si se usa justo después de cargarlo (empaquetado) o tras un relleno.
+
+Medido en el núcleo C (`make_synth.py`, programas reales, 2026-10-23) [sim]:
+
+| qué | resultado |
+|---|---|
+| rate 192 / 255 | 7,670 / 40,000 Hz (tabla 7,671 / 40,000) |
+| formas | triángulo y sierras de −1 a +1; cuadrada ±1 con una rampa de 1/128 del período; S&H con escalones; ruido ±1 |
+| fade, delay 64 / 128 / 255 | llega a 1 en 0,315 / 1,260 / 5,002 s (tabla 0,315 / 1,260 / 5,000); 0 al soltar la nota |
+| → filtro al máximo, corte 128 | `A180+0` de −3,729 a +4,270 octavas (base +0,271 ± 4) |
+| → pitch al máximo, La 440 | de +3,750 a +5,750 octavas (4,75 ± 1) |
+| → amplitud 128 / 255, cuadrada | razón de RMS entre la mitad baja y la alta: 0,502 / 0,062 (esperado 0,498 / 0) |
+
+`--sim-check` del paso 9 con dos paneles de LFO (triángulo y S&H, todas las profundidades activas): núcleo C =
+referencia Python, y empaquetado = sin empaquetar, bit a bit.
+
+Instalado sin probar todavía, 2026-10-23: `STEP=9 NAME=C-S1SY9 sh examples/system_1_synth/build.sh` (`RESCOMP=0`: DSP A 693,
+B 652 instrucciones) [abierto].
 
 ## 8. Interfaz con el panel
 
@@ -169,7 +269,12 @@ Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py 
 
 | id | control | valores | usado en |
 |---|---|---|---|
-| `0x162` | LFO rate | 0–255 | — |
+| `0x160` | LFO shape (CC 35) | 0–5 | — |
+| `0x161` | LFO delay / fade time (CC 27) | 0–255 | — |
+| `0x162` | LFO rate (CC 29) | 0–255 | — |
+| `0x163` | LFO → pitch (CC 26) | 0–255 | — |
+| `0x164` | LFO → filtro (CC 28) | 0–255 | — |
+| `0x165` | LFO → amplitud (CC 30) | 0–255 | — |
 | `0x167` / `0x16C` | OSC1 / OSC2 wave | 0–5 | paso 7 |
 | `0x168` / `0x16D` | OSC1 / OSC2 color (CC 50 / 55) | 0–255 | — |
 | `0x16A` / `0x16F` | OSC1 / OSC2 range | 0–5 (64'…2') | paso 5 |
@@ -183,6 +288,13 @@ Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py 
 | `0x182`–`0x185` | ADSR del filtro | 0–255 | paso 8 |
 | `0x187`–`0x18A` | ADSR del VCA | 0–255 | paso 4 |
 | — | HPF cutoff | no llegó nada (ni parámetro ni CC) [abierto] | — |
+| `0x18B` | sin identificar: 128–145, con CC 69 (64–72) detrás; llegó dos veces durante la captura del LFO, entre otros controles [abierto] | — |
+
+Los ids del LFO se capturaron con C-S1SYRL (`RESCOMP=1 PARAMLOG=1`, 2026-10-23). Orden de la captura: rate, → filtro,
+→ amplitud, fade time, → pitch, shape. Cada control se recorrió de 0 a 255 (shape de 0 a 5). Log:
+`paramlog.py -t 120 --raw`.
+Segunda captura, mismo día: shape, → pitch, → filtro, delay time → `0x160`, `0x163`, `0x164`, `0x161`. Así que
+"fade time" y "delay time" son el mismo control, `0x161`. `0x18B` no volvió a llegar.
 
 ## 9. Mejoras anotadas
 
@@ -223,8 +335,8 @@ Por orden aproximado de coste. Cada una se hace como un paso nuevo, con una inst
     un parámetro `C0xx` más por oscilador y 1 instrucción.
   * **Pitch env** (`0x17A`–`0x17C`): una envolvente AD por voz que se suma al tono. El DSP A no tiene sitio para
     ella (587 de 682), así que habría que calcularla en el DSP B y pasarla por `A1xx`, con una muestra de retraso.
-  * **LFO** (`0x162`): un LFO global en el DSP B hacia el tono y/o el corte. Faltan por capturar los destinos y la
-    forma de onda.
+  * **LFO**: un LFO global en el DSP B. Ids capturados (§8): rate `0x162`, → filtro `0x164`, → amplitud `0x165`,
+    delay / fade time `0x161`, → pitch `0x163`, shape `0x160` (0–5).
 * **Botón de tipo de filtro del panel → 2 polos / 4 polos** (pendiente, pedido 2026-10-23):
   * Primero capturar su id con PARAMLOG, con el PLUG-OUT seleccionado. Puede ser uno de los selectores de patch de
     la SYNINFO (`0x171`, `0x172`, `0x178`, `0x179`, `0x17E`…), que todavía no se han visto.

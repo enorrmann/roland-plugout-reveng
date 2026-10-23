@@ -62,9 +62,15 @@ G_440 = 2 * math.pi * 440.0 / FS            # one-pole coefficient of 440 Hz
 EXP_IN = math.log(2) / 16                   # 2^c = (e^(c ln2 / 16))^16, e^y by 4 Taylor terms
 CUT_LO, CUT_HI = -8.0, 6.5                  # cutoff limits in octaves from 440 Hz (1.7 Hz .. 40 kHz before g clamp)
 G_MAX = float(os.environ.get('GMAX', '0.7'))  # filter coefficient limit: k (g / (2 - g))^4 < 1 at Nyquist for
-                                              # k = RES_MAX needs < 0.83; higher (GMAX=0.9 build.sh) lets it
-                                              # self-oscillate at high cutoff (0.95 did, sim); set by ear
-RES_MAX = 3.6
+                                              # k = RES_MAX needs < 0.83; higher, the loop oscillates at 48 kHz
+                                              # (Nyquist, inaudible; emulator 2026-10-23), not in the audio band
+RESCOMP = os.environ.get('RESCOMP', '0') == '1'  # resonance compensated by cutoff, so the filter self-oscillates
+# The loop (4 stages y += g (u - y), feedback k y4 of the last sample) oscillates for k > k_crit(g) =
+# 4 c(g): 4.01 at 50 Hz, 4.29 at 1 kHz, 5.04 at 3 kHz, 9.6 at 8 kHz (an analog ladder: 4 everywhere). RESCOMP
+# multiplies k by c(min(g, RC_GMAX)) (fit of degree 2, 1.2 % off up to g = 0.4); RES_MAX then puts the top of the
+# knob RES_MAX / 4 above the threshold. Without it RES_MAX 3.6 < 4: no self-oscillation at any cutoff (emulator).
+RC_A, RC_B, RC_GMAX = 0.778126, 2.778432, 0.4
+RES_MAX = float(os.environ.get('RES_MAX', '4.4' if RESCOMP else '3.6'))
 
 
 def a(x):
@@ -260,6 +266,23 @@ B_FE = 0x10                                 # filter ADSR state: env +0x10, latc
 STEP_WAVES = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 0, 0), (1, 0, 0), (1, 0, 0)]   # selector 0..5: 2nd square, 3rd tri
 V8_PHASE = [0x0300 + 0x10 * v for v in range(NV)]
 V8_MIX = 0xA150
+#   9  LFO (PARAMLOG 2026-10-23: rate 0x162, shape 0x160, delay / fade 0x161, -> pitch 0x163, -> filter 0x164,
+#      -> amp 0x165), all on DSP A (B is at 708, the most tried): one global LFO, phase wrapped with ph_wrap (as
+#      Roland), shapes = coefficients of triangle, saw, square, S&H, noise (C060..C064 of DSP A); per voice a fade
+#      f (0 -> 1 linear from the gate, rate C059) scales the LFO; pitch + f P lfo (octaves), voice x (1 + f M (lfo - 1))
+#      (tremolo down from full level), cutoff = base + f F lfo -> A180+v, which DSP B reads instead of its C048
+#      (so the cutoff knob also goes to C05D of DSP A)
+A6_LRATE, A6_LDELAY, A6_LPITCH, A6_LFILT, A6_LAMP, A6_CUT, A6_LWAVE = 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x60
+LFO_PH, LFO_NZ, LFO_SH, LFO_W = 0x0280, 0x0282, 0x0284, 0x0286   # ring words (state: S written, S+1 read next sample)
+LFO_P, LFO_F, LFO_M = 0x0288, 0x028A, 0x028C      # f-less products of this sample (written and read in it)
+STEP_CB = [0xA180 + v for v in range(NV)]          # cutoff of voice v, DSP A -> DSP B
+V9_FADE = [p + 4 for p in V8_PHASE]                # fade of voice v (ring, S / S+1)
+V9_PM = [p + 6 for p in V8_PHASE]                  # modulated pitch of voice v (this sample)
+NOISE_K = 7.31275                                  # noise: n = wrap(K n + w), w = wrap(w + NOISE_W) (Weyl counter:
+NOISE_W = 166008623 / 2 ** 28                      # odd multiple of 2^-28, period 2^29 samples; n alone cycled after
+                                                   # 7194 samples = 13 Hz, emulator 2026-10-23)
+# shape 0..5 -> (triangle, saw, square, S&H, noise) [inferido: order of the SYSTEM-1 panel not checked]
+LFO_WAVES = [(1, 0, 0, 0, 0), (0, 1, 0, 0, 0), (0, -1, 0, 0, 0), (0, 0, 1, 0, 0), (0, 0, 0, 1, 0), (0, 0, 0, 0, 1)]
 
 
 def v8_saw(P):
@@ -283,18 +306,48 @@ def step_wave(prm):
             f'ld r4, [c0{prm + 2:02x}]', 'ph_tri r3, r3, -r1', 'mad r2, r3, r4']
 
 
+def step_lfo():
+    """step 9: the global LFO on DSP A -> LFO_P / LFO_F / LFO_M (lfo x pitch depth, x filter depth, x amp depth / 2
+    x (lfo - 1)); uses r0..r4, r7 (before r5 / r6 / r7 are set for the voices)"""
+    w = lambda i: f'ld r4, [c0{A6_LWAVE + i:02x}]'  # noqa: E731
+    return ['; LFO: phase += rate, wrapped; r7 = 2 at a wrap (S&H takes a new noise value)',
+            f'ld r1, [{LFO_PH + 1:04x}]', f'ld r4, [c0{A6_LRATE:02x}]', f'ld r2, [{LFO_NZ + 1:04x}]', 'mov r0, r0',
+            'addxy r7, r1, r4', 'ph_wrap r1, r3, r7', f'st r1, [{LFO_PH:04x}]', 'subxy r7, r1, r7',
+            f'ld r0, [{LFO_W + 1:04x}]', 'mov r0, r0', f'add r0, #{NOISE_W!r}:32', 'ph_wrap r0, r3, r0',
+            f'st r0, [{LFO_W:04x}]',
+            f'mul r2, r2, #{NOISE_K!r}', 'addxy r2, r2, r0', 'ph_wrap r2, r3, r2', f'st r2, [{LFO_NZ:04x}]',
+            f'ld r3, [{LFO_SH + 1:04x}]', 'mov r0, r0', 'subxy r0, r3, r2', 'mul r0, r0, r7', 'mad r3, r0, #0.5',
+            f'st r3, [{LFO_SH:04x}]',
+            '; LFO: shape = tri, saw, square, S&H, noise x C060..C064',
+            w(3), 'mov r0, r0', 'mul r7, r3, r4', w(4), 'mov r0, r0', 'mad r7, r2, r4', w(1), 'mov r0, r0',
+            'mad r7, r1, r4', w(2), 'mul r3, r1, #256.0', 'ph_clamp r3, r3, -r3', 'mad r7, r3, r4',
+            w(0), 'ph_tri r3, r3, -r1', 'mad r7, r3, r4',
+            '; LFO: x depths',
+            f'ld r4, [c0{A6_LPITCH:02x}]', 'mov r0, r0', 'mul r0, r7, r4', f'st r0, [{LFO_P:04x}]',
+            f'ld r4, [c0{A6_LFILT:02x}]', 'mov r0, r0', 'mul r0, r7, r4', f'st r0, [{LFO_F:04x}]',
+            f'ld r4, [c0{A6_LAMP:02x}]', 'add r7, #-1.0', 'mul r0, r7, r4', f'st r0, [{LFO_M:04x}]']
+
+
 def step_s1m0():
     per_voice = STEP >= 3
     L = [f'; s1m0 (STEP {STEP}): slave DSP A main @0x0100: {NV} voices x (DCO1 + DCO2 saws) '
          + ('-> A151+v' if per_voice else 'x gate -> A150'),
          'mov r5, #0.0', 'mov r6, #1.0', 'mov r7, #0.0']
+    if STEP >= 9:
+        L += step_lfo() + ['mov r7, #0.0']
     gate = lambda v: [] if per_voice else [f'ld r4, [{GATE[v]:04x}]', 'mov r4, r4', 'mul r1, r1, r4']  # noqa: E731
     for v in range(NV):
         P = V8_PHASE[v]
         L += [f'; voice {v}: DCO1'] + (['mov r7, #0.0'] if per_voice and v else [])
-        L += [f'ld r0, [{PITCH[v]:04x}]', 'mov r4, r4']
-        if STEP >= 6:
-            L += [f'st r0, [{STEP_PB[v]:04x}]']
+        if STEP >= 9:                                    # fade -> r2, pitch + f P lfo -> r0 and V9_PM
+            L += [f'ld r2, [{V9_FADE[v] + 1:04x}]', f'ld r4, [c0{A6_LDELAY:02x}]', f'ld r3, [{GATE[v]:04x}]',
+                  'mov r5, r5', 'addxy r2, r2, r4', 'mul r2, r2, r3', 'min r2, r2, r6', f'st r2, [{V9_FADE[v]:04x}]',
+                  f'ld r0, [{PITCH[v]:04x}]', f'ld r4, [{LFO_P:04x}]', 'mov r5, r5', f'st r0, [{STEP_PB[v]:04x}]',
+                  'mad r0, r4, r2', f'st r0, [{V9_PM[v]:04x}]']
+        else:
+            L += [f'ld r0, [{PITCH[v]:04x}]', 'mov r4, r4']
+            if STEP >= 6:
+                L += [f'st r0, [{STEP_PB[v]:04x}]']
         L += ['add r0, #-4.75']
         if STEP >= 5:
             L += [f'ld r4, [c0{B6_RANGE1:02x}]', 'mov r4, r4', 'addxy r0, r0, r4']
@@ -305,7 +358,8 @@ def step_s1m0():
             L += [f'ld r4, [{STEP_LEVEL1:04x}]', 'mov r4, r4', 'mul r1, r1, r4']
         L += gate(v) + ['addxy r7, r7, r1']
         if STEP >= 5:
-            L += [f'; voice {v}: DCO2', f'ld r0, [{PITCH[v]:04x}]', f'ld r4, [c0{B6_RANGE2:02x}]', 'mov r4, r4',
+            L += [f'; voice {v}: DCO2', f'ld r0, [{(V9_PM if STEP >= 9 else PITCH)[v]:04x}]',
+                  f'ld r4, [c0{B6_RANGE2:02x}]', 'mov r4, r4',
                   'addxy r0, r0, r4', f'ld r4, [c0{B6_FINE2:02x}]', 'mov r4, r4', 'addxy r0, r0, r4', 'add r0, #-4.75']
         else:
             L += [f'; voice {v}: DCO2', f'add r0, #{DCO2_DETUNE!r}']
@@ -317,6 +371,10 @@ def step_s1m0():
         else:
             L += ['mul r1, r1, #0.5']
         L += gate(v) + ['addxy r7, r7, r1']
+        if STEP >= 9:                                    # tremolo, cutoff -> A180+v
+            L += [f'; voice {v}: LFO to amp and cutoff', f'ld r3, [{V9_FADE[v]:04x}]', f'ld r4, [{LFO_M:04x}]',
+                  'mov r5, r5', 'mul r4, r3, r4', 'mad r7, r7, r4', f'ld r4, [{LFO_F:04x}]',
+                  f'ld r0, [c0{A6_CUT:02x}]', 'mov r5, r5', 'mad r0, r3, r4', f'st r0, [{STEP_CB[v]:04x}]']
         if per_voice:
             L += [f'st r7, [{STEP_XV[v]:04x}]', f'ld r4, [{GATE[v]:04x}]', 'mov r5, r5', f'st r4, [{STEP_GB[v]:04x}]']
         if STEP >= 4:
@@ -357,7 +415,8 @@ def step_filter_voice(v):
         L += [f'ld r7, [{STEP_XV[v]:04x}]', 'mul r7, r7, r1']
         L += [f'; voice {v}: filter ADSR'] + step_adsr(b + B_FE, b + B_FE + 2, b + B_FE + 4, STEP_GB[v], STEP_TB[v],
                                                        0xC000 + B6_FENV)
-        L += [f'; voice {v}: low-pass', f'ld r6, [c0{B6_GAIN:02x}]', f'ld r0, [c0{B6_CUT:02x}]',
+        L += [f'; voice {v}: low-pass', f'ld r6, [c0{B6_GAIN:02x}]',
+              f'ld r0, [{STEP_CB[v]:04x}]' if STEP >= 9 else f'ld r0, [c0{B6_CUT:02x}]',
               f'ld r2, [c0{B6_AMT:02x}]', f'ld r3, [{STEP_PB[v]:04x}]', f'ld r4, [c0{B6_KT:02x}]',
               'mul r7, r7, r6', 'mad r0, r2, r1']
     else:
@@ -366,9 +425,14 @@ def step_filter_voice(v):
               'mul r7, r7, r1', 'mul r7, r7, r6']
     L += ['add r3, #-4.75', 'mad r0, r4, r3', f'min r0, r0, #{CUT_HI}', f'max r0, r0, #{CUT_LO}']
     L += exp2_to('r0', 'r0') + [f'mul r0, r0, #{G_440!r}', f'min r0, r0, #{G_MAX}']
+    if RESCOMP:                                          # r5 = c(g) = 1 + g (A + B g), g clamped to RC_GMAX
+        L += [f'min r2, r0, #{RC_GMAX}', f'mov r5, #{RC_A}', f'mad r5, r2, #{RC_B}', 'mul r5, r5, r2',
+              'add r5, #1.0']
     L += [f'ld r1, [{y[0] + 1:04x}]', f'ld r2, [{y[1] + 1:04x}]', f'ld r3, [{y[2] + 1:04x}]', f'ld r4, [{y[3] + 1:04x}]',
-          f'ld r6, [c0{B6_RES:02x}]',
-          'mad r7, r6, -r4',                             # u = x - k y4
+          f'ld r6, [c0{B6_RES:02x}]']
+    if RESCOMP:
+        L += ['mul r6, r6, r5']
+    L += ['mad r7, r6, -r4',                             # u = x - k y4
           'ph_clamp r7, r3, -r7']                        # saturate to [-1, 1]
     for i, (prev, cur) in enumerate((('r7', 'r1'), ('r1', 'r2'), ('r2', 'r3'), ('r3', 'r4'))):
         L += [f'subxy r5, {cur}, {prev}', f'mad {cur}, r5, r0', f'st {cur}, [{y[i]:04x}]']
@@ -584,6 +648,42 @@ def resonance(v):
     return RES_MAX * v / 255.0
 
 
+def lfo_hz(v):
+    """LFO rate knob -> Hz: 0.05 .. 40 Hz exponential"""
+    return 0.05 * 800 ** (v / 255.0)
+
+
+def on_grid(x):
+    """x on the register grid (dspisa.quant: multiples of 2^-32 below 0.125), so a parameter used by the very next
+    instruction after its load (packed) gives the same bits as after a filler (unpacked)"""
+    return math.floor(x * 2 ** 32) / 2 ** 32 if abs(x) < 0.125 else x
+
+
+def lfo_rate(v):
+    return on_grid(2 * lfo_hz(v) / FS)          # phase -1..1
+
+
+def lfo_delay(v):
+    """delay / fade knob -> fade step per sample: 0 = at once, 255 = 5 s"""
+    t = 5.0 * (v / 255.0) ** 2
+    return 1.0 if t * FS < 1 else on_grid(1 / (t * FS))
+
+
+def lfo_pitch(v):
+    """-> pitch depth in octaves: up to 1 (squared: fine vibrato at the low end)"""
+    return (v / 255.0) ** 2
+
+
+def lfo_filt(v):
+    """-> cutoff depth in octaves: up to 4"""
+    return 4.0 * v / 255.0
+
+
+def lfo_amp(v):
+    """-> half the tremolo depth (voice x 1 + f M (lfo - 1): 1 - 2M .. 1, full knob 0 .. 1)"""
+    return 0.5 * v / 255.0
+
+
 def env_amount(v):
     """filter env amount knob: bipolar, 128 = 0, 0 = -8 octaves (inverted envelope), 255 = +8 octaves"""
     return 8.0 * max(-1.0, (v - 128) / 127.0)
@@ -639,13 +739,28 @@ def header(progs):
     out.append('/* OSC range 0..5 (64\' .. 2\') -> octaves; OSC2 fine tune 0..255 -> octaves (128 = 0) */')
     out.append(table('range_bits', [r - 3.0 for r in range(6)]))
     out.append(table('fine_bits', [(v - 128) / 128.0 * FINE_SPAN for v in range(256)]))
+    out.append(f'#define A6_LRATE 0x{A6_LRATE:02x}\n#define A6_LDELAY 0x{A6_LDELAY:02x}\n#define A6_LPITCH 0x{A6_LPITCH:02x}\n'
+               f'#define A6_LFILT 0x{A6_LFILT:02x}\n#define A6_LAMP 0x{A6_LAMP:02x}\n#define A6_CUT 0x{A6_CUT:02x}\n'
+               f'#define A6_LWAVE 0x{A6_LWAVE:02x}')
+    out.append('/* step 9, LFO knobs -> DSP A parameters: phase step, fade step, depths; shape -> 5 coefficients */')
+    out.append(table('lfo_rate_bits', [lfo_rate(v) for v in range(256)]))
+    out.append(table('lfo_delay_bits', [lfo_delay(v) for v in range(256)]))
+    out.append(table('lfo_pitch_bits', [lfo_pitch(v) for v in range(256)]))
+    out.append(table('lfo_filt_bits', [lfo_filt(v) for v in range(256)]))
+    out.append(table('lfo_amp_bits', [lfo_amp(v) for v in range(256)]))
+    out.append(table('lfo_wave_bits', [c for w in LFO_WAVES for c in w], 5))
     return '\n'.join(out) + '\n'
 
 
 # ---- simulation ----------------------------------------------------------------------------------------------------
 def panel_defaults():
     return dict(osc1_wave=0, osc1_level=255, osc2_wave=0, osc2_level=128, cutoff=255, res=0, amount=0, kt=0,
-                fenv=(0, 128, 0, 60), aenv=(0, 128, 255, 60))
+                fenv=(0, 128, 0, 60), aenv=(0, 128, 255, 60),
+                lfo_rate=128, lfo_wave=0, lfo_delay=0, lfo_pitch=0, lfo_filt=0, lfo_amp=0)
+
+
+def f32(x):
+    return float(struct.unpack('<f', struct.pack('<f', x))[0])
 
 
 def b5_from_panel(p):
@@ -670,6 +785,12 @@ def sim_params(b5, panel):
     for base, wv in ((B6_WAVE1, panel['osc1_wave']), (B6_WAVE2, panel['osc2_wave'])):
         for i in range(3):
             pa[0xC000 + base + i] = float(STEP_WAVES[wv][i])
+    if STEP >= 9:
+        pa.update({0xC000 + A6_LRATE: f32(lfo_rate(panel['lfo_rate'])), 0xC000 + A6_LDELAY: f32(lfo_delay(panel['lfo_delay'])),
+                   0xC000 + A6_LPITCH: f32(lfo_pitch(panel['lfo_pitch'])), 0xC000 + A6_LFILT: f32(lfo_filt(panel['lfo_filt'])),
+                   0xC000 + A6_LAMP: f32(lfo_amp(panel['lfo_amp'])), 0xC000 + A6_CUT: b5[CUT]})
+        for i, c in enumerate(LFO_WAVES[panel['lfo_wave']]):
+            pa[0xC000 + A6_LWAVE + i] = float(c)
     pb = {0xC000: 1.0, 0xC000 + B6_CUT: b5[CUT], 0xC000 + B6_RES: b5[RES], 0xC000 + B6_KT: b5[KT],
           0xC000 + B6_GAIN: b5[COMP] / 2}
     for i in range(4):
@@ -746,7 +867,7 @@ def simulate_py(progs, events, n, panel=None):
     b5 = sim_b5(panel)
     pa, pb, pm = sim_params(b5, panel)
     span = 0x20 if STEP >= 8 else 0x10
-    rings = {'s1m0': [x + o for x in A_BASE for o in range(0, 16, 2)],
+    rings = {'s1m0': [x + o for x in A_BASE for o in range(0, 16, 2)] + [LFO_PH, LFO_NZ, LFO_SH, LFO_W],
              's1m1': [x + o for x in (STEP_B_BASE if STEP else B_BASE) for o in range(0, span, 2)]}
     mem = {'s1m0': {}, 's1m1': {}}
     mem_m = dict(pm)
@@ -816,8 +937,12 @@ def sim_check(progs):
     ev = {0: [(0, 69)], 50: [(1, 64)], n // 2: [(0, None)]}
     filt = dict(panel_defaults(), osc1_wave=1, osc2_wave=2, cutoff=120, res=200, amount=220, kt=128,
                 fenv=(10, 90, 60, 40), aenv=(5, 100, 200, 30))
+    panels = [('defaults', None), ('filter + envelopes', filt)]
+    if STEP >= 9:
+        lfo = dict(filt, lfo_rate=230, lfo_delay=40, lfo_pitch=160, lfo_filt=150, lfo_amp=200)
+        panels += [('LFO triangle', dict(lfo, lfo_wave=0)), ('LFO S&H', dict(lfo, lfo_wave=4))]
     os.environ['SIM'] = 'c'
-    for name, panel in (('defaults', None), ('filter + envelopes', filt)):
+    for name, panel in panels:
         c = simulate(progs, ev, n, panel)
         py = simulate_py(progs, ev, n, panel)
         bad = [t for t in range(n) if c[t] != py[t]]
@@ -828,7 +953,7 @@ def sim_check(progs):
     n = int(os.environ.get('SIM_PACK_N', '19200'))
     ev = {0: [(v, 48 + 3 * v) for v in range(NV)], n // 2: [(v, None) for v in range(0, NV, 2)]}
     packed, unpacked = sources(True), sources(False)
-    for name, panel in (('defaults', None), ('filter + envelopes', filt)):
+    for name, panel in panels:
         a = simulate(packed, ev, n, panel)
         b = simulate(unpacked, ev, n, panel)
         bad = [t for t in range(n) if a[t] != b[t]]

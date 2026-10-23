@@ -8,6 +8,8 @@
  *                       0x167 / 0x16C  OSC1 / OSC2 wave (0..5)     0x174 / 0x175  OSC1 / OSC2 level
  *                       0x17D cutoff  0x17F resonance  0x181 env amount  0x186 key track
  *                       0x182..0x185 filter A D S R    0x187..0x18A amp A D S R          (all 0..255)
+ *                       step 9 LFO: 0x162 rate  0x160 shape (0..5)  0x161 delay / fade  0x163 -> pitch
+ *                       0x164 -> filter  0x165 -> amp
  *   refresh (vt+0x24) voices from the current values, panel words from the last values received
  */
 #include <stdint.h>
@@ -114,10 +116,12 @@ typedef void (*param_fn)(int sel, int id, uint32_t value);
 static void b6(int sel, int id, uint32_t bits) { ((param_fn)SVC(0xEC))(sel, id, bits); }
 
 enum { P_L1, P_L2, P_AA, P_AD, P_AS, P_AR, P_R1, P_R2, P_F2, P_CUT, P_RES, P_KT, P_W1, P_W2,
-       P_FAMT, P_FA, P_FD, P_FS, P_FR, P_N };
+       P_FAMT, P_FA, P_FD, P_FS, P_FR, P_LRATE, P_LWAVE, P_LDELAY, P_LPITCH, P_LFILT, P_LAMP, P_N };
 static const uint16_t panel_id[P_N] = { 0x174, 0x175, 0x187, 0x188, 0x189, 0x18A, 0x16A, 0x16F, 0x170,
-                                        0x17D, 0x17F, 0x186, 0x167, 0x16C, 0x181, 0x182, 0x183, 0x184, 0x185 };
-static uint8_t panel[P_N] = { 255, 128, 0, 128, 255, 60, 3, 3, 128, 255, 0, 0, 0, 0, 128, 0, 128, 0, 60 };
+                                        0x17D, 0x17F, 0x186, 0x167, 0x16C, 0x181, 0x182, 0x183, 0x184, 0x185,
+                                        0x162, 0x160, 0x161, 0x163, 0x164, 0x165 };
+static uint8_t panel[P_N] = { 255, 128, 0, 128, 255, 60, 3, 3, 128, 255, 0, 0, 0, 0, 128, 0, 128, 0, 60,
+                              128, 0, 0, 0, 0, 0 };
 
 static void panel_apply(int p)
 {
@@ -132,8 +136,13 @@ static void panel_apply(int p)
 #else
     case P_R1: case P_R2: case P_F2: break;
 #endif
+#if STEP >= 9
+    case P_CUT: b6(0, A6_CUT, cutoff_bits[v[P_CUT]]); break;     /* step 9: DSP A adds the LFO, B reads A180+v */
+#endif
 #if STEP >= 6
+#if STEP < 9
     case P_CUT: b6(1, B6_CUT, cutoff_bits[v[P_CUT]]); break;                      /* step 6: DSP B parameters */
+#endif
     case P_RES: b6(1, B6_RES, res_bits[v[P_RES]]); b6(1, B6_GAIN, gain_bits[v[P_RES]]); break;
     case P_KT: b6(1, B6_KT, level_bits[v[P_KT]]); break;
 #else
@@ -159,6 +168,21 @@ static void panel_apply(int p)
         break;
 #else
     case P_FAMT: case P_FA: case P_FD: case P_FS: case P_FR: break;
+#endif
+#if STEP >= 9                                                                     /* step 9: LFO, DSP A */
+    case P_LRATE: b6(0, A6_LRATE, lfo_rate_bits[v[P_LRATE]]); break;
+    case P_LDELAY: b6(0, A6_LDELAY, lfo_delay_bits[v[P_LDELAY]]); break;
+    case P_LPITCH: b6(0, A6_LPITCH, lfo_pitch_bits[v[P_LPITCH]]); break;
+    case P_LFILT: b6(0, A6_LFILT, lfo_filt_bits[v[P_LFILT]]); break;
+    case P_LAMP: b6(0, A6_LAMP, lfo_amp_bits[v[P_LAMP]]); break;
+    case P_LWAVE: {
+        int w = v[P_LWAVE] > 5 ? 5 : v[P_LWAVE];
+        for (int i = 0; i < 5; i++)
+            b6(0, A6_LWAVE + i, lfo_wave_bits[5 * w + i]);
+        break;
+    }
+#else
+    case P_LRATE: case P_LDELAY: case P_LPITCH: case P_LFILT: case P_LAMP: case P_LWAVE: break;
 #endif
     default:
         if (STEP >= 4) {

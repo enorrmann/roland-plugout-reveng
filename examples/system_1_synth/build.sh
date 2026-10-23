@@ -16,13 +16,20 @@ Options (environment variables):
                   5 OSC ranges + OSC2 fine tune          6 4-pole low-pass (cutoff, resonance, key track)
                   7 waves: selector position 2 = square, 3 = triangle, others saw
                   8 filter ADSR (faders 0x182..0x185) and env amount (0x181)
+                  9 LFO on DSP A: rate 0x162, shape 0x160, delay 0x161, -> pitch 0x163 / filter 0x164 /
+                    amp 0x165 (emulator only so far; DSP A 693 instructions, most tried 708)
                   0 the first all-at-once design (silent on the device; reference only)
   PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit
                 per instruction: STEP=7 PACK=0 is over the time budget of slave DSP A and hangs the device
   NAME=...      plug-out name shown on the device and plugins/ folder (default C-S1SY); max 16 characters
-  GMAX=x        filter coefficient limit (default 0.7, steps >= 6). Higher (0.8 .. 0.95) lets the filter
-                self-oscillate at high cutoff with full resonance; above ~0.83 it may keep ringing after
-                note off. Set by ear
+  GMAX=x        filter coefficient limit (default 0.7, steps >= 6): caps the cutoff (0.7 = 10.7 kHz). Above
+                ~0.85 the loop oscillates at 48 kHz (Nyquist) with full resonance: inaudible, but it eats the
+                filter's headroom (emulator, 2026-10-23). It does not give audible self-oscillation
+  RESCOMP=1     resonance compensated by cutoff (steps >= 6): the filter self-oscillates with full resonance
+                from ~80 Hz to ~2.8 kHz cutoff, as an analog ladder (works on the device 2026-10-23; the
+                oscillation keeps sounding after note off, and needs oscillator level to start; DSP B 708
+                instead of 660 instructions = most tried). Without it it never self-oscillates
+  RES_MAX=x     feedback at the top of the resonance knob (default 3.6; 4.4 with RESCOMP; 4 = threshold)
   VOICES=n      voices (default 8; the OS forwards at most 8)
   MODEL_ID=0x.. model id in the SYNINFO (default 0x0010)
   PARAMLOG=1    diagnostic: region 0 sends every parameter the OS hands it to the PC as SysEx F0 7D 06;
@@ -33,6 +40,7 @@ Options (environment variables):
 Examples:
   sh examples/system_1_synth/build.sh                                (STEP=8, packed -> plugins/C-S1SY)
   GMAX=0.9 NAME=C-S1SYG sh examples/system_1_synth/build.sh
+  RESCOMP=1 NAME=C-S1SYR sh examples/system_1_synth/build.sh
   PARAMLOG=1 NAME=C-S1SYL sh examples/system_1_synth/build.sh
   STEP=7 python3 examples/system_1_synth/make_synth.py --sim       (DSP programs + simulation only)
 TXT
