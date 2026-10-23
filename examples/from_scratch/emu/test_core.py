@@ -338,6 +338,40 @@ def test_s1_shared5(n=12):
         assert py.iomd.get(0x6006, 0.0) == c.iomd.get(0x6006, 0.0), t
 
 
+def test_s1_pipeline(n=6000):
+    """the two-stage pipeline (cchain.pipeline_plan: slave A one sample ahead on its own thread) against the serial
+    run: C-S1SY step 11 with notes and the LFO, every bank-5 word of the three DSPs and the output, sample by sample
+    (run() blocks with events between them, as make_synth.simulate)"""
+    os.environ['STEP'] = '11'
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'system_1_synth'))
+    import make_synth as ms
+    progs = ms.sources()
+    model = chain.Model(order=(0, 1, 2), shared5=((0, 1),), own_params=(0, 1, 2))
+    panel = dict(ms.panel_defaults(), lfo_rate=220, lfo_pitch=200, lfo_filt=60, lfo_amp=90, lfo_wave=5,
+                 cutoff=150, res=120, lfo_delay=30)
+    words = [(2, 0xA118), (0, 0xA151), (1, 0xA150), 0x6006]
+    outs = []
+    for threads in (False, True):
+        P = {k: chain.Program(progs[k][0], k) for k in ('s1m0', 's1m1', 's1mm1')}
+        s = cchain.Slave({0: (P['s1m0'], []), 1: (P['s1m1'], []), 2: (P['s1mm1'], [])}, model, threads=threads)
+        assert bool(s.pipeline) == threads
+        b5 = ms.sim_b5(panel)
+        for d, prm in zip(s.d, ms.sim_params(b5, panel)):
+            d.params.update(prm)
+        for k, v in b5.items():
+            s.d[0].bank5[k & 0x3FF] = v
+        rec = {w: [] for w in words}
+        for k, t in enumerate(range(0, n, 1000)):
+            ms.sim_event(b5, k % 8, 50 + k)
+            for a in (ms.PITCH[k % 8], ms.GATE[k % 8], ms.TRIG[k % 8]):
+                s.d[0].bank5[a & 0x3FF] = b5[a]
+            r = s.run(1000, words)
+            for w in words:
+                rec[w] += r[w]
+        outs.append((rec, [list(s.d[i].bank5) for i in range(3)], [list(s.d[i].bank0) for i in range(3)]))
+    assert outs[0] == outs[1]
+
+
 def test_speed():
     progs = voices.programs('v4')
     sp = chain.Slave(progs)

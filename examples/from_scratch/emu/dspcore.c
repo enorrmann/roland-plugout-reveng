@@ -202,6 +202,7 @@ static void end_sample(Slave *s)
         s->d[n].nout = 0;
     }
     s->t++;
+    for (int n = 0; n < NDSP; n++) s->d[n].t = s->t;
 }
 
 static int first_error(Slave *s)
@@ -268,6 +269,7 @@ Slave *sl_new(int ring1, int mxm_shift, int mxm_delay, int dp_pairs, int dp_dela
     for (int k = 0; k < nshared; k++) s->d[shared[2 * k + 1]].bank1 = s->d[shared[2 * k]].bank1;
     for (int k = 0; k < nshared5; k++) s->d[shared5[2 * k + 1]].bank5 = s->d[shared5[2 * k]].bank5;
     for (int k = 0; k < nown; k++) s->d[own_params[k]].params = s->d[own_params[k]].params_own;
+    s->pipe_a = s->pipe_b = -1;
     s->ngroups = 1;                           /* default: everything on the calling thread, model order */
     s->ngroup[0] = norder;
     memcpy(s->group[0], order, norder * sizeof *order);
@@ -472,10 +474,113 @@ static void record(Slave *s, int64_t k, const int *rec_addr, int nrec, double *r
     }
 }
 
+/* ------------------------------------------------------------------ pipeline: stage A one sample ahead */
+/* Exact when (checked by cchain.py before sl_set_pipeline): stage A is one DSP that shares bank 5 with pipe_b only,
+ * touches no IOMD word, MXM or pair window of the others, and reads no bank-5 word stage B writes; both stages use
+ * static bank-5 addresses. Then stage B of sample t sees exactly the words A wrote in sample t. */
+void sl_set_pipeline(Slave *s, int a, int b, const int *wa, int nwa, const int *wb, int nwb)
+{
+    s->pipe_a = a, s->pipe_b = b;
+    s->npipe_wa = nwa, s->npipe_wb = nwb;
+    memcpy(s->pipe_wa, wa, nwa * sizeof *wa);
+    memcpy(s->pipe_wb, wb, nwb * sizeof *wb);
+}
+
+typedef struct {
+    Slave *s;
+    atomic_int *go, *done, *stop;
+} PipeWorker;
+
+static int run_dsp(Slave *s, int dn)
+{
+    Dsp *d = &s->d[dn];
+    for (int q = 0; q < d->nprogs; q++)
+        if (run_prog(s, d, d->progs[q])) return -1;
+    return 0;
+}
+
+static void *pipe_worker(void *arg)
+{
+    PipeWorker *w = arg;
+    int seen = 0;
+    for (;;) {
+        int k = 0, g;
+        while ((g = atomic_load_explicit(w->go, memory_order_acquire)) == seen && !atomic_load(w->stop))
+            spin_pause(&k);
+        if (atomic_load(w->stop)) break;
+        seen = g;
+        run_dsp(w->s, w->s->pipe_a);
+        atomic_store_explicit(w->done, 1, memory_order_release);
+    }
+    return NULL;
+}
+
+static void record_split(Slave *s, int64_t k, const int *rec_addr, int nrec, double *rec, int stage_a)
+{
+    for (int j = 0; j < nrec; j++) {
+        int a = rec_addr[j], dsp = (a >> 16) - 1;
+        if ((dsp == s->pipe_a) != stage_a) continue;
+        rec[k * nrec + j] = a >> 16 ? rd(s, &s->d[dsp], a & 0xFFFF) : s->iomd[a & 0x1FFF];
+    }
+}
+
+static int run_stage_b(Slave *s)
+{
+    for (int j = 0; j < s->norder; j++)
+        if (s->order[j] != s->pipe_a && run_dsp(s, s->order[j])) return -1;
+    return 0;
+}
+
+static int sl_step_pipe(Slave *s, int n, const int *rec_addr, int nrec, double *rec)
+{
+    Dsp *A = &s->d[s->pipe_a], *B = &s->d[s->pipe_b];
+    double *shared = A->bank5;
+    memcpy(s->pipe_buf, shared, sizeof s->pipe_buf);
+    B->bank5 = s->pipe_buf;
+    atomic_int go = 0, done = 0, stop = 0;
+    PipeWorker wk = {s, &go, &done, &stop};
+    pthread_t th;
+    pthread_create(&th, NULL, pipe_worker, &wk);
+    int err = 0;
+    A->t = s->t;                                         /* prologue: stage A alone, sample t */
+    if (run_dsp(s, s->pipe_a)) err = -1;
+    record_split(s, 0, rec_addr, nrec, rec, 1);
+    for (int k = 0; k < n && !err; k++) {
+        for (int j = 0; j < s->npipe_wa; j++) s->pipe_buf[s->pipe_wa[j]] = shared[s->pipe_wa[j]];
+        int ahead = k + 1 < n;
+        if (ahead) {                                     /* stage A: sample t + 1 on the worker */
+            A->t = s->t + 1;
+            atomic_store_explicit(&done, 0, memory_order_relaxed);
+            atomic_fetch_add_explicit(&go, 1, memory_order_release);
+        }
+        if (run_stage_b(s)) err = -1;                    /* stage B: sample t here */
+        if (ahead) {
+            int spins = 0;
+            while (!atomic_load_explicit(&done, memory_order_acquire)) spin_pause(&spins);
+        }
+        if (err || first_error(s)) {
+            err = -1;
+            break;
+        }
+        record_split(s, k, rec_addr, nrec, rec, 0);
+        if (ahead) record_split(s, k + 1, rec_addr, nrec, rec, 1);
+        end_sample(s);                                   /* s->t + 1; every d->t = s->t (A's included) */
+    }
+    atomic_store(&stop, 1);
+    pthread_join(th, NULL);
+    for (int j = 0; j < s->npipe_wb; j++) shared[s->pipe_wb[j]] = s->pipe_buf[s->pipe_wb[j]];
+    B->bank5 = shared;
+    return err ? first_error(s), -1 : 0;
+}
+
 /* chain.py Slave.step, n times; with `rec` the IOMD words rec_addr[0..nrec) are stored after each sample. With more
  * than one group and n >= 64 the groups run on their own threads. */
 int sl_step(Slave *s, int n, const int *rec_addr, int nrec, double *rec)
 {
+    if (s->pipe_a >= 0 && n >= 64) {
+        static double dummy;
+        return sl_step_pipe(s, n, rec_addr, nrec, rec ? rec : &dummy);
+    }
     if (s->ngroups <= 1 || n < 64) {
         for (int k = 0; k < n; k++) {
             if (step_serial(s)) return -1;

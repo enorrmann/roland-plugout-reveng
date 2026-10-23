@@ -1036,21 +1036,45 @@ def main():
         sim_check(progs)
 
 
+# ---- parallel simulations: independent runs in their own processes (fork; JIT libraries come from the cache) --------
+_PROGS = {}                                    # program sets of this run, by name (inherited by the forked workers)
+
+
+def _sim_task(task):
+    kind, progs_name, events, n, panel = task
+    fn = simulate_py if kind == 'py' else simulate
+    return fn(_PROGS[progs_name], events, n, panel)
+
+
+def run_sims(tasks):
+    """[(kind 'c' / 'py', program set name in _PROGS, events, n, panel)] -> [samples], on all cores
+    (SIM_JOBS=1: one after the other)"""
+    jobs = int(os.environ.get('SIM_JOBS', '0')) or os.cpu_count() or 1
+    if jobs == 1 or len(tasks) == 1:
+        return [_sim_task(t) for t in tasks]
+    for name in sorted({t[1] for t in tasks if t[0] == 'c'}):    # build the native code once, before the fork
+        simulate(_PROGS[name], {}, 1)
+    import concurrent.futures
+    import multiprocessing
+    with concurrent.futures.ProcessPoolExecutor(min(jobs, len(tasks)),
+                                                mp_context=multiprocessing.get_context('fork')) as ex:
+        return list(ex.map(_sim_task, tasks))
+
+
 def sim_report(progs):
     n = int(os.environ.get('SIM_N', '9600'))
-    seq = simulate(progs, {0: [(0, 69)]}, n)
-    print('A 440, DCO1 saw + DCO2 saw/2: peak %.3f, f %.2f Hz' % (max(abs(x) for x in seq[200:]), freq(seq[n // 2:])))
-    seq = simulate(progs, {0: [(v, 60 + 2 * v) for v in range(NV)]}, n // 2)
-    print('8 notes: peak %.3f' % max(abs(x) for x in seq[200:]))
-    seq = simulate(progs, {}, 2000)
-    print('no notes: peak %.6f' % max(abs(x) for x in seq))
+    os.environ['SIM'] = os.environ.get('SIM', 'c')
+    _PROGS['main'] = progs
+    kind = 'py' if os.environ['SIM'] == 'py' else 'c'
+    a, b, c = run_sims([(kind, 'main', {0: [(0, 69)]}, n, None),
+                        (kind, 'main', {0: [(v, 60 + 2 * v) for v in range(NV)]}, n // 2, None),
+                        (kind, 'main', {}, 2000, None)])
+    print('A 440, DCO1 saw + DCO2 saw/2: peak %.3f, f %.2f Hz' % (max(abs(x) for x in a[200:]), freq(a[n // 2:])))
+    print('8 notes: peak %.3f' % max(abs(x) for x in b[200:]))
+    print('no notes: peak %.6f' % max(abs(x) for x in c))
 
 
-def sim_check(progs):
-    """the C core against the Python reference, sample by sample (SIM_CHECK_N samples, 2 notes, one released); then
-    (steps) the packed programs against the unpacked ones on the C core (SIM_PACK_N samples, 8 notes, released)"""
-    n = int(os.environ.get('SIM_CHECK_N', '600'))
-    ev = {0: [(0, 69)], 50: [(1, 64)], n // 2: [(0, None)]}
+def check_panels():
     filt = dict(panel_defaults(), osc1_wave=1, osc2_wave=2, cutoff=120, res=200, amount=220, kt=128,
                 fenv=(10, 90, 60, 40), aenv=(5, 100, 200, 30))
     panels = [('defaults', None), ('filter + envelopes', filt)]
@@ -1062,23 +1086,37 @@ def sim_check(progs):
                        ('LFO S&H', dict(lfo, lfo_wave=5))]
         else:
             panels += [('LFO triangle', dict(lfo, lfo_wave=0)), ('LFO S&H', dict(lfo, lfo_wave=4))]
+    return panels
+
+
+def sim_check(progs):
+    """the C core against the Python reference, sample by sample (SIM_CHECK_N samples, 2 notes, one released); then
+    (steps) the packed programs against the unpacked ones on the C core (SIM_PACK_N samples, 8 notes, released).
+    Every simulation is independent: they all run at once, one process each (run_sims)."""
+    n = int(os.environ.get('SIM_CHECK_N', '600'))
+    ev = {0: [(0, 69)], 50: [(1, 64)], n // 2: [(0, None)]}
+    panels = check_panels()
     os.environ['SIM'] = 'c'
-    for name, panel in panels:
-        c = simulate(progs, ev, n, panel)
-        py = simulate_py(progs, ev, n, panel)
+    _PROGS['main'] = progs
+    tasks = [(k, 'main', ev, n, p) for _, p in panels for k in ('c', 'py')]
+    npk = int(os.environ.get('SIM_PACK_N', '19200'))
+    evp = {0: [(v, 48 + 3 * v) for v in range(NV)], npk // 2: [(v, None) for v in range(0, NV, 2)]}
+    if STEP:
+        _PROGS['packed'], _PROGS['unpacked'] = sources(True), sources(False)
+        tasks += [('c', ps, evp, npk, p) for _, p in panels for ps in ('packed', 'unpacked')]
+    res = run_sims(tasks)
+    for k, (name, _) in enumerate(panels):
+        c, py = res[2 * k], res[2 * k + 1]
         bad = [t for t in range(n) if c[t] != py[t]]
         print('sim check, %s, %d samples: %s (peak %.4f)' % (name, n, 'identical' if not bad else
               '%d differ, first at %d: C %r, Python %r' % (len(bad), bad[0], c[bad[0]], py[bad[0]]), max(map(abs, c))))
-    if STEP == 0:
+    if not STEP:
         return
-    n = int(os.environ.get('SIM_PACK_N', '19200'))
-    ev = {0: [(v, 48 + 3 * v) for v in range(NV)], n // 2: [(v, None) for v in range(0, NV, 2)]}
-    packed, unpacked = sources(True), sources(False)
-    for name, panel in panels:
-        a = simulate(packed, ev, n, panel)
-        b = simulate(unpacked, ev, n, panel)
-        bad = [t for t in range(n) if a[t] != b[t]]
-        print('pack check, %s, %d samples: %s (peak %.4f)' % (name, n, 'identical' if not bad else
+    base = 2 * len(panels)
+    for k, (name, _) in enumerate(panels):
+        a, b = res[base + 2 * k], res[base + 2 * k + 1]
+        bad = [t for t in range(npk) if a[t] != b[t]]
+        print('pack check, %s, %d samples: %s (peak %.4f)' % (name, npk, 'identical' if not bad else
               '%d differ, first at %d: packed %r, unpacked %r' % (len(bad), bad[0], a[bad[0]], b[bad[0]]),
               max(map(abs, a))))
 

@@ -47,6 +47,7 @@ typedef struct Dsp {
     int progs[16];
     int nprogs;
     int64_t ninstr;
+    int64_t t;                    /* sample this DSP is running: the slave's, one ahead in the pipeline stage A */
     char err[200];
 } Dsp;
 
@@ -73,6 +74,12 @@ struct Slave {
     int nprogs;
     /* debugging: called after every instruction by the interpreter, and by native code built with trace=True */
     void (*trace)(int dsp, int insn, const double *regs, uint32_t flags, uint32_t pmask, uint32_t pval);
+    /* pipeline (sl_set_pipeline): DSP pipe_a runs sample t + 1 on its own thread while the others run sample t;
+     * pipe_b (its shared-bank-5 partner) reads pipe_buf, where the bank-5 words pipe_a writes (pipe_wa) are copied
+     * at each barrier; the words the others write (pipe_wb) go back to the shared bank 5 at the end of sl_step */
+    int pipe_a, pipe_b;
+    int pipe_wa[0x400], npipe_wa, pipe_wb[0x400], npipe_wb;
+    double pipe_buf[0x400];
     int group[NDSP][NDSP];        /* thread groups: DSPs in execution order; group 0 runs on the calling thread */
     int ngroup[NDSP], ngroups;
     char err[256];
@@ -92,11 +99,18 @@ typedef struct { int set; double v; int z; } Res;
  * k > 52: m < 2^-p, the result is a zero with the sign of v; k = 63 clears every bit but the sign, which
  * is that zero. |v| >= 512, inf and nan (E >= 9) are kept: k = 0. Same bits as the scale-and-convert form (the
  * integer conversion of m 2^p is its floor); test_core.py test_quant checks it against quant_ref and dspisa. */
+/* Every NaN leaves quant as one canonical NaN (+qNaN). The DSP has no NaN (only random test states with inf reach
+ * one), but C leaves open which NaN an op with NaN operands returns, and compilers commute operands: the sign
+ * of the NaN then depended on the optimisation (it reached `sign` and gave -5 instead of -3 in p0s_003661c, the
+ * "GCC 14 miscompile" of EMULATOR.md §3.6, also with clang). After quant the result no longer depends on it. */
+#define QNAN_BITS UINT64_C(0x7FF8000000000000)
+
 INL double quant(double v)
 {
     uint64_t b;
     memcpy(&b, &v, sizeof b);
     b &= QMASK[(b >> 52) & 0x7FF];            /* qmask.h (gen_qmask.py): the k rule above, one mask per exponent */
+    b = (b & UINT64_C(0x7FFFFFFFFFFFFFFF)) > UINT64_C(0x7FF0000000000000) ? QNAN_BITS : b;
     memcpy(&v, &b, sizeof v);
     return v;
 }
@@ -104,7 +118,12 @@ INL double quant(double v)
 static inline double quant_ref(double v)
 {
     double m = fabs(v);
-    if (v == 0 || m >= 512.0 || m != m) return v;
+    if (m != m) {
+        uint64_t b = QNAN_BITS;
+        memcpy(&v, &b, sizeof v);
+        return v;
+    }
+    if (v == 0 || m >= 512.0) return v;
     if (m < 0.125) return copysign(floor(m * 4294967296.0) * (1.0 / 4294967296.0), v);
     if (m < 2.0) return copysign(floor(m * 268435456.0) * (1.0 / 268435456.0), v);
     if (m < 32.0) return copysign(floor(m * 16777216.0) * (1.0 / 16777216.0), v);
@@ -161,15 +180,15 @@ INL double pymin(double x, double y) { return y < x ? y : x; }
 INL double pymax(double x, double y) { return y > x ? y : x; }
 
 /* ------------------------------------------------------------------ memory (chain.py Slave._access) */
-INL int64_t ring(const Slave *s, int64_t a) { return (a - s->t) & (RING - 1); }
+INL int64_t ring(const Dsp *d, int64_t a) { return (a - d->t) & (RING - 1); }   /* d->t = s->t outside sl_step */
 
 INL double rd(Slave *s, Dsp *d, int64_t a)
 {
     if (a < 0) return 0.0;
     int64_t bank = a >> 13, off = a & 0x1FFF;
     switch (bank) {
-    case 0: return d->bank0[ring(s, off & 0x7FF)];
-    case 1: return d->bank1[s->ring1 ? ring(s, off & 0x7FF) : (off & 0x7FF)];
+    case 0: return d->bank0[ring(d, off & 0x7FF)];
+    case 1: return d->bank1[s->ring1 ? ring(d, off & 0x7FF) : (off & 0x7FF)];
     case 3: return s->iomd[off];
     case 4:
         if (d->mxm_in_st[off] == d->in_gen) return d->mxm_in[off];
@@ -198,8 +217,8 @@ INL void wr(Slave *s, Dsp *d, int64_t a, double v)
     if (a < 0) return;
     int64_t bank = a >> 13, off = a & 0x1FFF;
     switch (bank) {
-    case 0: d->bank0[ring(s, off & 0x7FF)] = v; break;
-    case 1: d->bank1[s->ring1 ? ring(s, off & 0x7FF) : (off & 0x7FF)] = v; break;
+    case 0: d->bank0[ring(d, off & 0x7FF)] = v; break;
+    case 1: d->bank1[s->ring1 ? ring(d, off & 0x7FF) : (off & 0x7FF)] = v; break;
     case 3: s->iomd[off] = v; break;
     case 4:
         if (d->mxm_out_st[off] != d->out_gen) {

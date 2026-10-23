@@ -14,7 +14,7 @@ Estado: 2026-10-23.
 ## 1. Flujo de un PLUG-OUT propio (SYSTEM-1, C-S1SY)
 
 ```sh
-STEP=11 python3 examples/system_1_synth/make_synth.py --sim-check   # 1. validar en el emulador (≈ 2 min, casi todo la referencia Python)
+STEP=11 python3 examples/system_1_synth/make_synth.py --sim-check   # 1. validar en el emulador (≈ 30 s en paralelo)
 STEP=11 NAME=C-S1SY11 sh examples/system_1_synth/build.sh           # 2. build (+ check_optimized)
 amidi -l                                                             # 3. ¿está el equipo? (SYSTEM-1 MIDI 1/2)
 python3 tools/plugout_tool.py install plugins/C-S1SY11 --slot 1 --force --no-patches -y   # 4. instalar
@@ -45,6 +45,8 @@ python3 examples/system_1_synth/make_synth.py --sim-check    # además: validaci
 | `GMAX` | 0,7 | tope del coeficiente del filtro |
 | `PAD` | 0 | prueba de presupuesto: n rellenos al final del DSP A |
 | `SIM` | `c` | `py`: `--sim` con la referencia Python (`re/dspisa.py`, minutos) en vez del núcleo C (1 s de audio ≈ 0,4 s) |
+| `SIM_JOBS` | núcleos de la máquina | simulaciones independientes de `--sim` / `--sim-check` a la vez, una por proceso; 1 = en serie |
+| `DSP_CC` | `clang` si está, si no `cc` | compilador del núcleo C y del código nativo (`gcc`, `clang` o una ruta) |
 | `SIM_N` | 9600 | muestras de la prueba de La 440 de `--sim` |
 | `SIM_CHECK_N` | 600 | muestras de la comparación núcleo C / Python de `--sim-check` |
 | `SIM_PACK_N` | 19200 | muestras de la comparación empaquetado / sin empaquetar de `--sim-check` |

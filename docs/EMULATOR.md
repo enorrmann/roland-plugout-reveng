@@ -124,11 +124,15 @@ núcleo se compila con `-ffp-contract=off`: una multiplicación-suma fusionada (
   en un hilo. La ventana de pareja del banco 5 se fusiona al final de la muestra en el orden del modelo, así el
   resultado no depende de los hilos. El JX-3P da seis grupos; el techo es el DSP más cargado (DSP2/3, ≈ 840 instr.).
   Los hilos se usan en `run()` / `step(n)` con n ≥ 64.
-* **GCC 14 con `-O2` compiló mal un programa del corpus** (`p0s_003661c`: r2 = −5 en vez de −3 tras la instrucción 86,
-  en la tercera muestra). Se corrige quitando `-fgcse` o `-fpeephole2`; con `-O0`/`-O1`, con la traza o con el
-  sanitizer no aparece, y el sanitizer no encuentra comportamiento indefinido. Causa de fondo sin encontrar. Se
-  compila con `-O2 -fno-gcse -fno-peephole2`; `test_core.py test_native_corpus` (los 212 programas del corpus,
-  nativo contra intérprete) lo vigila.
+* **Lo que parecía un error de GCC 14** (`p0s_003661c`: r2 = −5 en vez de −3 tras la instrucción 86, en la tercera
+  muestra; se iba quitando `-fgcse` o `-fpeephole2`) **era el signo de un NaN** [medido, 2026-10-23].
+  * Los estados al azar del test traen inf, y aparecen NaN.
+  * C no fija qué NaN devuelve `a + b` con operandos NaN, y el compilador puede conmutarlos. La op `sign` convertía
+    luego ese signo en ±1.
+  * Con clang 19 salía lo mismo, en `p0s_003661c` y en `p0s_003743c`.
+  * Arreglo: `quant` devuelve un NaN canónico (+qNaN). Además, las ops exactas que niegan no se saltan la `quant`
+    (§3.6.1). Con eso, gcc sin esas flags y clang dan 0 diferencias en los 212 programas, y las flags se quitaron.
+    El DSP real no tiene NaN.
 * Depuración: `cchain.Slave(..., trace=f)` llama `f(dsp, instrucción, regs, flags, pm, pv)` tras cada instrucción, en
   el intérprete y en el nativo (compilado aparte con las llamadas).
 
@@ -171,9 +175,49 @@ instrucciones, cadena JX-3P, 212 programas nativos contra el intérprete) y `mak
 * `dspcomp.decode_program` guarda la decodificación en el `Program`: antes se decodificaba tres veces por `Slave`
   (`compile_program`, `translate` y `groups`).
 
+**Segunda tanda (2026-10-23, más tarde)**, mismos bits (`test_core.py` 10/10, `--sim-check`). La simulación completa del SYSTEM-1
+(`make_synth.simulate`, 1 s de audio):
+
+| cambio | 1 s de audio | qué hace |
+|---|---|---|
+| antes de la segunda tanda (un hilo, modelo del SYSTEM-1) | 0,57 s | — |
+| **pipeline A ∥ B** (`cchain.pipeline_plan`, `sl_set_pipeline`) | 0,29 s | el esclavo A calcula la muestra t + 1 en su propio hilo mientras B y el master calculan la t |
+| **sin `quant` tras las ops exactas** (`dspjit.exact_dest`) | **0,24 s** (4× tiempo real) | `min`/`max`/`abs`/`clamp`/`neg`/copias de la unidad B con entradas en la rejilla: el resultado ya está en ella |
+
+* **Pipeline.** Cada DSP lleva su propio reloj de anillo (`Dsp.t`): el de la etapa A va una muestra por delante.
+  * La etapa B lee un búfer del banco 5 compartido. En cada barrera se copian a él sólo las palabras que escribe A
+    (40 en C-S1SY). Al terminar `sl_step`, las que escriben los otros DSP (6) vuelven al banco compartido.
+  * `pipeline_plan` sólo lo activa si da los mismos bits:
+    * un único par `shared5`, con A antes que B;
+    * MXM latcheado;
+    * A no toca IOMD, MXM, la ventana de pareja ni un banco 1 compartido;
+    * no hay transferencias indexadas al banco 5;
+    * A no lee ni escribe palabras que escriben los demás.
+  * `test_s1_pipeline` compara pipeline y serie, palabra a palabra, durante 6000 muestras con notas y LFO.
+* **Ops exactas.** De las cuantizaciones que quedan, casi todas son de registros recién cargados, y son obligatorias:
+  una op que usa una carga lee el valor crudo y el registro se cuantiza después (§3.6.1 arriba; regla 6 de
+  [MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md)). Sin ninguna `quant` serían 0,13 s, pero no sería exacto.
+* **Compilador:** `DSP_CC=gcc|clang` (por defecto clang si está instalado). Mismo rendimiento dentro del ruido
+  (S1: 0,24 s con los dos; JX-3P: 2,3× / 2,45× tiempo real). Ya ninguno necesita `-fno-gcse -fno-peephole2` (era un NaN, §3.6).
+  El nombre del compilador entra en el hash de la caché y hay una `dspcore-<cc>.so` por compilador.
+* **Referencia Python más rápida, sin cambiar su semántica:** `dspisa.layout()` guarda el `Layout` por palabras,
+  `Imm` guarda la cadena de bits y `quant` está memoizada (sin los ceros: 0,0 y −0,0 son la misma clave). La
+  referencia pasa de ≈ 83 a ≈ 30 ms por muestra.
+* **Simulaciones en paralelo:** `make_synth.run_sims` corre cada simulación independiente en su propio proceso
+  (`SIM_JOBS`, por defecto todos los núcleos). La caché del JIT admite varios procesos a la vez (temporales por PID)
+  y el código nativo se compila en el padre antes del fork. `--sim-check`: de ≈ 2,5–3 min a **27 s**; `--sim`: 2,8 s.
+* **Preparación:** `dspcomp.decode_program` guarda la decodificación por palabras para todo el proceso: 0,084 →
+  0,037 s por simulación.
+
+Lo que queda en Python:
+* la referencia `dspisa`, a propósito, porque es la referencia independiente;
+* la preparación (≈ 0,04 s);
+* `Bmc2` (los dos slaves del SYSTEM-8, un bucle de Python por muestra; sólo lo usa `test_chain.py`). Pasarlo a C, con
+  los dos slaves en paralelo, es lo siguiente para el SYSTEM-8.
+
 Siguientes mejoras posibles, en orden de rentabilidad [inferido, sin medir]:
 
-1. **Sin `quant` tras las ops exactas.** `min`, `max`, `mov rX`, `ph_clamp`, `ph_abs` y `ph_neg` devuelven una de
+1. ~~**Sin `quant` tras las ops exactas.**~~ Hecho (arriba). Lo que sigue es la versión original de la idea: `min`, `max`, `mov rX`, `ph_clamp`, `ph_abs` y `ph_neg` devuelven una de
    sus entradas, o ±1, o −x. Si las entradas están en la rejilla, el resultado también. Hace falta un análisis en
    `dspjit.translate`. Sin `quant` el tiempo es 0,13 s en vez de 0,34, aunque sólo una parte de las ops es exacta.
 2. **Audio en vivo.** Un reproductor que corra `Slave.run()` en bloques de, por ejemplo, 256 muestras y los mande a

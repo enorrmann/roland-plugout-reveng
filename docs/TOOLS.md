@@ -14,7 +14,7 @@ Estado: 2026-10-23.
 ## 1. Flujo de un PLUG-OUT propio (SYSTEM-1, C-S1SY)
 
 ```sh
-STEP=11 python3 examples/system_1_synth/make_synth.py --sim-check   # 1. validar en el emulador (≈ 2 min, casi todo la referencia Python)
+STEP=11 python3 examples/system_1_synth/make_synth.py --sim-check   # 1. validar en el emulador (≈ 30 s en paralelo)
 STEP=11 NAME=C-S1SY11 sh examples/system_1_synth/build.sh           # 2. build (+ check_optimized)
 amidi -l                                                             # 3. ¿está el equipo? (SYSTEM-1 MIDI 1/2)
 python3 tools/plugout_tool.py install plugins/C-S1SY11 --slot 1 --force --no-patches -y   # 4. instalar
@@ -45,6 +45,8 @@ python3 examples/system_1_synth/make_synth.py --sim-check    # además: validaci
 | `GMAX` | 0,7 | tope del coeficiente del filtro |
 | `PAD` | 0 | prueba de presupuesto: n rellenos al final del DSP A |
 | `SIM` | `c` | `py`: `--sim` con la referencia Python (`re/dspisa.py`, minutos) en vez del núcleo C (1 s de audio ≈ 0,4 s) |
+| `SIM_JOBS` | núcleos de la máquina | simulaciones independientes de `--sim` / `--sim-check` a la vez, una por proceso; 1 = en serie |
+| `DSP_CC` | `clang` si está, si no `cc` | compilador del núcleo C y del código nativo (`gcc`, `clang` o una ruta) |
 | `SIM_N` | 9600 | muestras de la prueba de La 440 de `--sim` |
 | `SIM_CHECK_N` | 600 | muestras de la comparación núcleo C / Python de `--sim-check` |
 | `SIM_PACK_N` | 19200 | muestras de la comparación empaquetado / sin empaquetar de `--sim-check` |
@@ -856,6 +858,8 @@ groups(): DSPs that share an IOMD word (one writes a word another reads or write
 mode fe; the indexed modes only reach banks 0 and 5) or bank 1 (Model.shared1) must run on one thread, in model
 order; the other DSPs of a sample are independent (MXM and the pair window are latched).
 ```
+
+Environment: `DSP_CC`
 
 ### `examples/from_scratch/emu/gen_qmask.py`
 
@@ -2742,7 +2746,7 @@ as reference. The filter ADSR is still to come.
     python3 make_synth.py --sim-check -> C core against the Python reference, sample by sample
 ```
 
-Environment: `FUSE` (default '1' if STEP >= 11 else '0'), `GMAX` (default '0.7'), `PACK` (default '1'), `PAD` (default '0'), `RESCOMP` (default '0'), `RES_MAX` (default '4.4' if RESCOMP else '3.6'), `SIM`, `SIM_CHECK_N` (default '600'), `SIM_N` (default '9600'), `SIM_PACK_N` (default '19200'), `STAGE` (default '4'), `STEP` (default '8'), `VOICES` (default '8')
+Environment: `FUSE` (default '1' if STEP >= 11 else '0'), `GMAX` (default '0.7'), `PACK` (default '1'), `PAD` (default '0'), `RESCOMP` (default '0'), `RES_MAX` (default '4.4' if RESCOMP else '3.6'), `SIM`, `SIM_CHECK_N` (default '600'), `SIM_JOBS` (default '0'), `SIM_N` (default '9600'), `SIM_PACK_N` (default '19200'), `STAGE` (default '4'), `STEP` (default '8'), `VOICES` (default '8')
 
 ### `examples/system_1_synth/paramlog.py`
 

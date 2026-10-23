@@ -51,11 +51,25 @@ ACCESS = None                    # hook(op, addr, mem[, value]) for every memory
                                  # unmeasured banks. Reads return the value; writes update mem themselves.
 
 
+_QMEMO = {}                        # quant results by value (pure; zeros never enter: 0.0 and -0.0 are one key)
+
+
 def quant(v):
     """RAW encoding of an op result: the smallest exponent s whose 29-bit mantissa holds |v|, truncated toward
     zero (DSP_HARDWARE.md §3, bit-exact on the master). |v| >= 512 is wrapped by the op itself, not here."""
     if v == 0:
         return v
+    q = _QMEMO.get(v)
+    if q is not None:
+        return q
+    q = _quant(v)
+    if len(_QMEMO) > 1 << 20:
+        _QMEMO.clear()
+    _QMEMO[v] = q
+    return q
+
+
+def _quant(v):
     m = abs(v)
     for s in range(4):
         M = math.floor(m * 2 ** (32 - 4 * s))
@@ -151,9 +165,15 @@ def template(ins):
 
 class Imm:
     """immediate bit stream: the words of the I positions, then (as the hardware does) whatever follows"""
+    _BITS = {}                         # bit string by words: building it was half of run()'s time
+
     def __init__(self, words, refs=()):
+        key = tuple(words)
         self.words = list(words) + [0] * 64
-        self.bits = ''.join(f'{w:016b}' for w in self.words)
+        bits = Imm._BITS.get(key)
+        if bits is None:
+            bits = Imm._BITS[key] = ''.join(f'{w:016b}' for w in self.words)
+        self.bits = bits
         self.refs = set(refs)          # slot words used as references: sequential reading skips them (2026-10-17)
         self.pos = 0
 
@@ -467,9 +487,21 @@ class Layout:
         return ((rest[0] << 16 | rest[1]) >> (32 - IMMBITS[m])) / 16384
 
 
+_LAYOUTS = {}
+
+
+def layout(ins):
+    """Layout(ins), cached by the words (a Layout depends on them only and run() does not change it)"""
+    key = tuple(ins)
+    L = _LAYOUTS.get(key)
+    if L is None:
+        L = _LAYOUTS[key] = Layout(ins)
+    return L
+
+
 def run(ins, regs, mem=None):
     """simulate one instruction; returns (new regs, new mem, text)"""
-    L = Layout(ins)
+    L = layout(ins)
     t, body, units, slots, imm_words = L.t, L.body, L.units, L.slots, L.imm_words
     imm = L.imm()
     out, mem = list(regs), dict(mem or {})

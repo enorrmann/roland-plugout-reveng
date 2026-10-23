@@ -108,12 +108,18 @@ def decode_program(prog):
     cached = getattr(prog, '_dspcomp_decoded', None)
     if cached is not None:
         return cached
-    out = _decode_program(prog)
+    key = tuple(tuple(i) for i in prog.ins)               # the result depends on the words only
+    out = _BY_WORDS.get(key)
+    if out is None:
+        out = _BY_WORDS[key] = _decode_program(prog)
     try:
         prog._dspcomp_decoded = out
     except AttributeError:
         pass
     return out
+
+
+_BY_WORDS = {}                                            # decode_program results by program words (per process)
 
 
 def _decode_program(prog):

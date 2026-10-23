@@ -25,7 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, 'dspcore.c')
 HDR = os.path.join(HERE, 'dspcore.h')
 QMASK = os.path.join(HERE, 'qmask.h')
-LIB = os.path.join(HERE, 'build', 'dspcore.so')
+LIB = os.path.join(HERE, 'build', f'dspcore-{os.path.basename(dspjit.CC)}.so')   # one per compiler
 _lib = None
 
 
@@ -34,8 +34,9 @@ def lib():
     if _lib is None:
         if not os.path.exists(LIB) or os.path.getmtime(LIB) < max(map(os.path.getmtime, (SRC, HDR, QMASK))):
             os.makedirs(os.path.dirname(LIB), exist_ok=True)
-            subprocess.check_call(['cc', *dspjit.CFLAGS, '-pthread', '-o', LIB + '.tmp', SRC, '-lm'])
-            os.replace(LIB + '.tmp', LIB)
+            tmp = LIB + f'.{os.getpid()}.tmp'           # several processes may build it at once
+            subprocess.check_call([dspjit.CC, *dspjit.CFLAGS, '-pthread', '-o', tmp, SRC, '-lm'])
+            os.replace(tmp, LIB)
         L = C.CDLL(LIB)
         P, I, D = C.c_void_p, C.c_int, C.POINTER(C.c_double)
         L.sl_new.restype = P
@@ -72,6 +73,7 @@ def lib():
         L.sl_error.argtypes = [P]
         L.sl_mxm_out.argtypes = L.sl_mxm_in.argtypes = [P, I, C.POINTER(I), D, I]
         L.sl_step.argtypes = [P, I, C.POINTER(I), I, D]
+        L.sl_set_pipeline.argtypes = [P, I, I, C.POINTER(I), I, C.POINTER(I), I]
         _lib = L
     return _lib
 
@@ -201,6 +203,11 @@ class Slave:
             self._trace = Slave.TRACE(lambda dsp, i, r, f, pm, pv: trace(dsp, i, r[:8], f, pm, pv))
             L.sl_set_trace(self.h, C.cast(self._trace, C.c_void_p))
         self.groups = dspjit.groups(per_dsp, m) if threads else None
+        self.pipeline = pipeline_plan(per_dsp, m) if threads else None
+        if self.pipeline:
+            a, b, wa, wb = self.pipeline
+            L.sl_set_pipeline(self.h, a, b, (C.c_int * max(1, len(wa)))(*wa), len(wa),
+                              (C.c_int * max(1, len(wb)))(*wb), len(wb))
         if self.groups and len(self.groups) > 1:
             flat = [n for g in self.groups for n in g]
             L.sl_set_groups(self.h, (C.c_int * len(flat))(*flat),
@@ -252,6 +259,50 @@ class Slave:
         if lib().sl_step(self.h, n, (C.c_int * max(1, len(w)))(*w), len(w), rec):
             raise RuntimeError(lib().sl_error(self.h).decode())
         return {a: list(rec[k::len(w)]) for k, a in enumerate(keys)}
+
+
+def access_sets(progs):
+    """static memory accesses of a DSP's programs: {'r': set, 'w': set} of addresses (mode fe transfers), and
+    'indexed' = True if an indexed bank-5 transfer (XdaY / Xd0Y ...) appears (its address is not static)"""
+    out = {'r': set(), 'w': set(), 'indexed': False}
+    for p in progs:
+        for x in dspcomp.decode_program(p):
+            for o in (x[0] if x else []):
+                if o['kind'] == dspcomp.K_XMEM:
+                    out['r' if o['a'] < 8 else 'w'].add(o['b'])
+                elif o['kind'] == dspcomp.K_XB5:
+                    out['indexed'] = True
+    return out
+
+
+def pipeline_plan(per_dsp, m):
+    """(a, b, bank-5 offsets a writes, offsets the others write) when the shared-bank-5 pair (a, b) of the model can
+    run as a two-stage pipeline (a one sample ahead on its own thread) with the same bits; else None. Conditions:
+    one Model.shared5 pair, a before b in the order, MXM latched; a touches no IOMD, MXM, pair window (A400-A7FF)
+    or shared bank 1; no indexed bank-5 transfer in a or b; a reads and writes no bank-5 word the others write."""
+    pairs = list(getattr(m, 'shared5', ()))
+    if len(pairs) != 1 or not m.mxm_delay:
+        return None
+    a, b = pairs[0]
+    order = list(m.order)
+    if a not in order or b not in order or order.index(a) > order.index(b):
+        return None
+    if any(a in p for p in m.shared1) or len([n for n in order if per_dsp.get(n)]) < 2:
+        return None
+    acc = {n: access_sets(per_dsp.get(n, [])) for n in order}
+    A = acc[a]
+    if A['indexed'] or acc[b]['indexed']:
+        return None
+    for addr in A['r'] | A['w']:
+        bank = addr >> 13
+        if bank in (3, 4) or (bank == 5 and addr & 0x7FF >= 0x400):
+            return None
+    b5 = lambda s: {x & 0x3FF for x in s if x >> 13 == 5 and x & 0x7FF < 0x400}  # noqa: E731
+    wa = b5(A['w'])
+    wb = set().union(*[b5(acc[n]['w']) for n in order if n != a])
+    if (b5(A['r']) | wa) & wb:
+        return None
+    return a, b, sorted(wa), sorted(wb)
 
 
 class Bmc2(chain.Bmc2):

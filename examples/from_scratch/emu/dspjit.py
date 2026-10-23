@@ -20,6 +20,7 @@ order; the other DSPs of a sample are independent (MXM and the pair window are l
 import ctypes as C
 import hashlib
 import os
+import shutil
 import subprocess
 
 import dspcomp
@@ -27,7 +28,11 @@ from dspcomp import K_A, K_B, K_M, K_J, K_HID, K_X28, K_XB5, K_XFLAG, K_XMEM
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JIT_DIR = os.path.join(HERE, 'build', 'jit')
-CFLAGS = ['-O2', '-fno-gcse', '-fno-peephole2', '-ffp-contract=off', '-fno-math-errno', '-shared', '-fPIC', '-w']
+# compiler: DSP_CC=gcc|clang|<path> (default: clang if installed, else cc). -ffp-contract=off: an FMA would change the
+# bits. (The old -fno-gcse -fno-peephole2 hid a NaN-sign difference, not a GCC bug: quant() now makes every NaN
+# canonical, EMULATOR.md §3.6.1.)
+CC = os.environ.get('DSP_CC') or ('clang' if shutil.which('clang') else 'cc')
+CFLAGS = ['-O2', '-ffp-contract=off', '-fno-math-errno', '-shared', '-fPIC', '-w']
 LDFLAGS = []
 ALL = frozenset(range(8))
 _loaded = {}
@@ -75,6 +80,39 @@ def writes(o):
     return set()
 
 
+def exact_dest(o, dirty):
+    """the destination register of a unit-B op whose result is one of its inputs, its negation, its magnitude or a
+    clamp to +-1 (dspisa.b_op: min / max (+ -X forms), |X|, |Y|, Y, f4Y copy, ph_abs / ph_clamp / ph_neg, r = Y),
+    when no register it reads may be off the quant grid (not in `dirty`) and its immediate is on the grid: then the
+    result is on the grid and its quant() is a no-op. None otherwise."""
+    if o['kind'] != K_B:
+        return None
+    w = o['w']
+    d, b, mode, y = w >> 12, (w >> 8) & 15, (w >> 4) & 3, w & 15
+    if d < 8:
+        return None
+    # no negating form (-X, -rY, ph_neg): a canonical NaN negated is not canonical (quant() in dspcore.h)
+    neg_y = not mode and y & 8
+    if b == 0xF:
+        exact = (w >> 6) & 3 == 1 and mode == 0           # f4Y: rd = r(Y & 7), sign bit ignored
+        mode = 0
+    elif b == 0xE:
+        sub = (w >> 6) & 3
+        exact = (sub == 1 and not neg_y) or (sub == 3 and (mode, y & 8) in ((1, 0), (1, 8)))
+        if sub == 3:
+            mode = 0                                      # the phase forms read r(Y & 7), no immediate
+    else:
+        exact = b & 0xE in (0x0, 0x4, 0x8, 0xA, 0xE) and not (neg_y and b & 0xE != 0xA)  # min / max / |X| / |Y| / Y
+    if not exact:
+        return None
+    reads = {(w >> 6) & 7, ((w >> 6) & 7) | 4, d & 7} | ({y & 7} if not mode else set())
+    if reads & dirty:
+        return None
+    if mode and o['has'] and dspcomp.dspisa.quant(o['imm'][0]) != o['imm'][0]:
+        return None
+    return d & 7
+
+
 def translate(name, prog, decoded, trace=False):
     """C source of one program: int name(Slave *s, Dsp *d); trace = call s->trace after every instruction"""
     targets = {o['a'] for x in decoded if x for o in x[0] if o['kind'] == K_J and o['a'] >= 0}
@@ -96,6 +134,7 @@ def translate(name, prog, decoded, trace=False):
         has_flag = any(o['kind'] == K_XFLAG and o['a'] and o['b'] in units for o in ops)
         jumps = [o['a'] for o in ops if o['kind'] == K_J]
         L.append('    memcpy(o, r, sizeof o);')
+        dirty_in = set(dirty)          # every unit reads r = the registers at the instruction start (exact_dest)
         if has_flag:
             L.append('    uint32_t um = 0, uv = 0;')
         if jumps:
@@ -120,6 +159,9 @@ def translate(name, prog, decoded, trace=False):
                     im = o['imm']
                     body.append(f'mac({w:#x}, {o["w2"]:#x}, {lit(im[0])}, {lit(im[1])}, {lit(im[2])}, r, o);')
                 q = dirty | writes(o)
+                ex = exact_dest(o, dirty | dirty_in)
+                if ex is not None:
+                    q = q - {ex}
                 body += [f'o[{r}] = quant(o[{r}]);' for r in sorted(q)]
                 u = o['unit']
                 if u in flagged:
@@ -173,15 +215,17 @@ def translate(name, prog, decoded, trace=False):
 def _object(prog, hdr, trace=False):
     """compile one program to build/jit/p_<hash>.o (cached); returns (function name, path, Popen or None)"""
     src = translate('PROG', prog, dspcomp.decode_program(prog), trace)
-    name = 'p_' + hashlib.sha1((hdr + src + ' '.join(CFLAGS)).encode()).hexdigest()[:16]
+    name = 'p_' + hashlib.sha1((hdr + src + ' '.join([CC] + CFLAGS)).encode()).hexdigest()[:16]
     obj = os.path.join(JIT_DIR, name + '.o')
     if os.path.exists(obj):
         return name, obj, None
     c = os.path.join(JIT_DIR, name + '.c')
-    with open(c, 'w') as f:
+    tmp = f'.{os.getpid()}.tmp'                      # several processes may build the same object at once
+    with open(c + tmp, 'w') as f:
         f.write('#include "dspcore.h"\n\n' + src.replace('int PROG(', f'int {name}(', 1))
+    os.replace(c + tmp, c)
     flags = [f for f in CFLAGS if f != '-shared']
-    return name, obj, subprocess.Popen(['cc', *flags, '-c', '-I', HERE, '-o', obj + '.tmp', c])
+    return name, obj, subprocess.Popen([CC, *flags, '-c', '-I', HERE, '-o', obj + tmp, c])
 
 
 def build(progs, trace=False):
@@ -196,7 +240,7 @@ def build(progs, trace=False):
             obj, pr = running.pop(0)
             if pr.wait():
                 raise RuntimeError(f'cc failed for {obj}')
-            os.replace(obj + '.tmp', obj)
+            os.replace(obj + f'.{os.getpid()}.tmp', obj)
 
     for p in progs:                                      # at most one cc per core
         reap(os.cpu_count() or 4)
@@ -210,8 +254,9 @@ def build(progs, trace=False):
     if key not in _loaded:
         so = os.path.join(JIT_DIR, f'set_{key}.so')
         if not os.path.exists(so):
-            subprocess.check_call(['cc', '-shared', *LDFLAGS, '-o', so + '.tmp', *objs, '-lm'])
-            os.replace(so + '.tmp', so)
+            tmp = so + f'.{os.getpid()}.tmp'
+            subprocess.check_call([CC, '-shared', *LDFLAGS, '-o', tmp, *objs, '-lm'])
+            os.replace(tmp, so)
         _loaded[key] = C.CDLL(so)
     lib = _loaded[key]
     return [C.cast(getattr(lib, name), C.c_void_p).value for name, _ in built], lib
