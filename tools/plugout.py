@@ -353,6 +353,26 @@ def host_stream(c: Container, slot: int, flags: int = 0,
 
 
 if __name__ == "__main__":
+    # `python3 tools/plugout.py --json FILE.Dat` prints what this side reads out
+    # of a Code*.Dat as one JSON object; web/test/test-protocol.js uses it to
+    # check that the browser decoder gives the same messages. Plain FILE.Dat
+    # arguments only print the summary.
+    import json
     import sys
-    for p in sys.argv[1:]:
-        print(load(p).summary(), end="\n\n")
+
+    if sys.argv[1:2] != ["--json"]:
+        for p in sys.argv[1:]:
+            print(load(p).summary(), end="\n\n")
+        sys.exit(0)
+
+    c = load(sys.argv[2])
+    print(json.dumps({
+        "model": c.model,
+        "modelId": c.model_id,
+        "version": c.version,
+        "dataCount": c.data_count,
+        "start": c.start_message.hex(" "),
+        "end": c.end_message.hex(" "),
+        "records": [m.hex() for m in c.data_messages()],
+        "regions": [r[:16].decode("latin-1") for r in c.image_regions()],
+    }))

@@ -124,6 +124,10 @@ Avisos: `manual-wrap`, `filler`, `transfer-only` y `fusable`. Están explicados 
 |---|---|
 | `tools/plugout_tool.py ports` / `info` | puerto MIDI y estado de los slots |
 | `tools/plugout_tool.py install <plugin> --slot N [--force] [--no-patches] [-y]` | instala `Code*.Dat` (+ patches); `--force` sin comprobar la versión, `--no-patches` sólo el firmware |
+| `tools/plugout_tool.py install --code1 FILE …` | instala ese archivo como `Script/Code1.Dat` (SYSTEM-1); `--dat` es el `Code*.Dat` elegido a mano |
+| `python3 tools/plugout.py [--json] FILE.Dat` | resumen de un contenedor; `--json`: cabecera, START / END, registros y regiones (lo usa `web/test/test-protocol.js`) |
+| `python3 -m http.server 8000 --bind 127.0.0.1 --directory web` | instalador web en `http://localhost:8000/` (Chrome / Edge); [WEB_INSTALLER.md](WEB_INSTALLER.md) |
+| `node web/test/test-protocol.js [FILE.Dat...]` / `sh web/test/run-page-test.sh` | pruebas del instalador web sin hardware: biblioteca contra `plugout.py`, página completa en Chrome headless |
 | `examples/system_1/paramlog.py -t SEG [--raw] [--file LOG...]` | escucha una build `PARAMLOG=1`: ids de los controles del panel (con el PLUG-OUT seleccionado) |
 
 ## 6. Emulador (`examples/from_scratch/emu/`)

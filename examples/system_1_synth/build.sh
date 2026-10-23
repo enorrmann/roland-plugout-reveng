@@ -22,10 +22,13 @@ Options (environment variables):
                  11 LFO per voice (own phase restarted at each note, own S&H), -> filter / -> amp bipolar
                     (128 = 0, below = inverted LFO); op fusion on (FUSE): DSP A 576, B 603 (works on the device)
                  12 the list scheduler asm/dspsched.py instead of pack(): DSP A 553, B 471 (emulator only)
+                 13 OS delay / reverb send-return in master B (C-S1SY13, last fully working build)
                   0 the first all-at-once design (silent on the device; reference only)
   SCHED=0|1     schedule with asm/dspsched.py instead of pack() (default 1 from STEP 12)
   FUSE=0|1      fuse independent ops into one instruction as Roland (default 1 from STEP 11, docs/
                 MICROCODE_OPTIMIZATION.md); every build runs tools/check_optimized.py on the programs
+  FOLD=1        (with STEP=13) the triangle of each oscillator wavefolded by its COLOR knob (0x168 / 0x16D);
+                FOLD_MAX=x = gain at COLOR 255 (default 5). Doc §7.5
   PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit
                 per instruction: STEP=7 PACK=0 is over the time budget of slave DSP A and hangs the device
   NAME=...      plug-out name shown on the device and plugins/ folder (default C-S1SY); max 16 characters

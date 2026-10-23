@@ -20,6 +20,11 @@ below are from `JUNO-60.vst3` (image base `0x180000000`).
 
 * Port: the synth's second USB MIDI port, **`SYSTEM-8 CTRL`**
   (`Script/Script.xml`, `<midiOut><name>`). On Linux usually `hw:N,0,1`.
+  On the first port (`SYSTEM-1 MIDI 1`, measured 2026-10-23 from the web page)
+  the device still answers the queries and START, but answers the flow-control
+  query `70 30 03 00` only after the third send: about 10 s per 32 records.
+  Whether the answers then come back on the other port is open
+  ([WEB_INSTALLER.md](WEB_INSTALLER.md) §4).
 * Every message is a Roland SysEx:
   `F0 41 <dev> 00 00 7E <cmd> <a1 a2 a3 a4> <data> <checksum> F7`
   * `dev` = 0x10 by default (device ID 17).
@@ -101,8 +106,14 @@ Data record types — **all sent by the host, in order**:
 | `70 30 00 09` | 599 bytes | firmware block: 586 bytes 7-in-8 = 512 bytes |
 | `70 30 01 09` | 14 bytes | filler record (data `01`) |
 
-There are two regions (two runs of blocks + filler), each with a
-`"SYSTEM-8:Plugout…"` header; the filler pads each region to half of the table.
+There are two regions (two runs of blocks + filler); the filler pads each region
+to half of the table. Each region starts with 16 ASCII bytes naming the device
+family it was built for, `SYSTEM-8:Plugout` or `SYSTEM-1:Plugout`, followed by
+a date and the Roland tool version (e.g. `25-0509_11:30:38` `0.0114FA`). This is
+the only place in the file that says which device it is for: the model name in
+the header is the PLUG-OUT's name (`JX-3P/Script/Code1.Dat` says `SYSTEM-8` there
+but its regions are `SYSTEM-1:Plugout`). `web/` uses it to refuse an image for
+the other device ([WEB_INSTALLER.md](WEB_INSTALLER.md) §3.1).
 
 > The earlier attempt treated `70 30 01 09` as device ACKs and skipped them, and
 > sent `70 10 00 01` at the start. Both were wrong: the fillers are sent and

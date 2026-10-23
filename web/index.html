@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PLUG-OUT installer &mdash; Roland SYSTEM-8 / SYSTEM-1</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f1115;
+    --card: #171b22;
+    --card2: #1d222b;
+    --line: #2b313c;
+    --text: #e7eaf0;
+    --muted: #9aa4b2;
+    --accent: #7cc4ff;
+    --ok: #5bd68c;
+    --warn: #ffc85c;
+    --bad: #ff7a7a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: radial-gradient(1200px 600px at 70% -10%, #1b2533 0%, var(--bg) 55%);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+  header h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: .2px; }
+  header p.sub { margin: 0; color: var(--muted); }
+  .badge {
+    display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px;
+    font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+    border: 1px solid var(--line); color: var(--muted); vertical-align: 4px;
+  }
+  .steps { display: grid; gap: 14px; margin-top: 26px; }
+  section.card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px 18px 16px; position: relative;
+  }
+  section.card > h2 {
+    margin: 0 0 4px; font-size: 17px; display: flex; align-items: center; gap: 10px;
+  }
+  .num {
+    flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid;
+    place-items: center; font-size: 14px; font-weight: 700;
+    background: var(--card2); border: 1px solid var(--line); color: var(--accent);
+  }
+  .state { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .state.ok { color: var(--ok); }
+  .state.warn { color: var(--warn); }
+  .state.bad { color: var(--bad); }
+  section.card p { margin: 8px 0; color: var(--muted); }
+  section.card p.tight { margin: 4px 0; }
+  section.card.dim { opacity: .55; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+  .kv { display: grid; grid-template-columns: 170px 1fr; gap: 2px 12px; margin: 10px 0 0; font-size: 14px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; }
+  .warnbox, .badbox, .okbox, .infobox {
+    border-radius: 10px; padding: 12px 14px; margin: 12px 0;
+  }
+  .warnbox { border: 1px solid #6b4d17; background: #241d10; color: #ffe1a1; }
+  .warnbox strong { color: #ffd27a; }
+  .badbox { border: 1px solid #6e2b2b; background: #241313; color: #ffc0c0; }
+  .okbox { border: 1px solid #1f5c39; background: #10241a; color: #b8f0cd; }
+  .infobox { border: 1px solid #24486b; background: #101c28; color: #c3dff7; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+  button {
+    font: inherit; font-weight: 600; font-size: 14px; border-radius: 9px;
+    padding: 9px 16px; border: 1px solid var(--line); background: var(--card2);
+    color: var(--text); cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: #1f4f7a; border-color: #2d6fa4; }
+  button.danger { background: #7b2b2b; border-color: #a03333; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  select {
+    font: inherit; font-size: 14px; background: var(--card2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 300px;
+  }
+  label.check { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; color: var(--text); margin-top: 8px; }
+  label.check input { margin-top: 3px; width: 17px; height: 17px; accent-color: #4c8fd0; }
+  progress { width: 100%; height: 14px; margin-top: 10px; accent-color: var(--accent); }
+  .small { font-size: 13px; color: var(--muted); }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  td.slot-new { color: var(--accent); }
+  tr.slot-target td { background: #101a26; }
+  pre#log {
+    margin: 10px 0 0; max-height: 220px; overflow: auto; background: #0b0d11;
+    border: 1px solid var(--line); border-radius: 9px; padding: 10px;
+    font-size: 12px; line-height: 1.45; color: #b8c2cf; white-space: pre-wrap;
+  }
+  footer { margin-top: 26px; color: var(--muted); font-size: 13px; }
+  a { color: var(--accent); }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #ffffff33;
+          border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
+          vertical-align: -2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+  label.filebtn {
+    font-weight: 600; font-size: 14px; border-radius: 9px; padding: 9px 16px;
+    border: 1px solid #2d6fa4; background: #1f4f7a; color: var(--text); cursor: pointer;
+  }
+  label.filebtn:hover { border-color: var(--accent); }
+  label.filebtn input { display: none; }
+  section.card.drop { border-color: var(--accent); border-style: dashed; }
+  @media (max-width: 560px) {
+    .kv { grid-template-columns: 1fr; }
+    .kv dt { margin-top: 6px; }
+    select { min-width: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>PLUG-OUT installer <span class="badge" id="device-badge">SYSTEM-8 / SYSTEM-1</span></h1>
+    <p class="sub">Puts a PLUG-OUT into a slot of a Roland SYSTEM-8 or SYSTEM-1 over USB.
+      Everything happens in this page: no plug-in, no driver, no command line.</p>
+  </header>
+
+  <div class="steps">
+
+    <!-- 1 ------------------------------------------------------------------ -->
+    <section class="card" id="card-webmidi">
+      <h2><span class="num">1</span>Web MIDI with SysEx <span class="state" id="webmidi-state">Checking…</span></h2>
+      <div id="webmidi-body">
+        <p>The page talks to the synth with Web MIDI + SysEx. It needs Chrome, Edge or another
+          Chromium browser, opened from <code>http://localhost</code> or <code>https://</code>.</p>
+      </div>
+      <div class="row">
+        <button id="btn-midi">Enable MIDI access</button>
+        <span class="small" id="midi-hint"></span>
+      </div>
+    </section>
+
+    <!-- 2 ------------------------------------------------------------------ -->
+    <section class="card dim" id="card-device">
+      <h2><span class="num">2</span>Connect the synth <span class="state" id="device-state">Waiting</span></h2>
+      <p>Connect the synth to this computer with a USB cable and switch it on. The page finds
+        it by itself; nothing to choose. Close other programs that use the synth's MIDI first.</p>
+      <div class="row">
+        <button id="btn-find">Find synth</button>
+      </div>
+      <div id="device-body"></div>
+      <details id="port-details">
+        <summary>Advanced: another MIDI port</summary>
+        <p class="small">The synth has two USB MIDI ports. The installer needs the
+          <strong>control port</strong> (<code>… 2</code> or <code>CTRL</code>), which the page
+          picks by itself. Change it only if the synth is connected through another interface.</p>
+        <div class="row">
+          <select id="port-select" aria-label="MIDI port"><option value="">(no ports found yet)</option></select>
+        </div>
+      </details>
+    </section>
+
+    <!-- 3 ------------------------------------------------------------------ -->
+    <section class="card dim" id="card-firmware">
+      <h2><span class="num">3</span>The firmware file <span class="state" id="firmware-state">Waiting</span></h2>
+      <p>Choose the firmware of the PLUG-OUT, or drop it on this card: the file
+        <code id="firmware-name">Script/Code1.Dat</code> of the plug-in folder. The file stays in
+        this browser; nothing is uploaded.</p>
+      <div class="row">
+        <label class="filebtn"><input type="file" id="file-input" accept=".Dat,.dat">Choose file…</label>
+      </div>
+      <div id="firmware-body"><p class="tight">No file chosen yet.</p></div>
+    </section>
+
+    <!-- 4 ------------------------------------------------------------------ -->
+    <section class="card dim" id="card-slot">
+      <h2><span class="num">4</span>Choose the slot <span class="state" id="slot-state">Waiting</span></h2>
+      <p>The slot you pick is filled completely: <strong>whatever is in it now is
+        overwritten</strong>. Check the table before you go on.</p>
+      <div class="row">
+        <select id="slot-select" aria-label="PLUG-OUT slot"></select>
+      </div>
+      <div id="slot-body"></div>
+    </section>
+
+    <!-- 5 ------------------------------------------------------------------ -->
+    <section class="card dim" id="card-warn">
+      <h2><span class="num">5</span>Read this before installing <span class="state" id="warn-state">Waiting</span></h2>
+      <div id="warn-body">
+        <p>The page shows here what gets erased once it knows which slot you chose.</p>
+      </div>
+    </section>
+
+    <!-- 6 ------------------------------------------------------------------ -->
+    <section class="card dim" id="card-install">
+      <h2><span class="num">6</span>Install <span class="state" id="install-state">Waiting</span></h2>
+      <div id="install-body">
+        <p>Tick the box in step 5 to unlock the install button. Do not unplug the synth and do
+          not switch it off while the progress bar moves.</p>
+      </div>
+      <div class="row">
+        <button class="danger" id="btn-install" disabled>Install</button>
+        <span class="small" id="install-hint"></span>
+      </div>
+      <progress id="progress" value="0" max="1" class="hidden"></progress>
+      <div class="small mono" id="progress-text"></div>
+      <details>
+        <summary>Show the MIDI traffic (for troubleshooting)</summary>
+        <pre id="log">(nothing yet)</pre>
+      </details>
+    </section>
+
+  </div>
+
+  <footer>
+    The page sends the same USB-MIDI messages as Roland's PLUG-OUT plug-ins
+    (<code>docs/PROTOCOL.md</code>, <code>docs/WEB_INSTALLER.md</code>): the firmware only, no
+    patch bank. It is not a Roland product. If something goes wrong, install the stock PLUG-OUT
+    again with Roland's plug-in to get the slot back.
+  </footer>
+</main>
+
+<script src="plugout-protocol.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

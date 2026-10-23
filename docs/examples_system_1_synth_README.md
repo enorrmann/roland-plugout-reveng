@@ -1,11 +1,15 @@
 # C-S1SY: sintetizador sustractivo de 8 voces para el SYSTEM-1 (`examples/system_1_synth/`)
 
-Estado: 2026-10-23. **Pasos 1–8 funcionan en el equipo** [medido, a oído]:
+Estado: 2026-10-23. **Último build que funciona por completo: C-S1SY13F** (`STEP=13 FOLD=1`) [medido, a oído]:
 * 8 voces, cada una con DCO1 + DCO2;
-* forma de onda, nivel y range por oscilador, más fine tune en OSC2;
+* forma de onda, nivel y range por oscilador, más fine tune en OSC2; el triángulo se pliega con el pote COLOR (§7.5);
 * ADSR de VCA;
 * filtro paso bajo de 4 polos con cutoff, resonancia y key track;
-* ADSR de filtro con cantidad bipolar.
+* ADSR de filtro con cantidad bipolar;
+* LFO por voz (6 formas, delay, → pitch / filtro / amplitud bipolares);
+* delay y reverb del OS (paso 13).
+
+Los pasos 14 y 15 (efectos propios en el pote CRUSHER) están abiertos (§7.4).
 
 Extiende C-S1V8 ([examples_system_1_README.md](examples_system_1_README.md) §7). Todo el
 código ARM y el microcódigo son nuestros; los programas de Roland sólo se leyeron para estudiar los mecanismos. Qué
@@ -73,7 +77,8 @@ primer diseño, que lo metía todo de una vez (`STEP=0`, §6), no sonó, y no ha
 | 11 | LFO por voz (§7.3): fase propia reiniciada en cada nota y S&H propio, ruido global; → filtro y → amplitud bipolares (128 = 0); fusión de ops (`FUSE=1`) | 576 / 603 | [medido] C-S1SY11 "funciona muy bien" (2026-10-23): primera build con ops fusionadas en el SYSTEM-1 |
 | 11 bis | → pitch bipolar; formas en el orden del panel: sine, triangle, saw, square, sample & glide, sample & hold (§7.3) | 640 / 603 | [sim] `--sim-check` idéntico |
 | 12 | planificador de instrucciones `asm/dspsched.py` en lugar de `pack()` ([MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md) §5) | 553 / 471 | [sim] `--pack-check` y `test_s1_sched` idénticos; sin probar en el equipo |
-| 13 | **delay y reverb del OS**: `s1mm1` hace el envío/retorno del efecto (maestro B banco 1 `2000`/`2002` → `2001`/`2003`), como el mezclador de serie ([../system-1/FX_CHAIN.md](../system-1/FX_CHAIN.md)) | 553 / 471 / 7 | [medido] "funciona perfecto" (C-S1SY13) — **último build que funciona por completo** |
+| 13 | **delay y reverb del OS**: `s1mm1` hace el envío/retorno del efecto (maestro B banco 1 `2000`/`2002` → `2001`/`2003`), como el mezclador de serie ([../system-1/FX_CHAIN.md](../system-1/FX_CHAIN.md)) | 553 / 471 / 7 | [medido] "funciona perfecto" (C-S1SY13) |
+| 13 + `FOLD` | paso 13 + triángulo con wavefolding en el pote COLOR de cada oscilador (`0x168`/`0x16D` → `C056`/`C057` del DSP A; §7.5) | 585 / 471 / 7 | [medido] C-S1SY13F "funciona" (2026-10-23); [sim] `--pack-check` idéntico — **último build que funciona por completo** |
 | 14 (primer intento) | AMP TONE + ensemble de 3 tomas en el maestro B | 553 / 471 / 64 | [medido] **cuelga**; también cuelga 14A (sólo tone, maestro B) y 14D (tone, esclavo B); 14C (DSP del paso 13 + `model.c` del 14) funciona; 14E (sólo el tone, esclavo B) funciona pero cambia el volumen, no el brillo (§7.4) |
 | 14F | paso 13 + sólo el ensemble en el esclavo B, planificado con la lista de formas probadas (`asm/proven_forms.txt`) | 553 / 534 / 7 | [medido] no cuelga; el ensemble "suena raro, no a ensemble" |
 | 15 | paso 13 + chorus estilo Juno-60 en el esclavo B (pote CRUSHER) | 553 / 508 / 7 | [medido] no cuelga; **las tomas salen en silencio**: captura USB = sierra pura, L = R (§7.4) |
@@ -97,6 +102,59 @@ Así lo hace Roland en el SH-2 [código] (`python3 system-1/s1_progs.py work/unp
 
 C-S1SY sigue ese esquema. Solo la puerta, el disparo y el tono pasan por una copia del DSP A, porque ese camino se
 probó primero. El SH-2 los escribe desde el ARM con `FD6C sel 1` (`A1xx`); en nuestro caso eso no está probado.
+
+### 3.1 Mapa: de un control del panel al microcódigo (estado del paso 13 + `FOLD`)
+
+Para cambiar o añadir algo no hace falta leer el código: este mapa dice dónde está cada cosa. Se mantiene a mano;
+si se cambia una dirección o un id en `make_synth.py` / `engine.c`, se cambia aquí en el mismo cambio.
+
+**Camino de un control.** El OS llama a `engine vt+0x30` con (id, valor) → `engine.c` busca el id en
+`panel_id[]` (índice `P_*`, valor inicial en `panel[]`) → `panel_apply(p)` convierte el valor 0–255 con una tabla
+`*_bits` (floats generados por `make_synth.py header()` en `build/s1_programs.h`) → `b6(sel, id, bits)` (= `FCEC`,
+parámetro `C0id` del DSP A con `sel 0`, del DSP B con `sel 1`) o `b5(idx, bits)` (banco 5 `A000 + idx`, sólo lo lee
+el DSP A). Para un control nuevo: (1) añadir `P_X` al enum **antes de `P_N`**, su id al final de `panel_id[]` y su
+valor inicial al final de `panel[]`; (2) un `case P_X:` en `panel_apply`; (3) la tabla en `header()`; (4) el
+parámetro en `sim_params()` para que el simulador lo vea; (5) la carga `ld rN, [c0id]` en el microcódigo.
+
+| control (id) | `P_*` | tabla ARM | destino | lo usa (función de `make_synth.py`) |
+|---|---|---|---|---|
+| OSC1 / OSC2 mix (`0x174`/`0x175`) | `P_L1`/`P_L2` | `level_bits` | banco 5 `A040`/`A041` | `step_s1m0` (× onda) |
+| OSC1 / OSC2 wave (`0x167`/`0x16C`) | `P_W1`/`P_W2` | `step_wave_bits` (`STEP_WAVES`) | A `C050`–`C052` / `C053`–`C055` (sierra, cuadrada, triángulo) | `step_wave` |
+| OSC1 / OSC2 color (`0x168`/`0x16D`) | `P_C1`/`P_C2` | `fold_bits` (`fold_gain`) | A `C056` / `C057` = g/2 (sólo `FOLD=1`) | `step_wave(prm, fold)` |
+| OSC1 / OSC2 range (`0x16A`/`0x16F`) | `P_R1`/`P_R2` | `range_bits` | A `C044` / `C045` (octavas) | `step_s1m0` |
+| OSC2 fine (`0x170`) | `P_F2` | `fine_bits` | A `C046` (octavas) | `step_s1m0` |
+| cutoff (`0x17D`) | `P_CUT` | `cutoff_bits` | A `C05D` (+ LFO) → `A180+v` → B | `step_lfo_voice`, `step_filter_voice` |
+| resonancia (`0x17F`) | `P_RES` | `res_bits`, `gain_bits` | B `C049` k, `C04A` ganancia de entrada | `step_filter_voice` |
+| key track (`0x186`) | `P_KT` | `level_bits` | B `C04B` | `step_filter_voice` |
+| filter env amount (`0x181`) | `P_FAMT` | `amount_bits` | B `C04C` | `step_filter_voice` |
+| ADSR filtro (`0x182`–`0x185`) | `P_FA`…`P_FR` | `level_bits`, `attack_bits`, `decay_bits` | B `C050`–`C053` (S, A, D, R) | `step_adsr` en `step_filter_voice` |
+| ADSR VCA (`0x187`–`0x18A`) | `P_AA`…`P_AR` (`default:`) | ídem | B `C040`–`C043` (S, A, D, R) | `step_adsr` en `step_filter_voice` |
+| LFO rate / delay (`0x162`/`0x161`) | `P_LRATE`/`P_LDELAY` | `lfo_rate_bits`, `lfo_delay_bits` | A `C058` / `C059` | `step_lfo_voice` |
+| LFO → pitch / filtro / amp (`0x163`–`0x165`) | `P_LPITCH`, `P_LFILT`, `P_LAMP` | `lfo_pitch_bits`, `lfo_filt_bits`, `lfo_amp_bits`, `lfo_ampabs_bits` | A `C05A`, `C05B`, `C05C`, `C05E` (\|M\|) | `step_lfo_voice` |
+| LFO shape (`0x160`) | `P_LWAVE` | `lfo_wave_bits` (`LFO_WAVES11`) | A `C060`–`C065` | `step_lfo_voice` |
+| AMP TONE / CRUSHER (`0x18B`/`0x18C`) | `P_TONE`/`P_ENS` | `tone_bits`, `ens_*_bits` | B `C058`–`C05A` (sólo pasos ≥ 14) | `step_s1m1` (pasos 14/15) |
+| nota / puerta / disparo | `voice_pitch`/`voice_gate` (`engine.c`) | `pitch_bits` | banco 5 `A030+v` / `A038+v` / `A060+v` | `step_s1m0`, `step_lfo_voice` |
+
+**Parámetros `C0xx` libres** (paso 13 + `FOLD`). Lo que leen los programas generados (`grep -o '\[c0..\]' s1m0.s s1m1.s`): DSP A
+`C044`–`C046`, `C050`–`C05E`, `C060`–`C065`; DSP B `C000` (nivel de salida), `C040`–`C043`, `C049`–`C04C`,
+`C050`–`C053` (`C048` ya no se lee desde el paso 9; `C058`–`C05A` sólo en los pasos 14/15). Todo lo demás de
+`C001`–`C0FF` está libre en cada DSP.
+
+**Banco 5** (compartido por el par de esclavos): ARM → A: `A030+v` tono, `A038+v` puerta, `A040`/`A041` niveles,
+`A060+v` disparo. A → B: `A151+v` voz (DCO1 + DCO2 × trémolo), `A160+v` puerta, `A168+v` disparo, `A178+v` tono,
+`A180+v` corte.
+
+**Banco 0** (anillos: se escribe en S y se lee S+1 en la muestra siguiente). DSP A: bloque de voz
+`0x0300 + 0x10·v` (+0/+2 fases DCO1/DCO2, +4 fade, +6 tono modulado, +8 fase LFO, +10 S&H, +12 último disparo,
++14 término de amplitud), S&G `0x0240 + 2v`, ruido y LFO global `0x0280`–`0x028C`. DSP B: bloque de voz
+`0x0400 + 0x20·v` (+0 env VCA, +2 latch, +4 último disparo, +6…+12 las 4 etapas del filtro, +0x10… ADSR del filtro).
+
+**Registros dentro de un oscilador del DSP A** (`v8_saw` + `step_wave`, llamados desde `step_s1m0`): r0 = tono (octavas − 4,75), r1 = fase
+(= sierra), r2 = suma de las ondas, r3 / r4 = temporales y cargas de parámetros, r7 = suma de la voz. r5 / r6 no
+se tocan dentro de la onda.
+
+**Presupuesto** (instrucciones por muestra, máximo probado 708, cuelga a 826; §4): paso 13 = A 553 / B 471;
+paso 13 + `FOLD` = A 585 / B 471. Cada build lo imprime (`s1m0 … instructions`).
 
 ## 4. Presupuesto de tiempo de los DSP del esclavo [medido]
 
@@ -333,6 +391,44 @@ separa el `hset` de un registro calculado del resto. Medir siempre con captura U
 arecord -q -D hw:SYSTEM1,0 -f S32_LE -r 96000 -c 2 -t raw -d 8 ch.raw    # mientras se toca una nota grave
 ```
 
+### 7.5 Triángulo con wavefolding en COLOR (`FOLD=1`) [medido]
+
+Estado: funciona en el equipo (C-S1SY13F, 2026-10-23, a oído). Install: `python3 tools/plugout_tool.py install
+plugins/C-S1SY13F --slot 1 --force --no-patches -y`.
+
+Variante del paso 13 (no incluye los pasos 14 y 15). Build: `STEP=13 FOLD=1 NAME=C-S1SY13F sh
+examples/system_1_synth/build.sh`. La posición del selector que da el triángulo (la 3.ª, `STEP_WAVES[2]`) da ahora
+el triángulo plegado; el pote COLOR del mismo oscilador sube el plegado. Las otras ondas no cambian.
+
+* Ganancia: g = 1 + (`FOLD_MAX` − 1) · color / 255, con `FOLD_MAX` = 5 por defecto (variable de build). El ARM
+  escribe g/2 en `C056` (OSC1) / `C057` (OSC2) del DSP A (`fold_bits`).
+* Plegado: `ph_tri(R) = 1 − 2|wrap(−R − 1,5)|` ([DSP_ISA.md](DSP_ISA.md)) es la reflexión en ±1 de 2R, es decir,
+  un plegador con cualquier número de pliegues. Por eso salida = `ph_tri(g · tri / 2)`, y con color 0 (g/2 = 0,5) da
+  el triángulo sin cambios. Coste: 1 carga + 2 ops por oscilador (+32 instrucciones en el DSP A).
+
+```dsp
+ld r4, [c056]          ; g / 2
+ph_tri r3, r3, -r1     ; triángulo de la fase
+mul r3, r3, r4
+ld r4, [c052]          ; coeficiente del triángulo (selector)
+ph_tri r3, r3, -r3     ; plegado
+mad r2, r3, r4
+```
+
+* La planificación de `FOLD=1` fusiona sólo los grupos de ops de `asm/proven_forms.txt` (como el paso 14), porque
+  `mul` + `ph_tri` en una sola instrucción nunca se probó en el equipo.
+* Medido en el simulador (OSC1 solo, La 220, `FOLD_MAX` 5). Armónicos en dB respecto al fundamental:
+
+  | color | 3.º | 5.º | 7.º | centroide (armónicos) | pico |
+  |---|---|---|---|---|---|
+  | 0 | −19 | −28 | −34 | 1,67 (triángulo: 1/n²) | 0,082 |
+  | 128 | +43 | −14 | −17 | 3,96 | 0,081 |
+  | 255 | +7 | +143 | +1 | 5,96 | 0,079 |
+
+  El nivel de pico no cambia. El fundamental baja cuando el pliegue lo cancela (por eso los armónicos salen por
+  encima de 0 dB). Sin antialiasing: con g alto y notas agudas aparece aliasing.
+* Pendiente: la fuente de modulación del color (`0x169`/`0x16E`: LFO, envolventes) todavía no se usa; sólo manual.
+
 ## 8. Interfaz con el panel
 
 Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py -t 90 --raw` con una build
@@ -347,7 +443,8 @@ Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py 
 | `0x164` | LFO → filtro (CC 28) | 0–255 | — |
 | `0x165` | LFO → amplitud (CC 30) | 0–255 | — |
 | `0x167` / `0x16C` | OSC1 / OSC2 wave | 0–5 | paso 7 |
-| `0x168` / `0x16D` | OSC1 / OSC2 color (CC 50 / 55) | 0–255 | — |
+| `0x168` / `0x16D` | OSC1 / OSC2 color (CC 50 / 55) | 0–255 | `FOLD=1`: fold del triángulo |
+| `0x169` / `0x16E` | OSC1 / OSC2 color mod source (CC 60 / 63), 2026-10-23 | 0–5 = manual, LFO, pitch env, filter env, amp env, sub osc (igual en ambos; CC 0, 25, 51, 76, 102, 127) | — |
 | `0x16A` / `0x16F` | OSC1 / OSC2 range | 0–5 (64'…2') | paso 5 |
 | `0x170` | OSC2 fine tune | 0–255, centro 128 | paso 5 |
 | `0x174` / `0x175` | OSC1 / OSC2 mix | 0–255 | paso 2 |
@@ -434,8 +531,8 @@ Por orden aproximado de coste. Cada una se hace como un paso nuevo, con una inst
 
 ### 9.2 Estado al cerrar la sesión del 2026-10-23
 
-* Instalado en el SYSTEM-1: **C-S1SY8** (`STEP=8`, empaquetado, `GMAX` 0,7, cantidad de la envolvente del filtro
-  bipolar). El paso 8 está confirmado en el equipo; la cantidad bipolar está instalada pero sin confirmar.
-* `sh examples/system_1_synth/build.sh` reconstruye exactamente eso (opciones: `--help`).
+* Instalado en el SYSTEM-1, slot 1: **C-S1SY13F** (paso 13 + `FOLD=1`), confirmado en el equipo.
+* Lo reconstruye `STEP=13 FOLD=1 NAME=C-S1SY13F sh examples/system_1_synth/build.sh` (opciones: `--help`; sin
+  variables, `build.sh` sigue haciendo `STEP=8`).
 * El USB del SYSTEM-1 se desconectó solo tres veces durante la sesión. Antes de cada instalación conviene comprobar
   `amidi -l`.

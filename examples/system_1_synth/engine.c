@@ -116,13 +116,15 @@ typedef void (*param_fn)(int sel, int id, uint32_t value);
 static void b6(int sel, int id, uint32_t bits) { ((param_fn)SVC(0xEC))(sel, id, bits); }
 
 enum { P_L1, P_L2, P_AA, P_AD, P_AS, P_AR, P_R1, P_R2, P_F2, P_CUT, P_RES, P_KT, P_W1, P_W2,
-       P_FAMT, P_FA, P_FD, P_FS, P_FR, P_LRATE, P_LWAVE, P_LDELAY, P_LPITCH, P_LFILT, P_LAMP, P_TONE, P_ENS, P_N };
+       P_FAMT, P_FA, P_FD, P_FS, P_FR, P_LRATE, P_LWAVE, P_LDELAY, P_LPITCH, P_LFILT, P_LAMP, P_TONE, P_ENS, P_C1, P_C2, P_N };
 static const uint16_t panel_id[P_N] = { 0x174, 0x175, 0x187, 0x188, 0x189, 0x18A, 0x16A, 0x16F, 0x170,
                                         0x17D, 0x17F, 0x186, 0x167, 0x16C, 0x181, 0x182, 0x183, 0x184, 0x185,
-                                        0x162, 0x160, 0x161, 0x163, 0x164, 0x165, 0x18B, 0x18C };
+                                        0x162, 0x160, 0x161, 0x163, 0x164, 0x165, 0x18B, 0x18C,
+                                        0x168, 0x16D };
 static uint8_t panel[P_N] = { 255, 128, 0, 128, 255, 60, 3, 3, 128, 255, 0, 0, 0, 0, 128, 0, 128, 0, 60,
                               128, 0, 0, STEP >= 11 ? 128 : 0, STEP >= 11 ? 128 : 0, STEP >= 11 ? 128 : 0,   /* 11: bipolar */
-                              128, 0 };                                       /* 14: AMP TONE flat, ensemble off */
+                              128, 0,                                         /* 14: AMP TONE flat, ensemble off */
+                              0, 0 };                                         /* FOLD: COLOR 0 = plain triangle */
 
 static void panel_apply(int p)
 {
@@ -194,6 +196,12 @@ static void panel_apply(int p)
     case P_ENS: b6(1, S6_WET, ens_wet_bits[v[P_ENS]]); b6(1, S6_DRY, ens_dry_bits[v[P_ENS]]); break;
 #else
     case P_TONE: case P_ENS: break;
+#endif
+#if FOLD                               /* FOLD=1: OSC1 / OSC2 COLOR fold the triangle, slave DSP A */
+    case P_C1: b6(0, A6_FOLD1, fold_bits[v[P_C1]]); break;
+    case P_C2: b6(0, A6_FOLD2, fold_bits[v[P_C2]]); break;
+#else
+    case P_C1: case P_C2: break;
 #endif
     default:
         if (STEP >= 4) {

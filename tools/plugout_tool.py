@@ -246,6 +246,11 @@ def cmd_info(args) -> int:
 
 
 def resolve_container(args, device_type: int) -> P.Container:
+    """The file the plugin would send: Script/Code8_<slot>.Dat on a SYSTEM-8,
+    Script/Code1.Dat on a SYSTEM-1/-1m. Either --dat or --code1 points at
+    another file (the generated builds live outside the plugin folder)."""
+    if args.code1:
+        return P.load(args.code1)
     if args.dat:
         return P.load(args.dat)
     if not args.plugin:
@@ -447,6 +452,9 @@ def main(argv=None) -> int:
     p.add_argument("plugin", nargs="?", help="plugin folder: JUNO-60, JX-3P or SH-101")
     p.add_argument("--slot", type=int, default=1, help="PLUG-OUT slot (default 1)")
     p.add_argument("--dat", help="use this Code*.Dat instead of picking one from the plugin")
+    p.add_argument("--code1", metavar="PATH",
+                   help="use this file as Script/Code1.Dat, the SYSTEM-1 image "
+                        "(--dat would be read as Code8_<slot>.Dat on a SYSTEM-8 path)")
     p.add_argument("--flags", type=int_auto, default=0,
                    help="bits 4-6 of the start byte (the plugin sends 0x40 when not authorized)")
     p.add_argument("--device-type", type=int, choices=[0, 1, 2],

@@ -124,6 +124,10 @@ Avisos: `manual-wrap`, `filler`, `transfer-only` y `fusable`. Están explicados 
 |---|---|
 | `tools/plugout_tool.py ports` / `info` | puerto MIDI y estado de los slots |
 | `tools/plugout_tool.py install <plugin> --slot N [--force] [--no-patches] [-y]` | instala `Code*.Dat` (+ patches); `--force` sin comprobar la versión, `--no-patches` sólo el firmware |
+| `tools/plugout_tool.py install --code1 FILE …` | instala ese archivo como `Script/Code1.Dat` (SYSTEM-1); `--dat` es el `Code*.Dat` elegido a mano |
+| `python3 tools/plugout.py [--json] FILE.Dat` | resumen de un contenedor; `--json`: cabecera, START / END, registros y regiones (lo usa `web/test/test-protocol.js`) |
+| `python3 -m http.server 8000 --bind 127.0.0.1 --directory web` | instalador web en `http://localhost:8000/` (Chrome / Edge); [WEB_INSTALLER.md](WEB_INSTALLER.md) |
+| `node web/test/test-protocol.js [FILE.Dat...]` / `sh web/test/run-page-test.sh` | pruebas del instalador web sin hardware: biblioteca contra `plugout.py`, página completa en Chrome headless |
 | `examples/system_1/paramlog.py -t SEG [--raw] [--file LOG...]` | escucha una build `PARAMLOG=1`: ids de los controles del panel (con el PLUG-OUT seleccionado) |
 
 ## 6. Emulador (`examples/from_scratch/emu/`)
@@ -483,6 +487,7 @@ docs/PROTOCOL.md for the reverse-engineered details.
 | `plugin` | plugin folder: JUNO-60, JX-3P or SH-101 |  |
 | `--slot` | PLUG-OUT slot (default 1) | `1` |
 | `--dat` | use this Code*.Dat instead of picking one from the plugin |  |
+| `--code1` | use this file as Script/Code1.Dat, the SYSTEM-1 image (--dat would be read as Code8_<slot>.Dat on a SYSTEM-8 path) |  |
 | `--flags` | bits 4-6 of the start byte (the plugin sends 0x40 when not authorized) | `0` |
 | `--device-type` | with --skip-check/--dry-run: 0 SYSTEM-1, 1 SYSTEM-1m, 2 SYSTEM-8 (default) |  |
 | `--skip-check` | do not query the device first |  |
@@ -719,6 +724,33 @@ one, so the two cannot disagree about which word is which.
 Each line is checked before it is printed: the listing re-assembles it, and a
 line that does not give back its own words is kept verbatim instead. That is
 the reason `report["reassembly"]` exists; on the corpus it is 0.
+```
+
+### `asm/dspbuild.py`
+
+```
+General build pipeline for our DSP microcode, SYSTEM-1 and SYSTEM-8 (docs/MICROCODE_OPTIMIZATION.md §6).
+
+A generator only writes the plain program: one op or one transfer per line, load delays as "mov rN, rN" fillers,
+';' comments. Everything else is here, the same for every plug-out:
+
+    import dspbuild
+    b = dspbuild.build(lines, dspbuild.S1)        # framing S1 (SYSTEM-1 section) or S8 (SYSTEM-8 slot / main)
+    b.words, b.text, b.plain_words                # optimized words with the framing, its text, the plain words
+    dspbuild.write('s1m0', out_dir, b)            # s1m0.s / s1m0.hex + check_optimized warnings
+
+build() runs, in order (each can be turned off for one call, or for every build with DSP_OPT=0):
+  1. phwrap: the manual 11-op phase wrap of our early programs (addxy t, x, #-1 / max t, t, r5 / (mul t, t, #256 /
+     min t, t, r6) x4 / mul t, t, #2 / subxy x, t, x) becomes ph_wrap x, r3, x (Roland's form), when the temporary
+     t is dead afterwards. It gives the same result except for a phase of exactly 1.0 (manual: 1.0, ph_wrap: -1.0).
+  2. schedule: asm/dspsched.py (dependencies, packing, op fusion, reordering).
+  3. assemble, with the framing words around the code.
+  4. verify (DSP_VERIFY=0 to skip): the scheduled program against the plain one (after phwrap) in the emulator's C
+     core, on 4 random states (registers, banks 0 / 1 / 5, bank 6, IOMD: values on the quant grid, as a program
+     or the ARM writes them) for 6 samples each; every register, flag and memory word must be equal. A difference
+     raises. Programs already verified are remembered by their words (asm/build/verified.txt).
+
+    python3 asm/dspbuild.py FILE.s [--s1|--s8] [-o DIR]    a hand-written plain .s -> optimized .s / .hex
 ```
 
 ### `asm/dspsched.py`
@@ -2744,10 +2776,13 @@ Options (environment variables):
                  11 LFO per voice (own phase restarted at each note, own S&H), -> filter / -> amp bipolar
                     (128 = 0, below = inverted LFO); op fusion on (FUSE): DSP A 576, B 603 (works on the device)
                  12 the list scheduler asm/dspsched.py instead of pack(): DSP A 553, B 471 (emulator only)
+                 13 OS delay / reverb send-return in master B (C-S1SY13, last fully working build)
                   0 the first all-at-once design (silent on the device; reference only)
   SCHED=0|1     schedule with asm/dspsched.py instead of pack() (default 1 from STEP 12)
   FUSE=0|1      fuse independent ops into one instruction as Roland (default 1 from STEP 11, docs/
                 MICROCODE_OPTIMIZATION.md); every build runs tools/check_optimized.py on the programs
+  FOLD=1        (with STEP=13) the triangle of each oscillator wavefolded by its COLOR knob (0x168 / 0x16D);
+                FOLD_MAX=x = gain at COLOR 255 (default 5). Doc §7.5
   PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit
                 per instruction: STEP=7 PACK=0 is over the time budget of slave DSP A and hangs the device
   NAME=...      plug-out name shown on the device and plugins/ folder (default C-S1SY); max 16 characters
@@ -2801,7 +2836,7 @@ as reference. The filter ADSR is still to come.
                                          only when the emulator, simulate() or the instruction forms change)
 ```
 
-Environment: `FUSE` (default '1' if STEP >= 11 else '0'), `GMAX` (default '0.7'), `PACK` (default '1'), `PAD` (default '0'), `RESCOMP` (default '0'), `RES_MAX` (default '4.4' if RESCOMP else '3.6'), `SCHED` (default '1' if STEP >= 12 else '0'), `SIM`, `SIM_CHECK_N` (default '600'), `SIM_JOBS` (default '0'), `SIM_N` (default '9600'), `SIM_PACK_N` (default '19200'), `STAGE` (default '4'), `STEP` (default '8'), `VOICES` (default '8')
+Environment: `CHDIAG`, `CHFRAC` (default 'mod2'), `ENS` (default '2'), `FOLD` (default '0'), `FOLD_MAX` (default '5.0'), `FUSE` (default '1' if STEP >= 11 else '0'), `GMAX` (default '0.7'), `M1` (default ''), `PACK` (default '1'), `PAD` (default '0'), `RESCOMP` (default '0'), `RES_MAX` (default '4.4' if RESCOMP else '3.6'), `SCHED` (default '1' if STEP >= 12 else '0'), `SIM`, `SIM_CHECK_N` (default '600'), `SIM_JOBS` (default '0'), `SIM_N` (default '9600'), `SIM_PACK_N` (default '19200'), `STAGE` (default '4'), `STEP` (default '8'), `VOICES` (default '8')
 
 ### `examples/system_1_synth/paramlog.py`
 

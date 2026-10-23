@@ -277,6 +277,12 @@ B6_WAVE1, B6_WAVE2 = 0x50, 0x53
 B6_FENV, B6_AMT = 0x50, 0x4C                # parameters of DSP B (DSP A's C050.. are the waves: other DSP)
 B_FE = 0x10                                 # filter ADSR state: env +0x10, latch +0x12, last trigger +0x14
 STEP_WAVES = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 0, 0), (1, 0, 0), (1, 0, 0)]   # selector 0..5: 2nd square, 3rd tri
+#  FOLD=1 (on top of step 13): the triangle of each oscillator is wavefolded by its COLOR knob (0x168 / 0x16D ->
+#      parameter C056 / C057 of DSP A = g / 2, g = 1 .. FOLD_MAX): out = ph_tri(g tri / 2). ph_tri(R) =
+#      1 - 2|wrap(-R - 1.5)| is the reflecting fold of 2R itself (= 2R for |R| <= 1/2), so any gain folds in one op
+FOLD = os.environ.get('FOLD', '0') == '1'
+FOLD_MAX = float(os.environ.get('FOLD_MAX', '5.0'))
+A6_FOLD1, A6_FOLD2 = 0x56, 0x57
 V8_PHASE = [0x0300 + 0x10 * v for v in range(NV)]
 V8_MIX = 0xA150
 #   9  LFO (PARAMLOG 2026-10-23: rate 0x162, shape 0x160, delay / fade 0x161, -> pitch 0x163, -> filter 0x164,
@@ -327,9 +333,19 @@ def v8_saw(P):
     return L
 
 
-def step_wave(prm):
+def fold_gain(v):
+    """COLOR 0..255 -> parameter g / 2 of the folded triangle (FOLD=1): g = 1 (plain triangle) .. FOLD_MAX"""
+    return on_grid((1 + (FOLD_MAX - 1) * v / 255.0) / 2)
+
+
+def step_wave(prm, fold=None):
     """step 7: r1 = phase (= saw) -> r2 = a saw + b square + c triangle, a b c = parameters prm..prm+2; uses r3, r4.
-    Each load has one instruction before its use (no filler)."""
+    Each load has one instruction before its use (no filler). FOLD=1: the triangle folded by parameter `fold`."""
+    if fold is not None:
+        return [f'ld r4, [c0{prm:02x}]', 'mul r3, r1, #256.0', 'mul r2, r1, r4',
+                f'ld r4, [c0{prm + 1:02x}]', 'ph_clamp r3, r3, -r3', 'mad r2, r3, r4',
+                f'ld r4, [c0{fold:02x}]', 'ph_tri r3, r3, -r1', 'mul r3, r3, r4',
+                f'ld r4, [c0{prm + 2:02x}]', 'ph_tri r3, r3, -r3', 'mad r2, r3, r4']
     return [f'ld r4, [c0{prm:02x}]', 'mul r3, r1, #256.0', 'mul r2, r1, r4',
             f'ld r4, [c0{prm + 1:02x}]', 'ph_clamp r3, r3, -r3', 'mad r2, r3, r4',
             f'ld r4, [c0{prm + 2:02x}]', 'ph_tri r3, r3, -r1', 'mad r2, r3, r4']
@@ -432,7 +448,7 @@ def step_s1m0():
             L += [f'ld r4, [c0{B6_RANGE1:02x}]', 'mov r4, r4', 'addxy r0, r0, r4']
         L += v8_saw(P)
         if STEP >= 7:
-            L += step_wave(B6_WAVE1) + [f'ld r4, [{STEP_LEVEL1:04x}]', 'mov r4, r4', 'mul r1, r2, r4']
+            L += step_wave(B6_WAVE1, A6_FOLD1 if FOLD else None) + [f'ld r4, [{STEP_LEVEL1:04x}]', 'mov r4, r4', 'mul r1, r2, r4']
         elif STEP >= 2:
             L += [f'ld r4, [{STEP_LEVEL1:04x}]', 'mov r4, r4', 'mul r1, r1, r4']
         L += gate(v) + ['addxy r7, r7, r1']
@@ -444,7 +460,7 @@ def step_s1m0():
             L += [f'; voice {v}: DCO2', f'add r0, #{DCO2_DETUNE!r}']
         L += v8_saw(P + 2)
         if STEP >= 7:
-            L += step_wave(B6_WAVE2) + [f'ld r4, [{STEP_LEVEL2:04x}]', 'mov r4, r4', 'mul r1, r2, r4']
+            L += step_wave(B6_WAVE2, A6_FOLD2 if FOLD else None) + [f'ld r4, [{STEP_LEVEL2:04x}]', 'mov r4, r4', 'mul r1, r2, r4']
         elif STEP >= 2:
             L += [f'ld r4, [{STEP_LEVEL2:04x}]', 'mov r4, r4', 'mul r1, r1, r4']
         else:
@@ -874,7 +890,7 @@ def step_program(lines, packed=None):
     PACK=1 packs transfers into the ops' instructions"""
     if packed if packed is not None else PACK:
         # step 14 on: only op groups proven on the device share an instruction (asm/proven_forms.txt)
-        lines = dspsched.schedule(lines, dspsched.load_proven() if STEP >= 14 else None) if SCHED else pack(lines)
+        lines = dspsched.schedule(lines, dspsched.load_proven() if STEP >= 14 or FOLD else None) if SCHED else pack(lines)
     r = assemble(lines)
     return [0x0A02, 0xFF71] + r.words + [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001], r, lines
 
@@ -1040,6 +1056,9 @@ def header(progs):
     out.append(f'#define B6_WAVE1 0x{B6_WAVE1:02x}\n#define B6_WAVE2 0x{B6_WAVE2:02x}')
     out.append('/* wave selector 0..5 -> saw, square, triangle coefficients */')
     out.append(table('step_wave_bits', [c for w in STEP_WAVES for c in w], 3))
+    out.append(f'#define FOLD {int(FOLD)}\n#define A6_FOLD1 0x{A6_FOLD1:02x}\n#define A6_FOLD2 0x{A6_FOLD2:02x}')
+    out.append('/* FOLD=1: COLOR 0..255 -> g / 2 of the folded triangle */')
+    out.append(table('fold_bits', [fold_gain(v) for v in range(256)]))
     out.append(table('gain_bits', [(1 + resonance(v) / 2) / 2 for v in range(256)]))
     out.append(f'#define B6_RANGE1 0x{B6_RANGE1:02x}\n#define B6_RANGE2 0x{B6_RANGE2:02x}\n#define B6_FINE2 0x{B6_FINE2:02x}')
     out.append('/* OSC range 0..5 (64\' .. 2\') -> octaves; OSC2 fine tune 0..255 -> octaves (128 = 0) */')
@@ -1101,6 +1120,9 @@ def sim_params(b5, panel):
     for base, wv in ((B6_WAVE1, panel['osc1_wave']), (B6_WAVE2, panel['osc2_wave'])):
         for i in range(3):
             pa[0xC000 + base + i] = float(STEP_WAVES[wv][i])
+    if FOLD:
+        pa[0xC000 + A6_FOLD1] = f32(fold_gain(panel.get('osc1_color', 0)))
+        pa[0xC000 + A6_FOLD2] = f32(fold_gain(panel.get('osc2_color', 0)))
     if STEP >= 9:
         pa.update({0xC000 + A6_LRATE: f32(lfo_rate(panel['lfo_rate'])), 0xC000 + A6_LDELAY: f32(lfo_delay(panel['lfo_delay'])),
                    0xC000 + A6_LPITCH: f32(lfo_pitch(panel['lfo_pitch'])), 0xC000 + A6_LFILT: f32(lfo_filt(panel['lfo_filt'])),
@@ -1289,6 +1311,8 @@ def check_panels():
                        ('LFO S&H', dict(lfo, lfo_wave=5))]
         else:
             panels += [('LFO triangle', dict(lfo, lfo_wave=0)), ('LFO S&H', dict(lfo, lfo_wave=4))]
+    if FOLD:
+        panels += [('folded triangles', dict(filt, osc1_wave=2, osc2_wave=2, osc1_color=200, osc2_color=90))]
     if STEP >= 14:
         panels += [('ensemble + tone', dict(filt, ensemble=255, amp_tone=40))]
     return panels

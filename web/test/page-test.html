@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<!--
+  page-test.html -- the installer page (../index.html) driven end to end in a
+  browser, with a fake Web MIDI synth instead of navigator.requestMIDIAccess:
+  no real MIDI port is opened. Run with web/test/run-page-test.sh (headless
+  Chrome); the verdict is written into <pre id="result">.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Installer page test</title>
+</head>
+<body>
+<iframe id="page" style="width: 900px; height: 2400px; border: 0"></iframe>
+<pre id="result">running</pre>
+<script src="page-test.js"></script>
+</body>
+</html>

@@ -1,61 +1,22 @@
-mov r7, #0.0 | ld r0, [040d] | ld r1, [042d] | ld r6, [c000]
-addxy r7, r7, r0 | ld r0, [044d] | ld r2, [0085]
-addxy r7, r7, r1 | ld r1, [046d]
+mov r7, #0.0 | mov r5, #0.0 | ld r0, [040d] | ld r1, [042d] | ld r3, [a168]
+addxy r7, r7, r0 | ld r0, [044d] | st r3, [0404] | ld r6, [c000]
+addxy r7, r7, r1 | ld r1, [046d] | ld r2, [0403] | ld r4, [a160]
 addxy r7, r7, r0 | ld r0, [048d]
 addxy r7, r7, r1 | ld r1, [04ad]
 addxy r7, r7, r0 | ld r0, [04cd]
 addxy r7, r7, r1 | ld r1, [04ed]
-addxy r7, r7, r0
-addxy r7, r7, r1 | ld r1, [0081]
-mul r7, r7, #0.16666666666666666 | add r2, #1.06875e-05:32
-mul r7, r7, r6
-mov r0, r7
-subxy r3, r1, r0
-ph_wrap r2, r3, r2
-mad r1, r3, #0.4581489286485115:32 | st r2, [0084]
-addxy r3, r2, #0.0:32 | st r1, [0080] | st r1, [0100]
-ph_wrap r3, r3, r3
-ph_tri r3, r3, -r3
-mul r3, r3, #174.5:32
-add r3, #334.5:32
-mul r4, r3, #2.0:32
-ph_mod2 r4, r3, r4
-subxy r5, r4, r3
-add r5, #256.5:32
-mul r5, r5, #6.103515625e-05:32
-hset h6, r5
-ldidx r6, 0
-ldidx r7, 1
-addxy r3, r2, #1.0:32
-ph_wrap r3, r3, r3
-ph_tri r3, r3, -r3
-subxy r7, r6, r7
-mul r3, r3, #174.5:32
-mad r6, r7, r4
-add r3, #334.5:32 | st r6, [0090]
-mul r4, r3, #2.0:32
-ph_mod2 r4, r3, r4
-subxy r5, r4, r3
-add r5, #256.5:32
-mul r5, r5, #6.103515625e-05:32
-hset h6, r5
-ldidx r6, 0
-ldidx r7, 1
-subxy r7, r6, r7 | ld r1, [0090] | ld r5, [c05a] | ld r3, [a168]
-mad r6, r7, r4 | ld r4, [c059] | st r3, [0404] | ld r7, [a151]
-mul r6, r0, r5 | mul r1, r1, r4 | st r6, [0092]
-mov r0, #0.0 | addxy r1, r1, r6 | ld r2, [0092]
-mul r2, r2, r4 | mov r5, #0.0 | st r0, [6008] | ld r4, [a160]
-addxy r2, r2, r6 | mov r6, #1.0 | st r0, [6009]
-st r0, [600a]
+addxy r7, r7, r0 | mov r0, #0.0
+addxy r7, r7, r1 | st r0, [6008] | ld r1, [0401]
+mul r7, r7, #0.16666666666666666 | st r0, [6009]
+mul r7, r7, r6 | mov r6, #1.0 | st r0, [600a]
 st r0, [600b]
 st r0, [600c]
 st r0, [600d] | ld r0, [0405]
-subxy r0, r0, r3 | st r1, [6006] | ld r1, [0401]
-addxy r3, r1, #-0.999 | mul r0, r0, r0 | st r2, [6007] | ld r2, [0403]
+subxy r0, r0, r3 | addxy r3, r1, #-0.999 | st r7, [6006]
+mul r3, r3, #256.0 | mul r0, r0, r0 | st r7, [6007] | ld r7, [a151]
 mul r3, r3, #256.0 | subxy r0, r0, #1.0
-mul r3, r3, #256.0 | mul r2, r2, r0 | ld r0, [c043]
 max r3, r3, r5
+mul r2, r2, r0 | ld r0, [c043]
 min r3, r3, r6
 max r2, r2, r3
 mul r2, r2, r4

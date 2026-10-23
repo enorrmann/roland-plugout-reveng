@@ -10,6 +10,7 @@ Status of each item is in the document itself; the scope of the project is in th
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Hardware of the SYSTEM-8 (master and slave BMCs, DSPs, panel MCU) and which code runs where. Spanish. |
 | [PROTOCOL.md](PROTOCOL.md) | The USB-MIDI install protocol of the PLUG-OUT plugins, with code addresses. Used by `tools/plugout_tool.py`. |
+| [WEB_INSTALLER.md](WEB_INSTALLER.md) | The browser installer in `web/` (Web MIDI + SysEx): use, checks that block an install, port handling, tests (Node + headless Chrome). Spanish. |
 | [CUSTOM_PLUGOUTS.md](CUSTOM_PLUGOUTS.md) | Firmware container (`Code*.Dat`), slots, relocation, the OS interface, the parameter model, and the changes verified on hardware. |
 | [PLUGOUT_VS_BASE.md](PLUGOUT_VS_BASE.md) | Whether PLUG-OUTs add processing or only configure the base system. |
 
