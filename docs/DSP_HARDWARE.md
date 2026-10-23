@@ -16,7 +16,7 @@ representativos; **[inferido]** = deducido del corpus o del lado ARM, sin medici
 | Chips | 3 BMC (maestro + 2 slaves de 4 voces cada uno), iguales en hardware | [inferido] |
 | DSP por BMC | 6 (DSP0..DSP5) + DSPM (sin estudiar) | [inferido] |
 | Frecuencia de muestreo | 96 kHz; el programa de cada DSP corre entero una vez por muestra | [exacto] |
-| Ciclos por muestra | ≈ 925–945 (≈ 90 MHz) en todos los DSP | [medido] |
+| Ciclos por muestra | ≈ 925–945 (≈ 90 MHz) en todos los DSP del SYSTEM-8. **SYSTEM-1, esclavo DSP A: entre 682 y 826** (682 funciona, 826 cuelga, también con relleno puro; `docs/examples_system_1_synth_README.md` §4) | [medido] |
 | Costo | **1 ciclo por instrucción**, cualquiera sea su contenido (1 op, A/A/B, 1 o 2 MAC, hasta 6 transferencias, marcadores); salto tomado +1 ciclo; lo salteado por un salto no cuesta | [medido] |
 | Pasarse del presupuesto | se pierde el final del programa; en los slaves deja el equipo inestable hasta apagarlo | [medido] |
 | Reloj común | todos los DSP de un BMC comparten el contador de muestras (posición de escritura del retardo idéntica en DSP3 y DSP4) | [medido] |

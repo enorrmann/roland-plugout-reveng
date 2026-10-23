@@ -236,7 +236,7 @@ static void dsp_bank(int dsp, int id, float v)
 |---|---|
 | el OS entrega a un asignador de PLUG-OUT más de 4 voces | **sí, 8**: C-S1V8 suena con 8 notas sostenidas y el esclavo recibe `0x114`–`0x117` / `0x124`–`0x127` [M] |
 | más de 8 | el bloque de velocidades acaba en `0x127` (`0x128` empieza el de disparo); las notas tienen hueco para 16. Haría falta otra forma de mandar la puerta [A] |
-| tiempo de DSP | ≈ 925 instrucciones por muestra y DSP [I]; C-S1V8 usa 269 en el esclavo A |
+| tiempo de DSP | esclavo A: entre 682 y 826 instrucciones por muestra [M] (C-S1SY, `docs/examples_system_1_synth_README.md` §4); C-S1V8 usa 269 en el esclavo A |
 | voces del JX-3P con su microcódigo | 4 completas no caben (3748 de ≈ 3660 instrucciones); 4 con un DCO sí (3098) [E] ([DSP_FIT.md](DSP_FIT.md)) |
 | voces de SH-101 / SH-2 / PROMARS con su microcódigo | 2 como mucho [E] ([DSP_FIT.md](DSP_FIT.md) §4) |
 

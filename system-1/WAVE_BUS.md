@@ -49,8 +49,8 @@ Evidencia: **[M]** medido en el equipo · **[L]** leído en el OS 1.30 o en los 
 | 0 (`0nnn`) | por DSP o por chip [A]; los diseños propios usan rangos distintos en A y B | anillo (escribir R, leer R+1) | — | anillo [M] con C-S1V4 |
 | 1 (`2nnn`) | compartido por A y B [I] (el principal A de serie escribe `2004`…, el B `2000`…, sin pisarse) | anillo | — | [L], [I] |
 | 3 (`6nnn`) IOMD | por chip; palabras de enlace entre chips | persiste | — | [M] en parte (§4.4) |
-| 5 (`A000`–`A1FF`) | **uno por chip, compartido por A y B** | persiste | `FD6C(sel, obj, bits)` (§4.2) | [M] (`A150` de A a B en C-S1V4) |
-| 6 (`Cnnn`) | por DSP | persiste | `FCEC(sel, id, bits)` inmediato, `FCE4` con rampa [A] | [M] (`C01C` del maestro B) |
+| 5 (`A000`–`A1FF`) | uno por chip; `A1xx` compartido por A y B; **`A0xx` escrito por el ARM (`FD6C` sel 0) lo ve el DSP A pero no el B** | persiste | `FD6C(sel, obj, bits)` (§4.2) | [M] (`A150`, `A151+v`… de A a B; B leyendo `A038+v` del ARM: mudo, C-S1SY paso 3) |
+| 6 (`Cnnn`) | por DSP | persiste | `FCEC(sel, id, bits)` inmediato, `FCE4` con rampa [A] | [M] (`C01C` del maestro B; `C040`–`C04B` del esclavo B y `C044`–`C055` del esclavo A, C-S1SY) |
 
 Palabras del banco 5 reservadas por el sistema [L]: `A004`, `A005`, `A01D` (contador de trama de la cabecera del OS
 y de los cierres, §5.3); `A006`–`A009` (el ARM del esclavo de serie); `A118`–`A11D` en el maestro (salida, §5.1).
@@ -113,7 +113,9 @@ Con dos `sel` el ARM alcanza `A000`–`A1FF`: es el banco 5 utilizable por un PL
 ### 4.3 Banco 6 desde el ARM: `FCEC` [M]
 
 `FCEC(sel, id, bits)`: parámetro `C0id` del DSP A (`sel 0`) o B (`sel 1`) del chip que lo llama, valor inmediato.
-Ejemplo medido: VOLUME → `C01C` del maestro B.
+Ejemplos medidos: VOLUME → `C01C` del maestro B; en el esclavo, la ADSR y el filtro de C-S1SY → `C040`–`C04B` del
+DSP B y los ranges/ondas → `C044`–`C055` del DSP A. Es el camino de Roland para los mandos (el SH-2 lee sus mandos en
+`C0xx`) y el único fiable hacia el DSP B del esclavo: `A0xx` escrito con `FD6C sel 0` no le llega (§3).
 
 ```c
 /* examples/system_1/model.c */
@@ -261,7 +263,10 @@ Cómo se encontró: bisección en el equipo con builds de diagnóstico de C-S1JX
 5. Esclavo → maestro: `6006`–`600D` (8 palabras) y `6026`–`602D` (8 más); maestro → esclavo: `600E`–`6021` (20).
 6. **Nunca encolar `0x0000`** (cuelga el equipo, §5.3). Encolar programas, finales de sección vacíos y el cierre
    `0x7FF2`, como los PLUG-OUTs de Roland en su `load`.
-7. Presupuesto ≈ 925 instrucciones por muestra y DSP (no medido en el SYSTEM-1: el mismo chip que el SYSTEM-8 [I]).
+7. Presupuesto **medido en el esclavo A: entre 682 y 826** instrucciones por muestra (682 funciona; 826 cuelga el
+   equipo al seleccionar el PLUG-OUT, también con 144 rellenos `mov r4, r4`) [M], menos que las ≈ 925 del SYSTEM-8.
+   Empaquetar transferencias con las operaciones, como Roland, lo hace caber: una carga se usa en la instrucción
+   siguiente [M] (`docs/examples_system_1_synth_README.md` §4–5).
 8. **Límites de acceso por instrucción** (incumplirlos cuelga el equipo [M]): banco 5 ≤ 1 carga y ≤ 1 store (mejor:
    un solo acceso), banco 0 ≤ 2 cargas y ≤ 2 stores, banco 6 ≤ 2 cargas. Los DSP del esclavo guardan sólo en
    `A100`–`A1FF` [I]. El emulador rechaza los programas que los incumplen (`emu/chain.py access_violations`).

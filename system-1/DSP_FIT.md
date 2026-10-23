@@ -26,7 +26,7 @@ Código de salida 0 si cabe, 1 si no.
 | `--dco2` | `saw` | ranura DCO2 (`saw`, `sqr`, `noise`, `none` = sin DCO2) |
 | `--fx` | ninguno | ranura de efecto del DSP4 (`od`, `ds`, `ch`, `fz`, `cr`, `ph`) |
 | `--voices` | 4 | 4 = los seis DSP de un slave; 2 = DSP0, DSP2, DSP4 |
-| `--budget` | 925 | instrucciones por muestra y DSP. 925–945 está **[medido] en el SYSTEM-8**; en el SYSTEM-1 **[abierto]** |
+| `--budget` | 925 | instrucciones por muestra y DSP. 925–945 está **[medido] en el SYSTEM-8**; en el SYSTEM-1 (esclavo A) **entre 682 y 826 [medido 2026-10-23]**: usar `--budget 682` para un resultado seguro |
 | `--reserve-ma` | 40 | instrucciones del DSP A del maestro que se lleva el programa de salida del OS en `0x82` **[abierto]**, estimado |
 | `--samples`, `--seed` | 2000, 1 | muestras emuladas y semilla de las entradas aleatorias |
 

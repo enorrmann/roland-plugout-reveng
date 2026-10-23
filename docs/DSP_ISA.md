@@ -161,8 +161,9 @@ decoded.** Reference words: `02nn`/`04nn`/`06nn` local data, `C0nn` parameter bl
 ## 9. Later findings (summary; details in `DSP_ISA_SPEC.md`)
 
 * The DSP runs at **96 kHz**; bank 0 is a **ring** (a value stored at S is read at S + 1 in the next sample:
-  state = load S + 1, store S); a load needs one instruction before an ALU op can use it; ops of one instruction
-  read before they write.
+  state = load S + 1, store S); a loaded register is usable by the **next** instruction (not by its own
+  instruction): Roland's programs do this everywhere and our packed C-S1SY programs rely on it [measured 2026-10-23,
+  SYSTEM-1, `docs/examples_system_1_synth_README.md` §5]; ops of one instruction read before they write.
 * Registers are shared between the programs of one DSP within a sample.
 * C word: high byte = cc << 1 | neg; low byte = unit skipped if true (bits 7–4) / if false (bits 3–0), units
   numbered from 1 (ops, then transfers). Context bits also measured on the slave DCO2 slot: `0011011001100110`.

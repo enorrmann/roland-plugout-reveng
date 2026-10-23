@@ -10,15 +10,12 @@ ADSR VCA, a 4-pole low-pass filter (cutoff, resonance, key track) and a second A
                            key track x pitch) -> g = 2 pi f / fs, ladder of 4 one-pole stages with feedback k
     master B s1mm1 @0x1000 6006 / 6007 x volume (C01C) -> A118 / A119 (unchanged from C-S1V4)
 
-The VCA is applied before the filter (the filter is linear; the resonance is limited so that it rings out).
-Stages (STAGE=1..4 build.sh), one hardware test each:
-    1  DCO1 + DCO2 with wave / level from the panel, gate as VCA, no filter
-    2  + amp ADSR
-    3  + low-pass filter (cutoff, resonance, key track)
-    4  + filter ADSR with amount
+Built step by step on the hardware (STEP=n, STEPS below; default 7 = everything up to the waves, packed as Roland
+does: pack()). The design above (STEP=0, STAGE=1..4) is the first all-at-once attempt: silent on the device, kept
+as reference. The filter ADSR is still to come.
 
     python3 make_synth.py           -> s1*.s / s1*.hex here, build/s1_programs.h
-    python3 make_synth.py --sim     -> also simulate notes through slave A, slave B and master B
+    python3 make_synth.py --sim     -> also simulate notes through slave A, slave B and master B (slow)
 """
 import math
 import os
@@ -32,7 +29,7 @@ sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 're'))
 import asm  # noqa: E402
 
 NV = int(os.environ.get('VOICES', '8'))
-STEP = int(os.environ.get('STEP', '1'))     # incremental steps on top of C-S1V8 (STEPS below)
+STEP = int(os.environ.get('STEP', '7'))     # incremental steps on top of C-S1V8 (STEPS below)
 STAGE = int(os.environ.get('STAGE', '4'))   # the first all-at-once design (STEP=0): silent on hw 2026-10-23
 AMP_ENV, FILTER, FILT_ENV = STAGE >= 2, STAGE >= 3, STAGE >= 4
 FS = 96000.0
@@ -62,7 +59,9 @@ K_SAW = 2 * 440.0 / FS                      # phase step of A 440 (phase -1..1)
 G_440 = 2 * math.pi * 440.0 / FS            # one-pole coefficient of 440 Hz
 EXP_IN = math.log(2) / 16                   # 2^c = (e^(c ln2 / 16))^16, e^y by 4 Taylor terms
 CUT_LO, CUT_HI = -8.0, 6.5                  # cutoff limits in octaves from 440 Hz (1.7 Hz .. 40 kHz before g clamp)
-G_MAX = 0.7                                 # k (g / (2 - g))^4 < 1 at Nyquist for k = RES_MAX (0.95 self-oscillated, sim)
+G_MAX = float(os.environ.get('GMAX', '0.7'))  # filter coefficient limit: k (g / (2 - g))^4 < 1 at Nyquist for
+                                              # k = RES_MAX needs < 0.83; higher (GMAX=0.9 build.sh) lets it
+                                              # self-oscillate at high cutoff (0.95 did, sim); set by ear
 RES_MAX = 3.6
 
 
@@ -248,6 +247,11 @@ FINE_SPAN = 1.0 / 12                        # octaves at either end of the fine 
 B6_CUT, B6_RES, B6_GAIN, B6_KT = 0x48, 0x49, 0x4A, 0x4B
 STEP_PB = [0xA178 + v for v in range(NV)]
 B_Y = [0x6, 0x8, 0xA, 0xC]                  # ring offsets of the 4 stage outputs in a B voice block
+#   7  waves: OSC1 / OSC2 wave selector (0x167 / 0x16C) -> coefficients of saw, square, triangle as parameters
+#      C050..C052 (OSC1) / C053..C055 (OSC2) of DSP A (FCEC(0, ...)); square = ph_clamp(256 x phase), triangle =
+#      ph_tri(phase), both in the form of Roland's SH-2 (X = r3)
+B6_WAVE1, B6_WAVE2 = 0x50, 0x53
+STEP_WAVES = [(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 0, 0), (1, 0, 0), (1, 0, 0)]   # selector 0..5: 2nd square, 3rd tri
 V8_PHASE = [0x0300 + 0x10 * v for v in range(NV)]
 V8_MIX = 0xA150
 
@@ -263,6 +267,14 @@ def v8_saw(P):
     L += ['mul r2, r2, #256.0', 'min r2, r2, r6'] * 4
     L += ['mul r2, r2, #2.0', 'subxy r1, r2, r1', f'st r1, [{P:04x}]']
     return L
+
+
+def step_wave(prm):
+    """step 7: r1 = phase (= saw) -> r2 = a saw + b square + c triangle, a b c = parameters prm..prm+2; uses r3, r4.
+    Each load has one instruction before its use (no filler)."""
+    return [f'ld r4, [c0{prm:02x}]', 'mul r3, r1, #256.0', 'mul r2, r1, r4',
+            f'ld r4, [c0{prm + 1:02x}]', 'ph_clamp r3, r3, -r3', 'mad r2, r3, r4',
+            f'ld r4, [c0{prm + 2:02x}]', 'ph_tri r3, r3, -r1', 'mad r2, r3, r4']
 
 
 def step_s1m0():
@@ -281,7 +293,9 @@ def step_s1m0():
         if STEP >= 5:
             L += [f'ld r4, [c0{B6_RANGE1:02x}]', 'mov r4, r4', 'addxy r0, r0, r4']
         L += v8_saw(P)
-        if STEP >= 2:
+        if STEP >= 7:
+            L += step_wave(B6_WAVE1) + [f'ld r4, [{STEP_LEVEL1:04x}]', 'mov r4, r4', 'mul r1, r2, r4']
+        elif STEP >= 2:
             L += [f'ld r4, [{STEP_LEVEL1:04x}]', 'mov r4, r4', 'mul r1, r1, r4']
         L += gate(v) + ['addxy r7, r7, r1']
         if STEP >= 5:
@@ -290,7 +304,9 @@ def step_s1m0():
         else:
             L += [f'; voice {v}: DCO2', f'add r0, #{DCO2_DETUNE!r}']
         L += v8_saw(P + 2)
-        if STEP >= 2:
+        if STEP >= 7:
+            L += step_wave(B6_WAVE2) + [f'ld r4, [{STEP_LEVEL2:04x}]', 'mov r4, r4', 'mul r1, r2, r4']
+        elif STEP >= 2:
             L += [f'ld r4, [{STEP_LEVEL2:04x}]', 'mov r4, r4', 'mul r1, r1, r4']
         else:
             L += ['mul r1, r1, #0.5']
@@ -301,6 +317,8 @@ def step_s1m0():
             L += [f'ld r4, [{TRIG[v]:04x}]', 'mov r5, r5', f'st r4, [{STEP_TB[v]:04x}]']
     if not per_voice:
         L += [f'mul r7, r7, #{1.0 / (1.5 * NV)!r}', f'st r7, [{V8_MIX:04x}]']
+    pad = int(os.environ.get('PAD', '0'))       # budget test: harmless fillers at the end of DSP A's program
+    L += ['; PAD: budget test fillers'] * bool(pad) + ['mov r4, r4'] * pad
     return L
 
 
@@ -393,8 +411,95 @@ def step_m1():
     return L
 
 
-def step_program(lines):
-    """as program(), without the automatic scheduling (the step code places its own load delays as C-S1V8)"""
+# ---- packing (step 8): transfers in the same instruction as an op, as Roland's programs do ----------------------
+# Roland's SH-2 (system-1/s1_progs.py --listing) puts up to 3 loads / stores in one instruction with an op
+# ("mul r1, r0, r7 | st r1, [6006] | ld r0, [a100]") and uses a loaded register in the very next instruction. All
+# units of an instruction read before they write. pack() merges our one-unit lines that way and drops the
+# "mov rN, rN" load fillers; make_synth.py --sim compares the packed program with the unpacked one sample by sample.
+import re as _re
+_XFER = _re.compile(r'^(ld|st) r(\d), \[([0-9a-f]{4})\]$')
+
+
+def _filler(x):
+    m = _re.match(r'^mov r(\d), r(\d)$', x)
+    return bool(m) and m.group(1) == m.group(2)
+
+
+def _bank(addr):
+    return addr >> 12
+
+
+class _Ins:
+    def __init__(self):
+        self.op, self.xf = None, []           # op text; transfers (kind, reg, addr)
+
+    def text(self):
+        parts = ([self.op] if self.op else []) + [f'{k} r{r}, [{a:04x}]' for k, r, a in self.xf]
+        return ' | '.join(parts)
+
+    def loads(self):
+        return {r for k, r, _ in self.xf if k == 'ld'}
+
+    def stores(self):
+        return {r for k, r, _ in self.xf if k == 'st'}
+
+    def op_writes(self):
+        return {int(_re.findall(r'\br(\d)\b', self.op)[0])} if self.op else set()
+
+    def ports_ok(self, kind, addr):
+        if len(self.xf) >= 3 or any(a == addr for _, _, a in self.xf):
+            return False
+        same = sum(1 for k, _, a in self.xf if k == kind and _bank(a) == _bank(addr))
+        return same < (2 if _bank(addr) == 0 else 1)
+
+
+def _assembles(text):
+    return asm.Assembler().assemble(text + '\n').ok
+
+
+def pack(lines):
+    out, cur = [], None
+    for x in lines:
+        if x.startswith(';') or not x.strip():
+            continue
+        if _filler(x):
+            continue
+        m = _XFER.match(x)
+        if m:
+            kind, r, addr = m.group(1), int(m.group(2)), int(m.group(3), 16)
+            ok = cur is not None and cur.ports_ok(kind, addr) and r not in cur.op_writes() and r not in cur.loads()
+            if ok and kind == 'ld':
+                ok = r not in cur.stores()
+            if ok:
+                cur.xf.append((kind, r, addr))
+                if _assembles(cur.text()):
+                    continue
+                cur.xf.pop()
+            cur = _Ins()
+            cur.xf.append((kind, r, addr))
+            out.append(cur)
+            continue
+        # an op: joins an instruction that has no op yet if it does not touch what that instruction loads
+        regs = set(int(t) for t in _re.findall(r'\br(\d)\b', x))
+        if cur is not None and cur.op is None and not (regs & cur.loads()):
+            cur.op = x
+            if _assembles(cur.text()):
+                continue
+            cur.op = None
+        cur = _Ins()
+        cur.op = x
+        out.append(cur)
+    return [i.text() for i in out]
+
+
+PACK = os.environ.get('PACK', '1') == '1'   # pack() the step programs (Roland's packing); PACK=0 = one unit per line
+
+
+def step_program(lines, packed=None):
+    """as program(), without the automatic scheduling (the step code places its own load delays as C-S1V8);
+    PACK=1 packs transfers into the ops' instructions"""
+    if packed if packed is not None else PACK:
+        lines = pack(lines)
     r = assemble(lines)
     return [0x0A02, 0xFF71] + r.words + [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001], r, lines
 
@@ -508,6 +613,9 @@ def header(progs):
     out.append(f'#define B5_LEVEL1 {idx(STEP_LEVEL1)}\n#define B5_LEVEL2 {idx(STEP_LEVEL2)}')
     out.append(f'#define B6_AENV 0x{B6_AENV:02x}')
     out.append(f'#define B6_CUT 0x{B6_CUT:02x}\n#define B6_RES 0x{B6_RES:02x}\n#define B6_GAIN 0x{B6_GAIN:02x}\n#define B6_KT 0x{B6_KT:02x}')
+    out.append(f'#define B6_WAVE1 0x{B6_WAVE1:02x}\n#define B6_WAVE2 0x{B6_WAVE2:02x}')
+    out.append('/* wave selector 0..5 -> saw, square, triangle coefficients */')
+    out.append(table('step_wave_bits', [c for w in STEP_WAVES for c in w], 3))
     out.append(table('gain_bits', [(1 + resonance(v) / 2) / 2 for v in range(256)]))
     out.append(f'#define B6_RANGE1 0x{B6_RANGE1:02x}\n#define B6_RANGE2 0x{B6_RANGE2:02x}\n#define B6_FINE2 0x{B6_FINE2:02x}')
     out.append('/* OSC range 0..5 (64\' .. 2\') -> octaves; OSC2 fine tune 0..255 -> octaves (128 = 0) */')
@@ -569,8 +677,11 @@ def simulate(progs, events, n, panel=None):
                     m[0xC000 + B6_AENV + i] = b5[AENV + i]
                 m[0xC000 + B6_CUT], m[0xC000 + B6_RES], m[0xC000 + B6_KT] = b5[CUT], b5[RES], b5[KT]
                 m[0xC000 + B6_GAIN] = b5[COMP] / 2
-            else:                                        # DSP A: ranges 8', fine tune centre
+            else:                                        # DSP A: ranges 8', fine tune centre, saw
                 m[0xC000 + B6_RANGE1] = m[0xC000 + B6_RANGE2] = m[0xC000 + B6_FINE2] = 0.0
+                for base, wv in ((B6_WAVE1, SIM_WAVES[0]), (B6_WAVE2, SIM_WAVES[1])):
+                    for i in range(3):
+                        m[0xC000 + base + i] = float(STEP_WAVES[wv][i])
             m.update(b5)
             regs = [0.0] * 8
             for x in code[key]:
@@ -589,6 +700,9 @@ def simulate(progs, events, n, panel=None):
         mem_m = m
         out.append(m.get(M_OUT[0], 0.0))
     return out
+
+
+SIM_WAVES = [0, 0]                          # wave selector of OSC1 / OSC2 in simulate()
 
 
 def freq(seq):

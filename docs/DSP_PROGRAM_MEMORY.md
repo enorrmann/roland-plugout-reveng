@@ -20,8 +20,8 @@ Leyenda: **[medido]** en el equipo · **[código]** visto en los binarios · **[
   ni entre muestras [medido, SYSTEM-8].
 * El principal corre **antes** que las ranuras: escribe una entrada en el banco 1 y la ranura la lee en la misma
   muestra; la salida de la ranura vuelve al principal una muestra después (anillo) [medido, C-V4].
-* **El límite real es el tiempo, no el espacio**: unas 925–945 instrucciones por muestra y por DSP **sumando todos
-  sus programas**; pasarse pierde el final y en los slaves deja el equipo inestable hasta apagarlo [medido]. Lo que
+* **El límite real es el tiempo, no el espacio**: unas 925–945 instrucciones por muestra y por DSP en el SYSTEM-8
+  (en el SYSTEM-1, DSP A del esclavo: **entre 682 y 826** [medido 2026-10-23]) **sumando todos sus programas**; pasarse pierde el final y en los slaves deja el equipo inestable hasta apagarlo [medido]. Lo que
   un salto se saltea no cuesta [medido]. Una instrucción ocupa de 2 a 12 bytes (media ≈ 6–8 en los programas de
   Roland: 575 instrucciones del SH-101 = 5222 bytes), así que el presupuesto de una muestra son ≈ 6–8 KiB de código
   ejecutado.

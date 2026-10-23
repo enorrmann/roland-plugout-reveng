@@ -1,9 +1,42 @@
 #!/bin/sh
-# C-S1SY: C-S1V8 + DCO2, ADSR VCA, low-pass filter and filter ADSR (docs/examples_system_1_synth_README.md).
-#   examples/system_1_synth/build.sh              -> plugins/C-S1SY/Script/Code1.Dat (and Code.Dat), all stages
-#   STAGE=1 NAME=C-S1SY1 examples/system_1_synth/build.sh   only stage 1 (2, 3: the next ones; make_synth.py)
-#   PARAMLOG=1 ...   diagnostic: the model sends every parameter it receives to the PC (model.c, paramlog.py)
+# C-S1SY: C-S1V8 + DCO2, ADSR VCA, low-pass filter (docs/examples_system_1_synth_README.md). sh build.sh --help
 # Needs arm-none-eabi-gcc/ld/objcopy and Python 3. No Roland file is read: all code and microcode are ours.
+usage() {
+    cat <<'TXT'
+usage: [VAR=value ...] sh examples/system_1_synth/build.sh [--help]
+
+Builds the C-S1SY PLUG-OUT for the SYSTEM-1 -> plugins/<NAME>/Script/Code1.Dat (and Code.Dat, the same file).
+Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force --no-patches -y
+Then select the PLUG-OUT on the panel.
+
+Options (environment variables):
+  STEP=n        incremental step (default 7). Each one adds one thing to the previous one:
+                  1 DCO2 (second saw, +7 cents)          2 OSC1/OSC2 levels from the panel
+                  3 per-voice transport DSP A -> B       4 amp ADSR (DSP B)
+                  5 OSC ranges + OSC2 fine tune          6 4-pole low-pass (cutoff, resonance, key track)
+                  7 waves: selector position 2 = square, 3 = triangle, others saw
+                  0 the first all-at-once design (silent on the device; reference only)
+  PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit
+                per instruction: STEP=7 PACK=0 is over the time budget of slave DSP A and hangs the device
+  NAME=...      plug-out name shown on the device and plugins/ folder (default C-S1SY); max 16 characters
+  GMAX=x        filter coefficient limit (default 0.7, steps >= 6). Higher (0.8 .. 0.95) lets the filter
+                self-oscillate at high cutoff with full resonance; above ~0.83 it may keep ringing after
+                note off. Set by ear
+  VOICES=n      voices (default 8; the OS forwards at most 8)
+  MODEL_ID=0x.. model id in the SYNINFO (default 0x0010)
+  PARAMLOG=1    diagnostic: region 0 sends every parameter the OS hands it to the PC as SysEx F0 7D 06;
+                capture with python3 examples/system_1/paramlog.py -t 90 --raw (select the PLUG-OUT first)
+  PAD=n         budget test: n harmless fillers at the end of slave DSP A's program
+  STAGE=n       only with STEP=0: how much of the all-at-once design (1..4)
+
+Examples:
+  sh examples/system_1_synth/build.sh                                (STEP=7, packed -> plugins/C-S1SY)
+  GMAX=0.9 NAME=C-S1SYG sh examples/system_1_synth/build.sh
+  PARAMLOG=1 NAME=C-S1SYL sh examples/system_1_synth/build.sh
+  STEP=7 python3 examples/system_1_synth/make_synth.py --sim       (DSP programs + simulation only)
+TXT
+}
+case "$1" in -h|--help) usage; exit 0 ;; "") ;; *) usage >&2; exit 2 ;; esac
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
