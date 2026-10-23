@@ -23,7 +23,9 @@ Estado: 2026-10-23.
 4. **Sin cargas repetidas.** Un valor que ya está en un registro o en memoria de la misma muestra no se vuelve a
    cargar (por ejemplo, la puerta: una carga por voz y por muestra, que también sirve para la copia hacia el DSP B).
 5. **Validación bit a bit en el emulador.** Toda optimización se compara con la versión sin optimizar en el núcleo
-   C (`--sim-check`: muestras idénticas) antes de instalar.
+   C antes de instalar: `make_synth.py --pack-check` (≈ 3 s, muestras idénticas). `--sim-check` (núcleo C contra la
+   referencia Python) sólo hace falta cuando cambia el emulador o aparece una forma de instrucción nueva
+   ([TOOLS_GUIDE.md](TOOLS_GUIDE.md) §1).
 6. **Parámetros en la rejilla de los registros.** Un parámetro que se usa justo después de cargarlo tiene que estar
    en la rejilla de cuantización (`on_grid()` en `make_synth.py`). Si no, la versión empaquetada y la sin empaquetar
    difieren en 1 LSB.

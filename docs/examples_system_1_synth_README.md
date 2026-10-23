@@ -28,9 +28,10 @@ Después de instalar hay que seleccionar el PLUG-OUT en el panel. Opciones de la
 Simulación sin equipo:
 
 ```sh
-python3 examples/system_1_synth/make_synth.py --sim         # La 440, 8 notas, silencio: unos 2 s
+python3 examples/system_1_synth/make_synth.py --sim         # La 440, 8 notas, silencio: ≈ 1,4 s
 SIM=py python3 examples/system_1_synth/make_synth.py --sim  # lo mismo con el simulador de referencia (minutos)
-python3 examples/system_1_synth/make_synth.py --sim-check   # núcleo C contra la referencia, muestra a muestra
+python3 examples/system_1_synth/make_synth.py --pack-check  # empaquetado / fusión contra sin empaquetar, sólo C (≈ 3 s)
+python3 examples/system_1_synth/make_synth.py --sim-check   # además núcleo C contra la referencia Python (≈ 25 s, sólo si cambia el emulador)
 ```
 
 `--sim` corre en el núcleo C del emulador (`examples/from_scratch/emu/cchain.py`, programas traducidos a código

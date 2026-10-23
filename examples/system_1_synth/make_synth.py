@@ -17,7 +17,9 @@ as reference. The filter ADSR is still to come.
     python3 make_synth.py           -> s1*.s / s1*.hex here, build/s1_programs.h
     python3 make_synth.py --sim     -> also simulate notes through slave A, slave B and master B (emulator C core,
                                        seconds; SIM=py: the Python reference, minutes)
-    python3 make_synth.py --sim-check -> C core against the Python reference, sample by sample
+    python3 make_synth.py --pack-check -> packed / fused programs against the unpacked ones (C only, seconds)
+    python3 make_synth.py --sim-check -> also the C core against the Python reference, sample by sample (≈ 25 s;
+                                         only when the emulator, simulate() or the instruction forms change)
 """
 import math
 import os
@@ -206,8 +208,18 @@ def schedule(lines):
     return out
 
 
+_ISA = []
+
+
+def isa_table():
+    """the ISA table, loaded once per run (loading isa.json for each Assembler was 80 % of the program generation)"""
+    if not _ISA:
+        _ISA.append(asm.Assembler().table)
+    return _ISA[0]
+
+
 def assemble(lines):
-    r = asm.Assembler().assemble('\n'.join(lines) + '\n')
+    r = asm.Assembler(isa_table()).assemble('\n'.join(lines) + '\n')
     if not r.ok:
         raise SystemExit(r.errors)
     return r
@@ -626,8 +638,14 @@ def _op_regs(op):
     return regs[0], reads
 
 
+_ASSEMBLES = {}
+
+
 def _assembles(text):
-    return asm.Assembler().assemble(text + '\n').ok
+    """does one instruction assemble? (results cached by text: pack() asks ~800 times)"""
+    if text not in _ASSEMBLES:
+        _ASSEMBLES[text] = asm.Assembler(isa_table()).assemble(text + '\n').ok
+    return _ASSEMBLES[text]
 
 
 def pack(lines):
@@ -1034,6 +1052,8 @@ def main():
         sim_report(progs)
     if '--sim-check' in sys.argv:
         sim_check(progs)
+    elif '--pack-check' in sys.argv:
+        sim_check(progs, reference=False)
 
 
 # ---- parallel simulations: independent runs in their own processes (fork; JIT libraries come from the cache) --------
@@ -1089,30 +1109,31 @@ def check_panels():
     return panels
 
 
-def sim_check(progs):
+def sim_check(progs, reference=True):
     """the C core against the Python reference, sample by sample (SIM_CHECK_N samples, 2 notes, one released); then
     (steps) the packed programs against the unpacked ones on the C core (SIM_PACK_N samples, 8 notes, released).
-    Every simulation is independent: they all run at once, one process each (run_sims)."""
+    reference=False (--pack-check): only the second part, C only, seconds. Every simulation is independent: they
+    all run at once, one process each (run_sims)."""
     n = int(os.environ.get('SIM_CHECK_N', '600'))
     ev = {0: [(0, 69)], 50: [(1, 64)], n // 2: [(0, None)]}
     panels = check_panels()
     os.environ['SIM'] = 'c'
     _PROGS['main'] = progs
-    tasks = [(k, 'main', ev, n, p) for _, p in panels for k in ('c', 'py')]
+    tasks = [(k, 'main', ev, n, p) for _, p in panels for k in ('c', 'py')] if reference else []
     npk = int(os.environ.get('SIM_PACK_N', '19200'))
     evp = {0: [(v, 48 + 3 * v) for v in range(NV)], npk // 2: [(v, None) for v in range(0, NV, 2)]}
     if STEP:
         _PROGS['packed'], _PROGS['unpacked'] = sources(True), sources(False)
         tasks += [('c', ps, evp, npk, p) for _, p in panels for ps in ('packed', 'unpacked')]
     res = run_sims(tasks)
-    for k, (name, _) in enumerate(panels):
+    for k, (name, _) in enumerate(panels if reference else []):
         c, py = res[2 * k], res[2 * k + 1]
         bad = [t for t in range(n) if c[t] != py[t]]
         print('sim check, %s, %d samples: %s (peak %.4f)' % (name, n, 'identical' if not bad else
               '%d differ, first at %d: C %r, Python %r' % (len(bad), bad[0], c[bad[0]], py[bad[0]]), max(map(abs, c))))
     if not STEP:
         return
-    base = 2 * len(panels)
+    base = 2 * len(panels) if reference else 0
     for k, (name, _) in enumerate(panels):
         a, b = res[base + 2 * k], res[base + 2 * k + 1]
         bad = [t for t in range(npk) if a[t] != b[t]]

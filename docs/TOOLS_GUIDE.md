@@ -14,11 +14,22 @@ Estado: 2026-10-23.
 ## 1. Flujo de un PLUG-OUT propio (SYSTEM-1, C-S1SY)
 
 ```sh
-STEP=11 python3 examples/system_1_synth/make_synth.py --sim-check   # 1. validar en el emulador (≈ 30 s en paralelo)
+STEP=11 python3 examples/system_1_synth/make_synth.py --sim          # 1. probar en el emulador (≈ 1,4 s)
+STEP=11 python3 examples/system_1_synth/make_synth.py --pack-check   #    + optimización bit a bit (≈ 3 s)
 STEP=11 NAME=C-S1SY11 sh examples/system_1_synth/build.sh           # 2. build (+ check_optimized)
 amidi -l                                                             # 3. ¿está el equipo? (SYSTEM-1 MIDI 1/2)
 python3 tools/plugout_tool.py install plugins/C-S1SY11 --slot 1 --force --no-patches -y   # 4. instalar
 ```
+
+`--sim-check` (≈ 25 s, con la referencia Python) **no** forma parte del flujo diario. Se corre sólo cuando
+cambia algo que la referencia valida y `--pack-check` no:
+* el núcleo del emulador (`examples/from_scratch/emu/`: `dspcore.*`, `dspjit.py`, `dspcomp.py`, `cchain.py`,
+  `chain.py`);
+* `simulate()` / `simulate_py()` o el modelo de memoria de la simulación;
+* una forma de instrucción que nuestros programas no usaban (op o modo nuevo).
+
+Para probar ondas, filtros y modulaciones se usan `simulate()` y medidas propias sobre el núcleo C, que corre
+≈ 3,5× más rápido que el tiempo real.
 
 Después de instalar hay que seleccionar el PLUG-OUT en el panel. Herramientas que hablan MIDI con el equipo:
 nunca dos a la vez.
@@ -28,7 +39,8 @@ nunca dos a la vez.
 ```sh
 python3 examples/system_1_synth/make_synth.py                # s1*.s / s1*.hex, build/s1_programs.h
 python3 examples/system_1_synth/make_synth.py --sim          # además: tres pruebas de sonido en el emulador
-python3 examples/system_1_synth/make_synth.py --sim-check    # además: validación bit a bit (§2.2)
+python3 examples/system_1_synth/make_synth.py --pack-check   # además: empaquetado / fusión bit a bit, sólo C (≈ 3 s)
+python3 examples/system_1_synth/make_synth.py --sim-check    # además: núcleo C contra la referencia Python (§2.2, ≈ 25 s)
 ```
 
 ### 2.1 Variables de entorno
@@ -51,9 +63,9 @@ python3 examples/system_1_synth/make_synth.py --sim-check    # además: validaci
 | `SIM_CHECK_N` | 600 | muestras de la comparación núcleo C / Python de `--sim-check` |
 | `SIM_PACK_N` | 19200 | muestras de la comparación empaquetado / sin empaquetar de `--sim-check` |
 
-### 2.2 `--sim-check`
+### 2.2 `--sim-check` y `--pack-check`
 
-Dos comparaciones, muestra a muestra. Cada una dice `identical` o el número de muestras distintas, la primera
+`--pack-check` hace sólo la comparación 2 (sin la referencia Python). `--sim-check` hace las dos. Dos comparaciones, muestra a muestra. Cada una dice `identical` o el número de muestras distintas, la primera
 muestra distinta y los dos valores:
 
 1. **`sim check`: núcleo C del emulador contra la referencia Python.** Corre `simulate()` (núcleo C,
