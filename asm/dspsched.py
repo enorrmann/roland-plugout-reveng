@@ -155,7 +155,29 @@ def dependencies(units):
     return preds
 
 
+def op_signature(op_texts):
+    """the form of a group of ops in one instruction: sorted (mnemonic, operand kind) with kind reg / imm / i32"""
+    out = []
+    for t in op_texts:
+        mn = t.split()[0]
+        out.append(f'{mn}:{"i32" if ":32" in t else "imm" if "#" in t else "reg"}')
+    return tuple(sorted(out))
+
+
+def load_proven(path=None):
+    """op groups proven on the device (asm/proven_forms.txt: one signature per line, ops joined by ' + ')"""
+    path = path or os.path.join(HERE, 'proven_forms.txt')
+    out = set()
+    for line in open(path):
+        line = line.split('#')[0].strip()
+        if line:
+            out.add(tuple(sorted(line.split(' + '))))
+    return out
+
+
 class Ins:
+    allowed = None                     # set of op signatures that may share an instruction (None: any)
+
     def __init__(self):
         self.ops, self.xf = [], []
 
@@ -168,7 +190,11 @@ class Ins:
         if any(x.barrier for x in self.ops):
             return False
         if u.kind == 'op':
-            return len(self.ops) < MAX_OPS
+            if len(self.ops) >= MAX_OPS:
+                return False
+            if self.ops and self.allowed is not None:
+                return op_signature([x.text for x in self.ops] + [u.text]) in self.allowed
+            return True
         if len(self.xf) >= MAX_XFER or any(mem_key(x.addr) == mem_key(u.addr) for x in self.xf):
             return False
         bank = u.addr >> 13
@@ -182,8 +208,10 @@ class Ins:
         (self.ops if u.kind == 'op' else self.xf).remove(u)
 
 
-def schedule(lines):
-    """one-unit lines -> scheduled instruction texts (see the module docstring)"""
+def schedule(lines, allowed=None):
+    """one-unit lines -> scheduled instruction texts (see the module docstring). allowed: the op groups that may
+    share an instruction (load_proven(): the ones proven on the device); None = every encodable group"""
+    Ins.allowed = allowed
     units = units_of(lines)
     n = len(units)
     if not n:

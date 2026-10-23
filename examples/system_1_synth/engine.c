@@ -116,12 +116,13 @@ typedef void (*param_fn)(int sel, int id, uint32_t value);
 static void b6(int sel, int id, uint32_t bits) { ((param_fn)SVC(0xEC))(sel, id, bits); }
 
 enum { P_L1, P_L2, P_AA, P_AD, P_AS, P_AR, P_R1, P_R2, P_F2, P_CUT, P_RES, P_KT, P_W1, P_W2,
-       P_FAMT, P_FA, P_FD, P_FS, P_FR, P_LRATE, P_LWAVE, P_LDELAY, P_LPITCH, P_LFILT, P_LAMP, P_N };
+       P_FAMT, P_FA, P_FD, P_FS, P_FR, P_LRATE, P_LWAVE, P_LDELAY, P_LPITCH, P_LFILT, P_LAMP, P_TONE, P_ENS, P_N };
 static const uint16_t panel_id[P_N] = { 0x174, 0x175, 0x187, 0x188, 0x189, 0x18A, 0x16A, 0x16F, 0x170,
                                         0x17D, 0x17F, 0x186, 0x167, 0x16C, 0x181, 0x182, 0x183, 0x184, 0x185,
-                                        0x162, 0x160, 0x161, 0x163, 0x164, 0x165 };
+                                        0x162, 0x160, 0x161, 0x163, 0x164, 0x165, 0x18B, 0x18C };
 static uint8_t panel[P_N] = { 255, 128, 0, 128, 255, 60, 3, 3, 128, 255, 0, 0, 0, 0, 128, 0, 128, 0, 60,
-                              128, 0, 0, STEP >= 11 ? 128 : 0, STEP >= 11 ? 128 : 0, STEP >= 11 ? 128 : 0 };   /* 11: bipolar */
+                              128, 0, 0, STEP >= 11 ? 128 : 0, STEP >= 11 ? 128 : 0, STEP >= 11 ? 128 : 0,   /* 11: bipolar */
+                              128, 0 };                                       /* 14: AMP TONE flat, ensemble off */
 
 static void panel_apply(int p)
 {
@@ -187,6 +188,12 @@ static void panel_apply(int p)
     }
 #else
     case P_LRATE: case P_LDELAY: case P_LPITCH: case P_LFILT: case P_LAMP: case P_LWAVE: break;
+#endif
+#if STEP >= 14                         /* step 14: AMP TONE 0x18B, ensemble on the CRUSHER knob 0x18C, slave DSP B */
+    case P_TONE: b6(1, S6_TONE, tone_bits[v[P_TONE]]); break;
+    case P_ENS: b6(1, S6_WET, ens_wet_bits[v[P_ENS]]); b6(1, S6_DRY, ens_dry_bits[v[P_ENS]]); break;
+#else
+    case P_TONE: case P_ENS: break;
 #endif
     default:
         if (STEP >= 4) {

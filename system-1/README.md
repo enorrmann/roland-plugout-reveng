@@ -8,6 +8,8 @@ versión (1.30).
 
 | Documento | Qué cubre |
 |---|---|
+| [DSP_BANKS.md](DSP_BANKS.md) | Bancos de datos de los DSP: semántica, rangos que usan el OS y los PLUG-OUTs oficiales, reglas, medida de la línea de retardo |
+| [FX_CHAIN.md](FX_CHAIN.md) | Cadena de efectos (delay + reverb) en modo PLUG-OUT: el programa del OS en el maestro B `0x0` (107 instr., memoria de retardo), su enlace por el banco 1 con la salida del maestro A `0x82`, parámetros `C000`–`C00C`, ids del panel `0x18D`–`0x18F`, por qué no suena con C-S1SY y siguientes pasos |
 | [FIRMWARE.md](FIRMWARE.md) | Fuentes del firmware (actualizador 1.30 sin cifrar, `Code1.Dat` 1.20 del plug-in), cómo se extraen, organización del maestro y del slave, direcciones conocidas (asignador, servicios, envío MIDI) |
 | [VOCES_6.md](VOCES_6.md) | Análisis para 6 voces: programas DSP de voz y su coste, ids maestro→slave, sitios del asignador, cómo se instalaría y próximos pasos |
 | [SH101_POLY.md](SH101_POLY.md) | SH-101 (PLUG-OUT para SYSTEM-1) a 4 voces: sus dos programas DSP, servicios de carga del slave (colas por DSP, ranuras de voz), plan |

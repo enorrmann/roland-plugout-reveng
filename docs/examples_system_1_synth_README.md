@@ -73,6 +73,12 @@ primer diseño, que lo metía todo de una vez (`STEP=0`, §6), no sonó, y no ha
 | 11 | LFO por voz (§7.3): fase propia reiniciada en cada nota y S&H propio, ruido global; → filtro y → amplitud bipolares (128 = 0); fusión de ops (`FUSE=1`) | 576 / 603 | [medido] C-S1SY11 "funciona muy bien" (2026-10-23): primera build con ops fusionadas en el SYSTEM-1 |
 | 11 bis | → pitch bipolar; formas en el orden del panel: sine, triangle, saw, square, sample & glide, sample & hold (§7.3) | 640 / 603 | [sim] `--sim-check` idéntico |
 | 12 | planificador de instrucciones `asm/dspsched.py` en lugar de `pack()` ([MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md) §5) | 553 / 471 | [sim] `--pack-check` y `test_s1_sched` idénticos; sin probar en el equipo |
+| 13 | **delay y reverb del OS**: `s1mm1` hace el envío/retorno del efecto (maestro B banco 1 `2000`/`2002` → `2001`/`2003`), como el mezclador de serie ([../system-1/FX_CHAIN.md](../system-1/FX_CHAIN.md)) | 553 / 471 / 7 | [medido] "funciona perfecto" (C-S1SY13) — **último build que funciona por completo** |
+| 14 (primer intento) | AMP TONE + ensemble de 3 tomas en el maestro B | 553 / 471 / 64 | [medido] **cuelga**; también cuelga 14A (sólo tone, maestro B) y 14D (tone, esclavo B); 14C (DSP del paso 13 + `model.c` del 14) funciona; 14E (sólo el tone, esclavo B) funciona pero cambia el volumen, no el brillo (§7.4) |
+| 14F | paso 13 + sólo el ensemble en el esclavo B, planificado con la lista de formas probadas (`asm/proven_forms.txt`) | 553 / 534 / 7 | [medido] no cuelga; el ensemble "suena raro, no a ensemble" |
+| 15 | paso 13 + chorus estilo Juno-60 en el esclavo B (pote CRUSHER) | 553 / 508 / 7 | [medido] no cuelga; **las tomas salen en silencio**: captura USB = sierra pura, L = R (§7.4) |
+| 15X | diagnóstico: retardo fijo de 750 muestras, L por carga normal, R por `ldidx` | — | [medido] los dos iguales y con el peine: **la línea y `ldidx` funcionan** ([../system-1/DSP_BANKS.md](../system-1/DSP_BANKS.md) §4) |
+| 15Y | el 15 con la fracción por `ph_mod2(2k)` en lugar del AND de bits | 553 / 512 / 7 | instalado 2026-10-23; el usuario: "no funciona el chorus" [abierto: confirmar con captura] |
 
 ## 3. Cómo llega cada valor a cada DSP (SYSTEM-1)
 
@@ -301,6 +307,32 @@ Medido en el núcleo C (2026-10-23) [sim]:
 | → filtro 0 / 64 / 128 / 192 / 255, corte 128 | ±3,84 / ±1,93 / 0 / ±1,93 / ±3,84 octavas; 0 y 64 con el signo invertido |
 | → amplitud 0 / 64 / 128 / 192 / 255, cuadrada | RMS mitad alta / baja: 0 / 0,0706, 0,035 / 0,0706, 0,0706 / 0,0706, 0,0706 / 0,035, 0,0706 / 0,0009 |
 
+### 7.4 Efectos propios en el pote CRUSHER (pasos 14 y 15) [abierto]
+
+Hallazgos, 2026-10-23:
+* **CRUSHER (`0x18C`) y AMP TONE (`0x18B`) no los procesa el OS.** En los tres PLUG-OUTs oficiales del SYSTEM-1 los
+  implementa el principal del maestro B: la máscara `bic` del crusher, con parámetros `C01C`–`C037` escritos por su
+  modelo. Los manuales los llaman EFFECT DEPTH y AMP TONE ([../system-1/FX_CHAIN.md](../system-1/FX_CHAIN.md) §7).
+  El botón LPF type sólo manda el CC 115 (`B4 73`), sin parámetro para el modelo.
+* **Los cuelgues del paso 14 venían de formas de instrucción nuevas, no del banco 0.** Pasaba lo mismo en el maestro
+  B y en el esclavo B, y 14C demostró que no eran las escrituras de parámetros. Desde el paso 14 el planificador sólo
+  fusiona grupos de ops que ya corrieron en el equipo (`asm/proven_forms.txt`,
+  [MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md) §5). Con eso 14F y 15 no cuelgan. Qué grupo concreto colgaba:
+  [abierto].
+* **AMP TONE** (14E: inclinación con un paso bajo de 1,2 kHz) cambia el nivel más que el brillo. Hay que rediseñarlo
+  como un shelving de agudos o con un corte más alto.
+* **Chorus 15:** las tomas son 0 en el equipo (captura USB con el pote al máximo: sierra pura, L = R), aunque la
+  línea y `ldidx` funcionan (15X). La diferencia entre 15 y 15X es el índice calculado: LFO → k → fracción por AND
+  de bits → `hset h6, r5` con el resultado. Hipótesis: el AND o el `hset` de un valor calculado no se comportan en el
+  equipo como en el emulador. 15Y prueba la fracción sin AND (`ph_mod2(2k)`).
+
+Siguiente prueba propuesta: el índice calculado con un LFO pero sin fracción (k entero, sin interpolar). Así se
+separa el `hset` de un registro calculado del resto. Medir siempre con captura USB:
+
+```sh
+arecord -q -D hw:SYSTEM1,0 -f S32_LE -r 96000 -c 2 -t raw -d 8 ch.raw    # mientras se toca una nota grave
+```
+
 ## 8. Interfaz con el panel
 
 Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py -t 90 --raw` con una build
@@ -327,6 +359,7 @@ Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py 
 | `0x182`–`0x185` | ADSR del filtro | 0–255 | paso 8 |
 | `0x187`–`0x18A` | ADSR del VCA | 0–255 | paso 4 |
 | — | HPF cutoff | no llegó nada (ni parámetro ni CC) [abierto] | — |
+| `0x18D` / `0x18E` / `0x18F` | REVERB amount (CC 91) / DELAY amount (CC 94) / DELAY time (CC 13), 2026-10-23 | 0–255 | — ([../system-1/FX_CHAIN.md](../system-1/FX_CHAIN.md)) |
 | `0x18B` | sin identificar: 128–145, con CC 69 (64–72) detrás; llegó dos veces durante la captura del LFO, entre otros controles [abierto] | — |
 
 Los ids del LFO se capturaron con C-S1SYRL (`RESCOMP=1 PARAMLOG=1`, 2026-10-23). Orden de la captura: rate, → filtro,

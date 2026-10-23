@@ -1,0 +1,31 @@
+# op groups that shared one instruction in builds proven on the SYSTEM-1
+# (C-S1SY11, C-S1SY12, C-S1SY13, C-S1SY14E, C-S1SY14F; 2026-10-23). dspsched.schedule(lines, load_proven()) fuses only these.
+add:i32 + mul:imm
+add:imm + mov:i32
+add:imm + mov:imm
+add:imm + subxy:reg
+addxy:imm + mul:reg
+addxy:imm + subxy:reg
+addxy:reg + addxy:reg
+addxy:reg + mov:imm
+addxy:reg + subxy:reg
+mad:i32 + mad:reg
+mad:reg + mov:i32
+mad:reg + mov:imm
+mad:reg + mul:imm
+mad:reg + mul:reg
+mad:reg + ph_clamp:reg
+mad:reg + ph_tri:reg
+min:imm + ph_clamp:reg
+mov:i32 + mul:imm
+mov:imm + mov:imm
+mov:imm + mul:reg
+mov:imm + ymacd:imm
+mul:imm + mul:reg
+mul:imm + subxy:imm
+mul:imm + subxy:reg
+mul:reg + mul:reg
+mul:reg + ph_clamp:reg
+mul:reg + subxy:reg
+subxy:imm + subxy:reg
+subxy:reg + subxy:reg

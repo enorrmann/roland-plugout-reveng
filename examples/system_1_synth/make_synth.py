@@ -530,8 +530,19 @@ def step_s1m1():
              ' per voice amp ADSR + 4-pole low-pass', 'mov r7, #0.0']
         for v in range(NV):
             L += [f'ld r{v & 1}, [{STEP_B_BASE[v] + B_Y[3] + 1:04x}]', f'addxy r7, r7, r{v & 1}']
-        L += ['ld r6, [c000]', f'mul r7, r7, #{2.0 / (1.5 * NV)!r}', 'mul r7, r7, r6',
-              f'st r7, [{OUT_L:04x}]', f'st r7, [{OUT_R:04x}]', 'mov r0, #0.0']
+        L += ['ld r6, [c000]', f'mul r7, r7, #{2.0 / (1.5 * NV)!r}', 'mul r7, r7, r6']
+        if STEP >= 14:                                  # step 14: AMP TONE + ensemble here (slave B bank 0 is ours)
+            # step 14 = step 13 + the ensemble only (AMP TONE out: on the device it changed the level, not the
+            # brightness; one thing at a time, user 2026-10-23)
+            if STEP >= 15:                              # step 15: the Juno-60-style chorus instead
+                fx = chorus_diag_lines((OUT_L, OUT_R)) if os.environ.get('CHDIAG') == '1' else \
+                    chorus_lines(S6_WET, S6_DRY, (OUT_L, OUT_R))
+                L += ['mov r0, r7'] + fx + ['mov r0, #0.0']
+            else:
+                L += ['mov r0, r7'] + fx14_lines(S6_TONE, S6_WET, S6_DRY, (OUT_L, OUT_R), with_tone=False) + \
+                    ['mov r0, #0.0']
+        else:
+            L += [f'st r7, [{OUT_L:04x}]', f'st r7, [{OUT_R:04x}]', 'mov r0, #0.0']
         L += [f'st r0, [{x:04x}]' for x in OUT_ZERO]
         L += ['mov r5, #0.0', 'mov r6, #1.0']
         for v in range(NV):
@@ -563,8 +574,166 @@ def step_s1m1():
     return L
 
 
+FX_SEND = (0x2000, 0x2002)                 # step 13: master B bank 1, the OS effect reads them (system-1/FX_CHAIN.md)
+FX_RET = (0x2001, 0x2003)                  # ... and leaves dry + delay + reverb there, read one sample later (ring)
+
+
+# step 14 (master DSP B, before the OS effect): AMP TONE (0x18B) tilt and an ensemble on the CRUSHER knob (0x18C;
+# the SYSTEM-1 crusher is the PLUG-OUT's own program in this slot, system-1/FX_CHAIN.md §7). Ensemble: 3 delay lines
+# in this DSP's bank 0 (indexed loads ldidx through h6, docs/DSP_USOS.md §2; ring: the input stored at ENS_S, read
+# at ENS_S + k), each k = base + slow triangle + fast triangle, phases 0 / 120 / 240 degrees, linear interpolation
+# (fraction of k by a bit AND); L = t0 + t2 / 2, R = t1 + t2 / 2. Bank-0 words below ENS_S (the OS effect at 0x0
+# stores 0000-0033; nothing may store in ENS_S + 1 .. ENS_S + kmax).
+M6_TONE, M6_WET, M6_DRY = 0x20, 0x22, 0x23            # parameters of master DSP B (FCEC(1, ...) from model.c)
+ENS_S = 0x0100                                       # delay line input (store), kmax 443 -> up to 0x02BB
+M_LP, M_LFS, M_LFF = 0x0080, 0x0084, 0x0088          # ring state: tone low-pass, slow / fast LFO phases
+M_TAP = [0x0090, 0x0092, 0x0094]                    # taps of this sample
+ENS_BASE, ENS_DS, ENS_DF = 336.0, 96.0, 11.5         # samples: 3.5 ms +- 1 ms (slow) +- 0.12 ms (fast), < 512
+ENS_SLOW, ENS_FAST = 0.55, 5.8                       # Hz
+TONE_G = 2 * math.pi * 1200.0 / FS                   # tone low-pass, 1.2 kHz
+FRAC_MASK = 1 - 2.0 ** -23                           # x AND this = fraction of x (x >= 0, bit ops mod 512)
+
+
+def ens_wet(v):
+    """CRUSHER knob -> wet gain of the ensemble taps (0 .. 0.75 / 1.5: the L / R taps sum to 1.5); with ens_dry the
+    level stays near the dry one (RMS x 0.9 at the top, emulator 2026-10-23: 0.5 / 0.5 gave x 0.6)"""
+    return on_grid(0.75 * v / 255.0 / 1.5)
+
+
+def ens_dry(v):
+    return on_grid(1.0 - 0.25 * v / 255.0)
+
+
+def tone_t(v):
+    """AMP TONE -> tilt t: -1 dark (the low-pass) .. +1 bright, 128 = flat"""
+    return on_grid(max(-1.0, (v - 128) / 127.0))
+
+
+S6_TONE, S6_WET, S6_DRY = 0x58, 0x59, 0x5A            # step 14 in slave DSP B: its parameters (FCEC(1, ...), engine.c)
+
+
+def fx14_lines(tone, wet, dry, outs, with_tone=True):
+    """AMP TONE + ensemble on r0 (the mono mix) -> stereo stores to outs (L, R); bank-0 words M_LP .. ENS_S + kmax
+    and the bank-6 parameters tone / wet / dry of this DSP. Uses r0..r7."""
+    L = ['; tone: lp += g (x - lp); x += t (x - lp)',
+         f'ld r1, [{M_LP + 1:04x}]', f'ld r2, [c0{tone:02x}]', 'mov r4, r4', 'subxy r3, r1, r0',
+         f'mad r1, r3, #{TONE_G!r}:32', f'st r1, [{M_LP:04x}]', 'mad r0, r3, r2',
+         ] if with_tone else []
+    if int(os.environ.get('ENS', '2')) < 0:          # hang bisection: the tone only, L = R = tone(x)
+        return L + [f'st r0, [{outs[0]:04x}]', f'st r0, [{outs[1]:04x}]']
+    L += [f'; ensemble: the line, the two LFO phases', f'st r0, [{ENS_S:04x}]',
+         f'ld r1, [{M_LFS + 1:04x}]', f'ld r2, [{M_LFF + 1:04x}]', 'mov r4, r4',
+         f'add r1, #{2 * ENS_SLOW / FS!r}:32', f'add r2, #{2 * ENS_FAST / FS!r}:32',
+         'ph_wrap r1, r3, r1', 'ph_wrap r2, r3, r2', f'st r1, [{M_LFS:04x}]', f'st r2, [{M_LFF:04x}]']
+    ens = int(os.environ.get('ENS', '2'))      # hang bisection 2026-10-23: 0 no ensemble, 1 fixed taps (no hset /
+    for i, off in enumerate((0.0, 2 / 3, 4 / 3) if ens else ()):   # ldidx), 2 the full ensemble
+        if ens == 1:                          # the AND of the fraction is kept; the tap is a plain ring load
+            d = int(ENS_BASE) + 37 * i
+            L += [f'; tap {i} fixed (ENS=1): [ENS_S + {d}] through the ring; the AND on a constant',
+                  f'mov r3, #{ENS_BASE + 0.25!r}:32', f'and r4, r3, #{FRAC_MASK!r}:32',
+                  f'ld r6, [{ENS_S + d:04x}]', 'mov r5, r5', f'st r6, [{M_TAP[i]:04x}]']
+            continue
+        L += [f'; tap {i}: k = base + ds tri(slow + {i}/3) + df tri(fast + {i}/3)',
+              f'addxy r3, r1, #{off!r}:32', f'addxy r4, r2, #{off!r}:32', 'ph_wrap r3, r3, r3', 'ph_wrap r4, r3, r4',
+              'ph_tri r3, r3, -r3', 'ph_tri r4, r3, -r4', f'mul r3, r3, #{ENS_DS!r}:32',
+              f'mad r3, r4, #{ENS_DF!r}:32', f'add r3, #{ENS_BASE!r}:32',
+              f'and r4, r3, #{FRAC_MASK!r}:32', 'mov r5, r5', 'subxy r5, r4, r3',
+              f'add r5, #{ENS_S + 0.5!r}:32', f'mul r5, r5, #{1 / 16384!r}:32', 'hset h6, r5',
+              'ldidx r6, 0', 'ldidx r7, 1', 'mov r5, r5', 'subxy r7, r6, r7', 'mad r6, r7, r4',
+              f'st r6, [{M_TAP[i]:04x}]']
+    if not ens:
+        L += ['mov r6, #0.0', 'mov r5, r5'] + [f'st r6, [{a:04x}]' for a in M_TAP]
+    L += ['; mix: L = dry x + wet (t0 + t2/2), R = dry x + wet (t1 + t2/2)',
+          f'ld r1, [{M_TAP[0]:04x}]', f'ld r2, [{M_TAP[1]:04x}]', f'ld r3, [{M_TAP[2]:04x}]',
+          f'ld r4, [c0{wet:02x}]', f'ld r5, [c0{dry:02x}]', 'mov r6, r6',
+          'mad r1, r3, #0.5:32', 'mad r2, r3, #0.5:32', 'mul r6, r0, r5', 'mul r1, r1, r4', 'mul r2, r2, r4',
+          'addxy r1, r1, r6', 'addxy r2, r2, r6', f'st r1, [{outs[0]:04x}]', f'st r2, [{outs[1]:04x}]']
+    return L
+
+
+# step 15: the ensemble replaced by a chorus after the Juno-60's (corpus J60_b000_60a1f8e8, studied only): one
+# triangle LFO (CHORUS I rate), two taps at 0 / 180 degrees for L / R, delay 1.66 .. 5.3 ms, the input low-passed
+# like the BBD; L = dry x + wet t0, R = dry x + wet t1. The 14F ensemble (3 taps, a 5.8 Hz component) sounded odd.
+CH_RATE = 0.513                                      # Hz
+CH_MIN, CH_MAX = 160.0, 509.0                        # samples (1.66 .. 5.3 ms; < 512 for the bit AND)
+CH_LPF = 2 * math.pi * 7000.0 / FS                   # one-pole before the line (BBD band limit)
+
+
+def ch_wet(v):
+    """CRUSHER knob -> chorus wet gain (0 .. 0.7); with ch_dry the level stays near the dry one"""
+    return on_grid(0.7 * v / 255.0)
+
+
+def ch_dry(v):
+    return on_grid(1.0 - 0.3 * v / 255.0)
+
+
+def chorus_diag_lines(outs, k=750):
+    """CHDIAG=1 (step 15 diagnostic): fixed delay k, dry + tap on both sides; L reads the tap with a plain bank-0
+    load [ENS_S + k] (ring), R with hset h6 + ldidx (the chorus path). Same comb filter on both if ldidx works."""
+    return ['; chorus diagnostic: the line, L = x + [S + k] (plain), R = x + ldidx (h6 = S + k)',
+            f'st r0, [{ENS_S:04x}]', f'ld r1, [{ENS_S + k:04x}]',
+            f'mov r5, #{(ENS_S + k + 0.5) / 16384!r}:32', 'hset h6, r5', 'ldidx r2, 0', 'mov r4, r4',
+            'mul r0, r0, #0.5:32', 'mul r1, r1, #0.5:32', 'mul r2, r2, #0.5:32',
+            'addxy r1, r1, r0', 'addxy r2, r2, r0', f'st r1, [{outs[0]:04x}]', f'st r2, [{outs[1]:04x}]']
+
+
+def chorus_lines(wet, dry, outs):
+    """step 15: the Juno-60-style chorus on r0 (mono mix) -> stereo stores to outs; bank-0 words M_LP, M_LFS, M_TAP,
+    ENS_S .. ENS_S + CH_MAX + 1. Uses r0..r7."""
+    L = ['; chorus: input low-pass (BBD), into the line',
+         f'ld r1, [{M_LP + 1:04x}]', 'mov r4, r4', 'subxy r3, r1, r0', f'mad r1, r3, #{CH_LPF!r}:32',
+         f'st r1, [{M_LP:04x}]', f'st r1, [{ENS_S:04x}]',
+         '; the LFO phase', f'ld r2, [{M_LFS + 1:04x}]', 'mov r4, r4', f'add r2, #{2 * CH_RATE / FS!r}:32',
+         'ph_wrap r2, r3, r2', f'st r2, [{M_LFS:04x}]']
+    centre, depth = (CH_MIN + CH_MAX) / 2, (CH_MAX - CH_MIN) / 2
+    for i, off in enumerate((0.0, 1.0)):
+        L += [f'; tap {i} ({"L" if i == 0 else "R"}): k = centre + depth tri(phase + {off})',
+              f'addxy r3, r2, #{off!r}:32', 'ph_wrap r3, r3, r3', 'ph_tri r3, r3, -r3',
+              f'mul r3, r3, #{depth!r}:32', f'add r3, #{centre!r}:32']
+        if os.environ.get('CHFRAC', 'mod2') == 'and':       # 15: the bit AND (taps silent on the device)
+            L += [f'and r4, r3, #{FRAC_MASK!r}:32', 'mov r5, r5']
+        else:                                                # 15Y: frac(k) = ph_mod2(2k) = (2k mod 2) / 2
+            L += ['mul r4, r3, #2.0:32', 'ph_mod2 r4, r3, r4', 'mov r5, r5']
+        L += ['subxy r5, r4, r3',
+              f'add r5, #{ENS_S + 0.5!r}:32', f'mul r5, r5, #{1 / 16384!r}:32', 'hset h6, r5',
+              'ldidx r6, 0', 'ldidx r7, 1', 'mov r5, r5', 'subxy r7, r6, r7', 'mad r6, r7, r4',
+              f'st r6, [{M_TAP[i]:04x}]']
+    L += ['; mix: L = dry x + wet t0, R = dry x + wet t1',
+          f'ld r1, [{M_TAP[0]:04x}]', f'ld r2, [{M_TAP[1]:04x}]', f'ld r4, [c0{wet:02x}]', f'ld r5, [c0{dry:02x}]',
+          'mov r6, r6', 'mul r6, r0, r5', 'mul r1, r1, r4', 'mul r2, r2, r4', 'addxy r1, r1, r6', 'addxy r2, r2, r6',
+          f'st r1, [{outs[0]:04x}]', f'st r2, [{outs[1]:04x}]']
+    return L
+
+
+def step_m1_fx14():
+    """step 14 first form (master DSP B): it hung the SYSTEM-1 (bank 0 of master B is not ours: the OS effect lives
+    there, system-1/FX_CHAIN.md §7); kept for the record, built only with M1=14"""
+    L = ['; s1mm1 (STEP 14, master form, hangs): 6006 x volume -> tone -> ensemble -> OS effect send / return',
+         f'ld r0, [{OUT_L:04x}]', f'ld r7, [c{M_VOLUME:03x}]', 'mov r4, r4', 'mul r0, r0, r7']
+    L += fx14_lines(M6_TONE, M6_WET, M6_DRY, FX_SEND)
+    L += [f'ld r2, [{FX_RET[0]:04x}]', f'ld r3, [{FX_RET[1]:04x}]', 'mov r4, r4',
+          f'st r2, [{M_OUT[0]:04x}]', f'st r3, [{M_OUT[1]:04x}]', 'mov r2, #0.0']
+    L += [f'st r2, [{x:04x}]' for x in M_ZERO]
+    return L
+
+
 def step_m1():
-    """C-S1V8's master B program, unchanged"""
+    """C-S1V8's master B program; step 13: through the OS delay / reverb (system-1/FX_CHAIN.md §4), as the stock
+    mixer does: the mix x volume -> 2000 / 2002 (the effect program at 0x0 of this DSP processes it in the same
+    sample), the effect's result of the sample before 2001 / 2003 -> A118 / A119"""
+    if STEP >= 14 and os.environ.get('M1', '') == '14':     # the hanging master form (record only)
+        return step_m1_fx14()
+    if STEP >= 13:
+        L = ['; s1mm1 (STEP 13): master DSP B @0x1000: 6006 / 6007 x volume (C01C) -> OS effect send 2000 / 2002;'
+             ' effect return 2001 / 2003 -> A118 / A119',
+             f'ld r0, [{OUT_L:04x}]', f'ld r1, [{OUT_R:04x}]', f'ld r7, [c{M_VOLUME:03x}]', 'mov r4, r4',
+             'mul r0, r0, r7', 'mul r1, r1, r7',
+             f'st r0, [{FX_SEND[0]:04x}]', f'st r1, [{FX_SEND[1]:04x}]',
+             f'ld r2, [{FX_RET[0]:04x}]', f'ld r3, [{FX_RET[1]:04x}]', 'mov r4, r4',
+             f'st r2, [{M_OUT[0]:04x}]', f'st r3, [{M_OUT[1]:04x}]', 'mov r2, #0.0']
+        L += [f'st r2, [{x:04x}]' for x in M_ZERO]
+        return L
     L = ['; s1mm1: master DSP B @0x1000: slave 6006 / 6007 x volume (C01C) -> A118 / A119 (the OS output program reads them)',
          f'ld r0, [{OUT_L:04x}]', f'ld r1, [{OUT_R:04x}]', f'ld r7, [c{M_VOLUME:03x}]', 'mov r4, r4',
          'mul r0, r0, r7', 'mul r1, r1, r7',
@@ -704,7 +873,8 @@ def step_program(lines, packed=None):
     """as program(), without the automatic scheduling (the step code places its own load delays as C-S1V8);
     PACK=1 packs transfers into the ops' instructions"""
     if packed if packed is not None else PACK:
-        lines = dspsched.schedule(lines) if SCHED else pack(lines)
+        # step 14 on: only op groups proven on the device share an instruction (asm/proven_forms.txt)
+        lines = dspsched.schedule(lines, dspsched.load_proven() if STEP >= 14 else None) if SCHED else pack(lines)
     r = assemble(lines)
     return [0x0A02, 0xFF71] + r.words + [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001], r, lines
 
@@ -886,6 +1056,11 @@ def header(progs):
     out.append(table('lfo_amp_bits', [lfo_amp(v) for v in range(256)]))
     out.append(f'#define A6_LAMPABS 0x{A6_LAMPABS:02x}')
     out.append(table('lfo_ampabs_bits', [abs(lfo_amp(v)) for v in range(256)]))
+    out.append(f'#define S6_TONE 0x{S6_TONE:02x}\n#define S6_WET 0x{S6_WET:02x}\n#define S6_DRY 0x{S6_DRY:02x}')
+    out.append('/* step 14, master DSP B: AMP TONE tilt, ensemble wet / dry gains (CRUSHER knob) */')
+    out.append(table('tone_bits', [tone_t(v) for v in range(256)]))
+    out.append(table('ens_wet_bits', [(ch_wet if STEP >= 15 else ens_wet)(v) for v in range(256)]))   # 15: chorus
+    out.append(table('ens_dry_bits', [(ch_dry if STEP >= 15 else ens_dry)(v) for v in range(256)]))
     lw = LFO_WAVES11 if STEP >= 11 else LFO_WAVES
     out.append(f'#define LFO_NW {len(lw[0])}')
     out.append(table('lfo_wave_bits', [c for w in lw for c in w], len(lw[0])))
@@ -941,7 +1116,12 @@ def sim_params(b5, panel):
             pb[0xC000 + B6_FENV + i] = b5[FENV + i]
     if STEP >= 8:
         pb[0xC000 + B6_AMT] = b5[AMT]
-    return pa, pb, {0xC000 + M_VOLUME: 1.0}
+    pm = {0xC000 + M_VOLUME: 1.0}
+    if STEP >= 14:
+        pb.update({0xC000 + S6_TONE: f32(tone_t(panel.get('amp_tone', 128))),
+                   0xC000 + S6_WET: f32((ch_wet if STEP >= 15 else ens_wet)(panel.get('ensemble', 0))),
+                   0xC000 + S6_DRY: f32((ch_dry if STEP >= 15 else ens_dry)(panel.get('ensemble', 0)))})
+    return pa, pb, pm
 
 
 def sim_b5(panel):
@@ -1109,6 +1289,8 @@ def check_panels():
                        ('LFO S&H', dict(lfo, lfo_wave=5))]
         else:
             panels += [('LFO triangle', dict(lfo, lfo_wave=0)), ('LFO S&H', dict(lfo, lfo_wave=4))]
+    if STEP >= 14:
+        panels += [('ensemble + tone', dict(filt, ensemble=255, amp_tone=40))]
     return panels
 
 

@@ -246,11 +246,30 @@ static void param_log(int id, int flag, int value)
 }
 #endif
 
+#ifdef PARAMLOG
+/* FX diagnostic (system-1/FX_CHAIN.md §6): the parameter blocks of the master DSPs as the OS's set_param writes them
+ * (0x01008D26: sel 0 -> 0x4014C000, sel 1 -> 0x4016C000, + 16 id; words +0 mode, +4 / +8 value, +C 0). Sent as
+ * param_log(0x3000 + (sel << 8) + id, word index, word) for B C000..C03F and A C000..C00F. */
+static void fx_dump(void)
+{
+    for (int sel = 1; sel >= 0; sel--)
+        for (int id = 0; id < (sel ? 0x40 : 0x10); id++) {
+            volatile uint32_t *blk = (volatile uint32_t *)((sel ? 0x4016C000u : 0x4014C000u) + 16u * (uint32_t)id);
+            for (int k = 0; k < 4; k++)
+                param_log(0x3000 + (sel << 8) + id, k, (int)blk[k]);
+        }
+}
+#endif
+
 static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x30 */
 {
     (void)m; (void)flag;
 #ifdef PARAMLOG
     param_log(id, flag, value);
+    /* every control except the notes / velocities, the synth's own panel and the LFO ids */
+    int known = (id >= 0x110 && id < 0x130) || (id >= 0x160 && id <= 0x18A);
+    if (!known && id != ID_VOLUME && ((value & 63) == 0 || value == 255))
+        fx_dump();
 #endif
     if (id == ID_VOLUME)
         set_volume(value);
