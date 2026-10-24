@@ -26,6 +26,9 @@ DIRS = [
     ('examples/system_1', 'C-S1V4 / C-S1V8 (SYSTEM-1)'),
     ('examples/system_1_synth', 'C-S1SY (SYSTEM-1)'),
     ('examples/system_1_jx', 'C-S1JX (SYSTEM-1)'),
+    ('sdk/mport', 'Mutable Instruments port toolkit (docs/MUTABLE_SDK.md)'),
+    ('sdk/s1cc/tools', 's1cc glue: kernel placement and emulator check (docs/S1CC.md)'),
+    ('examples/mutable_system', 'MUTABLE-SYSTEM (SYSTEM-1)'),
 ]
 
 

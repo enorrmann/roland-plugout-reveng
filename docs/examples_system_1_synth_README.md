@@ -49,6 +49,11 @@ compara, en el núcleo C, los programas empaquetados (`pack()`, §5) con los mis
 19 200 muestras, 8 notas, la mitad soltadas a mitad, los mismos dos paneles. Todo `--sim-check` tarda
 unos 80 s, casi todos de la referencia Python. Las longitudes salen de `SIM_CHECK_N` (600) y `SIM_PACK_N` (19 200).
 
+[abierto, 2026-10-24] Desde el paso 13, `simulate_py` no modela el anillo del banco 1 del maestro: el retorno del
+efecto (`2001`/`2003`) queda en 0 y la referencia Python da silencio, así que la parte "sim check" de `--sim-check`
+compara contra 0 (el "pack check" sí vale). Corregido sólo en la copia de MUTABLE-SYSTEM
+([examples_mutable_system_README.md](examples_mutable_system_README.md) §4); aquí no se tocó.
+
 La referencia antes de este cambio tenía dos huecos en el paso 8, ya corregidos: no escribía los parámetros `C050`–`C053`
 (ADSR del filtro) ni `C04C` (cantidad) del DSP B, y movía a mano el anillo con el paso de bloque 0x10 de B en vez
 de 0x20. El núcleo C mueve los bancos 0 y 1 enteros como anillos (S+1 por muestra).

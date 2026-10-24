@@ -146,3 +146,33 @@ Velocidad y estado: [EMULATOR.md](EMULATOR.md) §3.6.
 |---|---|
 | `python3 tools/doccheck.py FILE.md...` | todos los bloques ```` ```dsp ```` de los documentos tienen que ensamblar |
 | `python3 tools/tools_usage.py [--check]` | regenera / comprueba este documento |
+
+## 8. `sdk/mport`: portar componentes de Mutable Instruments
+
+Especificación: [MUTABLE_SDK.md](MUTABLE_SDK.md). Ejemplo que lo usa: `examples/mutable_system`
+([examples_mutable_system_README.md](examples_mutable_system_README.md)).
+
+```sh
+python3 sdk/mport/cli.py list                                     # componentes portados
+python3 sdk/mport/cli.py check saw_swarm                          # port vs C++ original (≈ 1,4 s; compila la referencia la 1.ª vez)
+python3 sdk/mport/cli.py lines saw_swarm [--plain]                # microcódigo del banco
+python3 sdk/mport/cli.py lut braids ws_moderate_overdrive --odd 9 --xmax 0.875   # tabla -> polinomio, error en LSB
+python3 -m unittest discover -s sdk/mport/tests                   # pruebas (≈ 1,2 s)
+python3 examples/mutable_system/make_mutable.py --sim --pack-check
+sh examples/mutable_system/build.sh                               # -> plugins/MUTABLE-SYSTEM
+```
+
+`EURORACK` = ruta del checkout de Mutable (por defecto `~/git/eurorack`); la referencia necesita g++.
+
+## 9. `sdk/s1cc`: compilar una voz en C / C++ al microcódigo
+
+Especificación: [S1CC.md](S1CC.md).
+
+```sh
+make -C sdk/s1cc                                                   # el compilador (LLVM 19)
+sdk/s1cc/s1cc build VOZ.cc [MAS.cc ...] [-I DIR] [-o SALIDA] [--tol X] [--tollog X] [--maxdeg N] [--regs LISTA]
+sdk/s1cc/s1cc check SALIDA [--note N] [--n MUESTRAS] [--all-forms] [nombre=perilla ...]
+KERNEL=SALIDA NAME=MUTABLE-S1CC sh examples/mutable_system/build.sh
+python3 -m unittest discover -s sdk/s1cc/tests                     # ≈ 8 s
+```
+

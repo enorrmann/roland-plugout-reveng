@@ -1,0 +1,372 @@
+// Values -> registers -> one-unit lines (the form asm/dspsched.py packs; docs/S1CC.md §7). Same rules as
+// sdk/mport/kernel.py: linear scan in program order, a dying operand's register may take the result (all units of
+// an instruction read before they write), least recently freed register first, an accumulator read again later is
+// copied first, a "mov rS, rS" filler after a load whose register the next line uses.
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <deque>
+#include <regex>
+#include <set>
+
+#include "s1cc.h"
+
+namespace s1 {
+
+std::string fmtImm(double x) {
+    char buf[64];
+    snprintf(buf, sizeof buf, "#%.17g", x);
+    std::string s = buf;
+    if (s.find_first_of(".e") == std::string::npos)
+        s += ".0";
+    return s;
+}
+
+KVal *Kernel::val(const std::string &name) {
+    vals_.push_back(std::make_unique<KVal>());
+    vals_.back()->n = (int)vals_.size();
+    vals_.back()->name = name;
+    return vals_.back().get();
+}
+
+KVal *Kernel::op(const std::string &fmt, std::vector<KOperand> args, KVal *acc) {
+    KOp o;
+    o.kind = "op";
+    o.fmt = fmt;
+    o.d = val();
+    o.args = std::move(args);
+    o.acc = acc;
+    ops_.push_back(o);
+    return o.d;
+}
+
+KVal *Kernel::load(const std::string &addr, const std::string &name) {
+    KOp o;
+    o.kind = "ld";
+    o.d = val(name);
+    o.addr = addr;
+    ops_.push_back(o);
+    return o.d;
+}
+
+void Kernel::store(KVal *v, const std::string &addr) {
+    KOp o;
+    o.kind = "st";
+    o.args = {KOperand::of(v)};
+    o.addr = addr;
+    ops_.push_back(o);
+}
+
+void Kernel::comment(const std::string &text) {
+    KOp o;
+    o.kind = "comment";
+    o.fmt = "; " + text;
+    ops_.push_back(o);
+}
+
+KVal *Kernel::mov(KOperand y) {
+    if (!y.v && std::fabs(y.imm) >= 512)
+        fail("kernel: constant " + std::to_string(y.imm) + " outside the DSP range (+-512)");
+    return op("mov {d}, {0}", {y});
+}
+// an immediate the DSP holds well: |a| <= 256, and below 2^-12 only a power of two (the grid is 2^-32 there)
+static bool goodImm(double a) {
+    if (a == 0 || std::fabs(a) > 256)
+        return a == 0;
+    if (std::fabs(a) >= std::ldexp(1.0, -12))
+        return true;
+    int e;
+    return std::frexp(std::fabs(a), &e) == 0.5 && e >= -30;
+}
+
+KVal *Kernel::mul(KVal *x, KOperand y) {
+    if (!y.v) {
+        double a = y.imm;
+        if (a == 1)
+            return x;
+        // fold into the multiply that made x (the peephole pass in lines() drops the old one if unused)
+        for (auto it = ops_.rbegin(); it != ops_.rend(); ++it)
+            if (it->d == x) {
+                if (it->fmt == "mul {d}, {0}, {1}" && !it->args[1].v && goodImm(it->args[1].imm * a))
+                    return mul(it->args[0].v, KOperand::im(it->args[1].imm * a));
+                break;
+            }
+        while (std::fabs(a) > 256) {
+            x = op("mul {d}, {0}, {1}", {KOperand::of(x), KOperand::im(256.0)});
+            a /= 256;
+        }
+        if (!goodImm(a)) {
+            int e;
+            std::frexp(a, &e);
+            double p = std::ldexp(1.0, e - 1 + 12 > 0 ? -(12 - 0) : 0);   // power of two that brings a above 2^-12
+            p = std::ldexp(1.0, std::max(e - 1, -30) - (e - 1 < -12 ? 0 : 0));
+            double big = a / std::ldexp(1.0, e - 1);                      // in [1, 2)
+            x = op("mul {d}, {0}, {1}", {KOperand::of(x), KOperand::im(std::ldexp(1.0, e - 1))});
+            a = big;
+            (void)p;
+        }
+        y.imm = a;
+    }
+    return op("mul {d}, {0}, {1}", {KOperand::of(x), y});
+}
+KVal *Kernel::add(KVal *x, KOperand y) {
+    if (!y.v && std::fabs(y.imm) >= 512)
+        fail("kernel: constant " + std::to_string(y.imm) + " outside the DSP range (+-512)");
+    return op("addxy {d}, {0}, {1}", {KOperand::of(x), y});
+}
+KVal *Kernel::sub(KVal *x, KOperand y) {
+    if (!y.v)
+        return add(x, KOperand::im(-y.imm));
+    if (y.neg)
+        return add(x, KOperand::of(y.v));
+    return op("subxy {d}, {0}, {1}", {y, KOperand::of(x)});      // subxy d, X, Y = Y - X
+}
+KVal *Kernel::mad(KVal *acc, KVal *x, KOperand y) {
+    if (!y.v && !goodImm(y.imm))
+        return add(acc, KOperand::of(mul(x, y)));
+    return op("mad {d}, {0}, {1}", {KOperand::of(x), y}, acc);
+}
+KVal *Kernel::ymac(KVal *acc, KVal *x, KOperand y) { return op("ymacd {d}, {0}, {1}", {KOperand::of(x), y}, acc); }
+KVal *Kernel::min(KVal *x, KOperand y) { return op("min {d}, {0}, {1}", {KOperand::of(x), y}); }
+KVal *Kernel::max(KVal *x, KOperand y) { return op("max {d}, {0}, {1}", {KOperand::of(x), y}); }
+KVal *Kernel::wrap(KVal *x) { return op("ph_wrap {d}, r3, {0}", {KOperand::of(x)}); }
+KVal *Kernel::tri(KVal *x) { return op("ph_tri {d}, r3, -{0}", {KOperand::of(x)}); }
+KVal *Kernel::clamp(KVal *x) { return op("ph_clamp {d}, r3, -{0}", {KOperand::of(x)}); }
+
+KVal *Kernel::exp2(KVal *x, int extra) {
+    // 2^x = (e^(x ln2 / 2^(4 + extra)))^(2^(4 + extra)), e^y by 4 Taylor terms (make_synth.py exp2_to)
+    double k = std::log(2.0) / std::ldexp(1.0, 4 + extra);
+    KVal *y = mul(x, KOperand::im(k));
+    KVal *t = mov(KOperand::im(1.0 / 24));
+    for (double c : {1.0 / 6, 0.5, 1.0, 1.0})
+        t = ymac(t, y, KOperand::im(c));
+    for (int i = 0; i < 4 + extra; i++)
+        t = mul(t, KOperand::of(t));
+    return t;
+}
+
+int Kernel::units() const {
+    int n = 0;
+    for (auto &o : ops_)
+        n += o.kind != "comment";
+    return n;
+}
+
+std::vector<std::string> Kernel::lines() {
+    // accumulators read again later: work on a copy
+    std::map<int, int> lastRead;
+    auto reads = [](const KOp &o) {
+        std::vector<KVal *> r;
+        for (auto &a : o.args)
+            if (a.v)
+                r.push_back(a.v);
+        if (o.acc)
+            r.push_back(o.acc);
+        return r;
+    };
+    // dead results (a multiply folded into a later one): drop, repeatedly
+    for (bool changed = true; changed;) {
+        changed = false;
+        std::set<int> used;
+        for (auto &o : ops_)
+            for (KVal *v : reads(o))
+                used.insert(v->n);
+        std::vector<KOp> keep;
+        for (auto &o : ops_) {
+            if (o.kind == "op" && o.d && !used.count(o.d->n)) {
+                changed = true;
+                continue;
+            }
+            keep.push_back(o);
+        }
+        ops_.swap(keep);
+    }
+    std::vector<KOp> ops;
+    {
+        std::map<int, int> last;
+        for (int i = 0; i < (int)ops_.size(); i++)
+            for (KVal *v : reads(ops_[i]))
+                last[v->n] = i;
+        for (int i = 0; i < (int)ops_.size(); i++) {
+            KOp o = ops_[i];
+            if (o.acc && last[o.acc->n] > i) {
+                KOp c;
+                c.kind = "op";
+                c.fmt = "mov {d}, {0}";
+                c.d = val("copy");
+                c.args = {KOperand::of(o.acc)};
+                ops.push_back(c);
+                o.acc = c.d;
+            }
+            ops.push_back(o);
+        }
+    }
+    // linear scan with spilling: a value that does not fit is stored to a scratch word {T<k>} (bank 0, written
+    // and read in the same sample) and loaded back before its next use; the victim is the value used furthest away
+    std::map<int, std::vector<int>> uses;
+    for (int i = 0; i < (int)ops.size(); i++)
+        for (KVal *v : reads(ops[i]))
+            uses[v->n].push_back(i);
+    auto nextUse = [&](int n, int i) {
+        auto &u = uses[n];
+        auto it = std::lower_bound(u.begin(), u.end(), i);
+        return it == u.end() ? 1 << 30 : *it;
+    };
+    std::deque<int> freeRegs(regs_.begin(), regs_.end());
+    std::map<int, KVal *> live;            // value number -> value, in a register
+    std::map<int, std::string> spilled;    // value number -> scratch word
+    std::vector<KOp> out2;
+    int nslot = 0;
+    std::vector<std::string> freeSlots;
+    auto takeReg = [&](int i, const std::set<int> &keep) -> int {
+        if (!freeRegs.empty()) {
+            int r = freeRegs.front();
+            freeRegs.pop_front();
+            return r;
+        }
+        KVal *victim = nullptr;
+        int far = -1;
+        for (auto &kv : live)
+            if (!keep.count(kv.first) && nextUse(kv.first, i) > far) {
+                far = nextUse(kv.first, i);
+                victim = kv.second;
+            }
+        if (!victim)
+            fail("kernel: out of registers (" + std::to_string(regs_.size()) + " usable) even with spilling");
+        std::string slot;
+        if (!freeSlots.empty()) {
+            slot = freeSlots.back();
+            freeSlots.pop_back();
+        } else
+            slot = "{T" + std::to_string(nslot++) + "}";
+        KOp st;
+        st.kind = "st";
+        st.args = {KOperand::of(victim)};
+        st.addr = slot;
+        out2.push_back(st);
+        spilled[victim->n] = slot;
+        live.erase(victim->n);
+        return victim->reg;
+    };
+    for (int i = 0; i < (int)ops.size(); i++) {
+        KOp o = ops[i];
+        auto rs = reads(o);
+        std::set<int> keep;
+        for (KVal *v : rs)
+            keep.insert(v->n);
+        // reload spilled operands
+        for (KVal *v : rs) {
+            auto it = spilled.find(v->n);
+            if (it == spilled.end())
+                continue;
+            KVal *nv = val(v->name);
+            nv->reg = takeReg(i, keep);
+            KOp ld;
+            ld.kind = "ld";
+            ld.d = nv;
+            ld.addr = it->second;
+            out2.push_back(ld);
+            freeSlots.push_back(it->second);
+            spilled.erase(it);
+            // later reads of v read nv
+            for (int j = i; j < (int)ops.size(); j++) {
+                for (auto &a : ops[j].args)
+                    if (a.v == v)
+                        a.v = nv;
+                if (ops[j].acc == v)
+                    ops[j].acc = nv;
+            }
+            uses[nv->n] = uses[v->n];
+            keep.insert(nv->n);
+            live[nv->n] = nv;
+            o = ops[i];
+        }
+        rs = reads(o);
+        for (KVal *v : rs)
+            if (v->reg < 0)
+                fail("kernel: value read before it is defined");
+        for (KVal *v : rs) {
+            bool dies = nextUse(v->n, i + 1) == 1 << 30;
+            if (dies && live.erase(v->n))
+                freeRegs.push_back(v->reg);
+        }
+        if (o.d) {
+            if (o.acc) {
+                auto it = std::find(freeRegs.begin(), freeRegs.end(), o.acc->reg);
+                if (it != freeRegs.end())
+                    freeRegs.erase(it);
+                o.d->reg = o.acc->reg;
+            } else {
+                o.d->reg = takeReg(i, keep);
+            }
+            if (nextUse(o.d->n, i + 1) != 1 << 30)
+                live[o.d->n] = o.d;
+            else
+                freeRegs.push_back(o.d->reg);
+        }
+        out2.push_back(o);
+    }
+    ops.swap(out2);
+    spills_ = nslot;
+    auto operand = [](const KOperand &a) {
+        if (!a.v)
+            return fmtImm(a.imm);
+        return std::string(a.neg ? "-r" : "r") + std::to_string(a.v->reg);
+    };
+    std::vector<std::string> out;
+    for (auto &o : ops) {
+        std::string s;
+        if (o.kind == "comment")
+            s = o.fmt;
+        else if (o.kind == "ld")
+            s = "ld r" + std::to_string(o.d->reg) + ", [" + o.addr + "]";
+        else if (o.kind == "st")
+            s = "st r" + std::to_string(o.args[0].v->reg) + ", [" + o.addr + "]";
+        else {
+            s = o.fmt;
+            auto rep = [&](const std::string &key, const std::string &val) {
+                size_t p = s.find(key);
+                if (p != std::string::npos)
+                    s.replace(p, key.size(), val);
+            };
+            rep("{d}", "r" + std::to_string(o.d->reg));
+            for (size_t k = 0; k < o.args.size(); k++) {
+                std::string a = operand(o.args[k]);
+                std::string key = "{" + std::to_string(k) + "}";
+                size_t p = s.find(key);
+                if (p != std::string::npos) {
+                    if (p > 0 && s[p - 1] == '-' && a[0] == 'r') {         // ph_* -rY form
+                        s.replace(p, key.size(), a);
+                    } else
+                        s.replace(p, key.size(), a);
+                }
+            }
+        }
+        out.push_back(s);
+    }
+    // load fillers
+    std::regex reg("\\br(\\d)\\b");
+    std::vector<std::string> res;
+    for (size_t i = 0; i < out.size(); i++) {
+        res.push_back(out[i]);
+        if (out[i].rfind("ld r", 0) != 0)
+            continue;
+        int dst = out[i][4] - '0';
+        size_t j = i + 1;
+        while (j < out.size() && out[j][0] == ';')
+            j++;
+        if (j >= out.size())
+            continue;
+        std::string body = out[j];
+        bool uses = false;
+        for (std::sregex_iterator it(body.begin(), body.end(), reg), e; it != e; ++it)
+            uses |= (*it)[1].str()[0] - '0' == dst;
+        if (uses) {
+            int spare = regs_[0] != dst ? regs_[0] : regs_[1];
+            res.push_back("mov r" + std::to_string(spare) + ", r" + std::to_string(spare));
+        }
+    }
+    return res;
+}
+
+}  // namespace s1

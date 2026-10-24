@@ -1,0 +1,93 @@
+#!/bin/sh
+# s1cc driver (docs/S1CC.md §9): C / C++ voice program -> kernel for the Roland BMC DSPs.
+#
+#   sdk/s1cc/s1cc build VOICE.cc [MORE.cc ...] [-I DIR ...] [-o OUTDIR] [--tol X] [--tollog X] [--maxdeg N] [--regs LIST]
+#       OUTDIR (default build/<voice>): voice.ll (linked IR), tables.txt (S1_PARAM tables), profile.txt,
+#       voice.s1k (the kernel), report.txt; ref / prof / refdsp (native reference, profiling, reference that
+#       starts from the DSP's initial state)
+#   sdk/s1cc/s1cc check OUTDIR [--note N] [name=knob ...]   microcode on the emulator vs the native reference
+#   sdk/s1cc/s1cc deps                       fetch Mutable Instruments' stmlib (MIT) into build/deps (the eurorack
+#       checkout has its submodule empty): with it, `build` adds -I build/deps and stmlib's units.cc / random.cc,
+#       so Plaits / Rings / Elements / Braids sources compile as they are
+#
+# Needs clang / clang++ and LLVM 19 (llvm-link), make; `check` needs Python 3 (the repo's assembler and emulator).
+set -e
+HERE=$(cd "$(dirname "$0")" && pwd)
+LLVM_BIN=${LLVM_BIN:-/usr/lib/llvm-19/bin}
+CLANG=${CLANG:-clang}
+CLANGXX=${CLANGXX:-clang++}
+usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -ge 1 ] || usage
+cmd=$1; shift
+case $cmd in
+build)
+    srcs=; incs=; out=; lower_opts=
+    while [ $# -gt 0 ]; do
+        case $1 in
+            -I) incs="$incs -I$2"; shift ;;
+            -I*) incs="$incs $1" ;;
+            -o) out=$2; shift ;;
+            --tol|--tollog|--maxdeg|--regs) lower_opts="$lower_opts $1 $2"; shift ;;
+            -h|--help) usage ;;
+            *) srcs="$srcs $1" ;;
+        esac
+        shift
+    done
+    [ -n "$srcs" ] || usage
+    first=$(echo $srcs | cut -d' ' -f1)
+    name=$(basename "$first"); name=${name%.*}
+    out=${out:-$HERE/build/$name}
+    mkdir -p "$out"
+    make -s -C "$HERE" build/s1cc
+    DEPS=$HERE/build/deps
+    if [ -d "$DEPS/stmlib/dsp" ]; then                 # the real stmlib, before any stand-in
+        incs="-I$DEPS -DTEST $incs"            # TEST: stmlib's portable C instead of ARM asm
+        for s in "$DEPS/stmlib/dsp/units.cc" "$DEPS/stmlib/utils/random.cc"; do
+            case " $srcs " in *" $s "*) ;; *) srcs="$srcs $s" ;; esac
+        done
+    fi
+    lls=
+    i=0
+    for s in $srcs; do
+        i=$((i + 1))
+        case $s in *.c) cc=$CLANG; std= ;; *) cc=$CLANGXX; std="-std=c++17 -fno-exceptions -fno-rtti" ;; esac
+        $cc -O2 -S -emit-llvm -w -fno-math-errno -mllvm -inline-threshold=100000 -fno-vectorize -fno-slp-vectorize $std -I"$HERE/include" $incs \
+            "$s" -o "$out/src$i.ll"
+        lls="$lls $out/src$i.ll"
+    done
+    "$LLVM_BIN/llvm-link" -S $lls -o "$out/linked.ll"
+    # loops with a data-dependent trip count: profile the counts, peel to the maximum (docs/S1CC.md §4.5)
+    nloops=$("$HERE/build/s1cc" trips "$out/linked.ll" -o "$out/trips.ll")
+    if [ "$nloops" -gt 0 ]; then
+        $CLANG -O1 -w "$out/trips.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/trips"
+        "$out/trips" prof "$out/trips.txt"
+        "$HERE/build/s1cc" unroll "$out/linked.ll" --trips "$out/trips.txt" -o "$out/voice.ll" > "$out/loops.txt"
+        cat "$out/loops.txt"
+    else
+        cp "$out/linked.ll" "$out/voice.ll"
+    fi
+    "$HERE/build/s1cc" prof "$out/voice.ll" -o "$out/prof.ll"
+    $CLANG -O1 -w "$out/voice.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/ref"
+    $CLANG -O1 -w "$out/prof.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/prof"
+    "$out/ref" tables "$out/tables.txt"
+    "$out/prof" prof "$out/profile.txt"
+    "$HERE/build/s1cc" lower "$out/voice.ll" --profile "$out/profile.txt" --tables "$out/tables.txt" \
+        -o "$out/voice.s1k" --report "$out/report.txt" $lower_opts
+    "$HERE/build/s1cc" init "$out/voice.ll" --kernel "$out/voice.s1k" -o "$out/refdsp.ll"
+    $CLANG -O1 -w "$out/refdsp.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/refdsp"
+    echo "kernel: $out/voice.s1k"
+    ;;
+deps)
+    mkdir -p "$HERE/build/deps"
+    EUR=${EURORACK:-$HOME/git/eurorack}
+    PIN=$(git -C "$EUR" submodule status stmlib 2>/dev/null | awk '{print $1}' | tr -d '+-')
+    [ -d "$HERE/build/deps/stmlib/.git" ] || git clone -q https://github.com/pichenettes/stmlib.git "$HERE/build/deps/stmlib"
+    [ -n "$PIN" ] && git -C "$HERE/build/deps/stmlib" checkout -q "$PIN"
+    echo "stmlib: $HERE/build/deps/stmlib $(git -C "$HERE/build/deps/stmlib" log --oneline -1)"
+    ;;
+check)
+    [ $# -ge 1 ] || usage
+    exec python3 "$HERE/tools/s1check.py" "$@"
+    ;;
+*) usage ;;
+esac

@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "device": "SYSTEM-1",
+  "slot": 1,
+  "name": "MUTABLE-SYSTEM",
+  "model_id": 16,
+  "version": "0.01",
+  "records": 2048,
+  "regions": [
+    {
+      "file": "region0.bin",
+      "stamp": "26-1022_00:00:00",
+      "magic": "SYSTEM-1:Plugout",
+      "tool": "0.015370",
+      "load": "0x60800000",
+      "entry": "0x60800000"
+    },
+    {
+      "file": "region1.bin",
+      "stamp": "26-1022_00:00:00",
+      "magic": "SYSTEM-1:Plugout",
+      "tool": "0.015370",
+      "load": "0x60200000",
+      "entry": "0x60200000"
+    }
+  ]
+}
