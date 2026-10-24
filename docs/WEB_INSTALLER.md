@@ -18,6 +18,9 @@ python3 -m http.server 8000 --bind 127.0.0.1 --directory web     # desde la raí
 # abrir http://localhost:8000/ en Chrome / Edge / Brave (Chromium)
 ```
 
+La página es un asistente: se ve un solo paso a la vez, con una barra de pasos arriba y *Back* / *Next* abajo.
+*Next* se habilita cuando el paso está completo; al lado dice qué falta. Con MIDI concedido pasa sola al paso 2.
+
 1. **Web MIDI**: el navegador pide permiso al abrir la página. Hay que aceptar también SysEx.
    * Web MIDI solo funciona en un origen seguro (`http://localhost` o `https://`). Abriendo `index.html` como
      `file://` o desde una IP de la red no funciona.
@@ -27,20 +30,33 @@ python3 -m http.server 8000 --bind 127.0.0.1 --directory web     # desde la raí
    * La lista de puertos está plegada en *Advanced: another MIDI port*. Ahí el puerto de control lleva
      "(control port — use this one)" y el otro del sintetizador "(not the control port)".
    * Si el puerto en uso no es el de control, el cuadro lo avisa y despliega *Advanced*.
-3. **Archivo**: botón *Choose file…* o arrastrar el archivo sobre la tarjeta.
-   * SYSTEM-1: `plugins/<NOMBRE>/Script/Code1.Dat`.
-   * SYSTEM-8: `Script/Code8_<slot>.Dat`, el del slot destino.
+3. **Slot**: va antes que el archivo porque en el SYSTEM-8 el slot decide el nombre del archivo.
+   * SYSTEM-1 / 1m (tipo 0 / 1): un solo slot de PLUG-OUT. No hay selector: siempre slot 1, y la tabla muestra
+     solo los slots 0 y 1.
+   * SYSTEM-8: sugiere el primer slot vacío, si no el 1.
+   * La tabla muestra qué hay en cada slot.
+4. **Archivo**: botón *Choose file…* o arrastrar el archivo sobre la tarjeta. Solo se acepta el nombre exacto
+   (mayúsculas incluidas) que elegiría el plug-in ([PROTOCOL.md](PROTOCOL.md) §3):
+   * SYSTEM-1 / 1m: `Code1.Dat` (de `plugins/<NOMBRE>/Script/`);
+   * SYSTEM-8: `Code8_<slot>.Dat` del slot elegido en el paso 3.
+   * Otro nombre (`Code1 (1).Dat`, `code1.dat`, `Code8_2.Dat` para el slot 1) se rechaza sin leer el archivo. El
+     selector del navegador filtra solo por extensión: ninguna API admite nombres exactos.
+     * Con `showOpenFilePicker` (Chrome, Edge): tipo `.Dat` con `excludeAcceptAllOption`, sin "todos los archivos".
+     * Sin él (Brave lo trae desactivado, `brave://flags/#file-system-access-api`): `<input type=file
+       accept=".Dat">`. El diálogo de GTK muestra el filtro como "archivo personalizado", pero deja cambiarlo y
+       elegir cualquier archivo [visto por el usuario, 2026-10-24]; el nombre se controla después.
+   * Si se cambia el slot de un SYSTEM-8 después de elegir el archivo, el archivo se descarta.
    * El archivo no sale del navegador. **No hay archivo por defecto**: siempre se elige.
-4. **Slot**: la página sugiere uno, en este orden:
-   * el que ya tiene la misma versión;
-   * el que tiene otra versión del mismo PLUG-OUT;
-   * uno vacío;
-   * el 1.
-   En el SYSTEM-8 sugiere el slot que indica `Code8_<n>`.
-5. **Confirmación**: muestra qué hay en el slot y qué se pierde. El botón *Install* se habilita solo con la casilla
-   marcada y sin bloqueos (§3).
-6. **Instalación**: START, los registros de datos con la consulta de flujo cada 32, y END. Al terminar indica qué
-   PLG elegir en el panel.
+5. **Confirmar e instalar** (un solo paso, el último; no hay *Next*):
+   * muestra qué hay en el slot y qué se pierde;
+   * *Install* se habilita solo con la casilla marcada y sin bloqueos (§3);
+   * la instalación: START, los registros de datos con la consulta de flujo cada 32, y END. La casilla queda
+     bloqueada mientras dura; tras un fallo se desmarca y hay que volver a marcarla.
+   * Con todos los registros enviados la barra está llena y la página muestra *All data sent. Waiting for the
+     synth to confirm…* mientras espera la respuesta a END (hasta 20 s). Antes la página parecía colgada en
+     esa espera.
+   * Al terminar indica qué PLG elegir en el panel. *Install another* vuelve a preguntar al equipo (la tabla de
+     slots cambió) y sigue en el paso 2.
 
 Equivale en línea de comandos a `python3 tools/plugout_tool.py install plugins/<NOMBRE> --slot N --force
 --no-patches -y`.
@@ -49,7 +65,7 @@ Equivale en línea de comandos a `python3 tools/plugout_tool.py install plugins/
 
 | archivo | qué es |
 |---|---|
-| `web/index.html` | la página: 6 tarjetas (pasos), estilos, sin scripts externos |
+| `web/index.html` | la página: barra de pasos, 5 tarjetas (una visible), *Back* / *Next*, estilos, sin scripts externos |
 | `web/plugout-protocol.js` | el protocolo, sin DOM: contenedor, mensajes, `Port` (preguntas, instalación), Web MIDI. Script plano (sin módulos, funciona con `file://` para leerlo) que expone `globalThis.Plugout`. También funciona en Node (`module.exports`) |
 | `web/app.js` | la lógica de la página: pasos, bloqueos, avisos, progreso |
 | `web/test/test-protocol.js` | prueba de la biblioteca en Node contra `tools/plugout.py` (§6.1) |
@@ -75,10 +91,10 @@ Equivale en línea de comandos a `python3 tools/plugout_tool.py install plugins/
 |---|---|---|---|
 | firmware del equipo < 1.30 (SYSTEM-1/1m) / 1.31 (SYSTEM-8) | **bloquea** | sale con error | rechaza |
 | el archivo es para otro equipo (§3.1) | **bloquea** | no lo comprueba | elige el archivo por tipo ([PROTOCOL.md](PROTOCOL.md) §3) |
-| SYSTEM-8: `Code8_<n>.Dat` en un slot ≠ n | **bloquea** | no lo comprueba | elige `Code8_<slot>` |
+| nombre de archivo ≠ `Code1.Dat` (SYSTEM-1) / `Code8_<slot>.Dat` (SYSTEM-8) | **rechaza el archivo** (paso 4) | no lo comprueba | elige `Code1` / `Code8_<slot>` |
 | regiones sin cabecera `SYSTEM-x:Plugout` | avisa | — | — |
-| el mismo PLUG-OUT en otro slot | avisa | se niega sin `--force` | se niega |
-| misma versión en el slot destino | avisa y la reenvía | la salta sin `--force` | la salta |
+| el mismo PLUG-OUT en otro slot | no dice nada (instala) | se niega sin `--force` | se niega |
+| misma versión en el slot destino | la reenvía sin aviso | la salta sin `--force` | la salta |
 | otro PLUG-OUT en el slot destino | avisa: se sobrescribe | avisa | pide confirmación |
 | banco de patches | **no se envía** | se envía salvo `--no-patches` | se envía |
 
@@ -119,6 +135,14 @@ El nombre de modelo de la cabecera no sirve para saber el equipo: es el nombre d
   * Se puede elegir otro puerto en la lista; un puerto que no nombra al sintetizador solo se consulta si se elige a mano.
 * **Consultas automáticas**: solo en un puerto que nombra al sintetizador, al abrir la página o al conectarse un
   puerto. Hasta 5 intentos, uno cada 2 s; después hay que usar *Find synth*.
+* **Sintetizador conectado con la página ya abierta** (error del usuario, 2026-10-24): sin el equipo, el único
+  puerto era `Midi Through Port-0` y quedaba elegido; al aparecer el SYSTEM, la lista se rehacía conservando ese
+  puerto, así que nunca se preguntaba al sintetizador (y *Find synth* quedaba en "Asking Midi Through Port-0…").
+  Regla actual al rehacer la lista:
+  * se conserva el puerto elegido a mano en *Advanced*, o el puerto donde el equipo ya respondió;
+  * si no, vuelve a tomarse el mejor candidato (el de control del sintetizador).
+  * Una sola ronda de preguntas a la vez. Si los puertos cambian durante una ronda, al terminar esa ronda se
+    pregunta de nuevo con los intentos a cero.
 * **`statechange`**: Chrome lo dispara también cuando un puerto solo se abre o se cierra (cambia `connection`), y
   eso pasa en cada ronda de preguntas. La página compara la lista de puertos (`id` + `state`) y solo reacciona si
   cambió: un puerto nuevo, o uno que pasó a `disconnected`. Si desaparece el puerto del equipo, el paso 2 pasa a
@@ -228,14 +252,17 @@ La página de prueba carga `index.html` en un iframe, con `navigator.requestMIDI
 
 1. **SYSTEM-1** (`SYSTEM-1 MIDI 1` / `MIDI 2`, slot 1 con `C-S1SY13`):
    * encuentra el equipo sola en `MIDI 2` y cierra los puertos tras preguntar;
-   * sin archivo no se puede instalar;
-   * el paso 3 muestra modelo y equipo destino;
-   * sugiere el slot vacío;
-   * en el slot 1 avisa de la sobrescritura;
-   * la casilla habilita el botón;
-   * la instalación termina, y lo enviado coincide mensaje por mensaje con START (slot 1) + registros + flujo + END;
+   * solo el paso 2 está visible; *Next* lleva al slot (paso 3) antes que al archivo;
+   * no hay selector de slot: slot 1;
+   * el paso 4 pide `Code1.Dat`; sin archivo *Next* está bloqueado; `Code1 (1).Dat` se rechaza;
+   * con `Code1.Dat` muestra modelo y equipo destino;
+   * el paso 5 es el último (sin *Next*), avisa de la sobrescritura, e *Install* se habilita solo con la casilla;
+   * la instalación termina, y lo enviado coincide mensaje por mensaje con
+     START (slot 1) + registros + flujo + END;
    * cierra los puertos y dice "PLG1".
-2. **SYSTEM-8 con el mismo archivo de SYSTEM-1**: queda bloqueado, el botón deshabilitado, y no se envía START.
+2. **SYSTEM-8, slot 1, con un build de SYSTEM-1 llamado `Code8_1.Dat`**: el paso 4 pide `Code8_1.Dat`; el paso 5
+   queda bloqueado (equipo destino), *Install* deshabilitado, y no se envía START.
+   Escenarios 1 y 2 reescritos para el asistente el 2026-10-24, **todavía no ejecutados**.
 3. **Equipo que no responde** (el simulado dispara `statechange` al abrir y cerrar puertos, como Chrome): como
    máximo 5 rondas × 3 intentos, y después la página espera el botón. Escenario escrito el 2026-10-23, **todavía no
    ejecutado**.

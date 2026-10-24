@@ -110,6 +110,21 @@
   label.filebtn:hover { border-color: var(--accent); }
   label.filebtn input { display: none; }
   section.card.drop { border-color: var(--accent); border-style: dashed; }
+  .stepper { list-style: none; display: flex; gap: 6px; margin: 24px 0 0; padding: 0; }
+  .stepper li { flex: 1; display: flex; align-items: center; gap: 7px; font-size: 13px;
+                color: var(--muted); padding: 6px 0; border-top: 3px solid var(--line); min-width: 0; }
+  .stepper li .num { width: 22px; height: 22px; font-size: 12px; }
+  .stepper li.done { border-top-color: #2d6fa4; }
+  .stepper li.done .num { color: var(--ok); }
+  .stepper li.current { border-top-color: var(--accent); color: var(--text); font-weight: 600; }
+  .stepper li.current .num { background: #1f4f7a; border-color: var(--accent); color: var(--text); }
+  .nav { display: flex; align-items: center; gap: 10px; }
+  .nav #nav-hint { flex: 1; text-align: center; }
+  .waitbox { border: 1px solid #24486b; background: #101c28; color: #c3dff7;
+             border-radius: 10px; padding: 12px 14px; margin: 12px 0; font-size: 15px; }
+  @media (max-width: 560px) {
+    .stepper .lbl { display: none; }
+  }
   @media (max-width: 560px) {
     .kv { grid-template-columns: 1fr; }
     .kv dt { margin-top: 6px; }
@@ -125,10 +140,18 @@
       Everything happens in this page: no plug-in, no driver, no command line.</p>
   </header>
 
+  <ol class="stepper" id="stepper">
+    <li data-step="1"><span class="num">1</span><span class="lbl">MIDI</span></li>
+    <li data-step="2"><span class="num">2</span><span class="lbl">Synth</span></li>
+    <li data-step="3"><span class="num">3</span><span class="lbl">Slot</span></li>
+    <li data-step="4"><span class="num">4</span><span class="lbl">File</span></li>
+    <li data-step="5"><span class="num">5</span><span class="lbl">Install</span></li>
+  </ol>
+
   <div class="steps">
 
     <!-- 1 ------------------------------------------------------------------ -->
-    <section class="card" id="card-webmidi">
+    <section class="card" id="card-webmidi" data-step="1">
       <h2><span class="num">1</span>Web MIDI with SysEx <span class="state" id="webmidi-state">Checking…</span></h2>
       <div id="webmidi-body">
         <p>The page talks to the synth with Web MIDI + SysEx. It needs Chrome, Edge or another
@@ -141,7 +164,7 @@
     </section>
 
     <!-- 2 ------------------------------------------------------------------ -->
-    <section class="card dim" id="card-device">
+    <section class="card hidden" id="card-device" data-step="2">
       <h2><span class="num">2</span>Connect the synth <span class="state" id="device-state">Waiting</span></h2>
       <p>Connect the synth to this computer with a USB cable and switch it on. The page finds
         it by itself; nothing to choose. Close other programs that use the synth's MIDI first.</p>
@@ -161,54 +184,51 @@
     </section>
 
     <!-- 3 ------------------------------------------------------------------ -->
-    <section class="card dim" id="card-firmware">
-      <h2><span class="num">3</span>The firmware file <span class="state" id="firmware-state">Waiting</span></h2>
-      <p>Choose the firmware of the PLUG-OUT, or drop it on this card: the file
-        <code id="firmware-name">Script/Code1.Dat</code> of the plug-in folder. The file stays in
-        this browser; nothing is uploaded.</p>
-      <div class="row">
-        <label class="filebtn"><input type="file" id="file-input" accept=".Dat,.dat">Choose file…</label>
-      </div>
-      <div id="firmware-body"><p class="tight">No file chosen yet.</p></div>
-    </section>
-
-    <!-- 4 ------------------------------------------------------------------ -->
-    <section class="card dim" id="card-slot">
-      <h2><span class="num">4</span>Choose the slot <span class="state" id="slot-state">Waiting</span></h2>
+    <section class="card hidden" id="card-slot" data-step="3">
+      <h2><span class="num">3</span>Choose the slot <span class="state" id="slot-state">Waiting</span></h2>
       <p>The slot you pick is filled completely: <strong>whatever is in it now is
-        overwritten</strong>. Check the table before you go on.</p>
+        overwritten</strong>. On a SYSTEM-8 the slot also decides which file you need next.</p>
       <div class="row">
         <select id="slot-select" aria-label="PLUG-OUT slot"></select>
       </div>
       <div id="slot-body"></div>
     </section>
 
-    <!-- 5 ------------------------------------------------------------------ -->
-    <section class="card dim" id="card-warn">
-      <h2><span class="num">5</span>Read this before installing <span class="state" id="warn-state">Waiting</span></h2>
-      <div id="warn-body">
-        <p>The page shows here what gets erased once it knows which slot you chose.</p>
+    <!-- 4 ------------------------------------------------------------------ -->
+    <section class="card hidden" id="card-firmware" data-step="4">
+      <h2><span class="num">4</span>The firmware file <span class="state" id="firmware-state">Waiting</span></h2>
+      <p>Choose the file <code id="firmware-name">Code1.Dat</code> from the <code>Script</code>
+        folder of the plug-in, or drop it on this card. Only a file with exactly this name is
+        taken. The file stays in this browser; nothing is uploaded.</p>
+      <div class="row">
+        <label class="filebtn" id="file-btn"><input type="file" id="file-input" accept=".Dat,.dat">Choose file…</label>
       </div>
+      <div id="firmware-body"><p class="tight">No file chosen yet.</p></div>
     </section>
 
-    <!-- 6 ------------------------------------------------------------------ -->
-    <section class="card dim" id="card-install">
-      <h2><span class="num">6</span>Install <span class="state" id="install-state">Waiting</span></h2>
-      <div id="install-body">
-        <p>Tick the box in step 5 to unlock the install button. Do not unplug the synth and do
-          not switch it off while the progress bar moves.</p>
-      </div>
+    <!-- 5 ------------------------------------------------------------------ -->
+    <section class="card hidden" id="card-install" data-step="5">
+      <h2><span class="num">5</span>Confirm and install <span class="state" id="install-state">Waiting</span></h2>
+      <div id="warn-body"></div>
+      <div id="install-body"></div>
       <div class="row">
         <button class="danger" id="btn-install" disabled>Install</button>
+        <button class="hidden" id="btn-again">Install another</button>
         <span class="small" id="install-hint"></span>
       </div>
       <progress id="progress" value="0" max="1" class="hidden"></progress>
-      <div class="small mono" id="progress-text"></div>
+      <div class="small" id="progress-text"></div>
       <details>
         <summary>Show the MIDI traffic (for troubleshooting)</summary>
         <pre id="log">(nothing yet)</pre>
       </details>
     </section>
+
+    <div class="nav" id="nav">
+      <button id="btn-back">&larr; Back</button>
+      <span class="small" id="nav-hint"></span>
+      <button class="primary" id="btn-next" disabled>Next &rarr;</button>
+    </div>
 
   </div>
 

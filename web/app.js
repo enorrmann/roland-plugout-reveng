@@ -1,15 +1,17 @@
 /*
  * app.js -- the PLUG-OUT installer page (docs/WEB_INSTALLER.md).
  *
- * Six steps on the page:
+ * A wizard: one step visible at a time, Back / Next below it.
  *   1. Web MIDI with SysEx available and granted,
  *   2. the synth connected over USB MIDI and answering (SYSTEM-8 or SYSTEM-1),
- *   3. the firmware file, chosen or dropped on the page (Script/Code1.Dat for a
- *      SYSTEM-1, Script/Code8_<slot>.Dat for a SYSTEM-8); never a default file,
- *   4. the target slot chosen,
+ *   3. the target slot (it decides the file name on a SYSTEM-8),
+ *   4. the firmware file, chosen or dropped on the page; only the exact name
+ *      the plug-in would pick is taken: Code1.Dat (SYSTEM-1) or Code8_<slot>.Dat
+ *      (SYSTEM-8); never a default file,
  *   5. what gets overwritten, confirmed (and the checks that block the install),
- *   6. install: START + the firmware records + END, as
- *      `plugout_tool.py install --no-patches --force`.
+ *      and the install on the same step: START + the firmware records + END, as
+ *      `plugout_tool.py install --no-patches --force`; after the last record
+ *      the page says it waits for the synth's answer to END.
  *
  * The MIDI protocol itself lives in plugout-protocol.js; this file only drives
  * the page. Between the questions and after the install the page closes the
@@ -30,7 +32,11 @@
     access: null,
     ports: [],          // [{id, out, in, synth}] candidates, best first
     portIndex: 0,
+    manualPort: false,  // the user picked the port under Advanced: keep it
+    probing: false,     // a question round is running
+    askAgain: false,    // the ports changed during that round: ask again after it
     info: null,         // answer of deviceInfo()
+    step: 1,
     slot: 1,
     plan: null,
     firmware: null,     // {container, name, bytes}
@@ -51,11 +57,6 @@
     if (!el) return;
     el.textContent = text;
     el.className = 'state' + (cls ? ' ' + cls : '');
-  }
-
-  function card(id, active) {
-    var el = $(id);
-    if (el) el.classList.toggle('dim', !active);
   }
 
   function show(id, html) {
@@ -95,7 +96,6 @@
 
   function checkWebMidi() {
     var s = state.support;
-    card('card-webmidi', true);
     if (!s.supported) {
       var why = s.reason === 'insecure'
         ? 'This page is not on a secure origin (it was opened as a <code>file://</code> ' +
@@ -176,7 +176,7 @@
     setState('device-state', 'Disconnected', 'warn');
     show('device-body', '<p class="tight">The synth is no longer connected. Connect it again; ' +
       'the page notices it by itself.</p>');
-    update();
+    goTo(2);
   }
 
   function onMidiReady() {
@@ -188,8 +188,8 @@
       show('webmidi-body',
         '<p class="tight">Web MIDI is allowed and SysEx is enabled. That is everything ' +
         'the installer needs from the browser.</p>');
-      card('card-device', true);
       refreshPorts();
+      if (state.step === 1) goTo(2);
       maybeConnect();
     } else {
       setState('webmidi-state', 'No SysEx', 'bad');
@@ -200,6 +200,7 @@
         'if it was refused, open this page\'s site settings, remove the MIDI permission ' +
         'and reload the page.</div>');
     }
+    updateNav();
   }
 
   // -------------------------------------------------------------------------
@@ -216,7 +217,11 @@
     var found = P.findDevicePorts(state.access, false);
     var outs = P.listOutputs(state.access);
     var ins = P.listInputs(state.access);
-    var keep = currentPort() ? currentPort().id : null;
+    // Keep the port the user picked, or the one the synth answered on. Otherwise
+    // take the best candidate again: a synth plugged in after the page opened
+    // must win over the "Midi Through" port that was alone before.
+    var keep = state.manualPort && currentPort() ? currentPort().id
+      : state.info ? state.info.portId : null;
     var used = {};
     state.ports = [];
     var add = function (out) {
@@ -315,13 +320,29 @@
         'or the second SYSTEM port, e.g. <code>SYSTEM-1 MIDI 2</code>) under <em>Advanced</em>.</div>');
       return;
     }
+    if (state.probing) {                 // one round at a time; ask again after it
+      state.askAgain = true;
+      return;
+    }
     state.info = null;
+    state.probing = true;
+    state.askAgain = false;
     $('btn-find').disabled = true;
     setState('device-state', 'Asking…', 'warn');
     show('device-body', '<p class="tight"><span class="spin"></span> Asking ' +
       esc(portName(port.out)) + ' what it is…</p>');
-    probe(port).then(acceptDevice, function (err) {
+    probe(port).then(function (info) {
+      state.probing = false;
+      acceptDevice(info);
+    }, function (err) {
+      state.probing = false;
       rejectDevice(port, err);
+      if (state.askAgain) {               // the ports changed meanwhile (synth plugged in)
+        state.askAgain = false;
+        state.tries = 0;
+        clearTimeout(state.retryTimer);
+        maybeConnect();
+      }
     });
   }
 
@@ -348,8 +369,10 @@
     log('device: ' + info.deviceName + ', firmware ' + P.versionStr(info.firmware) +
         ', ' + info.slots.length + ' slot(s)');
     $('device-badge').textContent = info.deviceName;
-    updateFirmwareHint();
-    update();
+    if (singleSlot(info)) state.slot = 1;
+    else if (!(state.slot >= 1 && state.slot < info.slots.length)) state.slot = slotSuggestion(info);
+    dropWrongFile();
+    updateNav();
   }
 
   function rejectDevice(port, err) {
@@ -367,7 +390,7 @@
         : 'Click ') + '<em>Find synth</em>.</p>');
     log('no answer: ' + err.message);
     if (again) state.retryTimer = setTimeout(maybeConnect, RETRY_MS);
-    update();
+    updateNav();
   }
 
   /** Ask by itself, only on a port that names the synth, a few times at most. */
@@ -380,13 +403,117 @@
   }
 
   // -------------------------------------------------------------------------
-  // 3. the firmware file
+  // wizard: one step at a time
   // -------------------------------------------------------------------------
 
-  function updateFirmwareHint() {
-    var want = state.info ? P.containerPath(state.info.type, state.slot)
-      : 'Script/Code1.Dat (SYSTEM-1) or Script/Code8_<slot>.Dat (SYSTEM-8)';
-    $('firmware-name').textContent = want;
+  var LAST_STEP = 5;
+
+  /** Can the user leave this step with Next? '' = yes, otherwise why not. */
+  function nextBlocked(step) {
+    var info = state.info;
+    switch (step) {
+      case 1: return P.accessState(state.access) === 'best' ? '' : 'Enable MIDI with SysEx first.';
+      case 2:
+        if (!info) return 'Waiting for the synth to answer.';
+        if (info.firmware < info.minFirmware) return 'The synth\'s firmware is too old.';
+        return '';
+      case 3: return info && state.slot >= 1 && state.slot < info.slots.length ? '' : 'Choose a slot.';
+      case 4: return state.firmware ? '' : 'Choose the file ' + expectedName() + '.';
+      default: return '';
+    }
+  }
+
+  function goTo(step) {
+    if (state.installing) return;
+    state.step = step;
+    document.querySelectorAll('section.card[data-step]').forEach(function (el) {
+      el.classList.toggle('hidden', Number(el.dataset.step) !== step);
+    });
+    document.querySelectorAll('#stepper li').forEach(function (li) {
+      var n = Number(li.dataset.step);
+      li.className = n === step ? 'current' : n < step ? 'done' : '';
+    });
+    if (step === 3) showSlots();
+    if (step === 4) showFirmware();
+    if (step === 5 && !state.done) {    // after an install: keep the result on the page
+      showWarning();
+      showInstallInfo();
+    }
+    updateNav();
+  }
+
+  function updateNav() {
+    var step = state.step;
+    var why = nextBlocked(step);
+    $('btn-back').classList.toggle('hidden', step === 1);
+    $('btn-back').disabled = state.installing;
+    $('btn-next').classList.toggle('hidden', step === LAST_STEP);
+    $('btn-next').disabled = !!why || state.installing;
+    $('nav-hint').textContent = step === LAST_STEP ? '' : why;
+    if (step === LAST_STEP) updateInstallButton();
+  }
+
+  // -------------------------------------------------------------------------
+  // 3. slot
+  // -------------------------------------------------------------------------
+
+  /** First empty user slot, else slot 1. */
+  function slotSuggestion(info) {
+    var free = info.slots.find(function (s) { return s.index !== 0 && s.empty; });
+    return free ? free.index : 1;
+  }
+
+  /** A SYSTEM-1 / 1m has one PLUG-OUT slot: no choice, slot 1. */
+  function singleSlot(info) {
+    return !!info && (info.type === 0 || info.type === 1);
+  }
+
+  function showSlots() {
+    var info = state.info;
+    if (!info) return;
+    var one = singleSlot(info);
+    var sel = $('slot-select');
+    sel.parentNode.classList.toggle('hidden', one);
+    sel.innerHTML = '';
+    for (var i = 1; i < (one ? 2 : info.slots.length); i++) {
+      var o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = 'Slot ' + i + ' — now: ' + P.describeSlot(info.slots[i]);
+      sel.appendChild(o);
+    }
+    sel.value = String(state.slot);
+    setState('slot-state', 'Slot ' + state.slot, 'ok');
+    var rows = info.slots.filter(function (s) { return !one || s.index < 2; }).map(function (s) {
+      var label = s.index === 0 ? '0 (the synth itself)' : String(s.index);
+      return '<tr' + (s.index === state.slot ? ' class="slot-target"' : '') + '><td>' +
+        esc(label) + '</td><td>' + esc(P.describeSlot(s)) + '</td>' +
+        '<td class="slot-new">' + (s.index === state.slot ? 'the new PLUG-OUT' : '') + '</td></tr>';
+    }).join('');
+    show('slot-body', '<table><thead><tr><th>Slot</th><th>Now</th><th>After the install</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>' +
+      (one ? '<p class="tight">The ' + esc(info.deviceName) + ' has one PLUG-OUT slot: the ' +
+        'PLUG-OUT goes into slot 1.</p>' : '') +
+      '<p class="small">Next you choose the file <code>' + esc(expectedName()) + '</code>.</p>');
+  }
+
+  // -------------------------------------------------------------------------
+  // 4. the firmware file
+  // -------------------------------------------------------------------------
+
+  /** The only file name taken: Code1.Dat (SYSTEM-1/1m) or Code8_<slot>.Dat (SYSTEM-8). */
+  function expectedName() {
+    if (!state.info) return 'Code1.Dat';
+    return P.containerPath(state.info.type, state.slot).replace(/^.*\//, '');
+  }
+
+  /** A file chosen for another slot (SYSTEM-8) no longer fits: forget it. */
+  function dropWrongFile() {
+    if (state.firmware && state.firmware.name !== expectedName()) {
+      log('firmware: ' + state.firmware.name + ' is not ' + expectedName() + ', dropped');
+      state.firmware = null;
+      state.firmwareError = null;
+    }
+    state.done = false;
   }
 
   function takeFirmware(buffer, name) {
@@ -404,31 +531,42 @@
     }
     state.done = false;
     showFirmware();
-    update();
+    updateNav();
   }
 
   function readFile(file) {
     if (!file) return;
+    var want = expectedName();
+    if (file.name !== want) {
+      state.firmware = null;
+      state.firmwareError = new Error('The file is called ' + file.name + '; for ' +
+        (state.info ? state.info.deviceName + ' slot ' + state.slot : 'this synth') +
+        ' only ' + want + ' is taken.');
+      log('firmware: ' + file.name + ' refused (not ' + want + ')');
+      showFirmware();
+      updateNav();
+      return;
+    }
     var reader = new FileReader();
     reader.onload = function () { takeFirmware(reader.result, file.name); };
     reader.onerror = function () {
       state.firmware = null;
       state.firmwareError = new Error('the browser could not read ' + file.name);
       showFirmware();
-      update();
+      updateNav();
     };
     reader.readAsArrayBuffer(file);
   }
 
   function showFirmware() {
-    card('card-firmware', true);
+    var want = expectedName();
+    $('firmware-name').textContent = want;
     if (state.firmwareError) {
-      setState('firmware-state', 'Not a firmware file', 'bad');
+      setState('firmware-state', 'Not taken', 'bad');
       show('firmware-body', '<div class="badbox"><strong>This file cannot be installed.' +
         '</strong><br>' + esc(state.firmwareError.message) + '</div>' +
-        '<p class="tight">Pick the <code>Code1.Dat</code> or <code>Code8_&lt;slot&gt;.Dat</code> ' +
-        'from the <code>Script</code> folder of a plug-in (e.g. ' +
-        '<code>plugins/C-S1SY13F/Script/Code1.Dat</code>).</p>');
+        '<p class="tight">Pick <code>' + esc(want) + '</code> from the <code>Script</code> ' +
+        'folder of a plug-in (e.g. <code>plugins/&lt;NAME&gt;/Script/' + esc(want) + '</code>).</p>');
       return;
     }
     if (!state.firmware) {
@@ -452,56 +590,6 @@
   }
 
   // -------------------------------------------------------------------------
-  // 4. slot
-  // -------------------------------------------------------------------------
-
-  function slotSuggestion(info, c) {
-    var user = info.slots.filter(function (s) { return s.index !== 0; });
-    var same = user.find(function (s) { return P.slotState(s, c) === 'same'; });
-    if (same) return same.index;                       // reinstall in place
-    var other = user.find(function (s) { return P.slotState(s, c) === 'other-version'; });
-    if (other) return other.index;                     // update in place
-    var free = user.find(function (s) { return s.empty; });
-    if (free) return free.index;
-    return user.length ? user[0].index : 1;
-  }
-
-  /** SYSTEM-8 builds are per slot: Code8_<n>.Dat goes into slot n only. */
-  function fileSlot(name) {
-    var m = /Code8_(\d)\.Dat/i.exec(name || '');
-    return m ? Number(m[1]) : null;
-  }
-
-  function showSlots(suggest) {
-    var info = state.info;
-    var c = state.firmware.container;
-    var sel = $('slot-select');
-    if (suggest) {
-      var fromName = info.type === 2 ? fileSlot(state.firmware.name) : null;
-      state.slot = fromName && fromName < info.slots.length ? fromName : slotSuggestion(info, c);
-    }
-    sel.innerHTML = '';
-    for (var i = 1; i < info.slots.length; i++) {
-      var o = document.createElement('option');
-      o.value = String(i);
-      o.textContent = 'Slot ' + i + ' — now: ' + P.describeSlot(info.slots[i]);
-      sel.appendChild(o);
-    }
-    sel.value = String(state.slot);
-    card('card-slot', true);
-    setState('slot-state', 'Slot ' + state.slot, 'ok');
-    var rows = info.slots.map(function (s) {
-      var label = s.index === 0 ? '0 (the synth itself)' : String(s.index);
-      return '<tr' + (s.index === state.slot ? ' class="slot-target"' : '') + '><td>' +
-        esc(label) + '</td><td>' + esc(P.describeSlot(s)) + '</td>' +
-        '<td class="slot-new">' + (s.index === state.slot ? esc(c.model) : '') + '</td></tr>';
-    }).join('');
-    show('slot-body', '<table><thead><tr><th>Slot</th><th>Now</th><th>After the install</th>' +
-      '</tr></thead><tbody>' + rows + '</tbody></table>');
-    updateFirmwareHint();
-  }
-
-  // -------------------------------------------------------------------------
   // 5. checks and warning
   // -------------------------------------------------------------------------
 
@@ -515,14 +603,8 @@
     }
     if (plan.wrongDevice) {
       out.push('This file is built for a ' + esc(c.target) + ', the synth is a ' +
-        esc(info.deviceName) + '. Pick the ' + esc(P.containerPath(info.type, state.slot)) +
-        ' of the plug-in.');
-    }
-    var fs = info.type === 2 ? fileSlot(state.firmware.name) : null;
-    if (fs !== null && fs !== state.slot) {
-      out.push('<code>Code8_' + fs + '.Dat</code> is the build for slot ' + fs + ' (each ' +
-        'SYSTEM-8 slot has its own build). Choose slot ' + fs + ', or the file ' +
-        '<code>Code8_' + state.slot + '.Dat</code>.');
+        esc(info.deviceName) + '. Pick the ' + esc(expectedName()) + ' of a ' +
+        esc(info.deviceName) + ' plug-in.');
     }
     return out;
   }
@@ -532,8 +614,6 @@
     var plan = P.planInstall(state.info, c, state.slot);
     state.plan = plan;
     plan.blockers = blockers(plan, c);
-    card('card-warn', true);
-    card('card-install', true);
 
     var model = esc(c.model) || 'the PLUG-OUT';
     var html = '<dl class="kv">' +
@@ -550,8 +630,7 @@
         return '<div class="badbox"><strong>Cannot install:</strong> ' + b + '</div>';
       }).join('');
       show('warn-body', html);
-      setState('warn-state', 'Blocked', 'bad');
-      showInstallInfo();
+      setState('install-state', 'Blocked', 'bad');
       return;
     }
     if (plan.unknownTarget) {
@@ -559,16 +638,8 @@
         '</strong> (its regions have no <code>SYSTEM-x:Plugout</code> header). Install it only ' +
         'if you know it is a ' + esc(state.info.deviceName) + ' build.</div>';
     }
-    if (plan.sameModelInSlots.length) {
-      html += '<div class="warnbox"><strong>' + model + ' is also in slot ' +
-        plan.sameModelInSlots.join(', ') + '.</strong> Roland\'s plug-in refuses this; the ' +
-        'synth accepts it (<code>plugout_tool.py --force</code>).</div>';
-    }
     if (plan.state === 'same') {
-      html += '<div class="warnbox"><strong>' + model + ' ' + P.versionStr(c.version) +
-        ' is already in slot ' + state.slot + '.</strong> It is sent again (the plug-in would ' +
-        'skip it; <code>plugout_tool.py --force</code> sends it again too). Use this when the ' +
-        'build changed but its version number did not.</div>';
+      // the same build again: nothing to warn about
     } else if (plan.state === 'other-version') {
       html += '<div class="warnbox"><strong>Another version of ' + model + ' is in slot ' +
         state.slot + '</strong> (' + esc(plan.current) + '). It is replaced.</div>';
@@ -584,61 +655,38 @@
         : 'Replace ' + esc(plan.current) + ' in slot ' + state.slot + ' with ' + model) +
       '.</span></label>';
     show('warn-body', html);
-    setState('warn-state', 'Read and tick the box', 'warn');
-    $('slot-confirm').addEventListener('change', updateInstallButton);
-    showInstallInfo();
+    setState('install-state', 'Read and tick the box', 'warn');
+    $('slot-confirm').addEventListener('change', function () {
+      setState('install-state', this.checked ? 'Ready to install' : 'Read and tick the box',
+        this.checked ? 'ok' : 'warn');
+      updateInstallButton();
+    });
   }
 
+  // -------------------------------------------------------------------------
+  // 5. install (same step)
+  // -------------------------------------------------------------------------
+
   function showInstallInfo() {
-    var c = state.firmware.container;
-    show('install-body',
-      '<dl class="kv">' +
-      '<dt>What will happen</dt><dd>1. The page asks the synth to start (it says yes or ' +
-      'no).<br>2. It sends ' + c.dataCount + ' data records, pausing for the synth\'s ' +
-      'flow control every 32.<br>3. It tells the synth it is done and waits for its ' +
-      'answer.</dd>' +
-      '<dt>Time</dt><dd>The synth sets the pace: usually a few seconds.</dd>' +
-      '<dt>If something fails</dt><dd>The page stops at that point and says what the synth ' +
-      'answered. The slot may then be incomplete; installing again fills it.</dd></dl>');
+    $('progress').classList.add('hidden');
+    $('progress-text').textContent = '';
+    $('btn-again').classList.add('hidden');
+    $('btn-install').classList.remove('hidden');
+    show('install-body', state.plan.blockers.length ? '' : '<p class="small">After the last record the page waits for the ' +
+      'synth to confirm (a few seconds). Do not unplug the synth and do not switch it off ' +
+      'until the page says it is done.</p>');
     updateInstallButton();
   }
 
   function updateInstallButton() {
     var check = $('slot-confirm');
     var ready = !!(state.info && state.plan && !state.plan.blockers.length && state.firmware &&
-      currentPort() && check && check.checked && !state.installing && !state.done);
+      check && check.checked && currentPort() && !state.installing && !state.done);
     $('btn-install').disabled = !ready;
     $('install-hint').textContent = state.installing ? 'transfer in progress…'
-      : state.done ? 'done'
-      : state.plan && state.plan.blockers.length ? 'Blocked: see step 5.'
-      : ready ? '' : 'Tick the box in step 5 to unlock this button.';
+      : state.plan && state.plan.blockers.length ? 'Blocked: see above.'
+      : ready || state.done ? '' : 'Tick the box to unlock Install.';
   }
-
-  /** Re-draw steps 4-6 from what is known (device, file, slot). */
-  function update(keepSlot) {
-    if (state.installing) return;
-    var ready = state.info && state.firmware;
-    if (!ready) {
-      state.plan = null;
-      card('card-slot', false);
-      card('card-warn', false);
-      card('card-install', false);
-      setState('slot-state', 'Waiting', '');
-      setState('warn-state', 'Waiting', '');
-      setState('install-state', 'Waiting', '');
-      show('slot-body', '<p class="tight">Needs the synth (step 2) and the file (step 3).</p>');
-      $('btn-install').disabled = true;
-      $('install-hint').textContent = '';
-      return;
-    }
-    showSlots(!keepSlot);
-    showWarning();
-    if (!state.done) setState('install-state', 'Ready when you are', '');
-  }
-
-  // -------------------------------------------------------------------------
-  // 6. install
-  // -------------------------------------------------------------------------
 
   function install() {
     var p = currentPort();
@@ -651,27 +699,43 @@
     var port = new P.Port(p.out.port, listenInputs(p), { log: log, bytesPerSecond: rate() });
     log('installing ' + c.model + ' into slot ' + state.slot + ' on ' + portName(p.out));
     state.installing = true;
-    updateInstallButton();
+    updateNav();
     $('btn-find').disabled = true;
     $('file-input').disabled = true;
     $('slot-select').disabled = true;
+    if ($('slot-confirm')) $('slot-confirm').disabled = true;
     $('progress').classList.remove('hidden');
     $('progress').value = 0;
     $('progress').max = c.dataCount;
-    setState('install-state', 'Transferring', 'warn');
-    setState('warn-state', 'Confirmed', 'ok');
+    setState('install-state', 'Sending', 'warn');
+    show('install-body', '<p class="tight"><span class="spin"></span> Sending ' +
+      (esc(c.model) || 'the PLUG-OUT') + ' to slot ' + state.slot + '. Do not unplug or switch ' +
+      'off the synth.</p>');
     var t0 = Date.now();
     var lastShown = 0;
+    var waiting = false;
 
     port.install(c, state.slot, 0, function (done, total) {
       $('progress').value = done;
+      if (done === total) {
+        if (waiting) return;
+        waiting = true;
+        log('all ' + total + ' records sent; waiting for the synth to confirm');
+        setState('install-state', 'Waiting for the synth', 'warn');
+        $('progress-text').textContent = 'all ' + total + ' records sent';
+        show('install-body', '<div class="waitbox"><span class="spin"></span> <strong>All data ' +
+          'sent. Waiting for the synth to confirm…</strong><br>The synth checks and stores the ' +
+          'PLUG-OUT now; the page waits for its answer (up to 20 s). Do not unplug or switch ' +
+          'off the synth.</div>');
+        return;
+      }
       var now = Date.now();
-      if (done === total || now - lastShown > 150) {
+      if (now - lastShown > 150) {
         lastShown = now;
-        var rate = done / Math.max(0.001, (now - t0) / 1000);
-        $('progress-text').textContent = 'record ' + done + ' / ' + total +
-          (done < total ? '   (' + Math.round(rate) + '/s, about ' +
-            Math.round((total - done) / Math.max(rate, 0.001)) + ' s left)' : '');
+        var r = done / Math.max(0.001, (now - t0) / 1000);
+        $('progress-text').textContent = 'record ' + done + ' / ' + total + '   (' +
+          Math.round(r) + '/s, about ' + Math.round((total - done) / Math.max(r, 0.001)) +
+          ' s left)';
       }
     }).then(function () {
       port.close();
@@ -681,13 +745,13 @@
       log('firmware accepted by the device after ' + secs + ' s; MIDI port closed');
       setState('install-state', 'Done', 'ok');
       $('progress-text').textContent = 'finished in ' + secs + ' s';
+      show('warn-body', '');
       show('install-body',
-        '<div class="okbox"><strong>The synth accepted ' + esc(c.model || 'the PLUG-OUT') +
+        '<div class="okbox"><strong>The synth confirmed ' + esc(c.model || 'the PLUG-OUT') +
         '.</strong> It is now in slot ' + state.slot + '.</div>' +
         '<p class="tight">On the synth: press <strong>PLUG-OUT</strong> and pick ' +
         '<strong>PLG' + state.slot + '</strong>. If the panel still shows the old plug-out, ' +
-        'switch the synth off and on again and select PLG' + state.slot + ' again.</p>' +
-        '<p class="tight">To install another build: choose its file in step 3.</p>');
+        'switch the synth off and on again and select PLG' + state.slot + ' again.</p>');
       finishInstall();
     }, function (err) {
       port.close();
@@ -697,8 +761,9 @@
       $('progress-text').textContent = '';
       show('install-body',
         '<div class="badbox"><strong>The install stopped.</strong><br>' + esc(err.message) +
-        '</div><p class="tight">Nothing else was sent. Check the cable, close other programs ' +
-        'that use the synth\'s MIDI port, then <em>Find synth</em> and install again. A slot ' +
+        '</div><p class="tight">Check the cable, close other programs that use the synth\'s ' +
+        'MIDI port, then tick the box and install again (or go back to step 2 and <em>Find ' +
+        'synth</em>). A slot ' +
         'is written whole, so a second run replaces whatever the failed one left in it.</p>');
       finishInstall();
     });
@@ -708,7 +773,24 @@
     $('btn-find').disabled = false;
     $('file-input').disabled = false;
     $('slot-select').disabled = false;
-    updateInstallButton();
+    if ($('slot-confirm')) {
+      $('slot-confirm').disabled = false;
+      $('slot-confirm').checked = false;
+    }
+    $('btn-install').classList.toggle('hidden', state.done);
+    $('btn-again').classList.toggle('hidden', !state.done);
+    updateNav();
+  }
+
+  /** After an install the slot list is stale: ask the synth again, start at step 2. */
+  function installAnother() {
+    state.done = false;
+    state.firmware = null;
+    state.firmwareError = null;
+    state.plan = null;
+    state.tries = 0;
+    goTo(2);
+    findSynth();
   }
 
   // -------------------------------------------------------------------------
@@ -716,24 +798,47 @@
   // -------------------------------------------------------------------------
 
   function init() {
-    updateFirmwareHint();
-    showFirmware();
-    update();
+    goTo(1);
     $('btn-midi').addEventListener('click', enableMidi);
     $('btn-midi').disabled = !state.support.supported;
+    $('btn-back').addEventListener('click', function () {
+      if (state.step > 1) goTo(state.step - 1);
+    });
+    $('btn-next').addEventListener('click', function () {
+      if (!nextBlocked(state.step) && state.step < LAST_STEP) goTo(state.step + 1);
+    });
     $('btn-find').addEventListener('click', function () {
       state.tries = 0;
       findSynth();
     });
     $('port-select').addEventListener('change', function () {
       state.portIndex = Number(this.value) || 0;
+      state.manualPort = true;
       state.tries = 0;
       findSynth();
     });
     $('slot-select').addEventListener('change', function () {
       state.slot = Number(this.value) || 1;
-      state.done = false;
-      update(true);
+      dropWrongFile();
+      showSlots();
+      updateNav();
+    });
+    // Where the browser has it (Chrome, Edge), the File System Access picker
+    // offers only .Dat files, without "all files". It cannot filter by exact
+    // name either; readFile() checks that. Brave ships it switched off: then
+    // the plain <input type=file>, whose filter the user can switch away.
+    $('file-btn').addEventListener('click', function (e) {
+      if (typeof window.showOpenFilePicker !== 'function' || $('file-input').disabled) return;
+      e.preventDefault();
+      window.showOpenFilePicker({
+        multiple: false,
+        excludeAcceptAllOption: true,
+        types: [{ description: 'PLUG-OUT firmware (' + expectedName() + ')',
+          accept: { 'application/octet-stream': ['.Dat'] } }],
+      }).then(function (handles) { return handles[0].getFile(); })
+        .then(readFile, function (err) {
+          if (err && err.name !== 'AbortError') log('file picker: ' + err.message);
+        });
     });
     $('file-input').addEventListener('change', function () {
       readFile(this.files && this.files[0]);
@@ -751,6 +856,7 @@
       if (!state.installing) readFile(e.dataTransfer.files && e.dataTransfer.files[0]);
     });
     $('btn-install').addEventListener('click', install);
+    $('btn-again').addEventListener('click', installAnother);
 
     if (!state.support.supported) {
       checkWebMidi();

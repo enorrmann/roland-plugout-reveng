@@ -1,10 +1,11 @@
 /*
  * page-test.js -- drives ../index.html in an iframe with a fake Web MIDI synth
  * (docs/WEB_INSTALLER.md §5). Scenarios:
- *   1. SYSTEM-1: the page finds the synth by itself, takes the chosen file,
- *      blocks the install until the box is ticked, installs into slot 1 and
- *      closes the MIDI ports; the messages sent are checked one by one.
- *   2. SYSTEM-8 with the same (SYSTEM-1) file: the install is blocked.
+ *   1. SYSTEM-1: the page finds the synth by itself; wizard: slot 1, a wrongly
+ *      named file is refused, Code1.Dat is taken, Install stays locked until the
+ *      box is ticked, installs into slot 1 and closes the MIDI ports; the
+ *      messages sent are checked one by one.
+ *   2. SYSTEM-8 with a SYSTEM-1 build named Code8_1.Dat: the install is blocked.
  * Query string: ?dat=<path from the server root> (default: our C-S1SY13F build).
  * Waits are in the virtual time of headless Chrome (run-page-test.sh), hence the
  * long limits; real time is a few seconds.
@@ -28,7 +29,7 @@
     var f = document.getElementById('page');
     var d = f && f.contentDocument;
     if (failed && d) {                       // where the page stood
-      ['webmidi-state', 'device-state', 'firmware-state', 'warn-state', 'install-state', 'log']
+      ['webmidi-state', 'device-state', 'firmware-state', 'install-state', 'log']
         .forEach(function (id) { lines.push('  ' + id + ': ' + text(d, id).slice(-1500)); });
     }
     lines.unshift((failed ? 'FAIL ' + failed + ' check(s)' : 'PASS all page checks'));
@@ -145,6 +146,15 @@
     return el ? el.textContent : '';
   }
 
+  function next(page) {
+    page.doc.getElementById('btn-next').click();
+  }
+
+  function visible(doc, id) {
+    var el = doc.getElementById(id);
+    return !!el && !el.classList.contains('hidden');
+  }
+
   function chooseFile(page, bytes, name) {
     var dt = new page.win.DataTransfer();
     dt.items.add(new page.win.File([bytes], name));
@@ -165,30 +175,38 @@
         check('the page found the SYSTEM-1 by itself on its control port',
           /SYSTEM-1 MIDI 2/.test(text(doc, 'device-body')), text(doc, 'device-body'));
         check('the questions closed the MIDI ports again', fake.output.closed >= 1 && fake.input.closed >= 1);
-        check('nothing installable before a file is chosen', doc.getElementById('btn-install').disabled);
+        check('only step 2 is visible', visible(doc, 'card-device') && !visible(doc, 'card-slot'));
+        next(page);
+        check('step 3 (slot) comes before the file', visible(doc, 'card-slot'));
+        check('SYSTEM-1: no slot choice, slot 1',
+          doc.getElementById('slot-select').parentNode.classList.contains('hidden') &&
+          text(doc, 'slot-state') === 'Slot 1', text(doc, 'slot-state'));
+        next(page);
+        check('step 4 asks for Code1.Dat', text(doc, 'firmware-name') === 'Code1.Dat',
+          text(doc, 'firmware-name'));
+        check('Next is locked without a file', doc.getElementById('btn-next').disabled);
+        chooseFile(page, bytes, 'Code1 (1).Dat');
+        check('a file with another name is refused',
+          text(doc, 'firmware-state') === 'Not taken' && doc.getElementById('btn-next').disabled,
+          text(doc, 'firmware-body'));
         chooseFile(page, bytes, 'Code1.Dat');
         var name = page.win.Plugout.loadContainer(bytes.buffer, 'x').model;
-        return waitFor(function () {
-          return text(doc, 'firmware-state') === name && doc.getElementById('slot-confirm');
-        }, 'step 5');
+        return waitFor(function () { return text(doc, 'firmware-state') === name; }, 'the file');
       }).then(function () {
         var model = page.win.Plugout.loadContainer(bytes.buffer, 'x');
-        check('step 3 shows the plug-out and its target device',
+        check('step 4 shows the plug-out and its target device',
           text(doc, 'firmware-body').indexOf(model.model) >= 0 &&
           /Built forSYSTEM-1/.test(text(doc, 'firmware-body')), text(doc, 'firmware-body'));
-        check('an empty slot is suggested', doc.getElementById('slot-select').value === '2',
-          doc.getElementById('slot-select').value);
-        var sel = doc.getElementById('slot-select');
-        sel.value = '1';
-        sel.dispatchEvent(new page.win.Event('change'));
+        next(page);
         check('slot 1: the overwrite of C-S1SY13 is announced',
           /Slot 1 holds C-S1SY13.*overwritten/.test(text(doc, 'warn-body')), text(doc, 'warn-body'));
-        check('the install button stays locked until the box is ticked',
-          doc.getElementById('btn-install').disabled);
+        check('step 5 is the last step: no Next', doc.getElementById('btn-next').classList.contains('hidden'));
+        check('Install stays locked until the box is ticked', doc.getElementById('btn-install').disabled);
         var box = doc.getElementById('slot-confirm');
         box.checked = true;
         box.dispatchEvent(new page.win.Event('change'));
-        check('ticking the box unlocks the install', !doc.getElementById('btn-install').disabled);
+        check('ticking the box unlocks Install', visible(doc, 'card-install') &&
+          !doc.getElementById('btn-install').disabled);
         var fake = page.fake();
         fake.sent.length = 0;
         var closed = fake.output.closed;
@@ -227,14 +245,24 @@
       var doc = page.doc;
       return waitFor(function () { return text(doc, 'device-state') === 'Connected'; },
         'the SYSTEM-8').then(function () {
-        chooseFile(page, bytes, 'Code1.Dat');
+        next(page);
+        var sel = doc.getElementById('slot-select');
+        sel.value = '1';
+        sel.dispatchEvent(new page.win.Event('change'));
+        next(page);
+        check('SYSTEM-8 slot 1 asks for Code8_1.Dat', text(doc, 'firmware-name') === 'Code8_1.Dat',
+          text(doc, 'firmware-name'));
+        chooseFile(page, bytes, 'Code8_1.Dat');
         var name = page.win.Plugout.loadContainer(bytes.buffer, 'x').model;
         return waitFor(function () { return text(doc, 'firmware-state') === name; }, 'the file')
-          .then(function () { return text(doc, 'warn-state') === 'Blocked'; });
+          .then(function () {
+            next(page);
+            return text(doc, 'install-state') === 'Blocked';
+          });
       }).then(function (blocked) {
         check('a SYSTEM-1 file on a SYSTEM-8 is blocked',
           blocked && /built for a SYSTEM-1/.test(text(doc, 'warn-body')), text(doc, 'warn-body'));
-        check('blocked: the install button stays disabled', doc.getElementById('btn-install').disabled);
+        check('blocked: Install stays disabled', doc.getElementById('btn-install').disabled);
         var sent = page.fake().sent.filter(function (m) {
           return page.win.Plugout.addressOf(m) === page.win.Plugout.ADDR.START;
         });
