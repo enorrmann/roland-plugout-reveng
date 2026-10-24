@@ -121,6 +121,9 @@ struct Profile {
     std::map<int, Range> csr, cur;          // the same, only when the select arm it feeds is taken
     std::map<int, bool> sovf, uovf;         // the operation wrapped (signed / unsigned view)
     std::map<int, std::vector<std::pair<double, double>>> island;   // island id -> samples (x, y)
+    std::map<int, double> stateInit;        // state index -> value after S1_INIT
+    std::map<int, std::vector<unsigned>> hist;   // divisor record id -> counts: [0..127] positive octaves
+                                                 // -64..63, [128..255] negative, [256] zero
     void read(const std::string &path);
 };
 
@@ -154,7 +157,8 @@ struct KOperand {
 struct KVal { int n = 0; int reg = -1; std::string name; };
 
 struct KOp {
-    std::string kind;            // "op" / "ld" / "st" / "comment"
+    std::string kind;            // "op" / "ld" / "st" / "comment" / "pair" (recipseed: d and d2 = registers r, r+1)
+    KVal *d2 = nullptr;
     std::string fmt;             // "mul {d}, {0}, {1}" ...
     KVal *d = nullptr;
     std::vector<KOperand> args;
@@ -180,6 +184,8 @@ public:
     KVal *tri(KVal *x);
     KVal *clamp(KVal *x);
     KVal *exp2(KVal *x, int extraSquarings = 0);
+    std::pair<KVal *, KVal *> recipseed(KVal *y);   // (sign 2^-e, ~1/m) for |y| = m 2^e: the SFU ROM seed (Roland's)
+    KVal *twoMinus(KVal *x);                        // 2 - x (subxy d, x, #2.0)
     std::vector<std::string> lines();
     int units() const;
     int spills() const { return spills_; }
@@ -199,6 +205,8 @@ struct LowerOptions {
     std::vector<int> regs = {0, 1, 2, 3, 4, 7};
     double fitTol = 3e-3;        // span metric
     double fitTolLog = 0.005;    // log2 metric (octaves; 0.005 = 6 cents)
+    bool exactInit = true;       // state words with a non-zero start: first-sample flag + one mad each
+    bool trace = false;          // debugging: every lowered value also stored to {D:<record id>} (s1cc check --trace)
     int maxDeg = 11;
 };
 

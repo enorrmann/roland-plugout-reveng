@@ -46,7 +46,7 @@ void cleanup(Function &F) { runPipeline(F, "simplifycfg,sroa,early-cse,instcombi
 // canonical loops (one preheader, one latch): the same in `trips` and `unroll`, so the loop ids agree
 void simplifyLoops(Module &M) {
     for (Function *F : voiceFunctions(M))
-        runPipeline(*F, "loop-simplify");
+        runPipeline(*F, "loop-simplify,lcssa");
 }
 
 void runPipeline(Function &F, const char *pipeline) {
@@ -115,6 +115,7 @@ void unrollBounded(Module &M, const std::map<int, int> &trips, std::string &repo
     }
     for (Function *F : voiceFunctions(M)) {
         for (int guard = 0; guard < 1000; guard++) {
+            runPipeline(*F, "loop-simplify,lcssa");
             DominatorTree DT(*F);
             LoopInfo LI(DT);
             Loop *inner = nullptr;
@@ -140,7 +141,7 @@ void unrollBounded(Module &M, const std::map<int, int> &trips, std::string &repo
                 AssumptionCache AC(*F);
                 ScalarEvolution SE(*F, TLI, AC, DT, LI);
                 ValueToValueMapTy VMap;
-                if (!peelLoop(inner, (unsigned)n, &LI, &SE, DT, &AC, false, VMap))
+                if (!peelLoop(inner, (unsigned)n, &LI, &SE, DT, &AC, true, VMap))
                     fail("cannot peel a loop of " + F->getName().str());
             }
             // the rest of the loop never runs (the profile's maximum): the header becomes unreachable

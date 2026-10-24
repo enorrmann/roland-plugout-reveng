@@ -28,6 +28,9 @@ float s1_voice(void);
 float s1_voice_b(float x) __attribute__((weak));
 void __s1p_reset(void) __attribute__((weak));
 void __s1p_dspstart(void) __attribute__((weak));
+void s1_init(void) __attribute__((weak));
+void __s1p_state(double *out) __attribute__((weak));
+extern const int __s1p_nstate __attribute__((weak));
 typedef struct { int id, root; double (*fn)(double); } isl_row;
 extern const isl_row __s1p_isl_tab[] __attribute__((weak));
 extern const int __s1p_isl_n __attribute__((weak));
@@ -77,9 +80,15 @@ float s1_range(float x, float lo, float hi) { (void)lo; (void)hi; return x; }
 static double slo[MAXR], shi[MAXR], ulo[MAXR], uhi[MAXR];
 static unsigned char seen[MAXR], sov[MAXR], uov[MAXR];
 static int maxid = -1;
+void __s1p_h(int id, double v);
+static FILE *dumpf;                    /* dump mode: "id signed unsigned" per value, "n" per sample */
 void __s1p_v(int id, double s, double u) {
     if (id < 0 || id >= MAXR)
         return;
+    if (dumpf)
+        fprintf(dumpf, "%d %.17g %.17g\n", id, s, u);
+    if (s == u)                            /* floats (and non-negative ints): the octave histogram */
+        __s1p_h(id, s);
     if (!seen[id]) { slo[id] = shi[id] = s; ulo[id] = uhi[id] = u; seen[id] = 1; }
     if (s < slo[id]) slo[id] = s;
     if (s > shi[id]) shi[id] = s;
@@ -97,6 +106,20 @@ void __s1p_c(int id, int taken, double s, double u) {
     if (s > cshi[id]) cshi[id] = s;
     if (u < culo[id]) culo[id] = u;
     if (u > cuhi[id]) cuhi[id] = u;
+}
+/* divisor histograms: sign, octave bins -64..+63 */
+#define HB 128
+static unsigned *hist[MAXR];
+void __s1p_h(int id, double v) {
+    if (id < 0 || id >= MAXR)
+        return;
+    if (!hist[id])
+        hist[id] = calloc(2 * HB + 1, sizeof(unsigned));
+    if (v == 0) { hist[id][2 * HB]++; return; }
+    int e = (int)floor(log2(fabs(v))) + 64;
+    if (e < 0) e = 0;
+    if (e >= HB) e = HB - 1;
+    hist[id][(v < 0 ? HB : 0) + e]++;
 }
 static int tripmax[4096];
 static int ntrip = -1;
@@ -117,6 +140,8 @@ static void reset(void) {
     if (__s1p_reset)
         __s1p_reset();
     memset(g_export, 0, sizeof g_export);
+    if (s1_init)
+        s1_init();
 }
 
 static float note_pitch(double note) { return (float)((note - 12.0) / 12.0); }
@@ -184,6 +209,32 @@ int main(int argc, char **argv) {
         fclose(f);
         return 0;
     }
+    if (!strcmp(argv[1], "dump")) {          /* PROG dump OUT NOTE N [name=knob ...]: every value, every sample */
+        if (argc < 5)
+            return 2;
+        double note = atof(argv[3]);
+        long n = atol(argv[4]);
+        for (int a = 5; a < argc; a++) {
+            char name[128];
+            int v;
+            if (sscanf(argv[a], "%127[^=]=%d", name, &v) == 2)
+                for (int k = 0; k < np; k++)
+                    if (!strcmp(pd[k]->name, name)) knob[k] = v;
+        }
+        reset();
+        dumpf = fopen(argv[2], "w");
+        g_pitch = note_pitch(note);
+        g_trig = 1.0f;
+        for (long t = 0; t < n; t++) {
+            g_gate = 1.0f;
+            float a = s1_voice();
+            if (s1_voice_b)
+                s1_voice_b(a);
+            fprintf(dumpf, "n\n");
+        }
+        fclose(dumpf);
+        return 0;
+    }
     if (!strcmp(argv[1], "prof")) {
         /* scenarios: every knob over its range (the others at 128), then random knob sets; notes 0..127;
            a gate that closes half way (envelopes, releases) */
@@ -207,11 +258,25 @@ int main(int argc, char **argv) {
         for (int k = 0; k < np; k++) knob[k] = 0;
         for (int i = 0; i < nn; i++) { reset(); run(notes[i], n, n / 2, 0); }
         FILE *f = fopen(argv[2], "w");
+        if (__s1p_state && &__s1p_nstate) {           /* the initial state (after s1_init) */
+            static double st[4096];
+            reset();
+            __s1p_state(st);
+            for (int k = 0; k < __s1p_nstate && k < 4096; k++)
+                fprintf(f, "s %d %.17g\n", k, st[k]);
+        }
         for (int id = 0; id <= ntrip; id++)
             fprintf(f, "t %d %d\n", id, tripmax[id]);
         for (int id = 0; id <= maxid; id++)
             if (seen[id])
                 fprintf(f, "v %d %.17g %.17g %.17g %.17g\n", id, slo[id], shi[id], ulo[id], uhi[id]);
+        for (int id = 0; id < MAXR; id++)
+            if (hist[id]) {
+                fprintf(f, "h %d", id);
+                for (int k = 0; k <= 2 * HB; k++)
+                    fprintf(f, " %u", hist[id][k]);
+                fprintf(f, "\n");
+            }
         for (int id = 0; id <= maxid; id++)
             if (cseen[id])
                 fprintf(f, "c %d %.17g %.17g %.17g %.17g\n", id, cslo[id], cshi[id], culo[id], cuhi[id]);

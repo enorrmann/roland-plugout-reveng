@@ -45,6 +45,18 @@ void Profile::read(const std::string &path) {
             csr[id].add(b);
             cur[id].add(c);
             cur[id].add(d);
+        } else if (tag == "h") {
+            int id;
+            f >> id;
+            auto &h = hist[id];
+            h.resize(257);
+            for (auto &c : h)
+                f >> c;
+        } else if (tag == "s") {
+            int id;
+            double v;
+            f >> id >> v;
+            stateInit[id] = v;
         } else if (tag == "o") {
             int id, s, u;
             f >> id >> s >> u;
@@ -102,6 +114,11 @@ struct Lowerer {
     std::map<std::string, double> paramScale;
     std::map<int, std::pair<double, double>> stateRep;     // s, o
     std::map<int, std::pair<double, double>> exportRep;
+    std::map<int, double> initR;                           // state index -> register value at the first sample
+    std::vector<std::pair<int, double>> traced;            // --trace: record id, scale
+    int saturated = 0;                                     // values limited to their 99.99 % range
+    std::map<int, std::string> traceWhere;
+    KVal *firstFlag = nullptr;                             // 1 at the first sample of the stage, else 0
     std::set<std::string> inputsB;
     std::vector<std::string> warnings;
 
@@ -291,13 +308,13 @@ struct Lowerer {
             return cst(0);
         // ph_clamp(K (X - theta)) in stages: |K (X - theta)| stays <= 256 before each clamp, and the product of
         // the stage gains reaches what separates the two outcomes (integers: |X - theta| >= 0.5, so 2; floats:
-        // 2^17 / range, a step 2^-17 of the range wide)
+        // 2^24 / range: a step 2^-24 of the range wide, three stages)
         double m = std::max(std::fabs(xr.lo - theta), std::fabs(xr.hi - theta));
-        double need = isInt ? 2 : std::ldexp(1.0, 17) / m;
-        double k1 = std::min(need, NORM_AT / m);
+        double need = isInt ? 2 : std::ldexp(1.0, 24) / m;     // floats: a step 2^-24 of the range (float32)
+        double k1 = std::min(need, LIM / m);
         KVal *t = K->clamp(materialize(X, 1 / k1, -k1 * theta));
-        for (double got = k1; got < need; ) {
-            double k = std::min(need / got, NORM_AT);
+        for (double got = k1; got < need; ) {                     // after a clamp |t| <= 1: gains up to 256
+            double k = std::min(need / got, LIM);
             t = K->clamp(K->mul(t, KOperand::im(k)));
             got *= k;
         }
@@ -432,15 +449,48 @@ struct Lowerer {
     }
 
     // 1 / V: an exponential -> exp2 of the negated exponent; otherwise a fitted seed and Newton steps
-    LV recip(LV y) {
+    LV recip(LV y, const Node *yn = nullptr) {
         if (y.isConst())
             return cst(1 / y.k);
         Range v = rangeOf(y);
+        // the profile's histogram of the divisor: the side it is on, and its usual smallest magnitude (0.05 %)
+        if (yn && yn->prof >= 0 && prof.hist.count(yn->prof)) {
+            const auto &h = prof.hist.at(yn->prof);
+            unsigned long np = 0, nn = 0;
+            for (int k = 0; k < 128; k++) {
+                np += h[k];
+                nn += h[128 + k];
+            }
+            bool pos = np >= nn;
+            unsigned long tot = pos ? np : nn, acc = 0;
+            int k0 = 0;
+            for (int k = 0; k < 128; k++) {
+                acc += h[(pos ? 0 : 128) + k];
+                if (acc * 2000 >= tot) {
+                    k0 = k;
+                    break;
+                }
+            }
+            double small = std::ldexp(1.0, k0 - 64);       // the octave's lower edge
+            double big = pos ? v.hi : -v.lo;
+            if (big > 0 && (pos ? v.lo < small : v.hi > -small)) {
+                double rare = 100.0 * (tot - (double)tot) + 100.0 * (pos ? nn : np) / std::max(1.0, (double)(np + nn));
+                warnings.push_back("division by a value in [" + std::to_string(v.lo) + ", " + std::to_string(v.hi) +
+                                   "] " + where(yn->v) + ": the port divides by " + (pos ? "max(y, " : "min(y, ") +
+                                   std::to_string(pos ? small : -small) + ") (" + std::to_string(rare) +
+                                   " % of the profiled values on the other side)");
+                y = minmax(y, cst(pos ? small : -small), !pos);
+                y.V = Range();
+                y.V.add(pos ? small : -big);
+                y.V.add(pos ? big : -small);
+                v = y.V;
+            }
+        }
         // a divisor that reaches 0 (a transient, a branch taken with odd values) or spans more than 6 octaves:
         // limited to the side its range mostly covers, at least max / 64 (the seed and Newton steps stay exact)
         double big = std::max(std::fabs(v.lo), std::fabs(v.hi));
         bool pos = v.hi >= -v.lo;
-        double lim = big / 64;
+        double lim = big / 4096;
         if ((pos && v.lo < lim) || (!pos && v.hi > -lim)) {
             warnings.push_back("division by a value in [" + std::to_string(v.lo) + ", " + std::to_string(v.hi) +
                                "]: the port divides by " + (pos ? "max(y, " : "min(y, ") +
@@ -462,60 +512,24 @@ struct Lowerer {
             r.e2extra = y.e2extra;
             return normalize(r);
         }
-        double sgn = v.lo > 0 ? 1 : -1, alo = std::min(std::fabs(v.lo), std::fabs(v.hi)),
-               ahi = std::max(std::fabs(v.lo), std::fabs(v.hi));
-        double sm = p2ceil(ahi);                              // a = |V| / sm in (0, 1]
-        double so = p2ceil(1 / alo) / NORM_AT;                // b = (1/|V|) / so <= NORM_AT
-        KVal *a = materialize(y, sgn * sm, 0);
-        // seed: least squares of 1/a on [alo/sm, ahi/sm], relative error
-        std::vector<std::pair<double, double>> xy;
-        for (int i = 0; i <= 512; i++) {
-            double aa = (alo + (ahi - alo) * i / 512.0) / sm;
-            xy.push_back({aa, 1 / (aa * sm * so)});
-        }
-        Fit f = fitIsland(xy, 1e-2, 1e-2, 4);
-        LV ax;
-        ax.r = a;
-        ax.V.add(alo / sm);
-        ax.V.add(ahi / sm);
-        fits.clear();
-        KVal *t = materialize(ax, 1 / f.ta, f.tb);
-        KVal *b = nullptr;
-        if (f.model == "poly") {
-            int d = (int)f.c.size() - 1;
-            b = d == 0 ? K->mov(KOperand::im(f.c[0])) : K->add(K->mul(t, KOperand::im(f.c[d])), KOperand::im(f.c[d - 1]));
-            for (int k = d - 2; k >= 0; k--)
-                b = K->ymac(b, t, KOperand::im(f.c[k]));
-        } else {
-            std::vector<double> qc = f.c;
-            KVal *q = K->add(K->mul(t, KOperand::im(qc.back())), KOperand::im(qc[qc.size() - 2]));
-            for (int k = (int)qc.size() - 3; k >= 0; k--)
-                q = K->ymac(q, t, KOperand::im(qc[k]));
-            b = K->exp2(q, 1);
-        }
-        // relative error of the seed -> Newton steps b <- b (2 - c a b), c = sm so; each squares the error
-        double e = 0;
-        for (auto &p : xy) {
-            double tt = f.ta * p.first + f.tb, s = 0;
-            for (int k = (int)f.c.size() - 1; k >= 0; k--)
-                s = s * tt + f.c[k];
-            if (f.model != "poly")
-                s = std::exp2(s);
-            e = std::max(e, std::fabs(s / p.second - 1));
-        }
-        if (e >= 0.9)
-            fail("reciprocal over [" + std::to_string(alo) + ", " + std::to_string(ahi) + "]: no usable seed");
-        double c = sm * so;
-        for (int it = 0; e > 1e-7 && it < 6; it++) {
-            KVal *p = K->mul(a, KOperand::of(b));
-            if (c != 1)
-                p = K->mul(p, KOperand::im(c));
-            KVal *q = K->sub(K->mov(KOperand::im(2.0)), KOperand::of(p));
-            b = K->mul(b, KOperand::of(q));
-            e = e * e;
-        }
-        r.r = b;
-        r.s = sgn * so;
+        // the SFU seed (Roland's recipseed): |y'| = m 2^e -> N = sign 2^-e, F ~ 1/m (1 %); m = y' N; two Newton
+        // steps F <- F (2 - m F) (1e-4, then 1e-8); 1/y' = F N. y' = y / 2^k keeps N and 1/y' inside +-256
+        double alo = std::min(std::fabs(v.lo), std::fabs(v.hi)), ahi = std::max(std::fabs(v.lo), std::fabs(v.hi));
+        if (v.lo < 0 && v.hi > 0)
+            alo = std::min(alo, std::ldexp(1.0, -30));
+        double kexp = std::round(std::log2(std::sqrt(std::max(alo, 1e-30) * ahi)));   // centre the range in octaves
+        double pk = std::ldexp(1.0, (int)kexp);
+        if (ahi / pk > LIM || pk / std::max(alo, 1e-30) > LIM)
+            warnings.push_back("division by a value over [" + std::to_string(alo) + ", " + std::to_string(ahi) +
+                               "]: more than 16 octaves, the ends saturate");
+        KVal *yy = materialize(y, pk, 0);                   // y' = y / pk
+        auto nf = K->recipseed(yy);
+        KVal *m = K->mul(yy, KOperand::of(nf.first));
+        KVal *F = nf.second;
+        for (int it = 0; it < 2; it++)
+            F = K->mul(F, KOperand::of(K->twoMinus(K->mul(m, KOperand::of(F)))));
+        r.r = K->mul(F, KOperand::of(nf.first));
+        r.s = 1 / pk;
         r.o = 0;
         return r;
     }
@@ -744,7 +758,50 @@ struct Lowerer {
             return true;
         return s->second.hi - s->second.lo > 0.5 * (u->second.hi - u->second.lo);   // signed only if much narrower
     }
+    // floats: the range that covers 99.99 % of the profiled values (octave histogram); rarer outliers (a knob jump
+    // through a division, a transient) would set a scale that loses the usual values: they saturate instead
+    Range robust(const Node *n, const Range &full) const {
+        if (n->isInt || n->prof < 0 || !prof.hist.count(n->prof) || !full.seen())
+            return full;
+        const auto &h = prof.hist.at(n->prof);
+        unsigned long tot = 0;
+        for (unsigned c : h)
+            tot += c;
+        if (tot < 1000)
+            return full;
+        auto edge = [&](int base) {                        // magnitude below which 99.99 % of this sign falls
+            unsigned long side = 0, acc = 0;
+            for (int k = 0; k < 128; k++)
+                side += h[base + k];
+            if (!side)
+                return 0.0;
+            for (int k = 0; k < 128; k++) {
+                acc += h[base + k];
+                if (acc * 10000.0 >= side * 9999.0)
+                    return std::ldexp(1.0, k - 64 + 1);    // upper edge of that octave
+            }
+            return std::ldexp(1.0, 64);
+        };
+        double hi = std::min(full.hi, std::max(0.0, edge(0))), lo = std::max(full.lo, -edge(128));
+        if (full.hi <= 0)
+            hi = full.hi;
+        if (full.lo >= 0)
+            lo = full.lo;
+        Range r;
+        r.add(lo);
+        r.add(hi);
+        return r;
+    }
+    bool outliers(const Node *n) const {
+        Range f = rawRange(n), r = robust(n, f);
+        double mf = std::max(std::fabs(f.lo), std::fabs(f.hi)), mr = std::max(std::fabs(r.lo), std::fabs(r.hi));
+        return f.seen() && mr > 0 && mf > 4 * mr;
+    }
     Range recRange(const Node *n) const {
+        Range f = rawRange(n);
+        return outliers(n) ? robust(n, f) : f;
+    }
+    Range rawRange(const Node *n) const {
         if (n->prof < 0)
             return Range();
         if (n->specSel) {                     // speculated: the range when its arm is taken (or none if never)
@@ -800,6 +857,15 @@ struct Lowerer {
             auto sr = stateRep.at(n->state);
             LV x;
             x.r = K->load("{S" + std::to_string(n->state) + "+1}", P.states[n->state].name);
+            auto ii = initR.find(n->state);
+            if (ii != initR.end()) {                          // the first sample reads 0: r + first r0
+                if (!firstFlag) {                             // first = 1 - flag; the flag word holds 1 after it
+                    KVal *f = K->load("{I+1}", "inited");
+                    firstFlag = K->sub(K->mov(KOperand::im(1.0)), KOperand::of(f));
+                    K->store(K->mov(KOperand::im(1.0)), "{I}");
+                }
+                x.r = K->mad(x.r, firstFlag, KOperand::im(ii->second));
+            }
             x.s = sr.first;
             x.o = sr.second;
             x.V = rec;
@@ -878,7 +944,7 @@ struct Lowerer {
         if (op == "fdiv") {
             if (val.at(n->in[1]).isConst())
                 return withRange(scale(in(0), 1 / constIn(1)));
-            return mulLV(in(0), recip(in(1)), res);
+            return mulLV(in(0), recip(in(1), n->in[1]), res);
         }
         if (op == "udiv" || op == "sdiv")
             return withRange(scale(in(0), 1 / constIn(1)));
@@ -1019,11 +1085,18 @@ struct Lowerer {
                 stateRep[s.index] = {p2ceil(m), 0};
             }
             auto sr = stateRep[s.index];
+            auto it = prof.stateInit.find(s.index);
+            if (it != prof.stateInit.end())
+                s.init = it->second;                  // after S1_INIT (or the C initializer)
             double r0 = s.init / sr.first + sr.second;
-            if (std::fabs(r0) > 1e-12)
-                warnings.push_back("state `" + s.name + "` starts at 0 in the ring (V = " +
-                                   std::to_string(-sr.second * sr.first) + "), not at its initial value " +
-                                   std::to_string(s.init));
+            if (std::fabs(r0) > 1e-12) {
+                if (opt.exactInit)
+                    initR[s.index] = r0;              // first sample: r = r0 (ring words start at 0)
+                else
+                    warnings.push_back("state `" + s.name + "` starts at 0 in the ring (V = " +
+                                       std::to_string(-sr.second * sr.first) + "), not at its initial value " +
+                                       std::to_string(s.init) + " (--exact-init)");
+            }
         }
     }
 
@@ -1031,6 +1104,7 @@ struct Lowerer {
         Kernel k(opt.regs);
         K = &k;
         val.clear();
+        firstFlag = nullptr;
         chooseIslands(S);
         std::set<std::string> inputsUsed;
         for (auto &np : S.nodes) {
@@ -1040,6 +1114,13 @@ struct Lowerer {
             if (n->kind == NK::Input || n->kind == NK::Increment)
                 inputsUsed.insert(n->kind == NK::Increment ? "pitch" : n->name);
             val[n] = lowerNode(S, n);
+            if (outliers(n) && !val[n].isConst() && n->kind == NK::Op && !n->specSel) {   // rare outliers: saturate
+                Range c = recRange(n);
+                LV x = minmax(minmax(val[n], cst(c.lo), false), cst(c.hi), true);
+                x.V = c;
+                val[n] = normalize(x);
+                saturated++;
+            }
             bool repOnly = false;                               // only a scale / offset of an operand: nothing
             for (Node *i : n->in)                               // to limit (and a phase wrap stays recognisable)
                 repOnly = repOnly || (val.count(i) && val[i].r && val[i].r == val[n].r);
@@ -1050,6 +1131,15 @@ struct Lowerer {
                     x.V = c;
                     val[n] = normalize(x);
                 }
+            }
+            if (opt.trace && n->prof >= 0 && !val[n].isConst() && n->kind != NK::Const) {
+                const LV &x = val[n];
+                // V in a fixed scale (a power of 2 near its range) so |r| stays small: .trace <id> <scale>
+                Range vr = rangeOf(x);
+                double ts = vr.seen() ? p2ceil(std::max(std::fabs(vr.lo), std::fabs(vr.hi))) : 1;
+                k.store(materialize(x, ts, 0), "{D:" + std::to_string(n->prof) + "}");
+                traced.push_back({n->prof, ts});
+                traceWhere[n->prof] = where(n->v) + " (" + n->op + ")";
             }
             if (getenv("S1CC_DEBUG")) {
                 const LV &x = val[n];
@@ -1082,6 +1172,10 @@ struct Lowerer {
                 KVal *v = k.load("{IN:" + in + "}", in);
                 k.store(v, "{INB:" + in + "}");
             }
+        if (saturated)
+            warnings.push_back("stage " + S.name + ": " + std::to_string(saturated) + " values limited to the range "
+                               "of 99.99 % of their profiled samples (rare outliers would ruin their scale)");
+        saturated = 0;
         std::vector<std::string> lines = k.lines();
         report += "stage " + S.name + ": " + std::to_string(k.units()) + " units" +
                   (k.spills() ? ", " + std::to_string(k.spills()) + " scratch words (spills)" : "") + "\n";
@@ -1089,6 +1183,11 @@ struct Lowerer {
         o << ".stage " << S.name << " " << k.units() << "\n";
         if (k.spills())
             o << ".scratch " << k.spills() << "\n";
+        if (firstFlag)
+            o << ".initflag\n";
+        for (auto &t : traced)
+            o << ".trace " << t.first << " " << fmtImm(t.second).substr(1) << " " << traceWhere[t.first] << "\n";
+        traced.clear();
         for (auto &l : lines)
             o << l << "\n";
         K = nullptr;

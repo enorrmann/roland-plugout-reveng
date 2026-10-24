@@ -485,6 +485,9 @@ def kernel_addr(stage, v):
     for j in range(KDEF.stages[stage].get('scratch', 0)):
         addr[f'T{j}'] = base + 2 * k
         k += 1
+    if KDEF.stages[stage].get('initflag'):           # S1_INIT: the first-sample flag word
+        addr['I'] = base + 2 * k
+        k += 1
     if 2 * k > 0x20:
         raise SystemExit(f'kernel stage {stage}: {k} state + scratch words, at most 16 per voice')
     for name, (cnt, ab, bb) in kernel_layout().items():

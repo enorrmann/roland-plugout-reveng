@@ -1,8 +1,9 @@
 // s1cc command line (docs/S1CC.md §9). Normally run by the driver sdk/s1cc/s1cc, not by hand:
 //   s1cc prof  IN.ll -o OUT.ll                         profiling module (link with runtime/s1rt.c)
 //   s1cc lower IN.ll --profile P --tables T -o K.s1k [--report R] [--regs 0,1,2,3,4,7] [--tol 3e-3] [--tollog 0.005] [--maxdeg 11]
-//   s1cc init  IN.ll --kernel K.s1k -o OUT.ll         reference module with __s1p_dspstart(): the state words set
-//                                                      to what the DSP starts from (ring = 0 -> V = -o s)
+//   s1cc init  IN.ll --kernel K.s1k [--into ORIG.ll] -o OUT.ll   reference module (ORIG, default IN) with
+//                                                      __s1p_dspstart(): the state words set to what the DSP starts
+//                                                      from (ring = 0 -> V = -o s; S1_INIT's values with .initflag)
 //   s1cc trips IN.ll -o OUT.ll                         loop-count profiling module (prints the number of loops)
 //   s1cc unroll IN.ll --trips P -o OUT.ll              loops peeled to their profiled maximum (loops.cpp)
 //   s1cc graph IN.ll                                   the dataflow graph, for debugging
@@ -62,7 +63,7 @@ static void usage() {
 int main(int argc, char **argv) {
     if (argc < 3)
         usage();
-    std::string cmd = argv[1], in = argv[2], out, profile, tables, report, kernelPath, tripsPath;
+    std::string cmd = argv[1], in = argv[2], out, profile, tables, report, kernelPath, tripsPath, intoPath;
     s1::LowerOptions opt;
     for (int i = 3; i < argc; i++) {
         std::string a = argv[i];
@@ -73,8 +74,11 @@ int main(int argc, char **argv) {
         else if (a == "--report") report = next();
         else if (a == "--kernel") kernelPath = next();
         else if (a == "--trips") tripsPath = next();
+        else if (a == "--into") intoPath = next();
         else if (a == "--tol") opt.fitTol = std::stod(next());
         else if (a == "--tollog") opt.fitTolLog = std::stod(next());
+        else if (a == "--no-exact-init") opt.exactInit = false;
+        else if (a == "--trace") opt.trace = true;
         else if (a == "--maxdeg") opt.maxDeg = std::stoi(next());
         else if (a == "--regs") {
             opt.regs.clear();
@@ -153,13 +157,21 @@ int main(int argc, char **argv) {
     if (cmd == "init") {
         if (kernelPath.empty())
             usage();
+        // the states come from this module's graph; the function goes into --into (the original module)
+        std::unique_ptr<Module> target;
+        if (!intoPath.empty())
+            target = readIR(intoPath, ctx);
+        Module *TM = target ? target.get() : M.get();
         std::ifstream kf(kernelPath);
         std::string line;
         std::map<int, std::pair<double, double>> rep;
+        bool flag = false;
         while (std::getline(kf, line)) {
             std::istringstream ls(line);
             std::string tag;
             ls >> tag;
+            if (tag == ".initflag")
+                flag = true;
             if (tag == ".state") {
                 int idx;
                 std::string stage;
@@ -170,24 +182,27 @@ int main(int argc, char **argv) {
         }
         LLVMContext &C = M->getContext();
         Function *F = Function::Create(FunctionType::get(Type::getVoidTy(C), false), GlobalValue::ExternalLinkage,
-                                       "__s1p_dspstart", *M);
+                                       "__s1p_dspstart", *TM);
         IRBuilder<> b(BasicBlock::Create(C, "entry", F));
         for (auto &s : P.states) {
             auto it = rep.find(s.index);
-            if (it == rep.end())
+            if (it == rep.end() || flag)          // exact init: the reference keeps S1_INIT's values
                 continue;
             double v = -it->second.second * it->second.first;
             Type *t = s.isInt ? (Type *)Type::getIntNTy(C, s.bits)
                               : (s.bits == 64 ? Type::getDoubleTy(C) : Type::getFloatTy(C));
             Value *c = s.isInt ? (Value *)ConstantInt::get(t, (uint64_t)(int64_t)(v >= 9.2e18 ? 0 : (long long)(unsigned long long)v))
                                : (Value *)ConstantFP::get(t, v);
-            Value *ptr = b.CreateConstGEP1_64(Type::getInt8Ty(C), s.gv, s.offset);
+            GlobalVariable *gv = TM == M.get() ? s.gv : TM->getGlobalVariable(s.gv->getName(), true);
+            if (!gv)
+                s1::fail("init: state " + s.name + " not in " + intoPath);
+            Value *ptr = b.CreateConstGEP1_64(Type::getInt8Ty(C), gv, s.offset);
             b.CreateStore(c, ptr);
         }
         b.CreateRetVoid();
         std::error_code ec;
         raw_fd_ostream os(out, ec);
-        M->print(os, nullptr);
+        TM->print(os, nullptr);
         return 0;
     }
     if (cmd == "prof") {

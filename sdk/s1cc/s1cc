@@ -28,6 +28,7 @@ build)
             -I*) incs="$incs $1" ;;
             -o) out=$2; shift ;;
             --tol|--tollog|--maxdeg|--regs) lower_opts="$lower_opts $1 $2"; shift ;;
+            --trace|--no-exact-init) lower_opts="$lower_opts $1" ;;
             -h|--help) usage ;;
             *) srcs="$srcs $1" ;;
         esac
@@ -67,13 +68,13 @@ build)
         cp "$out/linked.ll" "$out/voice.ll"
     fi
     "$HERE/build/s1cc" prof "$out/voice.ll" -o "$out/prof.ll"
-    $CLANG -O1 -w "$out/voice.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/ref"
+    $CLANG -O1 -w "$out/linked.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/ref"       # the original, loops as written
     $CLANG -O1 -w "$out/prof.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/prof"
     "$out/ref" tables "$out/tables.txt"
     "$out/prof" prof "$out/profile.txt"
     "$HERE/build/s1cc" lower "$out/voice.ll" --profile "$out/profile.txt" --tables "$out/tables.txt" \
         -o "$out/voice.s1k" --report "$out/report.txt" $lower_opts
-    "$HERE/build/s1cc" init "$out/voice.ll" --kernel "$out/voice.s1k" -o "$out/refdsp.ll"
+    "$HERE/build/s1cc" init "$out/voice.ll" --kernel "$out/voice.s1k" --into "$out/linked.ll" -o "$out/refdsp.ll"
     $CLANG -O1 -w "$out/refdsp.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/refdsp"
     echo "kernel: $out/voice.s1k"
     ;;

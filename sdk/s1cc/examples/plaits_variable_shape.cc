@@ -9,6 +9,8 @@ S1_PARAM(shape, 0x16D, 1) { out[0] = knob / 255.0f; }                       // O
 
 static plaits::VariableShapeOscillator osc;
 
+S1_INIT { osc.Init(); }
+
 S1_VOICE {
   float out;
   float f = s1_increment() * 0.5f;                       // our step is for a phase -1..1

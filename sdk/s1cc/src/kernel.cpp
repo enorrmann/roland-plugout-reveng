@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <deque>
+#include <functional>
 #include <regex>
 #include <set>
 
@@ -129,6 +130,19 @@ KVal *Kernel::mad(KVal *acc, KVal *x, KOperand y) {
 KVal *Kernel::ymac(KVal *acc, KVal *x, KOperand y) { return op("ymacd {d}, {0}, {1}", {KOperand::of(x), y}, acc); }
 KVal *Kernel::min(KVal *x, KOperand y) { return op("min {d}, {0}, {1}", {KOperand::of(x), y}); }
 KVal *Kernel::max(KVal *x, KOperand y) { return op("max {d}, {0}, {1}", {KOperand::of(x), y}); }
+std::pair<KVal *, KVal *> Kernel::recipseed(KVal *y) {
+    KOp o;
+    o.kind = "pair";
+    o.fmt = "recipseed {d}, {0}";
+    o.d = val("2^-e");
+    o.d2 = val("seed");
+    o.args = {KOperand::of(y)};
+    ops_.push_back(o);
+    return {o.d, o.d2};
+}
+
+KVal *Kernel::twoMinus(KVal *x) { return op("subxy {d}, {0}, #2.0", {KOperand::of(x)}); }
+
 KVal *Kernel::wrap(KVal *x) { return op("ph_wrap {d}, r3, {0}", {KOperand::of(x)}); }
 KVal *Kernel::tri(KVal *x) { return op("ph_tri {d}, r3, -{0}", {KOperand::of(x)}); }
 KVal *Kernel::clamp(KVal *x) { return op("ph_clamp {d}, r3, -{0}", {KOperand::of(x)}); }
@@ -173,7 +187,8 @@ std::vector<std::string> Kernel::lines() {
                 used.insert(v->n);
         std::vector<KOp> keep;
         for (auto &o : ops_) {
-            if (o.kind == "op" && o.d && !used.count(o.d->n)) {
+            if ((o.kind == "op" && o.d && !used.count(o.d->n)) ||
+                (o.kind == "pair" && !used.count(o.d->n) && !used.count(o.d2->n))) {
                 changed = true;
                 continue;
             }
@@ -218,8 +233,9 @@ std::vector<std::string> Kernel::lines() {
     std::vector<KOp> out2;
     int nslot = 0;
     std::vector<std::string> freeSlots;
-    auto takeReg = [&](int i, const std::set<int> &keep) -> int {
-        if (!freeRegs.empty()) {
+    std::function<int(int, const std::set<int> &, bool)> takeReg = [&](int i, const std::set<int> &keep,
+                                                                        bool forceSpill) -> int {
+        if (!freeRegs.empty() && !forceSpill) {
             int r = freeRegs.front();
             freeRegs.pop_front();
             return r;
@@ -260,7 +276,7 @@ std::vector<std::string> Kernel::lines() {
             if (it == spilled.end())
                 continue;
             KVal *nv = val(v->name);
-            nv->reg = takeReg(i, keep);
+            nv->reg = takeReg(i, keep, false);
             KOp ld;
             ld.kind = "ld";
             ld.d = nv;
@@ -290,6 +306,34 @@ std::vector<std::string> Kernel::lines() {
             if (dies && live.erase(v->n))
                 freeRegs.push_back(v->reg);
         }
+        if (o.kind == "pair") {                      // recipseed: two adjacent registers r, r + 1
+            int got = -1;
+            for (int tries = 0; tries < 16 && got < 0; tries++) {
+                for (int r : freeRegs)
+                    if (std::find(freeRegs.begin(), freeRegs.end(), r + 1) != freeRegs.end()) {
+                        got = r;
+                        break;
+                    }
+                if (got < 0) {                          // spill until a pair is free
+                    int r = takeReg(i, keep, true);
+                    freeRegs.push_back(r);
+                }
+            }
+            if (got < 0)
+                fail("kernel: no free register pair for recipseed");
+            freeRegs.erase(std::find(freeRegs.begin(), freeRegs.end(), got));
+            freeRegs.erase(std::find(freeRegs.begin(), freeRegs.end(), got + 1));
+            o.d->reg = got;
+            o.d2->reg = got + 1;
+            for (KVal *v : {o.d, o.d2}) {
+                if (nextUse(v->n, i + 1) != 1 << 30)
+                    live[v->n] = v;
+                else
+                    freeRegs.push_back(v->reg);
+            }
+            out2.push_back(o);
+            continue;
+        }
         if (o.d) {
             if (o.acc) {
                 auto it = std::find(freeRegs.begin(), freeRegs.end(), o.acc->reg);
@@ -297,7 +341,7 @@ std::vector<std::string> Kernel::lines() {
                     freeRegs.erase(it);
                 o.d->reg = o.acc->reg;
             } else {
-                o.d->reg = takeReg(i, keep);
+                o.d->reg = takeReg(i, keep, false);
             }
             if (nextUse(o.d->n, i + 1) != 1 << 30)
                 live[o.d->n] = o.d;
@@ -322,6 +366,8 @@ std::vector<std::string> Kernel::lines() {
             s = "ld r" + std::to_string(o.d->reg) + ", [" + o.addr + "]";
         else if (o.kind == "st")
             s = "st r" + std::to_string(o.args[0].v->reg) + ", [" + o.addr + "]";
+        else if (o.kind == "pair")
+            s = "recipseed r" + std::to_string(o.d->reg) + ", r" + std::to_string(o.args[0].v->reg);
         else {
             s = o.fmt;
             auto rep = [&](const std::string &key, const std::string &val) {

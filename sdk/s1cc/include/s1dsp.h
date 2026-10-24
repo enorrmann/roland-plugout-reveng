@@ -14,6 +14,9 @@
  *   file-scope const arrays = tables: a constant index is folded; a computed one becomes part of a function that
  *                                   s1cc fits (polynomial, exp2 of a polynomial, with saturation)
  *   S1_PARAM(name, panel_id, count) { out[0..count-1] = f(knob); }   a knob table: runs on the PC at build time
+ *   S1_INIT    { obj.Init(); ... }  optional: runs on the PC before the reference / profiling; the values it leaves
+ *                                   in the state are the voice's initial state on the DSP too (s1cc emits a
+ *                                   first-sample flag and one mad per word that does not start at 0)
  *
  * Intrinsics:
  *   s1_pitch()            pitch of the voice in octaves (4.75 = A 440; LFO and range applied by the host)
@@ -63,6 +66,7 @@ S1_EXTERN float s1_range(float x, float lo, float hi);
     static void s1_param_fn_##name(int knob, float *out)
 
 #define S1_VOICE S1_EXTERN float s1_voice(void)
+#define S1_INIT S1_EXTERN void s1_init(void)
 #define S1_VOICE_B S1_EXTERN float s1_voice_b(float x)
 
 #endif

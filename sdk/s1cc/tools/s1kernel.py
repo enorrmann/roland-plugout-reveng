@@ -57,6 +57,10 @@ class Kernel:
                 k.stages[cur] = {'units': int(p[2]), 'lines': [], 'scratch': 0}
             elif p[0] == '.scratch':
                 k.stages[cur]['scratch'] = int(p[1])
+            elif p[0] == '.initflag':
+                k.stages[cur]['initflag'] = True
+            elif p[0] == '.trace':
+                k.stages[cur].setdefault('trace', []).append((int(p[1]), float(p[2]), ' '.join(p[3:])))
             elif p[0] == '.end':
                 cur = None
             elif cur:
@@ -72,7 +76,7 @@ class Kernel:
         def sub(m):
             key = m.group(1)
             plus = 0
-            if key.startswith('S') and key.endswith('+1'):
+            if key.endswith('+1'):
                 key, plus = key[:-2], 1
             if key not in addr:
                 raise KeyError(f'kernel placeholder {{{key}}} has no address')

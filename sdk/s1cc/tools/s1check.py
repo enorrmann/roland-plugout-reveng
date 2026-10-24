@@ -28,7 +28,7 @@ import dspsched  # noqa: E402
 from s1kernel import Kernel, read_tables  # noqa: E402
 
 PITCH, GATE, TRIG, A_OUT, EXP0, INB0, B_OUT = 0xA030, 0xA038, 0xA060, 0xA151, 0xA1A0, 0xA1B0, 0xA1C0
-STATE0, PARAM0, SCRATCH0 = 0x0100, 0x40, 0x0300
+STATE0, PARAM0, SCRATCH0, TRACE0 = 0x0100, 0x40, 0x0300, 0x0400
 
 
 def layout(k):
@@ -72,9 +72,12 @@ def run_kernel(outdir, note, n, knobs, proven=True):
         addr = dict(base, OUT=A_OUT if st == 'A' else B_OUT)
         for j in range(k.stages[st]['scratch']):
             addr[f'T{j}'] = SCRATCH0 + 2 * j
+        addr['I'] = SCRATCH0 - 2
         if st == 'B':
             for j, name in enumerate(k.inputs_b):
                 addr[f'IN:{name}'] = INB0 + j
+        for j, (rid, _, _) in enumerate(k.stages[st].get('trace', [])):
+            addr[f'D:{rid}'] = TRACE0 + j
         words, code = program(k.place(st, addr), proven)
         progs[dsp] = (chain.Program(words, st), [])
         info[st] = (k.stages[st]['units'], len(code))
@@ -92,6 +95,24 @@ def run_kernel(outdir, note, n, knobs, proven=True):
     b5[GATE & 0x3FF] = 1.0
     b5[TRIG & 0x3FF] = 1.0
     words = [(0, A_OUT)] + ([(1, B_OUT)] if 1 in progs else [])
+    tr = []
+    for st, dsp in (('A', 0), ('B', 1)):
+        if st in k.stages:
+            for j, (rid, scale, where) in enumerate(k.stages[st].get('trace', [])):
+                tr.append((dsp, TRACE0 + j, rid, scale, where))
+    if tr:
+        # bank-0 trace words: read back after every sample (the ring moves: the word written at S this sample is
+        # bank0[(S - t) mod 0x800] in the C core's array, chain.RING)
+        out = {w: [] for w in words}
+        traces = {t[2]: [] for t in tr}
+        for t in range(n):
+            r1 = sl.run(1, words)
+            for w in words:
+                out[w] += r1[w]
+            for dsp, a, rid, scale, _ in tr:
+                traces[rid].append(sl.d[dsp].bank0[(a - t) % chain.RING] * scale)
+        info['trace'] = (tr, traces)
+        return np.array(out[(0, A_OUT)]), (np.array(out[(1, B_OUT)]) if 1 in progs else None), info
     rec = sl.run(n, words)
     return np.array(rec[(0, A_OUT)]), (np.array(rec[(1, B_OUT)]) if 1 in progs else None), info
 
@@ -104,6 +125,42 @@ def run_ref(outdir, note, n, knobs):
                    + [f'{k}={v}' for k, v in knobs.items()], check=True)
     ab = np.fromfile(out, dtype='<f4').reshape(-1, 2)
     return ab[:, 0].astype(float), ab[:, 1].astype(float)
+
+
+def native_dump(outdir, note, n, knobs):
+    """{record id: [value per sample]} from the profiling build (PROG dump)"""
+    path = os.path.join(outdir, 'dump.txt')
+    subprocess.run([os.path.join(outdir, 'prof'), 'dump', path, str(note), str(n)]
+                   + [f'{k}={v}' for k, v in knobs.items()], check=True)
+    vals, t = {}, 0
+    for line in open(path):
+        if line.startswith('n'):
+            t += 1
+            continue
+        i, s, u = line.split()
+        vals.setdefault(int(i), {})[t] = (float(s), float(u))
+    return vals
+
+
+def trace_report(outdir, note, n, knobs, info):
+    """the first lowered value (program order) whose DSP value leaves the native one"""
+    tr, traces = info['trace']
+    nat = native_dump(outdir, note, n, knobs)
+    for dsp, _, rid, scale, where in tr:
+        got = traces[rid]
+        ref = nat.get(rid, {})
+        for t in range(n):
+            if t not in ref:
+                continue
+            s, u = ref[t]
+            tol = 1e-3 * max(1.0, abs(s)) + 1e-6 * scale
+            if 'cmp' in where:                    # booleans: only a flipped decision counts
+                tol = 0.5
+            if min(abs(got[t] - s), abs(got[t] - u)) > tol:
+                print(f'first difference: sample {t}, {"AB"[dsp]} record {rid} {where}: DSP {got[t]:.9g}, '
+                      f'native {s:.9g}')
+                return
+    print('trace: every traced value agrees with the native run')
 
 
 def snr(p, r):
@@ -126,11 +183,17 @@ def main(argv=None):
     ap.add_argument('--n', type=int, default=9600)
     ap.add_argument('--all-forms', action='store_true', help='schedule with every op group (not only the proven)')
     ap.add_argument('--show', action='store_true', help='print the scheduled programs')
+    ap.add_argument('--trace', action='store_true', help='the kernel must be built with --trace (s1cc build --trace):'
+                    ' report the first C operation whose value differs')
     ap.add_argument('knobs', nargs='*', help='name=knob (0..255; default 128)')
     a = ap.parse_intermixed_args(argv)
     knobs = {kv.split('=')[0]: int(kv.split('=')[1]) for kv in a.knobs}
     pa, pb, info = run_kernel(a.outdir, a.note, a.n, knobs, not a.all_forms)
     ra, rb = run_ref(a.outdir, a.note, a.n, knobs)
+    if a.trace:
+        if 'trace' not in info:
+            raise SystemExit('the kernel has no trace words: rebuild with s1cc build ... --trace')
+        trace_report(a.outdir, a.note, min(a.n, 200), knobs, info)
     w = min(960, a.n)
     for st, p, r in (('A', pa, ra), ('B', pb, rb)):
         if p is None:

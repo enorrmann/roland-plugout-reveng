@@ -96,6 +96,23 @@ void instrument(Program &P) {
                 overflowAfter(b, M, kv.second, B);
         }
     }
+    // divisors: a histogram of sign and octave (__s1p_h), so the reciprocal knows its usual range
+    {
+        FunctionCallee rech = M.getOrInsertFunction("__s1p_h", Type::getVoidTy(C), i32, d);
+        for (Stage *S : {&P.A, &P.B}) {
+            if (!S->fn)
+                continue;
+            for (auto &np : S->nodes) {
+                Node *n = np.get();
+                if (n->op != "fdiv" || !n->v || n->in.size() < 2 || n->in[1]->prof < 0 || !n->in[1]->v)
+                    continue;
+                auto *I = cast<Instruction>(n->v);
+                IRBuilder<> b(I);
+                Value *y = cast<Instruction>(n->v)->getOperand(1);
+                b.CreateCall(rech, {ConstantInt::get(i32, n->in[1]->prof), b.CreateFPExt(y, d)});
+            }
+        }
+    }
     // speculated values: also recorded at their select, when the arm they feed is taken
     {
         FunctionCallee recc = M.getOrInsertFunction("__s1p_c", Type::getVoidTy(C), i32, i32, d, d);
@@ -184,6 +201,22 @@ void instrument(Program &P) {
     ArrayType *at = ArrayType::get(rowTy, rows.size());
     new GlobalVariable(M, at, true, GlobalValue::ExternalLinkage, ConstantArray::get(at, rows), "__s1p_isl_tab");
     new GlobalVariable(M, i32, true, GlobalValue::ExternalLinkage, ConstantInt::get(i32, rows.size()), "__s1p_isl_n");
+    // __s1p_state(double *out): every state word, as a double (the runtime writes them after s1_init)
+    {
+        Function *D = Function::Create(FunctionType::get(Type::getVoidTy(C), {PointerType::getUnqual(C)}, false),
+                                       GlobalValue::ExternalLinkage, "__s1p_state", M);
+        IRBuilder<> b(BasicBlock::Create(C, "entry", D));
+        for (auto &s : P.states) {
+            Type *t = s.isInt ? (Type *)Type::getIntNTy(C, s.bits) : (s.bits == 64 ? Type::getDoubleTy(C) : Type::getFloatTy(C));
+            Value *ptr = b.CreateConstGEP1_64(Type::getInt8Ty(C), s.gv, s.offset);
+            Value *v = b.CreateLoad(t, ptr);
+            Value *dv = s.isInt ? (s.isUnsigned ? b.CreateUIToFP(v, d) : b.CreateSIToFP(v, d)) : b.CreateFPExt(v, d);
+            b.CreateStore(dv, b.CreateConstGEP1_64(d, D->getArg(0), s.index));
+        }
+        b.CreateRetVoid();
+        new GlobalVariable(M, i32, true, GlobalValue::ExternalLinkage, ConstantInt::get(i32, P.states.size()),
+                           "__s1p_nstate");
+    }
     // __s1p_reset: every state global back to its initializer
     Function *R = Function::Create(FunctionType::get(Type::getVoidTy(C), false), GlobalValue::ExternalLinkage,
                                    "__s1p_reset", M);
