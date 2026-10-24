@@ -83,6 +83,8 @@ static bool goodImm(double a) {
 KVal *Kernel::mul(KVal *x, KOperand y) {
     if (!y.v) {
         double a = y.imm;
+        if (!std::isfinite(a))
+            fail("kernel: a multiply by a non-finite constant (a range the profile left unbounded)");
         if (a == 1)
             return x;
         // fold into the multiply that made x (the peephole pass in lines() drops the old one if unused)
@@ -111,6 +113,8 @@ KVal *Kernel::mul(KVal *x, KOperand y) {
     return op("mul {d}, {0}, {1}", {KOperand::of(x), y});
 }
 KVal *Kernel::add(KVal *x, KOperand y) {
+    if (!y.v && !std::isfinite(y.imm))
+        fail("kernel: a non-finite constant");
     if (!y.v && std::fabs(y.imm) >= 512)
         fail("kernel: constant " + std::to_string(y.imm) + " outside the DSP range (+-512)");
     return op("addxy {d}, {0}, {1}", {KOperand::of(x), y});
@@ -148,6 +152,8 @@ KVal *Kernel::tri(KVal *x) { return op("ph_tri {d}, r3, -{0}", {KOperand::of(x)}
 KVal *Kernel::clamp(KVal *x) { return op("ph_clamp {d}, r3, -{0}", {KOperand::of(x)}); }
 
 KVal *Kernel::exp2(KVal *x, int extra) {
+    if (extra > 8)
+        fail("kernel: exp2 of a value spanning more than 2^11 (the profile's range is unbounded)");
     // 2^x = (e^(x ln2 / 2^(4 + extra)))^(2^(4 + extra)), e^y by 4 Taylor terms (make_synth.py exp2_to)
     double k = std::log(2.0) / std::ldexp(1.0, 4 + extra);
     KVal *y = mul(x, KOperand::im(k));

@@ -1,5 +1,7 @@
 // The voice functions of the LLVM module as dataflow graphs (s1cc.h, docs/S1CC.md §4).
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstdlib>
 #include <functional>
 
@@ -527,15 +529,24 @@ struct Builder {
     }
 };
 
+std::map<const Node *, bool> constMemo;
+
 bool isConstExpr(const Node *n) {
     if (n->kind == NK::Const)
         return true;
     if (n->kind != NK::Op || n->bad || n->in.empty())
         return false;
+    auto it = constMemo.find(n);
+    if (it != constMemo.end())
+        return it->second;
+    bool r = true;
     for (Node *i : n->in)
-        if (!isConstExpr(i))
-            return false;
-    return true;
+        if (!isConstExpr(i)) {
+            r = false;
+            break;
+        }
+    constMemo[n] = r;
+    return r;
 }
 
 void markLive(Program &P, Stage &S) {
@@ -652,8 +663,13 @@ void islands(Stage &S) {
         if (chain.empty())
             fail("a table read / function / division that depends on several values " + where(N->v) +
                  ": only functions of one value can be tabulated");
-        for (auto it = chain.rbegin(); it != chain.rend(); ++it) {     // highest root first
-            Node *R = *it;
+        // candidates: the three highest roots and the immediate one (the rest only cost memory and time)
+        std::vector<Node *> cands;
+        for (auto it = chain.rbegin(); it != chain.rend() && cands.size() < 3; ++it)
+            cands.push_back(*it);
+        if (std::find(cands.begin(), cands.end(), chain.front()) == cands.end())
+            cands.push_back(chain.front());
+        for (Node *R : cands) {
             std::set<Node *> pure;
             std::vector<Node *> members;
             for (auto &mp : S.nodes) {
@@ -779,6 +795,8 @@ void build(Program &P, Module &M) {
             continue;
         Builder b(P, *S);
         b.run();
+        if (getenv("S1CC_DEBUG"))
+            fprintf(stderr, "graph %s: %zu nodes\n", S->name.c_str(), S->nodes.size());
         if (!S->ret)
             fail(S->fn->getName().str() + " returns nothing");
         markLive(P, *S);

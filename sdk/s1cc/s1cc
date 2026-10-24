@@ -56,7 +56,10 @@ build)
             "$s" -o "$out/src$i.ll"
         lls="$lls $out/src$i.ll"
     done
-    "$LLVM_BIN/llvm-link" -S $lls -o "$out/linked.ll"
+    "$LLVM_BIN/llvm-link" -S $lls -o "$out/linked0.ll"
+    # across sources (a wrapper calling a library's render function): inline everything into the voice functions
+    "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -vectorize-loops=false -vectorize-slp=false \
+        "$out/linked0.ll" -o "$out/linked.ll"
     # loops with a data-dependent trip count: profile the counts, peel to the maximum (docs/S1CC.md §4.5)
     nloops=$("$HERE/build/s1cc" trips "$out/linked.ll" -o "$out/trips.ll")
     if [ "$nloops" -gt 0 ]; then
