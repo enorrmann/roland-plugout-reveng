@@ -2,6 +2,7 @@
 // per DSP sample. No algorithm code is copied: s1cc compiles braids/digital_oscillator.cc and finds what runs.
 //   sdk/s1cc/s1cc build sdk/s1cc/examples/braids_wrapper_saw_swarm.cc ~/git/eurorack/braids/digital_oscillator.cc \
 //       ~/git/eurorack/braids/resources.cc -I ~/git/eurorack
+// sdk/s1cc/s1cc build sdk/s1cc/examples/braids_wrapper_saw_swarm.cc ~/git/eurorack/braids/digital_oscillator.cc ~/git/eurorack/braids/resources.cc -I ~/git/eurorack
 #include <stdint.h>
 #include "s1dsp.h"
 #define private public                 // RenderSawSwarm is private in Braids: the wrapper calls it directly
@@ -17,7 +18,7 @@ static braids::DigitalOscillator osc;
 S1_INIT {
   osc.Init();
   osc.set_shape(braids::OSC_SHAPE_SAW_SWARM);
-  osc.strike_ = false;                 // no random start phases (the DSP has no stmlib RNG): phases from 0
+  //osc.strike_ = false;                 // no random start phases (the DSP has no stmlib RNG): phases from 0
 }
 
 S1_VOICE {
