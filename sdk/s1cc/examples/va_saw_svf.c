@@ -4,13 +4,13 @@
 #include "s1dsp.h"
 
 /* OSC1 COLOR: cutoff 50 Hz .. 12 kHz -> SVF coefficient g = tan(pi fc / fs) (computed on the PC) */
-S1_PARAM(cutoff, 0x168, 1) {
+S1_PARAM(cutoff, S1_OSC1_COLOR, 1) {
     float fc = 50.0f * powf(240.0f, knob / 255.0f);
     out[0] = tanf(3.14159265f * fc / 96000.0f);
 }
 
 /* OSC2 COLOR: resonance -> damping 2 .. 0.1 */
-S1_PARAM(damping, 0x16D, 1) { out[0] = 2.0f - 1.9f * knob / 255.0f; }
+S1_PARAM(damping, S1_OSC2_COLOR, 1) { out[0] = 2.0f - 1.9f * knob / 255.0f; }
 
 static float phase;      /* 0..1 */
 static float ic1, ic2;   /* SVF state (Cytomic / Simper form) */

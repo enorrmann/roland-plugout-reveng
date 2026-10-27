@@ -4,8 +4,8 @@
 #include "s1dsp.h"
 #include "plaits/dsp/oscillator/variable_shape_oscillator.h"
 
-S1_PARAM(pw, 0x168, 1) { out[0] = 0.5f + 0.49f * (knob / 255.0f); }        // OSC1 COLOR: pulse width
-S1_PARAM(shape, 0x16D, 1) { out[0] = knob / 255.0f; }                       // OSC2 COLOR: saw -> pulse
+S1_PARAM(pw, S1_OSC1_COLOR, 1) { out[0] = 0.5f + 0.49f * (knob / 255.0f); }        // OSC1 COLOR: pulse width
+S1_PARAM(shape, S1_OSC2_COLOR, 1) { out[0] = knob / 255.0f; }                       // OSC2 COLOR: saw -> pulse
 
 static plaits::VariableShapeOscillator osc;
 

@@ -11,7 +11,7 @@
 using namespace braids;
 using stmlib::Interpolate88;
 
-S1_PARAM(ratio, 0x168, 7) {                      // TIMBRE: Braids' detune -> increment ratios of the 7 saws
+S1_PARAM(ratio, S1_OSC1_COLOR, 7) {                      // TIMBRE: Braids' detune -> increment ratios of the 7 saws
   int32_t parameter = knob * 32767 / 255;
   int32_t detune = parameter + 1024;
   detune = (detune * detune) >> 9;
@@ -19,7 +19,7 @@ S1_PARAM(ratio, 0x168, 7) {                      // TIMBRE: Braids' detune -> in
     out[i] = s1_exp2(detune * (i - 3) / 65536.0f / 128.0f / 12.0f);
 }
 
-S1_PARAM(hp_h, 0x16D, 1) {                       // COLOR: pi 2^(offset / 12) / 2, offset in semitones as Braids
+S1_PARAM(hp_h, S1_OSC2_COLOR, 1) {                       // COLOR: pi 2^(offset / 12) / 2, offset in semitones as Braids
   int32_t parameter = knob * 32767 / 255;
   int32_t off = parameter < 10922 ? ((parameter - 10922) * 24) >> 5 : ((parameter - 10922) * 12) >> 5;
   out[0] = 3.14159265f * s1_exp2(off / 128.0f / 12.0f) / 2.0f;

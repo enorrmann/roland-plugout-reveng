@@ -13,7 +13,7 @@ using stmlib::Interpolate88;
 using stmlib::Interpolate824;
 
 // TIMBRE (OSC1 COLOR): Braids' detune -> ratio of each saw's increment to the centre's (k = -3..3)
-S1_PARAM(ratio, 0x168, 7) {
+S1_PARAM(ratio, S1_OSC1_COLOR, 7) {
   int32_t parameter = knob * 32767 / 255;
   int32_t detune = parameter + 1024;
   detune = (detune * detune) >> 9;
@@ -24,7 +24,7 @@ S1_PARAM(ratio, 0x168, 7) {
 }
 
 // COLOR (OSC2 COLOR): offset of the high-pass cutoff from the note, in Braids pitch units (1/128 semitone)
-S1_PARAM(hp_offset, 0x16D, 1) {
+S1_PARAM(hp_offset, S1_OSC2_COLOR, 1) {
   int32_t parameter = knob * 32767 / 255;
   out[0] = parameter < 10922 ? ((parameter - 10922) * 24) >> 5 : ((parameter - 10922) * 12) >> 5;
 }

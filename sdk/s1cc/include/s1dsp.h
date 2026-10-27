@@ -14,6 +14,7 @@
  *   file-scope const arrays = tables: a constant index is folded; a computed one becomes part of a function that
  *                                   s1cc fits (polynomial, exp2 of a polynomial, with saturation)
  *   S1_PARAM(name, panel_id, count) { out[0..count-1] = f(knob); }   a knob table: runs on the PC at build time
+ *                                   panel_id: a SYSTEM-1 control, S1_OSC1_COLOR ... (s1panel.h, included here)
  *   S1_INIT    { obj.Init(); ... }  optional: runs on the PC before the reference / profiling; the values it leaves
  *                                   in the state are the voice's initial state on the DSP too (s1cc emits a
  *                                   first-sample flag and one mad per word that does not start at 0)
@@ -37,6 +38,8 @@
 #else
 #define S1_EXTERN
 #endif
+
+#include "s1panel.h"
 
 typedef struct s1_param_desc {
     const char *name;

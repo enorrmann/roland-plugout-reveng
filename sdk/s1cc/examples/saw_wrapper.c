@@ -3,7 +3,7 @@
  *
  *   S1_VOICE      slave DSP A, every sample: trigger -> new note, one sample of the library, x gate
  *   S1_INIT       the wrapper's and the library's first values (the native reference starts from them too)
- *   S1_PARAM      OSC1 COLOR (0x168) -> saw level
+ *   S1_PARAM      OSC1 COLOR (S1_OSC1_COLOR) -> saw level
  *   S1_VOICE_B    not here: DSP B is left free for the filter / envelopes of the host program (C-S1SY)
  *
  * Build:  sdk/s1cc/s1cc build sdk/s1cc/examples/saw_wrapper.c sdk/s1cc/examples/saw_core.c -I sdk/s1cc/examples
@@ -19,7 +19,7 @@
 #include "saw_core.h"
 
 /* OSC1 COLOR: saw level, 0 .. 1: computed on the PC for knob = 0..255, written to the DSP as a parameter */
-S1_PARAM(level, 0x168, 1) { out[0] = knob / 255.0f; }
+S1_PARAM(level, S1_OSC1_COLOR, 1) { out[0] = knob / 255.0f; }
 
 static struct saw voice;                /* the library's state: phase, frequency, differencer */
 static float last_trig;                 /* the trigger of the last sample: a change is a new note */

@@ -66,6 +66,7 @@ Status of each item is in the document itself; the scope of the project is in th
 
 | Document | Experiment |
 |---|---|
+| [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) | s1cc: the minimal example of a plain C library (a naive saw) and its wrapper for an S1 voice. Spanish. |
 | [examples_sys8_lab_README.md](examples_sys8_lab_README.md) | S8LAB: the SYSTEM-8 image in PLG1 used as a lab, with its tests. |
 | [PLAN.md](PLAN.md) | Plan and results of the S8LAB lab (`examples/sys8_lab/`). |
 | [examples_wt_live_README.md](examples_wt_live_README.md) | C-WTLIVE: live wavetable PLUG-OUT (slot 3). |

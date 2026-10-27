@@ -71,7 +71,7 @@ Dependencias:
 ```c
 #include "s1dsp.h"
 
-S1_PARAM(cutoff, 0x168, 1) {               /* perilla OSC1 COLOR -> tabla: corre en el PC, knob = 0..255 */
+S1_PARAM(cutoff, S1_OSC1_COLOR, 1) {       /* perilla OSC1 COLOR -> tabla: corre en el PC, knob = 0..255 */
     out[0] = tanf(3.14159265f * 50.0f * powf(240.0f, knob / 255.0f) / 96000.0f);
 }
 
@@ -96,6 +96,7 @@ S1_VOICE_B {                               /* opcional: DSP B; x = la señal de 
 | variables de archivo no `const` | estado de la voz (int o float; los arrays con índice constante sirven, clang los separa). Una variable sólo puede usarla una de las dos funciones |
 | arrays `const` | tablas: con índice constante se pliegan; con índice calculado pasan a una isla (§4.3) |
 | `S1_PARAM(nombre, panel_id, n)` | tabla de perilla: la función corre en el PC para knob = 0…255 y escribe `out[0..n-1]`; el ARM la escribe como parámetros `C0xx` del DSP cuando se mueve el control `panel_id` |
+| `panel_id` | un control del panel del SYSTEM-1, con nombre: `S1_OSC1_COLOR` (`0x168`), `S1_OSC2_COLOR` (`0x16D`), `S1_FILTER_CUTOFF`... (`include/s1panel.h`, `#define`, lo incluye `s1dsp.h`). Los ids están medidos (examples_system_1_synth_README.md §8). OSC1 / OSC2 COLOR son los que el anfitrión C-S1SY deja libres |
 | bucles | sólo con número de iteraciones constante (clang los desenrolla) |
 | llamadas | sólo código que se inline-a (en el mismo archivo o en headers) y los intrínsecos; libm: §7.3 |
 
@@ -557,6 +558,7 @@ El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuán
 | `braids_saw_swarm.cc` | el bucle original de RenderSawSwarm (enteros, fases `uint32`, `Interpolate88`, SVF Q15, `lut_svf_cutoff` por isla) | 49 | 46 | 58 / 44–49 dB |
 | `braids_saw_swarm_s1.cc` | lo mismo, con el coeficiente del paso alto desde el incremento exportado (cabe en 8 voces) | 49 | 26 | 58 / 46–49 dB |
 | `va_saw_svf.c` | float: polyBLEP (`if`, divisiones por `dt`), SVF de Simper con `tanhf`, tablas con `powf`/`tanf` | 84 | 31 | 68 / 54 dB |
+| `simple_saw_wrapped/` | el ejemplo mínimo: una librería C pura (diente de sierra ingenuo, `saw.c`) y su envoltorio ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md)) | 19 | — | 95–108 dB / — |
 
 Notas 45 y 57, perillas en 128. `tests/test_s1cc.py` usa estos valores con un margen (A ≤ 52 en los Braids).
 Entre el 2026-10-24 y el 2026-10-27 los Braids tuvieron 58 instrucciones en A: el arranque exacto corregía sus 7

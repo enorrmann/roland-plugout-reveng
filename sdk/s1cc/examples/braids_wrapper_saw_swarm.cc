@@ -10,8 +10,8 @@
 #undef private
 
 // the knobs as Braids sees them: parameter 0..32767 (TIMBRE = OSC1 COLOR, COLOR = OSC2 COLOR)
-S1_PARAM(timbre, 0x168, 1) { out[0] = knob * 32767 / 255; }
-S1_PARAM(color, 0x16D, 1) { out[0] = knob * 32767 / 255; }
+S1_PARAM(timbre, S1_OSC1_COLOR, 1) { out[0] = knob * 32767 / 255; }
+S1_PARAM(color, S1_OSC2_COLOR, 1) { out[0] = knob * 32767 / 255; }
 
 static braids::DigitalOscillator osc;
 

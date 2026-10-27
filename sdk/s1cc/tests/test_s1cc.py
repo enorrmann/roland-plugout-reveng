@@ -23,6 +23,7 @@ import s1check  # noqa: E402
 EURORACK = os.environ.get('EURORACK', os.path.expanduser('~/git/eurorack'))
 BRAIDS = [os.path.join(EURORACK, 'braids', 'resources.cc'), '-I', os.path.join(ROOT, 'sdk', 'mport', 'ref'),
           '-I', EURORACK]
+SIMPLE_SAW = os.path.join(S1CC, 'examples', 'simple_saw_wrapped', 'saw.c')
 HAVE = shutil.which('clang') and os.path.exists('/usr/lib/llvm-19/bin/llvm-link')
 
 # example, extra build args, [(note, knobs, min SNR A, min SNR B)], max instructions A / B
@@ -33,13 +34,16 @@ CASES = [
                                         (81, {'ratio': 255, 'hp_h': 100}, 50, 40)], (52, 30)),
     ('va_saw_svf.c', [], [(45, {}, 60, 50), (69, {'cutoff': 200, 'damping': 200}, 60, 45),
                           (93, {'cutoff': 60, 'damping': 50}, 60, 60)], (100, 42)),
+    # a plain C library and its wrapper, no S1_VOICE_B (min SNR B / max instructions B: None)
+    ('simple_saw_wrapped/simple_saw_wrapped.c', [SIMPLE_SAW, '-I', os.path.dirname(SIMPLE_SAW)],
+     [(33, {'level': 255}, 90, None), (57, {}, 90, None), (81, {'level': 255}, 90, None)], (22, None)),
 ]
 
 
 @unittest.skipUnless(HAVE, 'needs clang and LLVM 19')
 class TestExamples(unittest.TestCase):
     def build(self, src, extra):
-        out = os.path.join(S1CC, 'build', 'test_' + os.path.splitext(src)[0])
+        out = os.path.join(S1CC, 'build', 'test_' + os.path.splitext(os.path.basename(src))[0])
         cmd = [os.path.join(S1CC, 's1cc'), 'build', os.path.join(S1CC, 'examples', src)] + extra + ['-o', out]
         r = subprocess.run(cmd, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
@@ -55,12 +59,14 @@ class TestExamples(unittest.TestCase):
                     pa, pb, info = s1check.run_kernel(out, note, 4800, knobs)
                     ra, rb = s1check.run_ref(out, note, 4800, knobs)
                     self.assertGreater(s1check.snr(pa[:960], ra[:960]), sa, (src, note, knobs, 'A'))
-                    self.assertGreater(s1check.snr(pb[:960], rb[:960]), sb, (src, note, knobs, 'B'))
-                    for p, r in ((pa, ra), (pb, rb)):
+                    if sb is not None:
+                        self.assertGreater(s1check.snr(pb[:960], rb[:960]), sb, (src, note, knobs, 'B'))
+                    for p, r in ((pa, ra), (pb, rb)) if sb is not None else ((pa, ra),):
                         d = np.array(s1check.bands(p)[1:4]) - np.array(s1check.bands(r)[1:4])
                         self.assertTrue(np.all(np.abs(d) < 0.5), (src, note, knobs, d))
                 self.assertLessEqual(info['A'][1], maxa, src)
-                self.assertLessEqual(info['B'][1], maxb, src)
+                if maxb is not None:
+                    self.assertLessEqual(info['B'][1], maxb, src)
 
 
 if __name__ == '__main__':
