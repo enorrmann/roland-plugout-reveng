@@ -2,9 +2,11 @@
 # s1cc driver (docs/S1CC.md §9): C / C++ voice program -> kernel for the Roland BMC DSPs.
 #
 #   sdk/s1cc/s1cc build VOICE.cc [MORE.cc ...] [-I DIR ...] [-o OUTDIR] [--tol X] [--tollog X] [--maxdeg N] [--regs LIST]
+#           [--debug]
 #       OUTDIR (default build/<voice>): voice.ll (linked IR), tables.txt (S1_PARAM tables), profile.txt,
 #       voice.s1k (the kernel), report.txt; ref / prof / refdsp (native reference, profiling, reference that
-#       starts from the DSP's initial state)
+#       starts from the DSP's initial state). --debug (or S1CC_DEBUG=1): C file:line and function in every error,
+#       and first the list of C functions s1cc cannot compile and why (OUTDIR/diag.txt); S1CC_DEBUG=2 adds every node
 #   sdk/s1cc/s1cc check OUTDIR [--note N] [name=knob ...]   microcode on the emulator vs the native reference
 #   sdk/s1cc/s1cc deps                       fetch Mutable Instruments' stmlib (MIT) into build/deps (the eurorack
 #       checkout has its submodule empty): with it, `build` adds -I build/deps and stmlib's units.cc / random.cc,
@@ -16,12 +18,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 LLVM_BIN=${LLVM_BIN:-/usr/lib/llvm-19/bin}
 CLANG=${CLANG:-clang}
 CLANGXX=${CLANGXX:-clang++}
-usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+# driver errors carry a code too (docs/S1CC.md §9.2)
+fail() { echo "s1cc: error $1: $2" >&2; [ "${S1CC_DEBUG:-0}" = 0 ] || echo "s1cc: debug: cause and fix of $1: docs/S1CC.md §9.2" >&2; exit 1; }
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 cmd=$1; shift
 case $cmd in
 build)
-    srcs=; incs=; out=; lower_opts=
+    srcs=; incs=; out=; lower_opts=; debug=${S1CC_DEBUG:-0}
     while [ $# -gt 0 ]; do
         case $1 in
             -I) incs="$incs -I$2"; shift ;;
@@ -29,6 +33,7 @@ build)
             -o) out=$2; shift ;;
             --tol|--tollog|--maxdeg|--regs) lower_opts="$lower_opts $1 $2"; shift ;;
             --trace|--no-exact-init) lower_opts="$lower_opts $1" ;;
+            --debug) [ "$debug" -ge 1 ] 2>/dev/null || debug=1 ;;
             -h|--help) usage ;;
             *) srcs="$srcs $1" ;;
         esac
@@ -40,6 +45,11 @@ build)
     out=${out:-$HERE/build/$name}
     mkdir -p "$out"
     make -s -C "$HERE" build/s1cc
+    dbgflags=
+    if [ "$debug" != 0 ]; then
+        export S1CC_DEBUG=$debug
+        dbgflags=-g                            # debug info: the C function and line of every instruction
+    fi
     DEPS=$HERE/build/deps
     if [ -d "$DEPS/stmlib/dsp" ]; then                 # the real stmlib, before any stand-in
         incs="-I$DEPS -DTEST $incs"            # TEST: stmlib's portable C instead of ARM asm
@@ -52,18 +62,27 @@ build)
     for s in $srcs; do
         i=$((i + 1))
         case $s in *.c) cc=$CLANG; std= ;; *) cc=$CLANGXX; std="-std=c++17 -fno-exceptions -fno-rtti" ;; esac
-        $cc -O2 -S -emit-llvm -w -fno-math-errno -mllvm -inline-threshold=100000 -fno-vectorize -fno-slp-vectorize $std -I"$HERE/include" $incs \
-            "$s" -o "$out/src$i.ll"
+        $cc -O2 -S -emit-llvm -w -fno-math-errno -mllvm -inline-threshold=100000 -fno-vectorize -fno-slp-vectorize $dbgflags $std -I"$HERE/include" $incs \
+            "$s" -o "$out/src$i.ll" || fail E010 "clang could not compile $s"
         lls="$lls $out/src$i.ll"
     done
     "$LLVM_BIN/llvm-link" -S $lls -o "$out/linked0.ll"
     # across sources (a wrapper calling a library's render function): inline everything into the voice functions
-    "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -vectorize-loops=false -vectorize-slp=false \
-        "$out/linked0.ll" -o "$out/linked.ll"
+    if [ "$debug" != 0 ]; then
+        # the inliner's reasons for every call it kept, then what s1cc cannot compile (before any later error)
+        "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -vectorize-loops=false -vectorize-slp=false \
+            -pass-remarks-missed=inline "$out/linked0.ll" -o "$out/linked.ll" 2> "$out/inline.txt" ||
+            { cat "$out/inline.txt" >&2; exit 1; }
+        "$HERE/build/s1cc" diag "$out/linked.ll" --remarks "$out/inline.txt" > "$out/diag.txt"
+        sed 's/^/s1cc: debug: /' "$out/diag.txt" >&2
+    else
+        "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -vectorize-loops=false -vectorize-slp=false \
+            "$out/linked0.ll" -o "$out/linked.ll"
+    fi
     # loops with a data-dependent trip count: profile the counts, peel to the maximum (docs/S1CC.md §4.5)
     nloops=$("$HERE/build/s1cc" trips "$out/linked.ll" -o "$out/trips.ll")
     if [ "$nloops" -gt 0 ]; then
-        $CLANG -O1 -w "$out/trips.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/trips"
+        $CLANG -O1 -w "$out/trips.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/trips" || fail E011 "link failed"
         "$out/trips" prof "$out/trips.txt"
         "$HERE/build/s1cc" unroll "$out/linked.ll" --trips "$out/trips.txt" -o "$out/voice.ll" > "$out/loops.txt"
         cat "$out/loops.txt"
@@ -71,8 +90,8 @@ build)
         cp "$out/linked.ll" "$out/voice.ll"
     fi
     "$HERE/build/s1cc" prof "$out/voice.ll" -o "$out/prof.ll"
-    $CLANG -O1 -w "$out/linked.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/ref"       # the original, loops as written
-    $CLANG -O1 -w "$out/prof.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/prof"
+    $CLANG -O1 -w "$out/linked.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/ref" || fail E011 "link failed"   # loops as written
+    $CLANG -O1 -w "$out/prof.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/prof" || fail E011 "link failed"
     "$out/ref" tables "$out/tables.txt"
     "$out/prof" prof "$out/profile.txt"
     "$HERE/build/s1cc" lower "$out/voice.ll" --profile "$out/profile.txt" --tables "$out/tables.txt" \

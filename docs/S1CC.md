@@ -301,6 +301,217 @@ El anfitrión cambia cada marcador por una dirección (`tools/s1kernel.py place`
 `report.txt` incluye las unidades por etapa, los derrames, cada isla y ajuste (modelo, grado, error, coste), las
 candidatas descartadas y los avisos.
 
+### 9.1 Depuración (`--debug`)
+
+`s1cc build ... --debug` (o `S1CC_DEBUG=1`) cambia tres cosas:
+
+* **Información de depuración.** Las fuentes se compilan con `-g`. Cada error y aviso nombra el archivo, la línea y
+  la función C / C++ de la instrucción, y la cadena de inlining hasta la voz:
+  `digital_oscillator.cc:306 in braids::DigitalOscillator::RenderToy, inlined at braids_wrapper_digital.cc:28 in
+  s1_voice`. Sin `--debug` el error muestra la instrucción del IR y la función de la voz.
+* **Diagnóstico previo.** Antes del perfilado, `s1cc diag linked.ll --remarks inline.txt` recorre `s1_voice` y
+  `s1_voice_b` y lista todas las funciones C que no puede compilar, cada una con su motivo y sus lugares. La lista
+  queda en `SALIDA/diag.txt` y también sale por stderr con el prefijo `s1cc: debug:`. Así se ven todos los
+  problemas aunque el build se detenga en el primero.
+* **Motivos de LLVM.** `opt` corre con `-pass-remarks-missed=inline`. `SALIDA/inline.txt` guarda por qué el
+  inliner dejó cada llamada, y `diag` agrega ese motivo a la función.
+
+Qué detecta `diag` (son las mismas reglas que usa el constructor del grafo, `graph.cpp` `callProblem` /
+`instProblem`):
+
+| problema | motivo que informa |
+|---|---|
+| llamada a una función sin cuerpo | el archivo que la define no está entre las fuentes, o es una función de biblioteca que s1cc no conoce |
+| llamada a una función definida pero no inlineada | `noinline`, `optnone`, variádica, recursiva, o el motivo del inliner |
+| llamada indirecta | puntero a función o método virtual |
+| intrínseco de LLVM sin operación | su nombre (`llvm.*`) |
+| `switch`, `invoke` y otras instrucciones | la instrucción no está soportada (un `switch` se escribe con `if` / `?:`) |
+| `bitcast`, `ptrtoint`, `inttoptr`, `addrspacecast` | puntero usado como número o reinterpretación de tipo |
+
+Al final, `diag` también muestra las funciones C que sí quedaron inlineadas en la voz (`inlined into s1_voice:`).
+El cuerpo de una función no inlineada también se revisa, porque sus problemas aparecerán cuando se inlinee.
+`diag` no ve los errores que dependen del grafo o del perfil (rangos, islas con varias entradas, punteros
+calculados). Esos siguen deteniendo el build en `lower`, pero con la ubicación C de arriba.
+
+Ejemplo, la envoltura de Braids sin `digital_oscillator.cc` entre las fuentes:
+
+```
+s1cc: debug: S1_VOICE (s1_voice): 1 C function(s) s1cc cannot compile
+s1cc: debug:   braids::DigitalOscillator::RenderToy
+s1cc: debug:     E101: not inlined: it has no body in the module: the file that defines it is not among the build's sources (add it), or it is a library function s1cc does not know
+s1cc: debug:       at sdk/s1cc/examples/braids_wrapper_digital.cc:28 in s1_voice
+s1cc: debug:   inlined into s1_voice: braids::DigitalOscillator::set_parameters
+```
+
+Con `--debug`, cada error termina con una referencia a su código en §9.2.
+
+`S1CC_DEBUG=2` además vuelca cada nodo del grafo y su representación tras el lowering (`n12 fmul: %3 s ... V [...]`).
+`-g` no cambia el kernel: con y sin `--debug` sale el mismo `voice.s1k` (comprobado con `va_saw_svf.c` y
+`braids_saw_swarm_s1.cc`, 2026-10-27).
+
+### 9.2 Errores y cómo resolverlos
+
+Cada error y cada aviso tiene un **código** fijo: `s1cc: error E501: ...`, `s1cc: warning W905: ...`. El
+código identifica el caso exacto; el texto que sigue cambia con los nombres y valores. Para resolverlo, buscar el
+código en las tablas de abajo (`grep E501 docs/S1CC.md`). Los errores detienen el build; los avisos no, y quedan
+también en `report.txt` con su código. Con `--debug` (§9.1), cada mensaje lleva `archivo:línea in función` con la
+cadena de inlining, y cada error termina con `s1cc: debug: cause and fix of E501: docs/S1CC.md §9.2`.
+
+| rango | etapa | § |
+|---|---|---|
+| `E0xx` | archivos, estructura del programa, clang y enlazador (driver) | 9.2.0, 9.2.1 |
+| `E1xx` | llamadas, inlining, intrínsecos `s1_*` | 9.2.2 |
+| `E2xx` | instrucciones | 9.2.3 |
+| `E3xx` | memoria y estado | 9.2.4 |
+| `E4xx` | bucles | 9.2.5 |
+| `E5xx` | islas y funciones | 9.2.6 |
+| `E6xx` | operaciones | 9.2.7 |
+| `E7xx` | kernel (inmediatos, registros) | 9.2.8 |
+| `W9xx` | avisos | 9.2.9 |
+
+Los códigos son estables: un código no cambia de significado; un caso nuevo recibe un número nuevo. Los de
+`E1xx` y `E2xx` también salen en la lista de `--debug` (`E101: not inlined: ...`). En el código fuente, cada
+`fail("Exxx", ...)` / `warn("Wxxx", ...)` lleva el suyo.
+
+#### 9.2.0 Archivos y estructura (`main.cpp`, `graph.cpp`)
+
+| código | mensaje | causa | solución |
+|---|---|---|---|
+| `E001` | `cannot read IN.ll` | el IR no existe o no es válido (LLVM imprime el detalle antes) | correr `s1cc build`, no los subcomandos a mano; comprobar LLVM 19 |
+| `E002` | `cannot read the tables` / `bad tables file` | `tables.txt` falta o está truncado | rehacer el build completo |
+| `E003` | `cannot write F` | directorio de salida sin permisos o sin espacio | otro `-o` |
+| `E004` | `init: state 'v' not in ORIG.ll` | `voice.ll` y `linked.ll` no coinciden (archivos de builds distintos) | rehacer el build completo |
+| `E005` | `cannot read the profile` | el binario `prof` no corrió o falló | rehacer el build; si falla, correr `SALIDA/prof prof x.txt` y ver su error |
+| `E007` | `pass pipeline: ...` | error interno de LLVM al preparar los bucles | informar |
+| `E008` | `no S1_VOICE (s1_voice) in the module` | falta `S1_VOICE`, o se definió dentro de un `namespace` / sin `#include "s1dsp.h"` | definir `S1_VOICE { ... }` a nivel de archivo |
+| `E009` | `s1_voice returns nothing` | la voz nunca llega a un `return` con valor | devolver la muestra en todas las ramas |
+
+#### 9.2.1 Antes de s1cc: clang y el enlazador
+
+| código | mensaje | causa | solución |
+|---|---|---|---|
+| `E010` | errores de `clang` / `clang++` (`error: unknown type name`, `file not found`) | el C no compila como C nativo | corregirlo como cualquier error de compilación. Falta un `-I` o falta definir una macro (`-DTEST` lo pone el driver si existe `build/deps/stmlib`) |
+| `E011` | `undefined reference to 'f'` (enlace de `trips`, `ref` o `prof`) | `f` se llama y no está definida en ninguna fuente | agregar al build el `.c` / `.cc` que la define. `--debug` ya la lista antes como `it has no body in the module` |
+
+#### 9.2.2 Llamadas (`graph.cpp`, también en `diag`)
+
+La voz se convierte en una sola función sin llamadas: todo lo que llama tiene que quedar inlineado. Sólo pueden
+quedar llamadas a los intrínsecos `s1_*`, a libm (§7.3) y a intrínsecos de LLVM con operación propia.
+
+| código | mensaje | causa | solución |
+|---|---|---|---|
+| `E101` | `call to 'f' not inlined: it has no body in the module` | `f` está declarada (header) pero su archivo no está entre las fuentes. O es una función de biblioteca que s1cc no conoce (`rand`, `printf`, `memcpy` con tamaño variable) | agregar la fuente. Si es de biblioteca, reemplazarla: ruido con un LCG en una variable de estado, sin `printf` |
+| `E102`, `E103` | `... it is marked noinline` / `optnone` | atributo en la fuente (`__attribute__((noinline))`, `__attribute__((optnone))`, o una macro que los pone) | quitar el atributo en la copia que se compila, o definir la macro vacía con `-D` |
+| `E104` | `... it is variadic (...)` | función con `...` | una versión con argumentos fijos |
+| `E105` | `... it is recursive` | la función se llama a sí misma (y no es recursión de cola, que LLVM convierte en bucle) | escribirla como bucle de iteraciones acotadas (§9.2.5) |
+| `E106` | `... LLVM did not inline it (LLVM: ...)` | el inliner la rechazó por otro motivo; el texto entre paréntesis es el de `-pass-remarks-missed=inline` | según ese texto. Lo habitual: `static inline` o moverla a un header |
+| `E107` | `indirect call (function pointer or virtual method)` | puntero a función no constante, o método `virtual` que clang no pudo devirtualizar | llamar a la función directamente. Con un `switch` sobre un modo: `if` / `else` llamando a cada función. Para virtuales: llamar sobre el tipo concreto (`obj.Clase::metodo()`) o marcar la clase `final` |
+| `E108` | `intrinsic llvm.X is not supported` | un intrínseco entero sin operación en s1cc (`llvm.ctlz`, `llvm.bswap`, `llvm.memcpy` grande) | evitar la construcción que lo genera: `__builtin_clz` → comparación en escalera; copiar structs campo a campo |
+| `E110` | `s1_*: argument N must be a constant` | índice de `s1_param`, `s1_export`, `s1_import` calculado | un literal o una constante de compilación |
+| `E111` | `s1_param(nombre, i): index out of the table` | `i` ≥ `n` de `S1_PARAM(nombre, panel, n)` | agrandar `n` o corregir el índice |
+| `E112`, `E113` | `s1_param: unknown table` / `not an S1_PARAM descriptor` | el primer argumento no es un nombre declarado con `S1_PARAM` | usar el nombre de la macro, no una variable |
+| `E114`, `E115` | `s1_export in S1_VOICE_B` / `s1_import in S1_VOICE` | el sentido es sólo A → B | exportar en `S1_VOICE`, importar en `S1_VOICE_B` |
+
+#### 9.2.3 Instrucciones (`graph.cpp`, también en `diag`)
+
+| código | mensaje | causa | solución |
+|---|---|---|---|
+| `E202` | `instruction 'switch' is not supported` | un `switch` con valor calculado (clang no siempre lo baja a `select`) | `if` / `else if` o `?:`. Clang a veces convierte un `switch` chico en `select`, pero no siempre (un `switch` de 5 casos de una línea queda como `switch`) |
+| `E203` | `instruction 'invoke' / 'landingpad' ...` | excepciones C++ | el driver compila con `-fno-exceptions`. Quitar `try` / `throw` del código de la voz |
+| `E204` | `cast bitcast / ptrtoint / inttoptr is not supported` | un puntero usado como número, o reinterpretación de tipo por puntero (`*(int *)&f`) | trabajar con el valor: para el exponente de un float, `log2f`; para el resto, aritmética o una tabla |
+| `E205` | `unsupported constant` | constante vectorial o de un tipo raro (`long double`, `__int128`) | `float`, `double` o enteros ≤ 64 bits |
+| `E201` | `instruction 'X' is not supported` (otras) | una instrucción del IR que el grafo no modela (`atomicrmw`, `cmpxchg`, `fence`, `va_arg`, vectores) | quitar atómicos, `va_arg` y vectores explícitos del código de la voz |
+| `E206` | `value not available (pointer used as a number, or an unsupported instruction)` | un valor que viene de algo que el grafo no modela | ver la instrucción del mensaje; casi siempre un puntero que sale de la voz o un vector |
+
+#### 9.2.4 Memoria y estado (`graph.cpp`)
+
+El estado son las variables de archivo no `const`. Las tablas son las `const`. No hay más memoria (§3).
+
+| código | mensaje | causa | solución |
+|---|---|---|---|
+| `E301` | `state 'v' is not an int or a float` | variable de archivo de tipo puntero, struct no separable o `long double` | guardar índices en vez de punteros; separar el struct en campos escalares |
+| `E302` | `state 'v' used by both S1_VOICE and S1_VOICE_B` | cada palabra de estado vive en un solo DSP | duplicarla, o pasar el valor con `s1_export` / `s1_import` |
+| `E303` | `computed index into a state array: state arrays need constant indices` | `buf[i]` con `i` variable en un array de estado (líneas de retardo, buffers circulares) | índices constantes (desplazar el array a mano), o un bucle desenrollado. Las líneas de retardo largas no caben en el modelo |
+| `E304` | `computed index into a local array: use constant indices` | array local con índice variable | lo mismo, o convertirlo en `const` si es una tabla |
+| `E305`, `E306` | `load from an unknown address` / `unsupported pointer (only file-scope variables and tables)` | puntero que no es una global (argumento, `malloc`, puntero guardado) | acceder a la global directamente. Un objeto por referencia sirve si después del inlining la referencia apunta a una global |
+| `E307` | `'t' has no definition in the module` | tabla `extern const` sin su archivo (p. ej. `resources.cc` de Braids) | agregar la fuente de la tabla |
+| `E308` | `cannot fold the table read` | lectura de tabla con desplazamiento constante que LLVM no puede plegar (tabla sin inicializador visible) | lo mismo: la definición con sus valores tiene que estar en el build |
+| `E309` | `store to something that is not a state word` | escritura a una tabla `const` o a memoria calculada | escribir sólo en variables de estado |
+
+#### 9.2.5 Bucles (`loops.cpp`)
+
+El driver perfila cuántas veces gira cada bucle y lo desenrolla hasta ese máximo (`s1cc trips` / `unroll`, §9).
+
+| código | mensaje | causa | solución |
+|---|---|---|---|
+| `E401` | `a loop at ... never ran in the profiling scenarios` | el bucle está en una rama que ningún escenario de §5 tomó, así que su máximo es desconocido | hacer que el escenario lo alcance (rango del parámetro, nota), o darle un número de iteraciones constante |
+| `E402` | `a loop at ... turns up to N times per sample: too long` | más de 64 vueltas por muestra | reducirlo (una vuelta por muestra con el contador en el estado), o reescribirlo como fórmula cerrada |
+| `E403` | `cannot peel the loop at ...` | LLVM no pudo desenrollarlo (salidas múltiples complicadas) | simplificar: una sola condición de salida, contador entero |
+| `E404` | `loop in voice code (...)` | quedó un bucle después del desenrollado (no debería pasar) | informar; mientras tanto, desenrollar a mano |
+| `E405` | `a loop of f without a preheader` | error interno de la forma del bucle | informar con el fuente y `--debug` |
+
+#### 9.2.6 Islas y funciones (`graph.cpp`, `lower.cpp`, `fit.cpp`)
+
+Lo que el DSP no ejecuta directamente (lecturas de tabla con índice calculado, `or`, máscaras no contiguas,
+divisiones enteras por variables, funciones desconocidas) se convierte en una función de **un** valor y se ajusta
+(§4.3, §6).
+
+| código | mensaje | causa | solución |
+|---|---|---|---|
+| `E501` | `a table read / function / division that depends on several values ... only functions of one value can be tabulated` | el nodo depende de dos o más fuentes independientes (entradas, parámetros, estado) que no pasan por un único valor intermedio | ver abajo |
+| `E502` | `cannot tabulate ...: no single-value island could be sampled` | ninguna raíz candidata tuvo muestras utilizables | igual que `island without samples` |
+| `E503` | `island without samples (the profiling run never reached it)` | el código está en una rama que ningún escenario tomó | que algún escenario la alcance, o `s1_range` en la raíz |
+| `E504` | `not translatable and not tabulated` | nodo marcado como isla al que no se le eligió isla | informar con `--debug`; reescribir la expresión |
+| `E505` | `F: the argument's range is unknown (use s1_range)` | `sin`, `tanh`, `log`... sobre un valor que el perfil nunca vio (rama no tomada) | `s1_range(x, lo, hi)` sobre el argumento |
+| `E506` | `pow with two variables` | `pow(x, y)` con ambos variables | `exp2(y * log2(x))`, que s1cc sí baja |
+
+**Varios valores.** Ejemplo real, `RenderToy` de Braids (`digital_oscillator.cc:308`):
+`held_sample = (((phase >> 24) ^ (x << 1)) & (~x)) + (x >> 1)`, con `x` de un parámetro y `phase` del estado. El
+`xor` / `and` con una máscara **variable** no es aritmética, y depende de dos fuentes. Salidas, en orden de
+preferencia:
+1. Que un operando sea constante: los `and` / `xor` con una constante se bajan como aritmética (§7.2). Si el
+   parámetro puede fijarse (un modo, no una perilla continua), fijarlo.
+2. Escribir la operación como aritmética de los dos valores (sumas, productos, `min` / `max`, comparaciones).
+3. Que dependa de un solo valor intermedio: si `x` toma pocos valores, un `if` por valor deja en cada rama una
+   función sólo de `phase`, con su propia isla.
+4. Si nada de eso sirve, ese algoritmo no cabe en el modelo de s1cc.
+
+#### 9.2.7 Operaciones (`lower.cpp`)
+
+| código | mensaje | causa | solución |
+|---|---|---|---|
+| `E601` | `OP: operand N must be a constant` | desplazamiento (`<<`, `>>`) por una cantidad variable; división o resto entero por una variable que no quedó en una isla | desplazar por constante; para `x << n` variable, `x * s1_exp2(n)` en float |
+| `E602` | `xor with a bit outside the value's range` | `x ^ c` con `x` negativo o mayor que `2c` | asegurar el rango (máscara antes) o reescribir |
+| `E603` | `'or' with a constant is not supported outside a tabulated function` | `x \| c` con `x` de varias fuentes | `x + c` si los bits no se pisan; si no, que dependa de un valor (isla) |
+| `E604` | `compare 'P' not supported` | predicado de comparación raro (`ord`, `uno`: chequeos de NaN) | quitar los chequeos de NaN: el DSP no tiene NaN |
+| `E605` | `operation 'OP' not supported` | operación del IR sin bajada en `lower.cpp` (enteros de más de 64 bits, operaciones de bits raras) | reescribirla con operaciones de §7.2 |
+| `E116` | `s1_import(i) without an s1_export(i)` | `S1_VOICE_B` importa un índice que `S1_VOICE` nunca exporta | agregar el `s1_export(i, v)` |
+| `E006` | `no table for S1_PARAM 'p' (tables file)` | `tables.txt` viejo o la función de la tabla no se ejecutó | rehacer el build completo |
+
+#### 9.2.8 Kernel (`kernel.cpp`)
+
+| código | mensaje | causa | solución |
+|---|---|---|---|
+| `E701` | `kernel: constant K outside the DSP range (+-512)` | una escala u offset fuera del rango de los inmediatos; suele venir de un rango perfilado enorme | `s1_range` en el valor que explota, o limitarlo en el C (`s1_clamp`) |
+| `E702` | `kernel: a multiply by a non-finite constant` / `a non-finite constant` | un rango sin límite (división por un valor que llega a 0, `log(0)`) | `s1_range`, o proteger la división en el C (`max(y, eps)`) |
+| `E703` | `kernel: exp2 of a value spanning more than 2^11` | el argumento de `exp2` / `exp` / `pow(c, x)` cubre más de 2048 octavas | limitar el argumento (`s1_range` o `s1_clamp`) |
+| `E704` | `kernel: out of registers (N usable) even with spilling` | demasiados valores vivos a la vez | más registros con `--regs` si el programa anfitrión lo permite, o partir el cálculo entre `S1_VOICE` y `S1_VOICE_B` |
+| `E705`, `E706` | `kernel: value read before it is defined` / `no free register pair for recipseed` | error interno | informar con el fuente y `--debug` |
+
+#### 9.2.9 Avisos
+
+El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuánto.
+
+| código | aviso | qué significa | qué hacer |
+|---|---|---|---|
+| `W901` | `the original overflows at ... (integer product); the port computes it without wrapping` | el producto entero desborda en C y el DSP no reproduce el desborde | nada, si el desborde era accidental. Si el algoritmo depende de él (hash, ruido), reescribirlo con `&` / `%` por constante |
+| `W902` | `truncation wraps at ...` | un `trunc` a un entero más chico desborda en el perfil; el port reproduce el módulo | normalmente correcto (fases). Revisar si no era intencional |
+| `W903` | `division by a value in [lo, hi]: the port divides by max(y, c)` | el divisor llega a 0 o cruza el signo | proteger el divisor en el C, o `s1_range` |
+| `W904` | `division by a value over [...]: more than 16 octaves, the ends saturate` | divisor de rango demasiado amplio | acotar el divisor |
+| `W905` | `F at ...: the fit misses the tolerance (error E)` / `island at ...: the fit misses the tolerance` | el ajuste no llega a `--tol` / `--tollog` | `--maxdeg` más alto, `--tol` más grande, o un rango más chico (`s1_range`) |
+| `W906` | `stage S: N values limited to the range of 99.99 % of their profiled samples` | valores con picos raros; se recortan para no arruinar la escala | nada si `check` da buen SNR; si no, `s1_range` en esos valores |
+| `W907` | `state 'v' starts at 0 in the ring (...)` | con `--no-exact-init`, la palabra de estado no arranca en su valor inicial | quitar `--no-exact-init` |
+
 ## 10. Verificación (`s1cc check`)
 
 * **Banco.** DSP 0 del emulador = etapa A, DSP 1 = etapa B, un banco 5 compartido como en el par de esclavos.

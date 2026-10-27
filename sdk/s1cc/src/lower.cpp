@@ -26,7 +26,7 @@ namespace s1 {
 void Profile::read(const std::string &path) {
     std::ifstream f(path);
     if (!f)
-        fail("cannot read the profile " + path);
+        fail("E005", "cannot read the profile " + path);
     std::string tag;
     while (f >> tag) {
         if (tag == "v") {
@@ -120,7 +120,7 @@ struct Lowerer {
     std::map<int, std::string> traceWhere;
     KVal *firstFlag = nullptr;                             // 1 at the first sample of the stage, else 0
     std::set<std::string> inputsB;
-    std::vector<std::string> warnings;
+    std::vector<std::pair<std::string, std::string>> warnings;   // code, text
 
     Lowerer(Program &p, const Profile &pr, const std::map<std::string, std::vector<double>> &t, const LowerOptions &o)
         : P(p), prof(pr), tables(t), opt(o) {}
@@ -142,7 +142,7 @@ struct Lowerer {
             return K->mov(KOperand::im(x.k / st + ot));
         // r' = a r + b  (multiply, then add b)  or  (r + b / a) a  (add, then multiply): the smaller immediate
         double a = x.s / st, b = ot - x.o * a;
-        if (getenv("S1CC_DEBUG") && (std::fabs(a) > 256 || std::fabs(b) > 256))
+        if (debugLevel() >= 2 && (std::fabs(a) > 256 || std::fabs(b) > 256))
             fprintf(stderr, "materialize: s %g o %g V [%g, %g] -> st %g ot %g (a %g b %g)\n", x.s, x.o, x.V.lo,
                     x.V.hi, st, ot, a, b);
         KVal *r = x.r;
@@ -349,7 +349,7 @@ struct Lowerer {
             return ne ? bnot(eq) : eq;
         }
         if (p == "ult" || p == "ole") {}
-        fail("compare `" + op + "` not supported");
+        fail("E604", "compare `" + op + "` not supported");
     }
 
     LV bnot(LV c) { LV r = addLV(cst(1), neg(c)); r.isBool = true; return r; }
@@ -475,10 +475,10 @@ struct Lowerer {
             double big = pos ? v.hi : -v.lo;
             if (big > 0 && (pos ? v.lo < small : v.hi > -small)) {
                 double rare = 100.0 * (tot - (double)tot) + 100.0 * (pos ? nn : np) / std::max(1.0, (double)(np + nn));
-                warnings.push_back("division by a value in [" + std::to_string(v.lo) + ", " + std::to_string(v.hi) +
+                warnings.push_back({"W903", "division by a value in [" + std::to_string(v.lo) + ", " + std::to_string(v.hi) +
                                    "] " + where(yn->v) + ": the port divides by " + (pos ? "max(y, " : "min(y, ") +
                                    std::to_string(pos ? small : -small) + ") (" + std::to_string(rare) +
-                                   " % of the profiled values on the other side)");
+                                   " % of the profiled values on the other side)"});
                 y = minmax(y, cst(pos ? small : -small), !pos);
                 y.V = Range();
                 y.V.add(pos ? small : -big);
@@ -492,9 +492,9 @@ struct Lowerer {
         bool pos = v.hi >= -v.lo;
         double lim = big / 4096;
         if ((pos && v.lo < lim) || (!pos && v.hi > -lim)) {
-            warnings.push_back("division by a value in [" + std::to_string(v.lo) + ", " + std::to_string(v.hi) +
+            warnings.push_back({"W903", "division by a value in [" + std::to_string(v.lo) + ", " + std::to_string(v.hi) +
                                "]: the port divides by " + (pos ? "max(y, " : "min(y, ") +
-                               std::to_string(pos ? lim : -lim) + ")");
+                               std::to_string(pos ? lim : -lim) + ")"});
             y = minmax(y, cst(pos ? lim : -lim), !pos);
             y.V = Range();
             y.V.add(pos ? lim : v.lo);
@@ -520,8 +520,8 @@ struct Lowerer {
         double kexp = std::round(std::log2(std::sqrt(std::max(alo, 1e-30) * ahi)));   // centre the range in octaves
         double pk = std::ldexp(1.0, (int)kexp);
         if (ahi / pk > LIM || pk / std::max(alo, 1e-30) > LIM)
-            warnings.push_back("division by a value over [" + std::to_string(alo) + ", " + std::to_string(ahi) +
-                               "]: more than 16 octaves, the ends saturate");
+            warnings.push_back({"W904", "division by a value over [" + std::to_string(alo) + ", " + std::to_string(ahi) +
+                               "]: more than 16 octaves, the ends saturate"});
         KVal *yy = materialize(y, pk, 0);                   // y' = y / pk
         auto nf = K->recipseed(yy);
         KVal *m = K->mul(yy, KOperand::of(nf.first));
@@ -556,7 +556,7 @@ struct Lowerer {
             {"atan", std::atan}, {"asin", std::asin}, {"acos", std::acos}, {"cbrt", std::cbrt}};
         Range v = rangeOf(x);
         if (!v.seen())
-            fail(fn + ": the argument's range is unknown " + where(n->v) + " (use s1_range)");
+            fail("E505", fn + ": the argument's range is unknown " + where(n->v) + " (use s1_range)");
         std::vector<std::pair<double, double>> xy;
         for (int i = 0; i <= 2048; i++) {
             double a = v.lo + (v.hi - v.lo) * i / 2048.0;
@@ -566,8 +566,8 @@ struct Lowerer {
         rep << "  " << fn << " " << where(n->v) << " on [" << v.lo << ", " << v.hi << "]: " << f.model << " degree "
             << f.c.size() - 1 << ", error " << f.err << " (" << f.metric << ")\n";
         if (f.err > (f.metric == "log2" ? opt.fitTolLog : opt.fitTol))
-            warnings.push_back(fn + " at " + where(n->v) + ": the fit misses the tolerance (error " +
-                               std::to_string(f.err) + ")");
+            warnings.push_back({"W905", fn + " at " + where(n->v) + ": the fit misses the tolerance (error " +
+                               std::to_string(f.err) + ")"});
         return emitFit(f, xy, x);
     }
 
@@ -637,15 +637,15 @@ struct Lowerer {
                 }
             }
             if (!bestRoot)
-                fail("cannot tabulate " + where(N->v) + ": no single-value island could be sampled");
+                fail("E502", "cannot tabulate " + where(N->v) + ": no single-value island could be sampled");
             {
                 bool good = true;
                 for (auto &isl : S.islands)
                     if (isl.root == bestRoot && isl.cloneable && fits.count(&isl))
                         good = good && fits[&isl].err <= (fits[&isl].metric == "log2" ? opt.fitTolLog : opt.fitTol);
                 if (!good)
-                    warnings.push_back("island at " + where(N->v) + ": the fit misses the tolerance (error " +
-                                       std::to_string(bestErr) + "; s1cc build --tol / --tollog)");
+                    warnings.push_back({"W905", "island at " + where(N->v) + ": the fit misses the tolerance (error " +
+                                       std::to_string(bestErr) + "; s1cc build --tol / --tollog)"});
             }
             for (auto &isl : S.islands)
                 if (isl.root == bestRoot && isl.cloneable) {
@@ -875,7 +875,7 @@ struct Lowerer {
             int i = (int)n->c;
             auto it = exportRep.find(i);
             if (it == exportRep.end())
-                fail("s1_import(" + std::to_string(i) + ") without an s1_export(" + std::to_string(i) + ")");
+                fail("E116", "s1_import(" + std::to_string(i) + ") without an s1_export(" + std::to_string(i) + ")");
             LV x;
             x.r = K->load("{X:" + std::to_string(i) + "}", "import");
             x.s = it->second.first;
@@ -896,11 +896,11 @@ struct Lowerer {
         if (chosen.count(n))
             return emitIsland(*chosen[n], val.at(chosen[n]->root));
         if (n->bad)
-            fail("not translatable and not tabulated: " + where(n->v));
+            fail("E504", "not translatable and not tabulated: " + where(n->v));
         auto constIn = [&](int i) -> double {
             LV x = in(i);
             if (!x.isConst())
-                fail(op + ": operand " + std::to_string(i) + " must be a constant " + where(n->v));
+                fail("E601", op + ": operand " + std::to_string(i) + " must be a constant " + where(n->v));
             return x.k;
         };
         bool allConst = true;
@@ -923,8 +923,8 @@ struct Lowerer {
             if (allConst)
                 return cst(in(0).k * in(1).k);
             if (wrapped(n))
-                warnings.push_back("the original overflows at " + where(n->v) +
-                                   " (integer product); the port computes it without wrapping");
+                warnings.push_back({"W901", "the original overflows at " + where(n->v) +
+                                   " (integer product); the port computes it without wrapping"});
             return mulLV(in(0), in(1), wrapped(n) ? nullptr : res);
         }
         if (op == "fmuladd") {
@@ -959,7 +959,7 @@ struct Lowerer {
                     if (e.k == -1) return recip(b);
                     if (e.k == 0.5) return mathFn("sqrt", b, n);
                 }
-                fail("pow with two variables " + where(n->v));
+                fail("E506", "pow with two variables " + where(n->v));
             }
             return withRange(mathFn(fn, in(0), n));
         }
@@ -985,7 +985,7 @@ struct Lowerer {
             if (op == "xor") {
                 double b = (double)m;
                 if (xr.lo < 0 || xr.hi >= 2 * b)
-                    fail("xor with a bit outside the value's range " + where(n->v));
+                    fail("E602", "xor with a bit outside the value's range " + where(n->v));
                 return modLV(addLV(x, cst(b)), 2 * b, false);
             }
             if (op == "and") {
@@ -998,7 +998,7 @@ struct Lowerer {
                 LV lo = modLV(x, L, false);
                 return withRange(addLV(hi, neg(lo)));
             }
-            fail("`or` with a constant is not supported outside a tabulated function " + where(n->v));
+            fail("E603", "`or` with a constant is not supported outside a tabulated function " + where(n->v));
         }
         if (op == "sext" || op == "zext" || op == "fpext" || op == "fptrunc" || op == "sitofp" || op == "uitofp" ||
             op == "fptosi" || op == "fptoui") {
@@ -1025,7 +1025,7 @@ struct Lowerer {
             bool fits = unsignedView(n) ? (xr.lo >= 0 && xr.hi < M) : (xr.lo >= -M / 2 && xr.hi < M / 2);
             if (fits || n->bits == 1)
                 return withRange(x);
-            warnings.push_back("truncation wraps at " + where(n->v));
+            warnings.push_back({"W902", "truncation wraps at " + where(n->v)});
             return modLV(x, M, !unsignedView(n));
         }
         if (op.rfind("icmp.", 0) == 0 || op.rfind("fcmp.", 0) == 0)
@@ -1059,11 +1059,11 @@ struct Lowerer {
         if (op == "s1_range") {
             LV x = in(0);
             x.V = Range();
-            x.V.add(constIn(1));
-            x.V.add(constIn(2));
+            x.V.add(in(1).isConst() ? in(1).k : 0.0);
+            x.V.add(in(2).isConst() ? in(2).k : 0.0);
             return x;
         }
-        fail("operation `" + op + "` not supported " + where(n->v));
+        fail("E605", "operation `" + op + "` not supported " + where(n->v));
     }
 
     void chooseStateReps() {
@@ -1093,9 +1093,9 @@ struct Lowerer {
                 if (opt.exactInit)
                     initR[s.index] = r0;              // first sample: r = r0 (ring words start at 0)
                 else
-                    warnings.push_back("state `" + s.name + "` starts at 0 in the ring (V = " +
+                    warnings.push_back({"W907", "state `" + s.name + "` starts at 0 in the ring (V = " +
                                        std::to_string(-sr.second * sr.first) + "), not at its initial value " +
-                                       std::to_string(s.init) + " (--exact-init)");
+                                       std::to_string(s.init) + " (--exact-init)"});
             }
         }
     }
@@ -1141,7 +1141,7 @@ struct Lowerer {
                 traced.push_back({n->prof, ts});
                 traceWhere[n->prof] = where(n->v) + " (" + n->op + ")";
             }
-            if (getenv("S1CC_DEBUG")) {
+            if (debugLevel() >= 2) {
                 const LV &x = val[n];
                 fprintf(stderr, "  n%d %s: %s s %g o %g V [%g, %g]\n", n->id, n->op.c_str(),
                         x.isConst() ? ("const " + std::to_string(x.k)).c_str() : ("%" + std::to_string(x.r->n)).c_str(),
@@ -1173,8 +1173,8 @@ struct Lowerer {
                 k.store(v, "{INB:" + in + "}");
             }
         if (saturated)
-            warnings.push_back("stage " + S.name + ": " + std::to_string(saturated) + " values limited to the range "
-                               "of 99.99 % of their profiled samples (rare outliers would ruin their scale)");
+            warnings.push_back({"W906", "stage " + S.name + ": " + std::to_string(saturated) + " values limited to the range "
+                               "of 99.99 % of their profiled samples (rare outliers would ruin their scale)"});
         saturated = 0;
         std::vector<std::string> lines = k.lines();
         report += "stage " + S.name + ": " + std::to_string(k.units()) + " units" +
@@ -1203,7 +1203,7 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
     for (auto &kv : P.paramCount) {
         auto it = tables.find(kv.first);
         if (it == tables.end())
-            fail("no table for S1_PARAM `" + kv.first + "` (tables file)");
+            fail("E006", "no table for S1_PARAM `" + kv.first + "` (tables file)");
         double m = 0;
         for (double v : it->second)
             m = std::max(m, std::fabs(v));
@@ -1233,8 +1233,8 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
     o << a << b << ".end\n";
     report += L.rep.str();
     for (auto &w : L.warnings) {
-        warn(w);
-        report += "warning: " + w + "\n";
+        warn(w.first, w.second);
+        report += "warning " + w.first + ": " + w.second + "\n";
     }
     return o.str();
 }

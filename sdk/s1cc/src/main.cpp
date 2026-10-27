@@ -7,6 +7,8 @@
 //   s1cc trips IN.ll -o OUT.ll                         loop-count profiling module (prints the number of loops)
 //   s1cc unroll IN.ll --trips P -o OUT.ll              loops peeled to their profiled maximum (loops.cpp)
 //   s1cc graph IN.ll                                   the dataflow graph, for debugging
+//   s1cc diag  IN.ll [--remarks R]                     the C functions it cannot compile and why (R: opt's
+//                                                      -pass-remarks-missed=inline output); s1cc build --debug
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -27,7 +29,7 @@ static std::unique_ptr<Module> readIR(const std::string &path, LLVMContext &ctx)
     auto M = parseIRFile(path, err, ctx);
     if (!M) {
         err.print("s1cc", errs());
-        s1::fail("cannot read " + path);
+        s1::fail("E001", "cannot read " + path);
     }
     return M;
 }
@@ -36,12 +38,12 @@ static std::map<std::string, std::vector<double>> readTables(const std::string &
     std::map<std::string, std::vector<double>> t;
     std::ifstream f(path);
     if (!f)
-        s1::fail("cannot read the tables " + path);
+        s1::fail("E002", "cannot read the tables " + path);
     std::string tag, name;
     int panel, count;
     while (f >> tag >> name >> panel >> count) {
         if (tag != "p")
-            s1::fail("bad tables file " + path);
+            s1::fail("E002", "bad tables file " + path);
         auto &v = t[name];
         for (int k = 0; k < 256 * count; k++) {
             double x;
@@ -56,14 +58,15 @@ static void usage() {
     fprintf(stderr, "usage: s1cc prof IN.ll -o OUT.ll\n"
                     "       s1cc lower IN.ll --profile P --tables T -o K.s1k [--report R] [--regs LIST] [--tol X] "
                     "[--maxdeg N]\n"
-                    "       s1cc graph IN.ll\n");
+                    "       s1cc graph IN.ll\n"
+                    "       s1cc diag IN.ll [--remarks R]\n");
     exit(2);
 }
 
 int main(int argc, char **argv) {
     if (argc < 3)
         usage();
-    std::string cmd = argv[1], in = argv[2], out, profile, tables, report, kernelPath, tripsPath, intoPath;
+    std::string cmd = argv[1], in = argv[2], out, profile, tables, report, kernelPath, tripsPath, intoPath, remarksPath;
     s1::LowerOptions opt;
     for (int i = 3; i < argc; i++) {
         std::string a = argv[i];
@@ -75,6 +78,7 @@ int main(int argc, char **argv) {
         else if (a == "--kernel") kernelPath = next();
         else if (a == "--trips") tripsPath = next();
         else if (a == "--into") intoPath = next();
+        else if (a == "--remarks") remarksPath = next();
         else if (a == "--tol") opt.fitTol = std::stod(next());
         else if (a == "--tollog") opt.fitTolLog = std::stod(next());
         else if (a == "--no-exact-init") opt.exactInit = false;
@@ -94,7 +98,7 @@ int main(int argc, char **argv) {
         std::error_code ec;
         raw_fd_ostream os(path, ec);
         if (ec)
-            s1::fail("cannot write " + path);
+            s1::fail("E003", "cannot write " + path);
         M->print(os, nullptr);
     };
     if (cmd == "trips") {
@@ -121,6 +125,17 @@ int main(int argc, char **argv) {
         s1::unrollBounded(*M, trips, rep);
         writeIR(out);
         fputs(rep.c_str(), stdout);
+        return 0;
+    }
+    if (cmd == "diag") {
+        std::string remarks;
+        if (!remarksPath.empty()) {
+            std::ifstream rf(remarksPath);
+            std::stringstream ss;
+            ss << rf.rdbuf();
+            remarks = ss.str();
+        }
+        fputs(s1::diagnose(*M, remarks).c_str(), stdout);
         return 0;
     }
     s1::Program P;
@@ -195,7 +210,7 @@ int main(int argc, char **argv) {
                                : (Value *)ConstantFP::get(t, v);
             GlobalVariable *gv = TM == M.get() ? s.gv : TM->getGlobalVariable(s.gv->getName(), true);
             if (!gv)
-                s1::fail("init: state " + s.name + " not in " + intoPath);
+                s1::fail("E004", "init: state " + s.name + " not in " + intoPath);
             Value *ptr = b.CreateConstGEP1_64(Type::getInt8Ty(C), gv, s.offset);
             b.CreateStore(c, ptr);
         }
@@ -210,7 +225,7 @@ int main(int argc, char **argv) {
         std::error_code ec;
         raw_fd_ostream os(out, ec);
         if (ec)
-            s1::fail("cannot write " + out);
+            s1::fail("E003", "cannot write " + out);
         M->print(os, nullptr);
         return 0;
     }

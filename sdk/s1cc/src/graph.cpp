@@ -2,10 +2,11 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
-#include <cstdlib>
 #include <functional>
+#include <sstream>
 
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/Demangle/Demangle.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -15,6 +16,8 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "s1cc.h"
@@ -23,21 +26,77 @@ using namespace llvm;
 
 namespace s1 {
 
-void fail(const std::string &msg) {
-    fprintf(stderr, "s1cc: error: %s\n", msg.c_str());
+void fail(const std::string &code, const std::string &msg) {
+    fprintf(stderr, "s1cc: error %s: %s\n", code.c_str(), msg.c_str());
+    if (debugLevel() >= 1)
+        fprintf(stderr, "s1cc: debug: cause and fix of %s: docs/S1CC.md §9.2\n", code.c_str());
     exit(1);
 }
 
-void warn(const std::string &msg) { fprintf(stderr, "s1cc: warning: %s\n", msg.c_str()); }
+void warn(const std::string &code, const std::string &msg) {
+    fprintf(stderr, "s1cc: warning %s: %s\n", code.c_str(), msg.c_str());
+}
+
+int debugLevel() {
+    const char *e = getenv("S1CC_DEBUG");
+    if (!e || !*e)
+        return 0;
+    int n = atoi(e);
+    return n > 0 ? n : (e[0] == '0' ? 0 : 1);
+}
+
+// the C / C++ name of a debug-info function: namespaces and classes in front (braids::DigitalOscillator::RenderToy)
+static std::string cName(const DISubprogram *sp) {
+    std::string n = sp->getName().str();
+    for (const DIScope *sc = sp->getScope(); sc && !isa<DIFile>(sc) && !isa<DICompileUnit>(sc); sc = sc->getScope())
+        if (!sc->getName().empty())
+            n = sc->getName().str() + "::" + n;
+    return n;
+}
+
+// the C / C++ name of an LLVM function: demangled, without the parameter list
+static std::string cName(const Function *F) {
+    if (const DISubprogram *sp = F->getSubprogram())
+        return cName(sp);
+    std::string n = demangle(F->getName().str());
+    size_t p = n.find('(');
+    return p == std::string::npos ? n : n.substr(0, p);
+}
+
+// the file as it opens from the current directory: relative below it, absolute elsewhere
+static std::string fileOf(const DILocation *dl) {
+    SmallString<256> f(dl->getFilename());
+    if (!sys::path::is_absolute(f) && !dl->getDirectory().empty()) {
+        f = dl->getDirectory();
+        sys::path::append(f, dl->getFilename());
+    }
+    sys::path::remove_dots(f, true);
+    SmallString<256> cwd;
+    if (!sys::fs::current_path(cwd)) {
+        std::string c = std::string(cwd.str()) + "/", s = f.str().str();
+        if (s.compare(0, c.size(), c) == 0)
+            return s.substr(c.size());
+    }
+    return f.str().str();
+}
+
+static std::string at(const DILocation *dl) {
+    return fileOf(dl) + ":" + std::to_string(dl->getLine()) + " in " + cName(dl->getScope()->getSubprogram());
+}
 
 std::string where(const Value *v) {
     if (auto *I = dyn_cast_or_null<Instruction>(v)) {
-        if (const DebugLoc &dl = I->getDebugLoc())
-            return dl->getFilename().str() + ":" + std::to_string(dl.getLine());
+        if (const DILocation *dl = I->getDebugLoc()) {   // with -g (s1cc build --debug): the C function it came from
+            std::string s = at(dl);
+            for (const DILocation *in = dl->getInlinedAt(); in; in = in->getInlinedAt())
+                s += ", inlined at " + at(in);
+            return s;
+        }
         std::string s;
         raw_string_ostream os(s);
         I->print(os);
-        return "`" + s.substr(s.find_first_not_of(' ')) + "` in " + I->getFunction()->getName().str();
+        return "`" + s.substr(s.find_first_not_of(' ')) + "` in " + I->getFunction()->getName().str() +
+               (I->getFunction()->getSubprogram() ? "" : " (s1cc build --debug: the C function and line)");
     }
     if (!v)
         return "(synthetic)";
@@ -59,6 +118,99 @@ bool knownMath(const std::string &f) {
     static const std::set<std::string> k = {"sin", "cos", "tan", "tanh", "sinh", "cosh", "exp", "exp2", "log",
                                             "log2", "log10", "sqrt", "pow", "atan", "asin", "acos", "cbrt"};
     return k.count(f) > 0;
+}
+
+// intrinsics with an operation of their own (the other floating-point ones are math functions, as libm calls)
+const std::map<std::string, std::string> kIntrinsicOps = {
+    {"fmuladd", "fmuladd"}, {"fma", "fmuladd"}, {"fabs", "fabs"}, {"minnum", "fmin"}, {"maxnum", "fmax"},
+    {"minimum", "fmin"}, {"maximum", "fmax"}, {"smin", "smin"}, {"smax", "smax"}, {"umin", "umin"},
+    {"umax", "umax"}, {"abs", "abs"}, {"floor", "floor"}};
+
+const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_increment", "s1_param_get",
+                                        "s1_export", "s1_import", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2",
+                                        "s1_range"};
+
+std::string intrinsicBase(const std::string &fn) { return fn.substr(5, fn.find('.', 5) - 5); }   // llvm.<base>.<type>
+
+bool ignoredIntrinsic(const IntrinsicInst *II, const std::string &base) {
+    return II->isAssumeLikeIntrinsic() || base == "lifetime" || base == "dbg" || base == "assume" ||
+           base == "experimental";
+}
+
+// a call or instruction the graph builder rejects: error code (docs/S1CC.md §9.2) and text; code "" = none
+struct Problem {
+    std::string code, msg;
+    bool empty() const { return code.empty(); }
+};
+
+// why a call to F is still there after inlining; remarks: opt's missed-inline remarks, mangled callee -> reason
+Problem notInlined(const Function *F, const std::map<std::string, std::string> &remarks) {
+    std::string why, code = "E106";
+    if (F->isDeclaration())
+        code = "E101", why = "it has no body in the module: the file that defines it is not among the build's sources (add it), or "
+              "it is a library function s1cc does not know";
+    else if (F->hasFnAttribute(Attribute::NoInline))
+        code = "E102", why = "it is marked noinline";
+    else if (F->hasFnAttribute(Attribute::OptimizeNone))
+        code = "E103", why = "it is marked optnone";
+    else if (F->isVarArg())
+        code = "E104", why = "it is variadic (...)";
+    else {
+        for (const BasicBlock &bb : *F)
+            for (const Instruction &I : bb)
+                if (auto *CI = dyn_cast<CallInst>(&I))
+                    if (CI->getCalledFunction() == F)
+                        code = "E105", why = "it is recursive";
+        if (why.empty())
+            why = "LLVM did not inline it";
+    }
+    auto it = remarks.find(F->getName().str());
+    if (it != remarks.end())
+        why += " (LLVM: " + it->second + ")";
+    return {code, why};
+}
+
+// "" when the graph builder takes the call, else what is wrong with it
+Problem callProblem(const CallInst *CI, const std::map<std::string, std::string> &remarks = {}) {
+    const Function *F = CI->getCalledFunction();
+    if (!F)
+        return {"E107", "indirect call (function pointer or virtual method): call the function itself so it can be "
+                        "inlined"};
+    std::string fn = F->getName().str();
+    if (kS1Calls.count(fn) || kLibm.count(fn))
+        return {};
+    if (auto *II = dyn_cast<IntrinsicInst>(CI)) {
+        std::string base = intrinsicBase(fn);
+        if (ignoredIntrinsic(II, base) || kIntrinsicOps.count(base) || CI->getType()->isFloatingPointTy())
+            return {};
+        return {"E108", "intrinsic " + fn + " is not supported"};
+    }
+    Problem p = notInlined(F, remarks);
+    p.msg = "call to `" + cName(F) + "` not inlined: " + p.msg;
+    return p;
+}
+
+// "" when the graph builder takes the instruction, else what is wrong with it (loops: s1cc trips / unroll)
+Problem instProblem(const Instruction &I, const std::map<std::string, std::string> &remarks = {}) {
+    if (auto *CI = dyn_cast<CallInst>(&I))
+        return callProblem(CI, remarks);
+    if (auto *C = dyn_cast<CastInst>(&I)) {
+        std::string op = C->getOpcodeName();
+        if (op == "bitcast" || op == "ptrtoint" || op == "inttoptr" || op == "addrspacecast")
+            return {"E204", "cast " + op + " is not supported (a pointer used as a number, or a type pun through a "
+                            "pointer)"};
+        return {};
+    }
+    if (isa<PHINode>(I) || isa<LoadInst>(I) || isa<StoreInst>(I) || isa<BinaryOperator>(I) || isa<UnaryOperator>(I) ||
+        isa<FreezeInst>(I) || isa<CmpInst>(I) || isa<SelectInst>(I) || isa<AllocaInst>(I) ||
+        isa<GetElementPtrInst>(I) || isa<ReturnInst>(I) || isa<BranchInst>(I) || isa<UnreachableInst>(I))
+        return {};
+    std::string op = I.getOpcodeName();
+    if (op == "switch")
+        return {"E202", "instruction `switch` is not supported (a switch on a value: s1cc takes if / else chains and ?:)"};
+    if (op == "invoke" || op == "landingpad" || op == "resume")
+        return {"E203", "instruction `" + op + "` is not supported (C++ exceptions)"};
+    return {"E201", "instruction `" + op + "` is not supported"};
 }
 
 struct Ptr {
@@ -127,7 +279,7 @@ struct Builder {
             return cst(cf->getValueAPF().convertToDouble());
         if (isa<UndefValue>(C) || isa<ConstantPointerNull>(C) || C->isNullValue())
             return cst(0, C->getType()->isIntegerTy(), C->getType()->isIntegerTy() ? (int)C->getType()->getIntegerBitWidth() : 0);
-        fail("unsupported constant " + where(C));
+        fail("E205", "unsupported constant " + where(C));
     }
 
     Node *get(Value *v) {
@@ -141,7 +293,7 @@ struct Builder {
                 return n;
             }
         }
-        fail("value not available (pointer used as a number, or an unsupported instruction): " + where(v));
+        fail("E206", "value not available (pointer used as a number, or an unsupported instruction): " + where(v));
     }
 
     Ptr ptrOf(Value *v) {
@@ -176,19 +328,19 @@ struct Builder {
             n->isInt = true;
             n->bits = 64;
             if (base.local)
-                fail("computed index into a local array " + where(v) + ": use constant indices");
+                fail("E304", "computed index into a local array " + where(v) + ": use constant indices");
             Ptr p{base.gv, 0, n};
             pmap[v] = p;
             return p;
         }
-        fail("unsupported pointer " + where(v) + " (only file-scope variables and tables)");
+        fail("E306", "unsupported pointer " + where(v) + " (only file-scope variables and tables)");
     }
 
     int stateOf(GlobalVariable *gv, long off, Type *ty, Value *at) {
         for (auto &s : P.states)
             if (s.gv == gv && s.offset == off) {
                 if (s.stage != S.name)
-                    fail("state `" + s.name + "` used by both S1_VOICE and S1_VOICE_B (" + where(at) + ")");
+                    fail("E302", "state `" + s.name + "` used by both S1_VOICE and S1_VOICE_B (" + where(at) + ")");
                 return s.index;
             }
         StateVar s;
@@ -208,7 +360,7 @@ struct Builder {
             }
         }
         if (!ty->isIntegerTy() && !ty->isFloatTy() && !ty->isDoubleTy())
-            fail("state `" + s.name + "` is not an int or a float (" + where(at) + ")");
+            fail("E301", "state `" + s.name + "` is not an int or a float (" + where(at) + ")");
         P.states.push_back(s);
         S.states.push_back(s.index);
         return s.index;
@@ -237,10 +389,10 @@ struct Builder {
             return;
         }
         if (!p.gv)
-            fail("load from an unknown address " + where(L));
+            fail("E305", "load from an unknown address " + where(L));
         if (p.var) {
             if (!p.gv->isConstant())
-                fail("computed index into a state array " + where(L) + ": state arrays need constant indices");
+                fail("E303", "computed index into a state array " + where(L) + ": state arrays need constant indices");
             Node *n = mk(NK::Op, "tload", {p.var}, L);
             n->bad = true;
             vmap[L] = n;
@@ -249,12 +401,12 @@ struct Builder {
         if (p.gv->isConstant() && p.gv->hasInitializer()) {
             Constant *c = ConstantFoldLoadFromConst(p.gv->getInitializer(), L->getType(), APInt(64, p.off), DL);
             if (!c)
-                fail("cannot fold the table read " + where(L));
+                fail("E308", "cannot fold the table read " + where(L));
             vmap[L] = constOf(c);
             return;
         }
         if (!p.gv->hasInitializer())
-            fail("`" + p.gv->getName().str() + "` has no definition in the module (" + where(L) +
+            fail("E307", "`" + p.gv->getName().str() + "` has no definition in the module (" + where(L) +
                  "): compile and link the source that defines it");
         int idx = stateOf(p.gv, p.off, L->getType(), L);
         Node *n = stateValue(idx, L);
@@ -270,7 +422,7 @@ struct Builder {
             return;
         }
         if (!p.gv || p.var || p.gv->isConstant())
-            fail("store to something that is not a state word " + where(St));
+            fail("E309", "store to something that is not a state word " + where(St));
         int idx = stateOf(p.gv, p.off, St->getValueOperand()->getType(), St);
         Node *v = get(St->getValueOperand());
         Node *old = stateValue(idx, St);
@@ -280,10 +432,10 @@ struct Builder {
     std::string paramName(Value *desc, long &count) {
         auto *gv = dyn_cast<GlobalVariable>(desc->stripPointerCasts());
         if (!gv || !gv->hasInitializer())
-            fail("s1_param: unknown table " + where(desc));
+            fail("E112", "s1_param: unknown table " + where(desc));
         auto *cs = dyn_cast<ConstantStruct>(gv->getInitializer());
         if (!cs)
-            fail("s1_param: not an S1_PARAM descriptor " + where(desc));
+            fail("E113", "s1_param: not an S1_PARAM descriptor " + where(desc));
         auto *ngv = dyn_cast<GlobalVariable>(cs->getOperand(0)->stripPointerCasts());
         auto *str = ngv ? dyn_cast<ConstantDataArray>(ngv->getInitializer()) : nullptr;
         count = cast<ConstantInt>(cs->getOperand(2))->getSExtValue();
@@ -296,13 +448,13 @@ struct Builder {
     void call(CallInst *CI, Node *pred) {
         Function *F = CI->getCalledFunction();
         if (!F)
-            fail("indirect call " + where(CI));
+            fail(callProblem(CI).code, callProblem(CI).msg + " " + where(CI));
         std::string fn = F->getName().str();
         auto arg = [&](unsigned i) { return get(CI->getArgOperand(i)); };
         auto constArg = [&](unsigned i) -> long {
             auto *c = dyn_cast<ConstantInt>(CI->getArgOperand(i));
             if (!c)
-                fail(fn + ": argument " + std::to_string(i) + " must be a constant " + where(CI));
+                fail("E110", fn + ": argument " + std::to_string(i) + " must be a constant " + where(CI));
             return c->getSExtValue();
         };
         if (fn == "s1_pitch" || fn == "s1_gate" || fn == "s1_trig" || fn == "s1_increment") {
@@ -319,7 +471,7 @@ struct Builder {
             std::string name = paramName(CI->getArgOperand(0), count);
             long i = constArg(1);
             if (i < 0 || i >= count)
-                fail("s1_param(" + name + ", " + std::to_string(i) + "): index out of the table " + where(CI));
+                fail("E111", "s1_param(" + name + ", " + std::to_string(i) + "): index out of the table " + where(CI));
             Node *n = mk(NK::Param, "param", {}, CI);
             n->name = name;
             n->c = (double)i;
@@ -328,7 +480,7 @@ struct Builder {
         }
         if (fn == "s1_export") {
             if (S.name != "A")
-                fail("s1_export in S1_VOICE_B " + where(CI));
+                fail("E114", "s1_export in S1_VOICE_B " + where(CI));
             int i = (int)constArg(0);
             Node *v = arg(1);
             auto it = S.exports.find(i);
@@ -337,7 +489,7 @@ struct Builder {
         }
         if (fn == "s1_import") {
             if (S.name != "B")
-                fail("s1_import in S1_VOICE " + where(CI));
+                fail("E115", "s1_import in S1_VOICE " + where(CI));
             Node *n = mk(NK::Import, "import", {}, CI);
             n->c = (double)constArg(0);
             vmap[CI] = n;
@@ -352,16 +504,11 @@ struct Builder {
             return;
         }
         if (auto *II = dyn_cast<IntrinsicInst>(CI)) {
-            std::string base = fn.substr(5, fn.find('.', 5) - 5);   // llvm.<base>.<type>
-            if (II->isAssumeLikeIntrinsic() || base == "lifetime" || base == "dbg" || base == "assume" ||
-                base == "experimental")
+            std::string base = intrinsicBase(fn);
+            if (ignoredIntrinsic(II, base))
                 return;
-            static const std::map<std::string, std::string> ops = {
-                {"fmuladd", "fmuladd"}, {"fma", "fmuladd"}, {"fabs", "fabs"}, {"minnum", "fmin"},
-                {"maxnum", "fmax"}, {"minimum", "fmin"}, {"maximum", "fmax"}, {"smin", "smin"},
-                {"smax", "smax"}, {"umin", "umin"}, {"umax", "umax"}, {"abs", "abs"}, {"floor", "floor"}};
-            auto it = ops.find(base);
-            if (it != ops.end()) {
+            auto it = kIntrinsicOps.find(base);
+            if (it != kIntrinsicOps.end()) {
                 std::vector<Node *> in;
                 unsigned n = base == "abs" ? 1 : CI->arg_size();
                 for (unsigned i = 0; i < n; i++)
@@ -378,7 +525,7 @@ struct Builder {
                 vmap[CI] = n;
                 return;
             }
-            fail("intrinsic " + fn + " is not supported " + where(CI));
+            fail(callProblem(CI).code, callProblem(CI).msg + " " + where(CI));
         }
         if (kLibm.count(fn)) {
             std::vector<Node *> in;
@@ -390,8 +537,8 @@ struct Builder {
             vmap[CI] = n;
             return;
         }
-        fail("call to `" + fn + "` " + where(CI) +
-             ": voice code must be inlined (static inline / header code) or use the s1_* intrinsics");
+        fail(callProblem(CI).code, callProblem(CI).msg + " (" + where(CI) + "); voice code must be inlined (static inline / header code, or "
+             "its source in the build) or use the s1_* intrinsics");
     }
 
     static bool isPow2(long x) { return x > 0 && (x & (x - 1)) == 0; }
@@ -448,7 +595,7 @@ struct Builder {
                     if (!order.count(pb))
                         continue;
                     if (order[pb] >= order[bb])
-                        fail("loop in voice code (" + F->getName().str() + "): unroll it or give it a constant "
+                        fail("E404", "loop in voice code (" + F->getName().str() + "): unroll it or give it a constant "
                              "trip count");
                     Node *e = edgeOf(pb, bb);
                     if (!e && !pred[pb])
@@ -485,8 +632,8 @@ struct Builder {
                     vmap[U] = mk(NK::Op, "fneg", {get(U->getOperand(0))}, U);
                 } else if (auto *C = dyn_cast<CastInst>(&I)) {
                     std::string op = C->getOpcodeName();
-                    if (op == "bitcast" || op == "ptrtoint" || op == "inttoptr" || op == "addrspacecast")
-                        fail("cast " + op + " is not supported " + where(C));
+                    if (!instProblem(*C).empty())
+                        fail(instProblem(*C).code, instProblem(*C).msg + " " + where(C));
                     vmap[C] = mk(NK::Op, op, {get(C->getOperand(0))}, C);
                 } else if (auto *Fz = dyn_cast<FreezeInst>(&I)) {
                     vmap[Fz] = get(Fz->getOperand(0));
@@ -520,7 +667,7 @@ struct Builder {
                     }
                 } else if (isa<UnreachableInst>(&I)) {
                 } else {
-                    fail(std::string("instruction `") + I.getOpcodeName() + "` is not supported " + where(&I));
+                    fail(instProblem(I).code, instProblem(I).msg + " " + where(&I));
                 }
             }
         }
@@ -661,7 +808,7 @@ void islands(Stage &S) {
         for (Node *r = idom[N]; r; r = idom[r])
             chain.push_back(r);
         if (chain.empty())
-            fail("a table read / function / division that depends on several values " + where(N->v) +
+            fail("E501", "a table read / function / division that depends on several values " + where(N->v) +
                  ": only functions of one value can be tabulated");
         // candidates: the three highest roots and the immediate one (the rest only cost memory and time)
         std::vector<Node *> cands;
@@ -787,7 +934,7 @@ void build(Program &P, Module &M) {
     P.A.fn = M.getFunction("s1_voice");
     P.B.fn = M.getFunction("s1_voice_b");
     if (!P.A.fn || P.A.fn->isDeclaration())
-        fail("no S1_VOICE (s1_voice) in the module");
+        fail("E008", "no S1_VOICE (s1_voice) in the module");
     if (P.B.fn && P.B.fn->isDeclaration())
         P.B.fn = nullptr;
     for (Stage *S : {&P.A, &P.B}) {
@@ -795,10 +942,10 @@ void build(Program &P, Module &M) {
             continue;
         Builder b(P, *S);
         b.run();
-        if (getenv("S1CC_DEBUG"))
+        if (debugLevel() >= 2)
             fprintf(stderr, "graph %s: %zu nodes\n", S->name.c_str(), S->nodes.size());
         if (!S->ret)
-            fail(S->fn->getName().str() + " returns nothing");
+            fail("E009", S->fn->getName().str() + " returns nothing");
         markLive(P, *S);
     }
     for (int k = 0; k < 4; k++)
@@ -814,6 +961,87 @@ void build(Program &P, Module &M) {
         for (auto &isl : S->islands)
             isl.id = id++;
     }
+}
+
+std::string diagnose(Module &M, const std::string &remarksText) {
+    // "remark: f.cc:3:25: 'callee' not inlined into 'caller' because REASON"
+    std::map<std::string, std::string> remarks;
+    {
+        std::istringstream rs(remarksText);
+        std::string line;
+        while (std::getline(rs, line)) {
+            size_t q = line.find(" not inlined into ");
+            size_t b = line.find(" because ");
+            size_t q0 = line.rfind('\'', q - 2);
+            if (q == std::string::npos || b == std::string::npos || q0 == std::string::npos || line[q - 1] != '\'')
+                continue;
+            remarks.emplace(line.substr(q0 + 1, q - q0 - 2), line.substr(b + 9));
+        }
+    }
+    std::ostringstream o;
+    for (const char *voice : {"s1_voice", "s1_voice_b"}) {
+        Function *V = M.getFunction(voice);
+        if (!V || V->isDeclaration())
+            continue;
+        // C function -> reasons -> where; the C function of a call left in place is its callee (that is what did not
+        // compile), the others are where the instruction came from (the innermost function of its debug location)
+        std::map<std::string, std::map<std::string, std::vector<std::string>>> bad;
+        std::set<std::string> inlined;
+        std::vector<Function *> work = {V};
+        std::set<Function *> seen = {V};
+        while (!work.empty()) {
+            Function *F = work.back();
+            work.pop_back();
+            for (BasicBlock &bb : *F)
+                for (Instruction &I : bb) {
+                    const DILocation *dl = I.getDebugLoc();
+                    if (dl && F == V)
+                        for (const DILocation *l = dl; l; l = l->getInlinedAt())
+                            inlined.insert(cName(l->getScope()->getSubprogram()));
+                    Problem pr = instProblem(I, remarks);
+                    if (pr.empty())
+                        continue;
+                    std::string p = pr.msg;
+                    std::string fn = dl ? cName(dl->getScope()->getSubprogram()) : cName(F);
+                    if (auto *CI = dyn_cast<CallInst>(&I))
+                        if (Function *C = CI->getCalledFunction()) {
+                            fn = cName(C);
+                            if (!C->isDeclaration() && seen.insert(C).second)
+                                work.push_back(C);   // its body: what else would fail once it is inlined
+                        }
+                    if (p.compare(0, 9, "call to `") == 0)          // the function is the heading already
+                        p = p.substr(p.find("` ") + 2);
+                    auto &w = bad[fn][pr.code + ": " + p];
+                    std::string at = where(&I);
+                    if (std::find(w.begin(), w.end(), at) == w.end())
+                        w.push_back(at);
+                }
+        }
+        std::string stage = std::string(voice) == "s1_voice" ? "S1_VOICE" : "S1_VOICE_B";
+        if (bad.empty())
+            o << stage << " (" << voice << "): every call inlined, every instruction supported\n";
+        else
+            o << stage << " (" << voice << "): " << bad.size() << " C function(s) s1cc cannot compile\n";
+        for (auto &f : bad) {
+            o << "  " << f.first << "\n";
+            for (auto &r : f.second) {
+                o << "    " << r.first << "\n";
+                for (size_t k = 0; k < r.second.size() && k < 4; k++)
+                    o << "      at " << r.second[k] << "\n";
+                if (r.second.size() > 4)
+                    o << "      ... " << r.second.size() - 4 << " more\n";
+            }
+        }
+        inlined.erase(voice);
+        if (!inlined.empty()) {
+            o << "  inlined into " << voice << ":";
+            for (auto &n : inlined)
+                o << " " << n;
+            o << "\n";
+        } else if (!V->getSubprogram())
+            o << "  (no debug info: build with s1cc build --debug for the C functions and lines)\n";
+    }
+    return o.str();
 }
 
 }  // namespace s1

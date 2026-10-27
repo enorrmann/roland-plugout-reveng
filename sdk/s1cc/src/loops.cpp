@@ -62,7 +62,7 @@ void runPipeline(Function &F, const char *pipeline) {
     PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
     FunctionPassManager FPM;
     if (auto err = PB.parsePassPipeline(FPM, pipeline))
-        fail("pass pipeline: " + toString(std::move(err)));
+        fail("E007", "pass pipeline: " + toString(std::move(err)));
     FPM.run(F, FAM);
 }
 
@@ -80,7 +80,7 @@ int instrumentTrips(Module &M) {
         for (Loop *L : LI.getLoopsInPreorder()) {
             BasicBlock *pre = L->getLoopPreheader();
             if (!pre)
-                fail("a loop of " + F->getName().str() + " without a preheader");
+                fail("E405", "a loop of " + F->getName().str() + " without a preheader");
             auto *cnt = new GlobalVariable(M, i32, false, GlobalValue::InternalLinkage, ConstantInt::get(i32, 0),
                                            "__s1t_c" + std::to_string(id));
             IRBuilder<> b(pre->getTerminator());
@@ -108,7 +108,7 @@ void unrollBounded(Module &M, const std::map<int, int> &trips, std::string &repo
             int n = it == trips.end() ? -1 : it->second;
             L->getHeader()->getTerminator()->setMetadata(
                 "s1.trip", MDNode::get(C, {ConstantAsMetadata::get(ConstantInt::get(Type::getInt32Ty(C), n))}));
-            report += "  loop " + std::to_string(id) + " in " + F->getName().str() + ": up to " +
+            report += "  loop " + std::to_string(id) + " at " + where(L->getHeader()->getTerminator()) + ": up to " +
                       std::to_string(n) + " passes per sample (profiled)\n";
             id++;
         }
@@ -130,10 +130,10 @@ void unrollBounded(Module &M, const std::map<int, int> &trips, std::string &repo
             if (MDNode *md = inner->getHeader()->getTerminator()->getMetadata("s1.trip"))
                 n = (int)mdconst::extract<ConstantInt>(md->getOperand(0))->getSExtValue();
             if (n < 0)
-                fail("a loop in " + F->getName().str() + " never ran in the profiling scenarios: its trip count is "
+                fail("E401", "a loop at " + where(inner->getHeader()->getTerminator()) + " never ran in the profiling scenarios: its trip count is "
                      "unknown");
             if (n > 64)
-                fail("a loop in " + F->getName().str() + " turns up to " + std::to_string(n) +
+                fail("E402", "a loop at " + where(inner->getHeader()->getTerminator()) + " turns up to " + std::to_string(n) +
                      " times per sample: too long for straight-line DSP code");
             if (n > 0) {
                 TargetLibraryInfoImpl TLII(Triple(M.getTargetTriple()));
@@ -142,7 +142,7 @@ void unrollBounded(Module &M, const std::map<int, int> &trips, std::string &repo
                 ScalarEvolution SE(*F, TLI, AC, DT, LI);
                 ValueToValueMapTy VMap;
                 if (!peelLoop(inner, (unsigned)n, &LI, &SE, DT, &AC, true, VMap))
-                    fail("cannot peel a loop of " + F->getName().str());
+                    fail("E403", "cannot peel the loop at " + where(inner->getHeader()->getTerminator()));
             }
             // the rest of the loop never runs (the profile's maximum): the header becomes unreachable
             changeToUnreachable(&*inner->getHeader()->getFirstNonPHIIt());

@@ -26,7 +26,8 @@
  *   s1_export(i, v), s1_import(i)   a value from S1_VOICE (DSP A) to S1_VOICE_B (DSP B), same sample
  *   s1_wrap(x)            x wrapped into [-1, 1)         s1_clamp(x)   x limited to [-1, 1]
  *   s1_tri(x)             1 - 2 |wrap(-x - 1.5)|         s1_exp2(x)    2^x
- *   s1_range(x, lo, hi)   x, declaring its range (where profiling cannot see it)
+ *   s1_range(x, lo, hi)   x, declaring its range: lo and hi go to s1cc as constants, and the profile must reach
+ *                         the call (a branch that always takes the same way leaves it unseen: docs/S1CC.md §3.1)
  */
 #ifndef S1DSP_H_
 #define S1DSP_H_

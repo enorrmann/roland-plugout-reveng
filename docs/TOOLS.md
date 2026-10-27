@@ -171,6 +171,7 @@ Especificación: [S1CC.md](S1CC.md).
 ```sh
 make -C sdk/s1cc                                                   # el compilador (LLVM 19)
 sdk/s1cc/s1cc build VOZ.cc [MAS.cc ...] [-I DIR] [-o SALIDA] [--tol X] [--tollog X] [--maxdeg N] [--regs LISTA]
+sdk/s1cc/s1cc build VOZ.cc ... --debug                             # qué funciones C no compila y por qué (S1CC.md §9.1)
 sdk/s1cc/s1cc check SALIDA [--note N] [--n MUESTRAS] [--all-forms] [nombre=perilla ...]
 KERNEL=SALIDA NAME=MUTABLE-S1CC sh examples/mutable_system/build.sh
 python3 -m unittest discover -s sdk/s1cc/tests                     # ≈ 8 s
@@ -3233,6 +3234,7 @@ scheduled with asm/dspsched.py (only the proven op groups unless --all-forms). P
 | `--n` |  | `9600` |
 | `--all-forms` | schedule with every op group (not only the proven) |  |
 | `--show` | print the scheduled programs |  |
+| `--trace` | the kernel must be built with --trace (s1cc build --trace): report the first C operation whose value differs |  |
 | `knobs` | name=knob (0..255; default 128) |  |
 
 ### `sdk/s1cc/tools/s1kernel.py`

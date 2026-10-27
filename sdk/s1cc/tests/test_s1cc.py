@@ -6,6 +6,7 @@ The thresholds are the measured results of 2026-10-24 minus a margin: SNR over t
 the port computes what the C computes) and band levels 200 Hz .. 12 kHz within 0.5 dB.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -64,3 +65,20 @@ class TestExamples(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestErrorCodes(unittest.TestCase):
+    """Every error / warning code of the compiler and the driver has its row in docs/S1CC.md §9.2, and back."""
+
+    def test_codes_documented(self):
+        src = ''
+        for d in (os.path.join(S1CC, 'src'),):
+            for f in sorted(os.listdir(d)):
+                src += open(os.path.join(d, f)).read()
+        src += open(os.path.join(S1CC, 's1cc')).read()
+        used = set(re.findall(r'"([EW]\d{3})"', src)) | set(re.findall(r'\bfail ([EW]\d{3})\b', src))
+        with open(os.path.join(ROOT, 'docs', 'S1CC.md')) as f:
+            doc = f.read()
+        documented = set(re.findall(r'^\| `([EW]\d{3})`', doc, re.M)) | set(re.findall(r'^\| `[EW]\d{3}`, `([EW]\d{3})`', doc, re.M))
+        self.assertEqual(used - documented, set(), 'codes without a row in docs/S1CC.md §9.2')
+        self.assertEqual(documented - used, set(), 'documented codes the compiler never emits')

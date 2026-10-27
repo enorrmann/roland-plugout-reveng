@@ -29,9 +29,14 @@ class GlobalVariable;
 
 namespace s1 {
 
-[[noreturn]] void fail(const std::string &msg);
-void warn(const std::string &msg);
-std::string where(const llvm::Value *v);   // "file:line" of an instruction (debug info) or its IR text
+// every error and warning has a code (E101, W905): its cause and fix are in docs/S1CC.md §9.2 under that code
+[[noreturn]] void fail(const std::string &code, const std::string &msg);
+void warn(const std::string &code, const std::string &msg);
+std::string where(const llvm::Value *v);   // "file:line in f, inlined at file:line in g" (debug info) or its IR text
+int debugLevel();                           // S1CC_DEBUG: 0 off, 1 diagnostics (s1cc build --debug), 2 + every node
+// s1cc diag: the calls and instructions of the voice functions s1cc cannot compile, by C function, with the reason;
+// remarks = opt's -pass-remarks-missed=inline output (why LLVM kept a call), "" for none
+std::string diagnose(llvm::Module &M, const std::string &remarks);
 
 // ---- dataflow graph ----------------------------------------------------------------------------------------
 enum class NK {

@@ -96,7 +96,7 @@ Fit fitIsland(const std::vector<std::pair<double, double>> &xy, double tolSpan, 
     best.err = 1e300;
     double tol = tolSpan;
     if (xy.empty())
-        fail("island without samples (the profiling run never reached it)");
+        fail("E503", "island without samples (the profiling run never reached it)");
     double xl = 1e300, xh = -1e300, yl = 1e300, yh = -1e300;
     for (auto &p : xy) {
         xl = std::min(xl, p.first);
