@@ -50,6 +50,7 @@ Dependencias:
 | archivo | lenguaje | qué es |
 |---|---|---|
 | `sdk/s1cc/include/s1dsp.h` | C / C++ | el SDK: modelo de programa e intrínsecos (§3) |
+| `sdk/s1cc/include/s1panel.h` | C / C++ | los controles del panel del SYSTEM-1 como ids de `S1_PARAM` (`S1_OSC1_COLOR`...), incluido por `s1dsp.h` (§3) |
 | `sdk/s1cc/src/s1cc.h` | C++ | estructuras comunes: grafo, perfil, ajustes, kernel |
 | `sdk/s1cc/src/graph.cpp` | C++ | IR → grafo de datos (§4) |
 | `sdk/s1cc/src/prof.cpp` | C++ | instrumentación para el perfilado y clones de las islas (§5) |
