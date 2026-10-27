@@ -46,7 +46,7 @@ enum class NK {
     Param,      // s1_param(name, idx)
     State,      // value of a state word at the start of the sample
     Import,     // s1_import(idx)
-    XIn,        // the argument of S1_VOICE_B
+    XIn,        // the argument of S1_DSP_B
     Op,         // an operation (op = LLVM opcode / intrinsic / synthetic name)
 };
 
@@ -107,7 +107,7 @@ struct Stage {
 struct Program {
     llvm::Module *M = nullptr;
     std::vector<StateVar> states;
-    Stage A, B;                  // B.fn == nullptr: no S1_VOICE_B
+    Stage A, B;                  // B.fn == nullptr: no S1_DSP_B
     std::map<std::string, llvm::GlobalVariable *> params;   // name -> descriptor
     std::map<std::string, int> paramCount;
 };

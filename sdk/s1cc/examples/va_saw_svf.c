@@ -21,7 +21,7 @@ static inline float poly_blep(float t, float dt) {
     return 0.0f;
 }
 
-S1_VOICE {
+S1_DSP_A {
     float dt = s1_increment() * 0.5f;           /* our step is for a phase -1..1 */
     phase += dt;
     if (phase >= 1.0f) phase -= 1.0f;
@@ -29,7 +29,7 @@ S1_VOICE {
     return saw * 0.5f;
 }
 
-S1_VOICE_B {
+S1_DSP_B {
     float g = s1_param(cutoff, 0), k = s1_param(damping, 0);
     float a1 = 1.0f / (1.0f + g * (g + k));     /* a function of the knobs only: tabulated */
     float v3 = tanhf(1.5f * x) - ic2;

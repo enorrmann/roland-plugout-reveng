@@ -477,7 +477,7 @@ struct Builder {
         for (auto &s : P.states)
             if (s.gv == gv && s.offset == off) {
                 if (s.stage != S.name)
-                    fail("E302", "state `" + s.name + "` used by both S1_VOICE and S1_VOICE_B (" + where(at) + ")");
+                    fail("E302", "state `" + s.name + "` used by both S1_DSP_A and S1_DSP_B (" + where(at) + ")");
                 return s.index;
             }
         StateVar s;
@@ -617,7 +617,7 @@ struct Builder {
         }
         if (fn == "s1_export") {
             if (S.name != "A")
-                fail("E114", "s1_export in S1_VOICE_B " + where(CI));
+                fail("E114", "s1_export in S1_DSP_B " + where(CI));
             int i = (int)constArg(0);
             Node *v = arg(1);
             auto it = S.exports.find(i);
@@ -626,7 +626,7 @@ struct Builder {
         }
         if (fn == "s1_import") {
             if (S.name != "B")
-                fail("E115", "s1_import in S1_VOICE " + where(CI));
+                fail("E115", "s1_import in S1_DSP_A " + where(CI));
             Node *n = mk(NK::Import, "import", {}, CI);
             n->c = (double)constArg(0);
             vmap[CI] = n;
@@ -970,7 +970,7 @@ static std::string sourcesOf(Program &P, Node *N) {
         case NK::Param: names.insert("s1_param(" + n->name + ", " + std::to_string((int)n->c) + ")"); break;
         case NK::State: names.insert(stateCName(P.states[n->state])); break;
         case NK::Import: names.insert("s1_import(" + std::to_string((int)n->c) + ")"); break;
-        case NK::XIn: names.insert("x (the input of S1_VOICE_B)"); break;
+        case NK::XIn: names.insert("x (the input of S1_DSP_B)"); break;
         default:
             for (Node *i : n->in)
                 work.push_back(i);
@@ -1147,10 +1147,10 @@ void build(Program &P, Module &M) {
     P.M = &M;
     P.A.name = "A";
     P.B.name = "B";
-    P.A.fn = M.getFunction("s1_voice");
-    P.B.fn = M.getFunction("s1_voice_b");
+    P.A.fn = M.getFunction("s1_dsp_a");
+    P.B.fn = M.getFunction("s1_dsp_b");
     if (!P.A.fn || P.A.fn->isDeclaration())
-        fail("E008", "no S1_VOICE (s1_voice) in the module");
+        fail("E008", "no S1_DSP_A (s1_dsp_a) in the module");
     if (P.B.fn && P.B.fn->isDeclaration())
         P.B.fn = nullptr;
     for (Stage *S : {&P.A, &P.B}) {
@@ -1195,7 +1195,7 @@ std::string diagnose(Module &M, const std::string &remarksText) {
         }
     }
     std::ostringstream o;
-    for (const char *voice : {"s1_voice", "s1_voice_b"}) {
+    for (const char *voice : {"s1_dsp_a", "s1_dsp_b"}) {
         Function *V = M.getFunction(voice);
         if (!V || V->isDeclaration())
             continue;
@@ -1233,7 +1233,7 @@ std::string diagnose(Module &M, const std::string &remarksText) {
                         w.push_back(at);
                 }
         }
-        std::string stage = std::string(voice) == "s1_voice" ? "S1_VOICE" : "S1_VOICE_B";
+        std::string stage = std::string(voice) == "s1_dsp_a" ? "S1_DSP_A" : "S1_DSP_B";
         if (bad.empty())
             o << stage << " (" << voice << "): every call inlined, every instruction supported\n";
         else

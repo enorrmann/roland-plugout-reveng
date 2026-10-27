@@ -34,9 +34,10 @@ CASES = [
                                         (81, {'ratio': 255, 'hp_h': 100}, 50, 40)], (52, 30)),
     ('va_saw_svf.c', [], [(45, {}, 60, 50), (69, {'cutoff': 200, 'damping': 200}, 60, 45),
                           (93, {'cutoff': 60, 'damping': 50}, 60, 60)], (100, 42)),
-    # a plain C library and its wrapper, no S1_VOICE_B (min SNR B / max instructions B: None)
+    # a plain C library, two instances per voice, and its wrapper; no S1_DSP_B (min SNR B / max instructions B: None)
     ('simple_saw_wrapped/simple_saw_wrapped.c', [SIMPLE_SAW, '-I', os.path.dirname(SIMPLE_SAW)],
-     [(33, {'level': 255}, 90, None), (57, {}, 90, None), (81, {'level': 255}, 90, None)], (22, None)),
+     [(33, {'level': 255, 'detune': 255}, 90, None), (57, {'detune': 0}, 90, None),
+      (81, {'level': 255, 'detune': 255}, 90, None)], (33, None)),
 ]
 
 

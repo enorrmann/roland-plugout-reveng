@@ -1,10 +1,15 @@
 /* saw_wrapper.c: the whole of the wrapper between a plain C sawtooth (saw_core.c) and an s1cc voice
  * (docs/examples_s1cc_saw_README.md §3). It is the only file that has to include the SDK.
  *
- *   S1_VOICE      slave DSP A, every sample: trigger -> new note, one sample of the library, x gate
- *   S1_INIT       the wrapper's and the library's first values (the native reference starts from them too)
- *   S1_PARAM      OSC1 COLOR (S1_OSC1_COLOR) -> saw level
- *   S1_VOICE_B    not here: DSP B is left free for the filter / envelopes of the host program (C-S1SY)
+ *   S1_DSP_A      slave DSP A, every sample, all 8 voices (a note playing or not): trigger -> new note, one sample
+ *                 of the library, x gate
+ *   S1_INIT       the wrapper's and the library's first values. Runs on the PC only, before the reference and
+ *                 every profiling scenario; never on the DSP, which s1cc makes start from the values it leaves
+ *   S1_PARAM      OSC1 COLOR (S1_OSC1_COLOR) -> saw level: the table is computed on the PC for knob 0..255; the
+ *                 ARM writes the knob's row to the DSP (row 128 at load, then whenever the knob moves)
+ *   S1_DSP_B    not here: DSP B (the second DSP, not a second oscillator) is left free for the filter /
+ *                 envelopes of the host program (C-S1SY)
+ *   (docs/S1CC.md §3.1: when each part runs)
  *
  * Build:  sdk/s1cc/s1cc build sdk/s1cc/examples/saw_wrapper.c sdk/s1cc/examples/saw_core.c -I sdk/s1cc/examples
  * Check:  sdk/s1cc/s1cc check sdk/s1cc/build/saw_wrapper --note 57
@@ -34,7 +39,7 @@ S1_INIT {
     voice.x1 = 0.0f;
 }
 
-S1_VOICE {
+S1_DSP_A {
     trig_now = s1_trig();
     if (trig_now != last_trig) {        /* a new note: the library restarts, at the pitch of this sample */
         last_trig = trig_now;

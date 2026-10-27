@@ -1,8 +1,8 @@
 // Braids SAW_SWARM (braids/digital_oscillator.cc, DigitalOscillator::RenderSawSwarm, (c) Emilie Gillet, MIT),
 // as an s1cc voice program (docs/S1CC.md). The per-sample loop body is the original code (integers, Q15, uint32
 // phases, Interpolate88 of ws_moderate_overdrive); what Render() computes once per block from the knobs is in the
-// S1_PARAM functions, also the original code. Per voice: 7 saws + waveshaper on slave DSP A (s1_voice), the
-// high-pass on slave DSP B (s1_voice_b).
+// S1_PARAM functions, also the original code. Per voice: 7 saws + waveshaper on slave DSP A (s1_dsp_a), the
+// high-pass on slave DSP B (s1_dsp_b).
 #include <stdint.h>
 #include "s1dsp.h"
 #include "braids/resources.h"
@@ -32,7 +32,7 @@ S1_PARAM(hp_offset, S1_OSC2_COLOR, 1) {
 static uint32_t phase[7];
 static int32_t lp, bp;
 
-S1_VOICE {
+S1_DSP_A {
   // increments: the centre saw's step (uint32 phase per sample) x the ratios of the TIMBRE table
   float centre = s1_increment() * 2147483648.0f;           // our step is for a phase -1..1: x 2^31 -> uint32
   int32_t sample = -28672;
@@ -45,7 +45,7 @@ S1_VOICE {
   return sample / 32768.0f;
 }
 
-S1_VOICE_B {
+S1_DSP_B {
   // the high-pass of RenderSawSwarm: f = lut_svf_cutoff at pitch + offset, damp = lut_svf_damp[0]
   int32_t sample = static_cast<int32_t>(x * 32768.0f);
   int32_t pitch = static_cast<int32_t>((s1_pitch() + 1.0f) * 1536.0f);   // our octaves -> Braids 1/128 semitone

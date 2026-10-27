@@ -78,13 +78,13 @@ S1_PARAM(cutoff, S1_OSC1_COLOR, 1) {       /* perilla OSC1 COLOR -> tabla: corre
 
 static float phase, ic1, ic2;              /* estado de la voz: una palabra de anillo cada una, 8 copias */
 
-S1_VOICE {                                 /* DSP A del esclavo, cada muestra */
+S1_DSP_A {                                 /* DSP A del esclavo, cada muestra */
     phase += s1_increment() * 0.5f;
     if (phase >= 1.0f) phase -= 1.0f;
     return 2.0f * phase - 1.0f;
 }
 
-S1_VOICE_B {                               /* opcional: DSP B; x = la señal de la voz del anfitrión */
+S1_DSP_B {                               /* opcional: DSP B; x = la señal de la voz del anfitrión */
     float g = s1_param(cutoff, 0);
     ...
 }
@@ -92,8 +92,8 @@ S1_VOICE_B {                               /* opcional: DSP B; x = la señal de 
 
 | elemento | regla |
 |---|---|
-| `S1_VOICE` | obligatorio; corre en el DSP A del esclavo; devuelve la señal de la voz (≈ −1…1) |
-| `S1_VOICE_B` | opcional; corre en el DSP B; `x` = la señal de la voz después del nivel y del trémolo del anfitrión |
+| `S1_DSP_A` | obligatorio; corre en el DSP A del esclavo; devuelve la señal de la voz (≈ −1…1) |
+| `S1_DSP_B` | opcional; corre en el DSP B; `x` = la señal de la voz después del nivel y del trémolo del anfitrión |
 | variables de archivo no `const` | estado de la voz (int o float; los arrays con índice constante sirven, clang los separa). Una variable sólo puede usarla una de las dos funciones |
 | arrays `const` | tablas: con índice constante se pliegan; con índice calculado pasan a una isla (§4.3) |
 | `S1_PARAM(nombre, panel_id, n)` | tabla de perilla: la función corre en el PC para knob = 0…255 y escribe `out[0..n-1]`; el ARM la escribe como parámetros `C0xx` del DSP cuando se mueve el control `panel_id` |
@@ -109,10 +109,86 @@ Intrínsecos:
 | `s1_increment()` | paso de fase de ese tono para una fase −1…1: 2·f/96000 |
 | `s1_gate()`, `s1_trig()` | puerta 0 / 1; disparo: alterna 0 / 1 en cada comienzo de nota |
 | `s1_param(nombre, i)` | valor i de una tabla `S1_PARAM` |
-| `s1_export(i, v)` / `s1_import(i)` | un valor de `S1_VOICE` (DSP A) a `S1_VOICE_B` (DSP B), en la misma muestra |
+| `s1_export(i, v)` / `s1_import(i)` | un valor de `S1_DSP_A` (DSP A) a `S1_DSP_B` (DSP B), en la misma muestra |
 | `s1_wrap(x)`, `s1_clamp(x)`, `s1_tri(x)` | x envuelto a [−1, 1) / recortado a [−1, 1] / 1 − 2·\|wrap(−x − 1,5)\|: una op cada uno (`ph_wrap` / `ph_clamp` / `ph_tri`) |
 | `s1_exp2(x)` | 2ˣ (`exp2` del DSP: 10 ops más las cuadraturas que pida el rango) |
 | `s1_range(x, lo, hi)` | x, declarando su rango (cuando el perfilado no lo ve) |
+
+### 3.1 Cuándo corre cada parte
+
+Un programa de s1cc corre en dos lugares. En el **PC**, al compilar, como binario nativo: la tabla de perillas, la
+referencia y el perfilado (§5, §9). En el **sinte**, como microcódigo de los DSP esclavos. Cada parte corre en uno o
+en los dos:
+
+| parte | en el PC (`s1cc build`) | en el sinte |
+|---|---|---|
+| `S1_PARAM` | una vez por posición de perilla, 0…255 | nunca: se usa su tabla |
+| `S1_INIT` | antes de la referencia y de cada escenario del perfilado | nunca: se usa el estado que deja |
+| `S1_DSP_A` | en la referencia y el perfilado, una voz | DSP A, cada muestra, 8 voces |
+| `S1_DSP_B` | igual, después de `S1_DSP_A` | DSP B, cada muestra, 8 voces |
+| funciones C llamadas desde la voz | inlineadas: corren donde corre la voz | ídem |
+
+**`S1_PARAM(nombre, panel_id, n) { out[0..n-1] = f(knob); }`**
+* **PC.** `ref tables` llama a la función para knob = 0, 1, …, 255 y guarda las 256 filas de `n` valores
+  (`tables.txt`). Es C nativo: puede usar `powf`, `tanf`, `s1_exp2` o lo que haga falta, cuesta 0 en el DSP.
+* **Sinte.** El plug-out lleva la tabla. El ARM del esclavo (`engine.c kparam_set`) escribe la fila de la posición
+  de la perilla en `n` parámetros del DSP (`C070`… en A, `C060`… en B; uno para las 8 voces). Al cargar el plug-out
+  escribe la fila 128; después, cada vez que se mueve el control `panel_id`. **No toma la posición real de la perilla
+  al cargar**: hasta que se mueve, vale 128.
+* **En la voz.** `s1_param(nombre, i)` lee el parámetro `i`: una carga de memoria, sin cálculo.
+* `panel_id`: `s1panel.h` (`S1_OSC1_COLOR`…).
+
+**`S1_INIT { ... }`**
+* **PC.** Corre antes de la primera muestra de la referencia y antes de cada escenario del perfilado: primero el
+  estado vuelve a los inicializadores del C (`__s1p_reset`) y después corre `S1_INIT` (`s1rt.c reset`).
+* **Sinte.** Nunca corre: no se compila al DSP. s1cc lee los valores que deja en las variables de estado y hace que
+  el DSP arranque de ellos: con una corrección en la primera muestra después de cargar el programa (§11.1), salvo
+  las fases que quedan en 0.
+* **Para qué.** Para inicializar una librería con su propia función (`osc.Init()`, `saw_init(&s)`). Sin `S1_INIT`
+  valen los inicializadores del C (`static float x = 1.0f;`).
+* No es un "note on": no corre al empezar una nota. Para reiniciar algo en cada nota, `s1_trig()` en la voz.
+
+**`S1_DSP_A { ...; return y; }`**
+* **Sinte.** El código se compila una vez y se copia 8 veces en el programa del DSP A del esclavo, una por voz, cada
+  copia con sus palabras de estado (bloque de la voz: 16 palabras como máximo, estado + temporales). Las 8 copias
+  corren en cada muestra, a 96 kHz, **suene o no una nota**: la puerta en 0 solo cambia el valor de `s1_gate()`.
+* **Sin saltos.** El DSP no salta: los `if` se calculan por los dos lados y se elige el resultado (`select`, §4.1);
+  los bucles se desenrollan hasta su máximo perfilado (§9.2.5); las llamadas se inlinean. El costo es el mismo en todas las muestras.
+* **Entradas**, por voz: `s1_pitch()` (con el LFO y el RANGE de OSC1 del anfitrión), `s1_increment()`,
+  `s1_gate()`, `s1_trig()` (alterna 0 / 1 en cada comienzo de nota).
+* **Salida.** El valor devuelto (≈ −1…1) reemplaza a DCO1 + DCO2 del anfitrión (C-S1SY). El anfitrión lo
+  multiplica por OSC1 MIX y por el trémolo del LFO y lo pasa al DSP B como entrada de la voz.
+* **PC.** En la referencia (`ref`, `refdsp`) y el perfilado: una sola voz, una llamada por muestra.
+
+**`S1_DSP_B { ...; return y; }`** (opcional)
+* **No es el oscilador 2.** La B es el **DSP B** del par de esclavos. El DSP A hace los osciladores (los dos del
+  anfitrión, OSC1 y OSC2); el DSP B, el filtro y las envolventes. Varios osciladores van todos en `S1_DSP_A`
+  (`simple_saw_wrapped`: dos sierras). `S1_DSP_B` es para procesar la señal del A: un filtro, un waveshaper, un
+  efecto por voz (el paso alto de SAW_SWARM en `braids_saw_swarm_s1.cc`). También sirve para repartir el trabajo
+  cuando `S1_DSP_A` no entra en las instrucciones del DSP A.
+* **Sinte.** Igual que `S1_DSP_A`, en el DSP B del esclavo: 8 copias, cada muestra. Va primero en la voz del DSP B.
+  `x` es la salida de `S1_DSP_A` después de OSC1 MIX y el trémolo. Lo que devuelve sigue por la cadena del
+  anfitrión: ADSR del VCA, ADSR del filtro y paso bajo.
+* **Comunicación.** `s1_export(i, v)` en `S1_DSP_A` y `s1_import(i)` acá: el valor de la misma muestra. Las
+  variables de estado no se comparten entre las dos (error E302).
+* **Sin `S1_DSP_B`**, la salida de `S1_DSP_A` va directo a la cadena del anfitrión.
+* **PC.** Después de cada `S1_DSP_A`, con `x` = lo que devolvió.
+
+Ejemplo comentado parte por parte: [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md).
+
+### 3.2 Envolver una librería
+
+* **Envoltorio.** La librería se compila tal cual, desde sus fuentes; un solo archivo incluye `s1dsp.h` y la adapta:
+  una instancia global (su estado es el de la voz), su `Init()` en `S1_INIT`, una muestra por llamada en
+  `S1_DSP_A` (si renderiza bloques, con tamaño 1) y sus parámetros desde `s1_param`. Si un método es privado, el
+  envoltorio puede usar `#define private public` antes del `#include` (`braids_wrapper_saw_swarm.cc`).
+* **Las fuentes** van todas en `s1cc build` (`.c` / `.cc` de la librería y sus tablas); lo que no tiene cuerpo da
+  E101 (§9.2.2).
+* **`s1_range(x, lo, hi)`.** Declara el rango de un valor que el perfilado no ve. `lo` y `hi` tienen que ser
+  constantes, y el perfilado tiene que pasar por la llamada: una llamada dentro de una rama que ningún escenario
+  toma no declara nada.
+* Ejemplos: [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) (mínimo),
+  `saw_wrapper.c` (detección de nota con `s1_trig`, `s1_range`), `braids_wrapper_*.cc` (una clase C++ de Braids).
 
 ## 4. Del IR al grafo (`graph.cpp`)
 
@@ -120,7 +196,7 @@ Intrínsecos:
 
 * **Módulo.** Se lee el módulo enlazado (`llvm-link` de todas las fuentes, para tener los inicializadores de las
   tablas), compilado con `clang -O2`.
-* **Bloques.** Los bloques de `s1_voice` / `s1_voice_b` se recorren en orden topológico. Un bucle (arista hacia
+* **Bloques.** Los bloques de `s1_dsp_a` / `s1_dsp_b` se recorren en orden topológico. Un bucle (arista hacia
   atrás) es un error.
 * **If-conversion.** Cada bloque tiene un predicado: la suma de los predicados de sus aristas de entrada, que son
   excluyentes. Cada arista toma el predicado de su bloque por la condición del salto (o su negación). Un `phi` se
@@ -311,14 +387,14 @@ candidatas descartadas y los avisos.
 * **Información de depuración.** Las fuentes se compilan con `-g`. Cada error y aviso nombra el archivo, la línea y
   la función C / C++ de la instrucción, y la cadena de inlining hasta la voz:
   `digital_oscillator.cc:306 in braids::DigitalOscillator::RenderToy, inlined at braids_wrapper_digital.cc:28 in
-  s1_voice`. Sin `--debug` el error muestra la instrucción del IR y la función de la voz.
+  s1_dsp_a`. Sin `--debug` el error muestra la instrucción del IR y la función de la voz.
 * **Línea exacta.** Además, cada fuente se compila a `-O0` (`SALIDA/srcmap.ll`, por la variable `S1CC_SRCMAP`). Con
   `-O2`, LLVM adelanta el código de los `if` chicos para ejecutarlo sin salto (SimplifyCFG) y le pone la ubicación del
   `if`. Cuando la ubicación `-O2` de una instrucción no corresponde a ninguna instrucción de su tipo en `-O0`, s1cc la
   busca en `-O0` entre las de ese tipo dentro del mismo bloque, y muestra esa línea. El error termina con la línea
   del fuente, un `^` en cada columna candidata y la nota `LLVM moved this ...`.
-* **Diagnóstico previo.** Antes del perfilado, `s1cc diag linked.ll --remarks inline.txt` recorre `s1_voice` y
-  `s1_voice_b` y lista todas las funciones C que no puede compilar, cada una con su motivo y sus lugares. La lista
+* **Diagnóstico previo.** Antes del perfilado, `s1cc diag linked.ll --remarks inline.txt` recorre `s1_dsp_a` y
+  `s1_dsp_b` y lista todas las funciones C que no puede compilar, cada una con su motivo y sus lugares. La lista
   queda en `SALIDA/diag.txt` y también sale por stderr con el prefijo `s1cc: debug:`. Así se ven todos los
   problemas aunque el build se detenga en el primero.
 * **Motivos de LLVM.** `opt` corre con `-pass-remarks-missed=inline`. `SALIDA/inline.txt` guarda por qué el
@@ -336,7 +412,7 @@ Qué detecta `diag` (son las mismas reglas que usa el constructor del grafo, `gr
 | `switch`, `invoke` y otras instrucciones | la instrucción no está soportada (un `switch` se escribe con `if` / `?:`) |
 | `bitcast`, `ptrtoint`, `inttoptr`, `addrspacecast` | puntero usado como número o reinterpretación de tipo |
 
-Al final, `diag` también muestra las funciones C que sí quedaron inlineadas en la voz (`inlined into s1_voice:`).
+Al final, `diag` también muestra las funciones C que sí quedaron inlineadas en la voz (`inlined into s1_dsp_a:`).
 El cuerpo de una función no inlineada también se revisa, porque sus problemas aparecerán cuando se inlinee.
 `diag` no ve los errores que dependen del grafo o del perfil (rangos, islas con varias entradas, punteros
 calculados). Esos siguen deteniendo el build en `lower`, pero con la ubicación C de arriba.
@@ -344,11 +420,11 @@ calculados). Esos siguen deteniendo el build en `lower`, pero con la ubicación 
 Ejemplo, la envoltura de Braids sin `digital_oscillator.cc` entre las fuentes:
 
 ```
-s1cc: debug: S1_VOICE (s1_voice): 1 C function(s) s1cc cannot compile
+s1cc: debug: S1_DSP_A (s1_dsp_a): 1 C function(s) s1cc cannot compile
 s1cc: debug:   braids::DigitalOscillator::RenderToy
 s1cc: debug:     E101: not inlined: it has no body in the module: the file that defines it is not among the build's sources (add it), or it is a library function s1cc does not know
-s1cc: debug:       at sdk/s1cc/examples/braids_wrapper_digital.cc:28 in s1_voice
-s1cc: debug:   inlined into s1_voice: braids::DigitalOscillator::set_parameters
+s1cc: debug:       at sdk/s1cc/examples/braids_wrapper_digital.cc:28 in s1_dsp_a
+s1cc: debug:   inlined into s1_dsp_a: braids::DigitalOscillator::set_parameters
 ```
 
 Con `--debug`, cada error termina con una referencia a su código en §9.2.
@@ -356,7 +432,7 @@ Con `--debug`, cada error termina con una referencia a su código en §9.2.
 Ejemplo, la envoltura con `digital_oscillator.cc` (E501):
 
 ```
-s1cc: error E501: a table read / function / division `xor` that depends on several values (osc.phase_, osc.phase_increment_, s1_param(color, 0)) at /home/emilio/git/eurorack/braids/digital_oscillator.cc:308 in braids::DigitalOscillator::RenderToy, inlined at sdk/s1cc/examples/braids_wrapper_digital.cc:28 in s1_voice: only functions of one value can be tabulated
+s1cc: error E501: a table read / function / division `xor` that depends on several values (osc.phase_, osc.phase_increment_, s1_param(color, 0)) at /home/emilio/git/eurorack/braids/digital_oscillator.cc:308 in braids::DigitalOscillator::RenderToy, inlined at sdk/s1cc/examples/braids_wrapper_digital.cc:28 in s1_dsp_a: only functions of one value can be tabulated
 s1cc: debug: 308 |         held_sample = (((phase >> 24) ^ (x << 1)) & (~x)) + (x >> 1);
 s1cc: debug:     |                                       ^              ^
 s1cc: debug:       (LLVM moved this `xor` to line 306; in the C it is one of the marked ones)
@@ -410,8 +486,8 @@ Los códigos son estables: un código no cambia de significado; un caso nuevo re
 | `E004` | `init: state 'v' not in ORIG.ll` | `voice.ll` y `linked.ll` no coinciden (archivos de builds distintos) | rehacer el build completo |
 | `E005` | `cannot read the profile` | el binario `prof` no corrió o falló | rehacer el build; si falla, correr `SALIDA/prof prof x.txt` y ver su error |
 | `E007` | `pass pipeline: ...` | error interno de LLVM al preparar los bucles | informar |
-| `E008` | `no S1_VOICE (s1_voice) in the module` | falta `S1_VOICE`, o se definió dentro de un `namespace` / sin `#include "s1dsp.h"` | definir `S1_VOICE { ... }` a nivel de archivo |
-| `E009` | `s1_voice returns nothing` | la voz nunca llega a un `return` con valor | devolver la muestra en todas las ramas |
+| `E008` | `no S1_DSP_A (s1_dsp_a) in the module` | falta `S1_DSP_A`, o se definió dentro de un `namespace` / sin `#include "s1dsp.h"` | definir `S1_DSP_A { ... }` a nivel de archivo |
+| `E009` | `s1_dsp_a returns nothing` | la voz nunca llega a un `return` con valor | devolver la muestra en todas las ramas |
 
 #### 9.2.1 Antes de s1cc: clang y el enlazador
 
@@ -437,7 +513,7 @@ quedar llamadas a los intrínsecos `s1_*`, a libm (§7.3) y a intrínsecos de LL
 | `E110` | `s1_*: argument N must be a constant` | índice de `s1_param`, `s1_export`, `s1_import` calculado | un literal o una constante de compilación |
 | `E111` | `s1_param(nombre, i): index out of the table` | `i` ≥ `n` de `S1_PARAM(nombre, panel, n)` | agrandar `n` o corregir el índice |
 | `E112`, `E113` | `s1_param: unknown table` / `not an S1_PARAM descriptor` | el primer argumento no es un nombre declarado con `S1_PARAM` | usar el nombre de la macro, no una variable |
-| `E114`, `E115` | `s1_export in S1_VOICE_B` / `s1_import in S1_VOICE` | el sentido es sólo A → B | exportar en `S1_VOICE`, importar en `S1_VOICE_B` |
+| `E114`, `E115` | `s1_export in S1_DSP_B` / `s1_import in S1_DSP_A` | el sentido es sólo A → B | exportar en `S1_DSP_A`, importar en `S1_DSP_B` |
 
 #### 9.2.3 Instrucciones (`graph.cpp`, también en `diag`)
 
@@ -457,7 +533,7 @@ El estado son las variables de archivo no `const`. Las tablas son las `const`. N
 | código | mensaje | causa | solución |
 |---|---|---|---|
 | `E301` | `state 'v' is not an int or a float` | variable de archivo de tipo puntero, struct no separable o `long double` | guardar índices en vez de punteros; separar el struct en campos escalares |
-| `E302` | `state 'v' used by both S1_VOICE and S1_VOICE_B` | cada palabra de estado vive en un solo DSP | duplicarla, o pasar el valor con `s1_export` / `s1_import` |
+| `E302` | `state 'v' used by both S1_DSP_A and S1_DSP_B` | cada palabra de estado vive en un solo DSP | duplicarla, o pasar el valor con `s1_export` / `s1_import` |
 | `E303` | `computed index into a state array: state arrays need constant indices` | `buf[i]` con `i` variable en un array de estado (líneas de retardo, buffers circulares) | índices constantes (desplazar el array a mano), o un bucle desenrollado. Las líneas de retardo largas no caben en el modelo |
 | `E304` | `computed index into a local array: use constant indices` | array local con índice variable | lo mismo, o convertirlo en `const` si es una tabla |
 | `E305`, `E306` | `load from an unknown address` / `unsupported pointer (only file-scope variables and tables)` | puntero que no es una global (argumento, `malloc`, puntero guardado) | acceder a la global directamente. Un objeto por referencia sirve si después del inlining la referencia apunta a una global |
@@ -514,7 +590,7 @@ preferencia:
 | `E603` | `'or' with a constant is not supported outside a tabulated function` | `x \| c` con `x` de varias fuentes | `x + c` si los bits no se pisan; si no, que dependa de un valor (isla) |
 | `E604` | `compare 'P' not supported` | predicado de comparación raro (`ord`, `uno`: chequeos de NaN) | quitar los chequeos de NaN: el DSP no tiene NaN |
 | `E605` | `operation 'OP' not supported` | operación del IR sin bajada en `lower.cpp` (enteros de más de 64 bits, operaciones de bits raras) | reescribirla con operaciones de §7.2 |
-| `E116` | `s1_import(i) without an s1_export(i)` | `S1_VOICE_B` importa un índice que `S1_VOICE` nunca exporta | agregar el `s1_export(i, v)` |
+| `E116` | `s1_import(i) without an s1_export(i)` | `S1_DSP_B` importa un índice que `S1_DSP_A` nunca exporta | agregar el `s1_export(i, v)` |
 | `E006` | `no table for S1_PARAM 'p' (tables file)` | `tables.txt` viejo o la función de la tabla no se ejecutó | rehacer el build completo |
 
 #### 9.2.8 Kernel (`kernel.cpp`)
@@ -524,7 +600,7 @@ preferencia:
 | `E701` | `kernel: constant K outside the DSP range (+-512)` | una escala u offset fuera del rango de los inmediatos; suele venir de un rango perfilado enorme | `s1_range` en el valor que explota, o limitarlo en el C (`s1_clamp`) |
 | `E702` | `kernel: a multiply by a non-finite constant` / `a non-finite constant` | un rango sin límite (división por un valor que llega a 0, `log(0)`) | `s1_range`, o proteger la división en el C (`max(y, eps)`) |
 | `E703` | `kernel: exp2 of a value spanning more than 2^11` | el argumento de `exp2` / `exp` / `pow(c, x)` cubre más de 2048 octavas | limitar el argumento (`s1_range` o `s1_clamp`) |
-| `E704` | `kernel: out of registers (N usable) even with spilling` | demasiados valores vivos a la vez | más registros con `--regs` si el programa anfitrión lo permite, o partir el cálculo entre `S1_VOICE` y `S1_VOICE_B` |
+| `E704` | `kernel: out of registers (N usable) even with spilling` | demasiados valores vivos a la vez | más registros con `--regs` si el programa anfitrión lo permite, o partir el cálculo entre `S1_DSP_A` y `S1_DSP_B` |
 | `E705`, `E706` | `kernel: value read before it is defined` / `no free register pair for recipseed` | error interno | informar con el fuente y `--debug` |
 
 #### 9.2.9 Avisos
@@ -559,14 +635,14 @@ El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuán
 | `braids_saw_swarm.cc` | el bucle original de RenderSawSwarm (enteros, fases `uint32`, `Interpolate88`, SVF Q15, `lut_svf_cutoff` por isla) | 49 | 46 | 58 / 44–49 dB |
 | `braids_saw_swarm_s1.cc` | lo mismo, con el coeficiente del paso alto desde el incremento exportado (cabe en 8 voces) | 49 | 26 | 58 / 46–49 dB |
 | `va_saw_svf.c` | float: polyBLEP (`if`, divisiones por `dt`), SVF de Simper con `tanhf`, tablas con `powf`/`tanf` | 84 | 31 | 68 / 54 dB |
-| `simple_saw_wrapped/` | el ejemplo mínimo: una librería C pura (diente de sierra ingenuo, `saw.c`) y su envoltorio ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md)) | 19 | — | 95–108 dB / — |
+| `simple_saw_wrapped/` | el ejemplo mínimo: una librería C pura (diente de sierra ingenuo, `saw.c`), dos instancias por voz, y su envoltorio ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md)) | 30 | — | 95–112 dB / — |
 
 Notas 45 y 57, perillas en 128. `tests/test_s1cc.py` usa estos valores con un margen (A ≤ 52 en los Braids).
 Entre el 2026-10-24 y el 2026-10-27 los Braids tuvieron 58 instrucciones en A: el arranque exacto corregía sus 7
 fases. Desde el 2026-10-27 las fases que empiezan en 0 no se corrigen (§11.1).
 
 **Aviso W901 de los Braids y zona inestable del paso alto** [sim, 2026-10-27]. El aviso viene de `f * bp` y
-`f * hp` de `S1_VOICE_B` (`braids_saw_swarm_s1.cc` líneas 50 y 53): productos `int32` que en el ARM de Braids dan la
+`f * hp` de `S1_DSP_B` (`braids_saw_swarm_s1.cc` líneas 50 y 53): productos `int32` que en el ARM de Braids dan la
 vuelta y en el port no. Medido sobre la referencia nativa con un contador de desbordes (1 s por caso, ratio = 128):
 
 | COLOR (`hp_h`) | nota 33 | nota 57 | nota 81 |

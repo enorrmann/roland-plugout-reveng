@@ -28,7 +28,7 @@ S1_PARAM(hp_h, S1_OSC2_COLOR, 1) {                       // COLOR: pi 2^(offset 
 static uint32_t phase[7];
 static int32_t lp, bp;
 
-S1_VOICE {
+S1_DSP_A {
   float centre = s1_increment() * 2147483648.0f;
   int32_t sample = -28672;
   for (int i = 0; i < 7; ++i) {
@@ -40,7 +40,7 @@ S1_VOICE {
   return sample / 32768.0f;
 }
 
-S1_VOICE_B {
+S1_DSP_B {
   int32_t sample = static_cast<int32_t>(x * 32768.0f);
   float u = fminf(fmaxf(s1_import(0) * s1_param(hp_h, 0), 0.000267f), 0.3927f);   // pi fc / fs, Braids' limits
   int32_t f = static_cast<int32_t>(2.0f * sinf(u) * 32767.0f);

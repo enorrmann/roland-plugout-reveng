@@ -3,7 +3,7 @@
 //   s1cc trips  IN.ll -o OUT.ll      a call __s1p_trip(loop id, header count) in every loop header of the voice
 //                                    functions (runtime/s1rt.c records the maximum per invocation)
 //   s1cc unroll IN.ll --trips P -o OUT.ll   every loop peeled max-trip times, innermost first, then cleaned up
-// Loop ids: the preorder of LoopInfo in s1_voice, then s1_voice_b, on the module as clang left it.
+// Loop ids: the preorder of LoopInfo in s1_dsp_a, then s1_dsp_b, on the module as clang left it.
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -32,7 +32,7 @@ namespace {
 
 std::vector<Function *> voiceFunctions(Module &M) {
     std::vector<Function *> fs;
-    for (const char *n : {"s1_voice", "s1_voice_b"})
+    for (const char *n : {"s1_dsp_a", "s1_dsp_b"})
         if (Function *F = M.getFunction(n))
             if (!F->isDeclaration())
                 fs.push_back(F);

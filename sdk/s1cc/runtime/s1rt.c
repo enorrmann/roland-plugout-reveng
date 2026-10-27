@@ -3,7 +3,7 @@
  *
  *   PROG tables FILE                     every S1_PARAM table at knob 0..255 ("p name panel count" + 256 rows)
  *   PROG ref OUT NOTE N [name=knob ...] [off=T]
- *                                        N samples of one voice: float32 pairs (S1_VOICE, S1_VOICE_B) in OUT;
+ *                                        N samples of one voice: float32 pairs (S1_DSP_A, S1_DSP_B) in OUT;
  *                                        gate on from 0 (one note start), off at T (default never)
  *   PROG prof OUT                        profiling scenarios -> ranges, overflows, island samples in OUT
  *
@@ -24,8 +24,8 @@ typedef struct s1_param_desc {
 
 extern const s1_param_desc __start_s1_params[] __attribute__((weak));
 extern const s1_param_desc __stop_s1_params[] __attribute__((weak));
-float s1_voice(void);
-float s1_voice_b(float x) __attribute__((weak));
+float s1_dsp_a(void);
+float s1_dsp_b(float x) __attribute__((weak));
 void __s1p_reset(void) __attribute__((weak));
 void __s1p_dspstart(void) __attribute__((weak));
 void s1_init(void) __attribute__((weak));
@@ -152,9 +152,9 @@ static void run(double note, long n, long off, FILE *out) {
     g_trig = 1.0f - g_trig;
     for (long t = 0; t < n; t++) {
         g_gate = t < off ? 1.0f : 0.0f;
-        float a = s1_voice(), b = a;
-        if (s1_voice_b)
-            b = s1_voice_b(a);
+        float a = s1_dsp_a(), b = a;
+        if (s1_dsp_b)
+            b = s1_dsp_b(a);
         if (out) {
             float ab[2] = {a, b};
             fwrite(ab, sizeof ab, 1, out);
@@ -227,9 +227,9 @@ int main(int argc, char **argv) {
         g_trig = 1.0f;
         for (long t = 0; t < n; t++) {
             g_gate = 1.0f;
-            float a = s1_voice();
-            if (s1_voice_b)
-                s1_voice_b(a);
+            float a = s1_dsp_a();
+            if (s1_dsp_b)
+                s1_dsp_b(a);
             fprintf(dumpf, "n\n");
         }
         fclose(dumpf);
