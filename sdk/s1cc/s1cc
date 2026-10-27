@@ -2,12 +2,14 @@
 # s1cc driver (docs/S1CC.md §9): C / C++ voice program -> kernel for the Roland BMC DSPs.
 #
 #   sdk/s1cc/s1cc build VOICE.cc [MORE.cc ...] [-I DIR ...] [-o OUTDIR] [--tol X] [--tollog X] [--maxdeg N] [--regs LIST]
-#           [--debug] [--check]
+#           [--debug] [--check] [--no-auto]
 #       OUTDIR (default build/<voice>): voice.ll (linked IR), tables.txt (S1_PARAM tables), profile.txt,
 #       voice.s1k (the kernel), report.txt; ref / prof / refdsp (native reference, profiling, reference that
 #       starts from the DSP's initial state). --debug (or S1CC_DEBUG=1): C file:line and function in every error,
 #       and first the list of C functions s1cc cannot compile and why (OUTDIR/diag.txt); S1CC_DEBUG=2 adds every node.
 #       --check: `check OUTDIR` at the end (instructions, SNR against the native reference; note 57, knobs at 128)
+#       Sources: the ones given, plus the source next to every header they include (saw.h -> saw.c,
+#       braids/resources.h -> braids/resources.cc), and so on; --no-auto: only the ones given
 #   sdk/s1cc/s1cc check OUTDIR [--note N] [name=knob ...]   microcode on the emulator vs the native reference
 #   sdk/s1cc/s1cc deps                       fetch Mutable Instruments' stmlib (MIT) into build/deps (the eurorack
 #       checkout has its submodule empty): with it, `build` adds -I build/deps and stmlib's units.cc / random.cc,
@@ -21,12 +23,12 @@ CLANG=${CLANG:-clang}
 CLANGXX=${CLANGXX:-clang++}
 # driver errors carry a code too (docs/S1CC.md §9.2)
 fail() { echo "s1cc: error $1: $2" >&2; [ "${S1CC_DEBUG:-0}" = 0 ] || echo "s1cc: debug: cause and fix of $1: docs/S1CC.md §9.2" >&2; exit 1; }
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 cmd=$1; shift
 case $cmd in
 build)
-    srcs=; incs=; out=; lower_opts=; debug=${S1CC_DEBUG:-0}; check=0
+    srcs=; incs=; out=; lower_opts=; debug=${S1CC_DEBUG:-0}; check=0; auto=1
     while [ $# -gt 0 ]; do
         case $1 in
             -I) incs="$incs -I$2"; shift ;;
@@ -35,6 +37,7 @@ build)
             --tol|--tollog|--maxdeg|--regs) lower_opts="$lower_opts $1 $2"; shift ;;
             --trace|--no-exact-init) lower_opts="$lower_opts $1" ;;
             --check) check=1 ;;
+            --no-auto) auto=0 ;;
             --debug) [ "$debug" -ge 1 ] 2>/dev/null || debug=1 ;;
             -h|--help) usage ;;
             *) srcs="$srcs $1" ;;
@@ -57,6 +60,33 @@ build)
         incs="-I$DEPS -DTEST $incs"            # TEST: stmlib's portable C instead of ARM asm
         for s in "$DEPS/stmlib/dsp/units.cc" "$DEPS/stmlib/utils/random.cc"; do
             case " $srcs " in *" $s "*) ;; *) srcs="$srcs $s" ;; esac
+        done
+    fi
+    if [ "$auto" = 1 ]; then
+        # the sources next to the headers the program includes (saw.h -> saw.c, braids/resources.h -> resources.cc),
+        # then those of the new sources, until nothing new; clang -MM lists the headers it really opens
+        seen=
+        for s in $srcs; do seen="$seen $(readlink -f "$s")"; done
+        todo=$srcs
+        while [ -n "$todo" ]; do
+            next=
+            for s in $todo; do
+                case $s in *.c) cc=$CLANG; std= ;; *) cc=$CLANGXX; std=-std=c++17 ;; esac
+                hdrs=$($cc -MM -w $std -I"$HERE/include" $incs "$s" 2>/dev/null | tr -d '\\' | tr ' ' '\n' |
+                       grep -E '\.(h|hh|hpp)$' || true)
+                for h in $hdrs; do
+                    hp=$(readlink -f "$h")
+                    case $hp in "$HERE"/include/*) continue ;; esac
+                    for ext in c cc cpp; do
+                        c=${hp%.*}.$ext
+                        [ -f "$c" ] || continue
+                        case " $seen " in *" $c "*) continue ;; esac
+                        seen="$seen $c"; srcs="$srcs $c"; next="$next $c"
+                        echo "source: $c (for $(basename "$h"); --no-auto to leave it out)"
+                    done
+                done
+            done
+            todo=$next
         done
     fi
     lls=; o0s=

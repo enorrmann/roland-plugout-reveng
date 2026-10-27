@@ -2,8 +2,8 @@
  * (docs/examples_simple_saw_wrapped_README.md). The only file that includes the SDK. Two instances of the library
  * per voice: two saws, the second detuned by OSC2 COLOR.
  *
- * Build:  sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_wrapped.c \
- *             sdk/s1cc/examples/simple_saw_wrapped/saw.c -I sdk/s1cc/examples/simple_saw_wrapped --check
+ * Build:  sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_wrapped.c --check
+ *         (saw.c comes in by itself: it is the source next to saw.h, which this file includes)
  * In the synth: KERNEL=sdk/s1cc/build/simple_saw_wrapped sh examples/mutable_system/build.sh
  *
  * When each part runs (docs/S1CC.md §3.1):

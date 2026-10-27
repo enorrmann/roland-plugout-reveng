@@ -23,7 +23,6 @@ import s1check  # noqa: E402
 EURORACK = os.environ.get('EURORACK', os.path.expanduser('~/git/eurorack'))
 BRAIDS = [os.path.join(EURORACK, 'braids', 'resources.cc'), '-I', os.path.join(ROOT, 'sdk', 'mport', 'ref'),
           '-I', EURORACK]
-SIMPLE_SAW = os.path.join(S1CC, 'examples', 'simple_saw_wrapped', 'saw.c')
 HAVE = shutil.which('clang') and os.path.exists('/usr/lib/llvm-19/bin/llvm-link')
 
 # example, extra build args, [(note, knobs, min SNR A, min SNR B)], max instructions A / B
@@ -34,8 +33,12 @@ CASES = [
                                         (81, {'ratio': 255, 'hp_h': 100}, 50, 40)], (52, 30)),
     ('va_saw_svf.c', [], [(45, {}, 60, 50), (69, {'cutoff': 200, 'damping': 200}, 60, 45),
                           (93, {'cutoff': 60, 'damping': 50}, 60, 60)], (100, 42)),
+    # Plaits as it is, with the real stmlib (s1cc deps): skipped without build/deps; W908 (a branch never profiled)
+    ('plaits_variable_shape.cc', ['-I', EURORACK], [(45, {}, 60, None), (69, {'pw': 200, 'shape': 50}, 70, None),
+                                                    (81, {'shape': 255}, 75, None)], (330, None)),
     # a plain C library, two instances per voice, and its wrapper; no S1_DSP_B (min SNR B / max instructions B: None)
-    ('simple_saw_wrapped/simple_saw_wrapped.c', [SIMPLE_SAW, '-I', os.path.dirname(SIMPLE_SAW)],
+    # saw.c comes in by itself (the source next to saw.h: s1cc build, automatic sources)
+    ('simple_saw_wrapped/simple_saw_wrapped.c', [],
      [(33, {'level': 255, 'detune': 255}, 90, None), (57, {'detune': 0}, 90, None),
       (81, {'level': 255, 'detune': 255}, 90, None)], (33, None)),
 ]
@@ -53,6 +56,8 @@ class TestExamples(unittest.TestCase):
     def test_examples(self):
         for src, extra, runs, (maxa, maxb) in CASES:
             if extra and not os.path.isdir(os.path.join(EURORACK, 'braids')):
+                continue
+            if src.startswith('plaits') and not os.path.isdir(os.path.join(S1CC, 'build', 'deps', 'stmlib', 'dsp')):
                 continue
             with self.subTest(src=src):
                 out = self.build(src, extra)

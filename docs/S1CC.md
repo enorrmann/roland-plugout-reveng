@@ -20,6 +20,7 @@ Etiquetas: **[medido]** en el equipo; **[sim]** en el emulador (núcleo C); **[a
 ```sh
 make -C sdk/s1cc                                                     # compila s1cc (necesita LLVM 19)
 sdk/s1cc/s1cc build VOZ.cc [OTRA.cc ...] [-I DIR] [-o SALIDA]        # -> SALIDA/voice.s1k (+ informe)
+sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_wrapped.c --check   # saw.c entra solo (§9)
 sdk/s1cc/s1cc check SALIDA [--note 57] [nombre=perilla ...]          # emulador contra la referencia nativa
 KERNEL=SALIDA sh examples/mutable_system/build.sh                    # la voz en el sinte completo (§12)
 ```
@@ -27,8 +28,8 @@ KERNEL=SALIDA sh examples/mutable_system/build.sh                    # la voz en
 Ejemplo, SAW_SWARM de Braids a partir del C++ original:
 
 ```sh
-sdk/s1cc/s1cc build sdk/s1cc/examples/braids_saw_swarm_s1.cc ~/git/eurorack/braids/resources.cc \
-    -I sdk/mport/ref -I ~/git/eurorack
+sdk/s1cc/s1cc build sdk/s1cc/examples/braids_saw_swarm_s1.cc -I sdk/mport/ref -I ~/git/eurorack
+#   source: .../eurorack/braids/resources.cc (for resources.h; --no-auto to leave it out)
 sdk/s1cc/s1cc check sdk/s1cc/build/braids_saw_swarm_s1 --note 45 ratio=200 hp_h=85
 #   stage A: 74 units -> 49 instructions; SNR 57.6 dB (10 ms) ...; bands port - ref (dB): -0.00 +0.00 ...
 #   stage B: 31 units -> 26 instructions; SNR 41.3 dB (10 ms) ...
@@ -369,6 +370,15 @@ El anfitrión cambia cada marcador por una dirección (`tools/s1kernel.py place`
 
 ## 9. Driver (`s1cc build`)
 
+0. **Fuentes automáticas.** A las fuentes dadas se suma la fuente vecina de cada header que incluyen: mismo nombre,
+   misma carpeta, `.c` / `.cc` / `.cpp` (`saw.h` → `saw.c`, `braids/resources.h` → `braids/resources.cc`). Luego
+   las de las fuentes nuevas, hasta que no aparece ninguna. Los headers salen de `clang -MM` con las mismas opciones
+   del build: son los que el preprocesador abre de verdad, sin los del sistema ni los del SDK. Cada fuente agregada
+   se informa (`source: … (for saw.h; --no-auto to leave it out)`). `--no-auto`: solo las fuentes dadas.
+   * **Límite.** Una función definida en un archivo con otro nombre que su header no se encuentra: E101 (§9.2.2).
+     Esa fuente se pasa a mano.
+   * **Comprobado** [sim, 2026-10-27]: `simple_saw_wrapped`, `saw_wrapper`, `va_saw_svf`, `braids_saw_swarm` y
+     `braids_saw_swarm_s1` dan el mismo kernel con fuentes automáticas que con las fuentes dadas a mano.
 1. `clang(++) -O2 -S -emit-llvm -fno-math-errno -I include ...` de cada fuente, y `llvm-link` → `voice.ll`.
 2. `s1cc prof voice.ll -o prof.ll`.
 3. `clang voice.ll runtime/s1rt.c -o ref` y `clang prof.ll runtime/s1rt.c -o prof`, nativos.
@@ -503,7 +513,7 @@ quedar llamadas a los intrínsecos `s1_*`, a libm (§7.3) y a intrínsecos de LL
 
 | código | mensaje | causa | solución |
 |---|---|---|---|
-| `E101` | `call to 'f' not inlined: it has no body in the module` | `f` está declarada (header) pero su archivo no está entre las fuentes. O es una función de biblioteca que s1cc no conoce (`rand`, `printf`, `memcpy` con tamaño variable) | agregar la fuente. Si es de biblioteca, reemplazarla: ruido con un LCG en una variable de estado, sin `printf` |
+| `E101` | `call to 'f' not inlined: it has no body in the module` | `f` está declarada (header) pero su archivo no está entre las fuentes. O es una función de biblioteca que s1cc no conoce (`rand`, `printf`, `memcpy` con tamaño variable) | agregar la fuente. Si es de biblioteca, reemplazarla: ruido con un LCG en una variable de estado, sin `printf`. El driver agrega solo la fuente con el mismo nombre que el header (§9, paso 0); si se llama distinto, pasarla en `s1cc build` |
 | `E102`, `E103` | `... it is marked noinline` / `optnone` | atributo en la fuente (`__attribute__((noinline))`, `__attribute__((optnone))`, o una macro que los pone) | quitar el atributo en la copia que se compila, o definir la macro vacía con `-D` |
 | `E104` | `... it is variadic (...)` | función con `...` | una versión con argumentos fijos |
 | `E105` | `... it is recursive` | la función se llama a sí misma (y no es recursión de cola, que LLVM convierte en bucle) | escribirla como bucle de iteraciones acotadas (§9.2.5) |
@@ -616,6 +626,7 @@ El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuán
 | `W905` | `F at ...: the fit misses the tolerance (error E)` / `island at ...: the fit misses the tolerance` | el ajuste no llega a `--tol` / `--tollog` | `--maxdeg` más alto, `--tol` más grande, o un rango más chico (`s1_range`) |
 | `W906` | `stage S: N values limited to the range of 99.99 % of their profiled samples` | valores con picos raros; se recortan para no arruinar la escala | nada si `check` da buen SNR; si no, `s1_range` en esos valores |
 | `W907` | `state 'v' starts at 0 in the ring (...)` | con `--no-exact-init`, la palabra de estado no arranca en su valor inicial | quitar `--no-exact-init` |
+| `W908` | `stage S: N values no profiling scenario computed (a branch none of them took) are 0 on the DSP; the first at ...` | código en una rama que ningún escenario del perfilado tomó (una segunda vuelta de un bucle desenrollado, un caso límite). Su rango es desconocido, y calcularlo con los rangos de sus operandos puede dar 10¹⁵, lo que arruina la escala de los valores que se combinan con él. Se calcula como 0, sin costo | nada, si esa rama no se toma en la práctica (Plaits `VariableShapeOscillator`: la segunda vuelta del `while` del BLEP, §11). Si se toma, hacer que un escenario la alcance o declarar los rangos con `s1_range`; `--debug` da la línea del C |
 
 ## 10. Verificación (`s1cc check`)
 
@@ -635,6 +646,7 @@ El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuán
 | `braids_saw_swarm.cc` | el bucle original de RenderSawSwarm (enteros, fases `uint32`, `Interpolate88`, SVF Q15, `lut_svf_cutoff` por isla) | 49 | 46 | 58 / 44–49 dB |
 | `braids_saw_swarm_s1.cc` | lo mismo, con el coeficiente del paso alto desde el incremento exportado (cabe en 8 voces) | 49 | 26 | 58 / 46–49 dB |
 | `va_saw_svf.c` | float: polyBLEP (`if`, divisiones por `dt`), SVF de Simper con `tanhf`, tablas con `powf`/`tanf` | 84 | 31 | 68 / 54 dB |
+| `plaits_variable_shape.cc` | `VariableShapeOscillator` de Plaits tal cual, con el stmlib real (`s1cc deps`): BLEP en un `while` desenrollado, división del BLEP cuyo divisor cruza 0 (W903), una rama que ningún escenario toma (W908) | 311 | — | 68–99 dB / — |
 | `simple_saw_wrapped/` | el ejemplo mínimo: una librería C pura (diente de sierra ingenuo, `saw.c`), dos instancias por voz, y su envoltorio ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md)) | 30 | — | 95–112 dB / — |
 
 Notas 45 y 57, perillas en 128. `tests/test_s1cc.py` usa estos valores con un margen (A ≤ 52 en los Braids).
@@ -670,6 +682,24 @@ vuelta y en el port no. Medido sobre la referencia nativa con un contador de des
   tres primeras bandas). Es auto-oscilación saturada en los dos, pero con otro balance de frecuencias. Para que
   coincidan en todo el rango habría que limitar `u` por debajo del límite de estabilidad, apartándose de Braids.
 * **Fuera de esa zona** no hay desborde y el port coincide: 42–49 dB (tabla de arriba y `tests/test_s1cc.py`).
+
+**Plaits `VariableShapeOscillator` y W908** [sim, 2026-10-27]. Hasta el 2026-10-27 el kernel salía mudo (pico 0, SNR
+0 dB, 384 instrucciones):
+* **Causa.** El BLEP corre en un `while (…) { if (!high_) …; if (high_) …; }` que s1cc desenrolla a su máximo
+  perfilado. La segunda vuelta (registros 93–114) no la tomó ningún escenario: sus valores no tienen rango en el
+  perfil. s1cc los calculaba por intervalos desde sus operandos, y uno es
+  `t = (slave_phase_ - pw) / (previous_pw_ - pw + slave_frequency)`, con un divisor que cruza 0 (W903): rangos de
+  hasta 3·10¹⁵. Los `select` que unen los caminos del `while` heredaban esa escala (1,6·10¹⁷), y los valores
+  normales (≈ 0…1) quedaban sin precisión: `next_sample` y la salida en 0.
+* **Por qué la especulación (§4.4) no lo evitaba.** Solo limita los conos de los `select` del IR. Los `select` que
+  salen de convertir bloques en predicados (los `phi`) no la tienen: sus valores se perfilan solo cuando el bloque
+  corre, y eso basta, salvo cuando el bloque no corre nunca.
+* **Arreglo.** Un valor que ningún escenario calculó se baja como 0 y se informa con W908 (§9.2.9). Solo se usa
+  bajo un predicado que el perfil nunca vio verdadero.
+* **Resultado.** 311 instrucciones; SNR 10 ms: 67,9 dB (nota 45), 68,0 dB (57), 78,5 dB (69, `pw` 200, `shape` 50),
+  83,9 dB (81, `shape` 255), 99,0 dB (33, `pw` 0, `shape` 0). En el test con un margen.
+* **En el sinte no entra todavía**: 311 instrucciones por voz × 8 y 21 palabras de spill (el bloque de una voz
+  admite 16 palabras de estado + temporales, §12).
 
 ### 11.1 Arranque exacto del estado (`.initflag`, `--no-exact-init`)
 

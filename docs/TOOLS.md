@@ -171,6 +171,7 @@ Especificación: [S1CC.md](S1CC.md).
 ```sh
 make -C sdk/s1cc                                                   # el compilador (LLVM 19)
 sdk/s1cc/s1cc build VOZ.cc [MAS.cc ...] [-I DIR] [-o SALIDA] [--tol X] [--tollog X] [--maxdeg N] [--regs LISTA]
+                                                                   # MAS.cc: solo las que no son vecinas de un header incluido (--no-auto)
 sdk/s1cc/s1cc build VOZ.cc ... --debug                             # qué funciones C no compila y por qué (S1CC.md §9.1)
 sdk/s1cc/s1cc build VOZ.cc ... --check                             # build + check (instrucciones, SNR)
 sdk/s1cc/s1cc check SALIDA [--note N] [--n MUESTRAS] [--all-forms] [nombre=perilla ...]

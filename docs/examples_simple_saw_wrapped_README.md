@@ -99,13 +99,14 @@ Lo que un envoltorio tiene que resolver con una librería más grande:
 ## 4. Build y verificación
 
 ```sh
-D=sdk/s1cc/examples/simple_saw_wrapped
-sdk/s1cc/s1cc build $D/simple_saw_wrapped.c $D/saw.c -I $D --check     # -> sdk/s1cc/build/simple_saw_wrapped
+sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_wrapped.c --check   # -> sdk/s1cc/build/simple_saw_wrapped
 sdk/s1cc/s1cc check sdk/s1cc/build/simple_saw_wrapped --note 33 level=255 detune=255
 KERNEL=sdk/s1cc/build/simple_saw_wrapped sh examples/mutable_system/build.sh   # en el sinte (S1CC.md §12)
 ```
 
-El primer archivo de `build` da el nombre de la carpeta de salida. Con `--debug`, s1cc lista las funciones C que no
+`saw.c` no se nombra: el driver agrega solo la fuente vecina de cada header incluido (`saw.h` → `saw.c`, S1CC.md
+§9, paso 0) e informa `source: …/saw.c (for saw.h; …)`. El primer archivo de `build` da el nombre de la carpeta de
+salida. Con `--debug`, s1cc lista las funciones C que no
 puede compilar y por qué (S1CC.md §9.1).
 
 ## 5. Resultados [sim, 2026-10-27]

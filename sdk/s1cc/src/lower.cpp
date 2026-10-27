@@ -117,6 +117,7 @@ struct Lowerer {
     std::map<int, double> initR;                           // state index -> register value at the first sample
     std::vector<std::pair<int, double>> traced;            // --trace: record id, scale
     int saturated = 0;                                     // values limited to their 99.99 % range
+    std::vector<Node *> unreached;                         // values no profiling scenario computed: 0 (W908)
     std::map<int, std::string> traceWhere;
     KVal *firstFlag = nullptr;                             // 1 at the first sample of the stage, else 0
     std::set<std::string> inputsB;
@@ -595,7 +596,7 @@ struct Lowerer {
     void chooseIslands(Stage &S) {
         for (auto &np : S.nodes) {
             Node *N = np.get();
-            if (!N->live || !N->bad || covered.count(N))
+            if (!N->live || !N->bad || covered.count(N) || unreachedValue(N))
                 continue;
             std::vector<Node *> roots;
             for (auto &isl : S.islands)
@@ -791,6 +792,14 @@ struct Lowerer {
         r.add(lo);
         r.add(hi);
         return r;
+    }
+    // a value of the program that no profiling scenario computed: it sits in a branch none of them took (a second
+    // pass of a peeled loop, a corner case), so it is only used under a predicate the profile never saw true. Its
+    // range is unknown and the interval arithmetic of its operands can reach 1e15, which would set the scale of the
+    // selects that merge it; it is lowered as 0 instead (W908)
+    bool unreachedValue(const Node *n) const {
+        return n->kind == NK::Op && n->prof >= 0 && !n->specSel && !prof.sr.empty() && !prof.sr.count(n->prof) &&
+               !prof.ur.count(n->prof);
     }
     bool outliers(const Node *n) const {
         Range f = rawRange(n), r = robust(n, f);
@@ -1119,7 +1128,12 @@ struct Lowerer {
                 continue;
             if (n->kind == NK::Input || n->kind == NK::Increment)
                 inputsUsed.insert(n->kind == NK::Increment ? "pitch" : n->name);
-            val[n] = lowerNode(S, n);
+            if (unreachedValue(n)) {
+                val[n] = cst(0);
+                unreached.push_back(n);
+            } else {
+                val[n] = lowerNode(S, n);
+            }
             if (outliers(n) && !val[n].isConst() && n->kind == NK::Op && !n->specSel) {   // rare outliers: saturate
                 Range c = recRange(n);
                 LV x = minmax(minmax(val[n], cst(c.lo), false), cst(c.hi), true);
@@ -1182,6 +1196,11 @@ struct Lowerer {
             warnings.push_back({"W906", "stage " + S.name + ": " + std::to_string(saturated) + " values limited to the range "
                                "of 99.99 % of their profiled samples (rare outliers would ruin their scale)"});
         saturated = 0;
+        if (!unreached.empty())
+            warnings.push_back({"W908", "stage " + S.name + ": " + std::to_string(unreached.size()) + " values no "
+                                "profiling scenario computed (a branch none of them took) are 0 on the DSP; the "
+                                "first at " + where(unreached.front()->v)});
+        unreached.clear();
         std::vector<std::string> lines = k.lines();
         report += "stage " + S.name + ": " + std::to_string(k.units()) + " units" +
                   (k.spills() ? ", " + std::to_string(k.spills()) + " scratch words (spills)" : "") + "\n";
