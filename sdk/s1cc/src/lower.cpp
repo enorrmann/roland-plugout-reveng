@@ -57,6 +57,12 @@ void Profile::read(const std::string &path) {
             double v;
             f >> id >> v;
             stateInit[id] = v;
+        } else if (tag == "r") {
+            int id;
+            double lo, hi;
+            f >> id >> lo >> hi;
+            stateRange[id].add(lo);
+            stateRange[id].add(hi);
         } else if (tag == "o") {
             int id, s, u;
             f >> id >> s >> u;
@@ -343,9 +349,10 @@ struct Lowerer {
         if (ge) return positive(diff(a, b), isInt, false);
         if (p == "eq" || p == "oeq" || p == "ne" || p == "one" || p == "une" || p == "ueq") {
             LV d = absLV(diff(a, b));
-            LV eq = positive(addLV(cst(0.5), neg(d)), false, true);
-            if (isInt)
-                eq = positive(addLV(cst(0.5), neg(d)), true, false);
+            // integers: -|a - b| >= 0 (an integer against the threshold -0.5: always 0.5 away from it); floats:
+            // 0.5 - |a - b| > 0. (2026-10-27: integers used 0.5 - |a - b| too, a half-integer: |a - b| = 1 landed
+            // on the threshold and gave 0.5, true and false at once)
+            LV eq = isInt ? positive(neg(d), true, false) : positive(addLV(cst(0.5), neg(d)), false, true);
             bool ne = p == "ne" || p == "one" || p == "une";
             return ne ? bnot(eq) : eq;
         }
@@ -367,29 +374,38 @@ struct Lowerer {
             r.V.add(b.k);
             return r;
         }
-        LV d = addLV(a, neg(b));
-        KVal *c01 = materialize(c, 1, 0);
-        LV dd = d;
-        LV m;
-        if (d.isConst()) {
-            m.r = K->mul(c01, KOperand::im(d.k));
-            m.s = 1;
-        } else {
-            KVal *dm = materialize(d, d.s, 0);
-            m.r = K->mul(c01, KOperand::of(dm));
-            m.s = d.s;
-        }
-        m.o = 0;
-        Range v;
-        v.add(0);
-        v.add(rangeOf(dd).lo);
-        v.add(rangeOf(dd).hi);
-        m.V = v;
         Range res;
         Range ra = rangeOf(a), rb = rangeOf(b);
         res.add(std::min(ra.lo, rb.lo));
         res.add(std::max(ra.hi, rb.hi));
-        return addLV(b, m, &res);
+        // V = b + c (a - b) with c = (r_c - o_c) s_c, d = a - b:  (b - o_c s_c d) + r_c (s_c d)
+        // the condition's own register in one mad (acc + x y): no 0 / 1 made of it (2026-10-27: that took 0-2 ops)
+        LV d = addLV(a, neg(b));
+        if (d.isConst())                                   // b + c d: c scaled (free), one add
+            return addLV(b, scale(c, d.k), &res);
+        // both forms are emitted; the one with fewer ops is kept, the other's ops are unused and dropped (lines())
+        size_t n0 = K->opCount();
+        LV e = scale(d, c.s);                              // s_c d
+        LV f = c.o != 0 ? addLV(b, scale(e, -c.o)) : b;     // b - o_c s_c d
+        double S = std::fabs(e.s);
+        KVal *er = materialize(e, S, 0), *fr = materialize(f, S, 0);
+        LV r;
+        r.r = K->mad(fr, c.r, KOperand::of(er));
+        r.s = S;
+        r.o = 0;
+        r.V = res;
+        r = normalize(r);
+        size_t n1 = K->opCount();
+        KVal *c01 = materialize(c, 1, 0);                  // the earlier form: c as 0 / 1, c d, + b
+        LV m;
+        m.r = K->mul(c01, KOperand::of(materialize(d, d.s, 0)));
+        m.s = d.s;
+        m.o = 0;
+        m.V.add(0);
+        m.V.add(rangeOf(d).lo);
+        m.V.add(rangeOf(d).hi);
+        LV q = addLV(b, m, &res);
+        return K->opCount() - n1 < n1 - n0 ? q : r;
     }
 
     // `x < T ? x : x - K` (and the >= form): the wrap of a phase, written with a compare. Exact as a modulo:
@@ -801,6 +817,40 @@ struct Lowerer {
         return n->kind == NK::Op && n->prof >= 0 && !n->specSel && !prof.sr.empty() && !prof.sr.count(n->prof) &&
                !prof.ur.count(n->prof);
     }
+    // always exactly 0 or 1 at run time: s1_gate / s1_trig, the constants 0 and 1, booleans, selects of such
+    // values, their products / min / max, and a state whose initial and stored values are such (a flag)
+    std::map<const Node *, bool> binaryMemo;
+    bool binary(const Node *n) {
+        auto it = binaryMemo.find(n);
+        if (it != binaryMemo.end())
+            return it->second;
+        binaryMemo[n] = true;                                  // a state's cycle: assumed, checked by the rest
+        bool b = false;
+        if (n->kind == NK::Const)
+            b = n->c == 0 || n->c == 1;
+        else if (n->kind == NK::Input)
+            b = n->name == "gate" || n->name == "trig";
+        else if (n->kind == NK::State) {
+            const StateVar &sv = P.states[n->state];
+            b = sv.final && (sv.init == 0 || sv.init == 1) && binary(sv.final);
+        } else if (n->kind == NK::Op) {
+            const std::string &o = n->op;
+            if (n->isInt && n->bits == 1)
+                b = true;                                      // booleans: 0 / 1 here
+            else if (o == "select")
+                b = binary(n->in[1]) && binary(n->in[2]);
+            else if (o == "fmul" || o == "mul" || o == "fmax" || o == "fmin" || o == "smax" || o == "smin" ||
+                     o == "umax" || o == "umin")
+                b = binary(n->in[0]) && binary(n->in[1]);
+            else if (o == "fsub" || o == "sub")                // 1 - b
+                b = n->in[0]->kind == NK::Const && n->in[0]->c == 1 && binary(n->in[1]);
+            else if (o == "uitofp" || o == "zext")
+                b = n->in[0]->isInt && n->in[0]->bits == 1;
+        }
+        binaryMemo[n] = b;
+        return b;
+    }
+
     bool outliers(const Node *n) const {
         Range f = rawRange(n), r = robust(n, f);
         double mf = std::max(std::fabs(f.lo), std::fabs(f.hi)), mr = std::max(std::fabs(r.lo), std::fabs(r.hi));
@@ -884,6 +934,11 @@ struct Lowerer {
             x.s = sr.first;
             x.o = sr.second;
             x.V = rec;
+            if (!x.V.seen()) {                               // no load record (a store came first in the sample):
+                auto it = prof.stateRange.find(n->state);     // the state's range at the start of a sample
+                if (it != prof.stateRange.end())
+                    x.V = it->second;
+            }
             return x;
         }
         case NK::Import: {
@@ -1043,8 +1098,36 @@ struct Lowerer {
             warnings.push_back({"W902", "truncation wraps at " + where(n->v)});
             return modLV(x, M, !unsignedView(n));
         }
-        if (op.rfind("icmp.", 0) == 0 || op.rfind("fcmp.", 0) == 0)
+        if (op.rfind("icmp.", 0) == 0 || op.rfind("fcmp.", 0) == 0) {
+            // a value that is always 0 or 1 (binary(): s1_gate, s1_trig, flags built from them): against a threshold
+            // strictly between, the value is the answer; two of them are equal when (a - b)^2 is 0
+            if (binary(n->in[0]) && binary(n->in[1]) && !in(0).isConst() && !in(1).isConst()) {
+                std::string p = op.substr(op.find('.') + 1);
+                LV d = addLV(in(0), neg(in(1)));
+                LV ne = mulLV(d, d, nullptr);
+                ne.V = Range();
+                ne.V.add(0);
+                ne.V.add(1);
+                if (p == "one" || p == "une" || p == "ne")
+                    return ne;
+                if (p == "oeq" || p == "ueq" || p == "eq")
+                    return bnot(ne);
+            }
+            for (int side = 0; side < 2; side++) {
+                Node *x = n->in[side];
+                LV c = in(1 - side);
+                if (!binary(x) || in(side).isConst() || !c.isConst() || c.k <= 0 || c.k >= 1)
+                    continue;
+                std::string p = op.substr(op.find('.') + 1);
+                bool gt = p == "ogt" || p == "ugt" || p == "oge" || p == "uge" || p == "sgt" || p == "sge";
+                bool lt = p == "olt" || p == "ult" || p == "ole" || p == "ule" || p == "slt" || p == "sle";
+                if (!gt && !lt)
+                    break;
+                bool above = side == 0 ? gt : lt;                 // true when the input is 1
+                return above ? in(side) : bnot(in(side));
+            }
             return compare(op, in(0), in(1), op[0] == 'i');
+        }
         if (op == "select") {
             LV w;
             if (wrapSelect(n, w))
@@ -1090,6 +1173,8 @@ struct Lowerer {
                         r = recRange(np.get());
             if (s.final)
                 if (Range f = recRange(s.final); f.seen()) { r.add(f.lo); r.add(f.hi); }
+            if (auto it = prof.stateRange.find(s.index); it != prof.stateRange.end() && !r.seen())
+                r = it->second;                                // only the start-of-sample range is known
             double M = std::ldexp(1.0, s.bits);
             if (s.isInt && s.isUnsigned && r.seen() && r.hi > M / 4) {
                 stateRep[s.index] = {M / 2, -1};        // modular (a phase): r in [-1, 1)
@@ -1140,7 +1225,8 @@ struct Lowerer {
             } else {
                 val[n] = lowerNode(S, n);
             }
-            if (outliers(n) && !val[n].isConst() && n->kind == NK::Op && !n->specSel) {   // rare outliers: saturate
+            bool boolean = n->isInt && n->bits == 1;           // 0 / 1 here, -1 / 0 in the profile's signed view: no limits
+            if (outliers(n) && !val[n].isConst() && n->kind == NK::Op && !n->specSel && !boolean) {   // rare outliers
                 Range c = recRange(n);
                 LV x = minmax(minmax(val[n], cst(c.lo), false), cst(c.hi), true);
                 x.V = c;
@@ -1150,7 +1236,7 @@ struct Lowerer {
             bool repOnly = false;                               // only a scale / offset of an operand: nothing
             for (Node *i : n->in)                               // to limit (and a phase wrap stays recognisable)
                 repOnly = repOnly || (val.count(i) && val[i].r && val[i].r == val[n].r);
-            if (n->specFrontier && !val[n].isConst() && !repOnly) {   // speculated: limited to its arm's range
+            if (n->specFrontier && !val[n].isConst() && !repOnly && !boolean) {   // speculated: limited to its arm's range
                 Range c = recRange(n);
                 if (c.seen()) {
                     LV x = minmax(minmax(val[n], cst(c.lo), false), cst(c.hi), true);
@@ -1247,8 +1333,8 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
     L.chooseStateReps();
     if (P.B.fn)
         for (auto &np : P.B.nodes)
-            if (np->live && (np->kind == NK::Input || np->kind == NK::Increment))
-                L.inputsB.insert(np->kind == NK::Increment ? "pitch" : np->name);
+            if (np->live && (np->kind == NK::Input || np->kind == NK::Increment) && np->name.rfind("env", 0) != 0)
+                L.inputsB.insert(np->kind == NK::Increment ? "pitch" : np->name);   // s1_env: made on DSP B
     std::string a = L.run(P.A, report);
     std::string b = P.B.fn ? L.run(P.B, report) : "";
     std::ostringstream o;

@@ -15,3 +15,4 @@ examples/system_1/build/
 examples/system_1_jx/build/
 sdk/mport/build/
 sdk/s1cc/build/
+sdk/s1cc/lib/

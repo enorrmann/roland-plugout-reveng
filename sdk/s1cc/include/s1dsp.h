@@ -34,6 +34,9 @@
  *   s1_export(i, v), s1_import(i)   a value from S1_DSP_A to S1_DSP_B, same sample
  *   s1_wrap(x)            x wrapped into [-1, 1)         s1_clamp(x)   x limited to [-1, 1]
  *   s1_tri(x)             1 - 2 |wrap(-x - 1.5)|         s1_exp2(x)    2^x
+ *   s1_env(i)             S1_DSP_B only: envelope i of the host, 0..1 (SYSTEM-S1CC builds them in assembly on DSP B
+ *                         when a kernel uses them: 0 = AMP ATTACK / DECAY / SUSTAIN / RELEASE, 1 = FILTER A / D / S / R;
+ *                         docs/examples_system_s1cc_README.md §3). The native reference and `check` give the gate
  *   s1_range(x, lo, hi)   x, declaring its range: lo and hi go to s1cc as constants, and the profile must reach
  *                         the call (a branch that always takes the same way leaves it unseen: docs/S1CC.md §3.2)
  */
@@ -67,6 +70,7 @@ S1_EXTERN float s1_clamp(float x);
 S1_EXTERN float s1_tri(float x);
 S1_EXTERN float s1_exp2(float x);
 S1_EXTERN float s1_range(float x, float lo, float hi);
+S1_EXTERN float s1_env(int i);
 
 #define s1_param(name, i) s1_param_get(&s1_param_desc_##name, (i))
 

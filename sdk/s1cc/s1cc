@@ -8,11 +8,13 @@
 #       starts from the DSP's initial state). --debug (or S1CC_DEBUG=1): C file:line and function in every error,
 #       and first the list of C functions s1cc cannot compile and why (OUTDIR/diag.txt); S1CC_DEBUG=2 adds every node.
 #       --check: `check OUTDIR` at the end (instructions, SNR against the native reference; note 57, knobs at 128)
+#       --regs LIST: the DSP registers the kernel may use (default 0,1,2,3,4,7: MUTABLE-SYSTEM's host keeps r5 / r6;
+#       SYSTEM-S1CC has no host: 0,1,2,3,4,5,6,7, fewer spills; docs/S1CC.md §1.1)
 #       Sources: the ones given, plus the source next to every header they include (saw.h -> saw.c,
 #       braids/resources.h -> braids/resources.cc), and so on; --no-auto: only the ones given
 #   sdk/s1cc/s1cc check OUTDIR [--note N] [name=knob ...]   microcode on the emulator vs the native reference
-#   sdk/s1cc/s1cc deps                       fetch Mutable Instruments' stmlib (MIT) into build/deps (the eurorack
-#       checkout has its submodule empty): with it, `build` adds -I build/deps and stmlib's units.cc / random.cc,
+#   sdk/s1cc/s1cc deps                       fetch Mutable Instruments' stmlib (MIT) into lib/ (not build/, which may be wiped; the eurorack
+#       checkout has its submodule empty): with it, `build` adds -I lib and stmlib's units.cc / random.cc,
 #       so Plaits / Rings / Elements / Braids sources compile as they are
 #
 # Needs clang / clang++ and LLVM 19 (llvm-link), make; `check` needs Python 3 (the repo's assembler and emulator).
@@ -23,7 +25,7 @@ CLANG=${CLANG:-clang}
 CLANGXX=${CLANGXX:-clang++}
 # driver errors carry a code too (docs/S1CC.md §9.2)
 fail() { echo "s1cc: error $1: $2" >&2; [ "${S1CC_DEBUG:-0}" = 0 ] || echo "s1cc: debug: cause and fix of $1: docs/S1CC.md §9.2" >&2; exit 1; }
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 cmd=$1; shift
 case $cmd in
@@ -55,7 +57,7 @@ build)
         export S1CC_DEBUG=$debug
         dbgflags=-g                            # debug info: the C function and line of every instruction
     fi
-    DEPS=$HERE/build/deps
+    DEPS=$HERE/lib                                     # third-party sources (s1cc deps): kept out of build/
     if [ -d "$DEPS/stmlib/dsp" ]; then                 # the real stmlib, before any stand-in
         incs="-I$DEPS -DTEST $incs"            # TEST: stmlib's portable C instead of ARM asm
         for s in "$DEPS/stmlib/dsp/units.cc" "$DEPS/stmlib/utils/random.cc"; do
@@ -94,7 +96,7 @@ build)
     for s in $srcs; do
         i=$((i + 1))
         case $s in *.c) cc=$CLANG; std= ;; *) cc=$CLANGXX; std="-std=c++17 -fno-exceptions -fno-rtti" ;; esac
-        $cc -O2 -S -emit-llvm -w -fno-math-errno -mllvm -inline-threshold=100000 -fno-vectorize -fno-slp-vectorize $dbgflags $std -I"$HERE/include" $incs \
+        $cc -O2 -S -emit-llvm -w -fno-math-errno -mllvm -inline-threshold=100000 -mllvm -jump-threading-threshold=0 -fno-vectorize -fno-slp-vectorize $dbgflags $std -I"$HERE/include" $incs \
             "$s" -o "$out/src$i.ll" || fail E010 "clang could not compile $s"
         lls="$lls $out/src$i.ll"
         if [ "$debug" != 0 ]; then         # the same at -O0: every instruction at its C line (srcmap.ll)
@@ -110,13 +112,13 @@ build)
     # across sources (a wrapper calling a library's render function): inline everything into the voice functions
     if [ "$debug" != 0 ]; then
         # the inliner's reasons for every call it kept, then what s1cc cannot compile (before any later error)
-        "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -vectorize-loops=false -vectorize-slp=false \
+        "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
             -pass-remarks-missed=inline "$out/linked0.ll" -o "$out/linked.ll" 2> "$out/inline.txt" ||
             { cat "$out/inline.txt" >&2; exit 1; }
         "$HERE/build/s1cc" diag "$out/linked.ll" --remarks "$out/inline.txt" > "$out/diag.txt"
         sed 's/^/s1cc: debug: /' "$out/diag.txt" >&2
     else
-        "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -vectorize-loops=false -vectorize-slp=false \
+        "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
             "$out/linked0.ll" -o "$out/linked.ll"
     fi
     # loops with a data-dependent trip count: profile the counts, peel to the maximum (docs/S1CC.md §4.5)
@@ -142,12 +144,12 @@ build)
     [ "$check" = 0 ] || python3 "$HERE/tools/s1check.py" "$out"
     ;;
 deps)
-    mkdir -p "$HERE/build/deps"
+    mkdir -p "$HERE/lib"
     EUR=${EURORACK:-$HOME/git/eurorack}
     PIN=$(git -C "$EUR" submodule status stmlib 2>/dev/null | awk '{print $1}' | tr -d '+-')
-    [ -d "$HERE/build/deps/stmlib/.git" ] || git clone -q https://github.com/pichenettes/stmlib.git "$HERE/build/deps/stmlib"
-    [ -n "$PIN" ] && git -C "$HERE/build/deps/stmlib" checkout -q "$PIN"
-    echo "stmlib: $HERE/build/deps/stmlib $(git -C "$HERE/build/deps/stmlib" log --oneline -1)"
+    [ -d "$HERE/lib/stmlib/.git" ] || git clone -q https://github.com/pichenettes/stmlib.git "$HERE/lib/stmlib"
+    [ -n "$PIN" ] && git -C "$HERE/lib/stmlib" checkout -q "$PIN"
+    echo "stmlib: $HERE/lib/stmlib $(git -C "$HERE/lib/stmlib" log --oneline -1)"
     ;;
 check)
     [ $# -ge 1 ] || usage

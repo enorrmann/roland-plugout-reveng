@@ -76,6 +76,7 @@ def run_kernel(outdir, note, n, knobs, proven=True):
         if st == 'B':
             for j, name in enumerate(k.inputs_b):
                 addr[f'IN:{name}'] = INB0 + j
+            addr['IN:env0'] = addr['IN:env1'] = GATE        # the host's envelopes: the gate stands in (s1rt.c s1_env)
         for j, (rid, _, _) in enumerate(k.stages[st].get('trace', [])):
             addr[f'D:{rid}'] = TRACE0 + j
         words, code = program(k.place(st, addr), proven)

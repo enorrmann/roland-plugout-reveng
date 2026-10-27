@@ -33,9 +33,12 @@ CASES = [
                                         (81, {'ratio': 255, 'hp_h': 100}, 50, 40)], (52, 30)),
     ('va_saw_svf.c', [], [(45, {}, 60, 50), (69, {'cutoff': 200, 'damping': 200}, 60, 45),
                           (93, {'cutoff': 60, 'damping': 50}, 60, 60)], (100, 42)),
-    # Plaits as it is, with the real stmlib (s1cc deps): skipped without build/deps; W908 (a branch never profiled)
+    # Plaits as it is, with the real stmlib (s1cc deps): skipped without lib/stmlib; W908 (a branch never profiled)
     ('plaits_variable_shape.cc', ['-I', EURORACK], [(45, {}, 60, None), (69, {'pw': 200, 'shape': 50}, 70, None),
                                                     (81, {'shape': 255}, 75, None)], (330, None)),
+    # s1_export / s1_import: DSP A's note frequency to DSP B's key-tracked low-pass
+    ('simple_saw_wrapped/simple_saw_export.c', ['--regs', '0,1,2,3,4,5,6,7'],
+     [(45, {'track': 100}, 90, 85), (69, {'track': 200}, 90, 85)], (31, 17)),
     # a plain C library, two instances per voice, and its wrapper; no S1_DSP_B (min SNR B / max instructions B: None)
     # saw.c comes in by itself (the source next to saw.h: s1cc build, automatic sources)
     ('simple_saw_wrapped/simple_saw_wrapped.c', [],
@@ -57,7 +60,7 @@ class TestExamples(unittest.TestCase):
         for src, extra, runs, (maxa, maxb) in CASES:
             if extra and not os.path.isdir(os.path.join(EURORACK, 'braids')):
                 continue
-            if src.startswith('plaits') and not os.path.isdir(os.path.join(S1CC, 'build', 'deps', 'stmlib', 'dsp')):
+            if src.startswith('plaits') and not os.path.isdir(os.path.join(S1CC, 'lib', 'stmlib', 'dsp')):
                 continue
             with self.subTest(src=src):
                 out = self.build(src, extra)
@@ -106,7 +109,8 @@ class TestSystemS1cc(unittest.TestCase):
         self.out = tempfile.mkdtemp()
         kernel = os.path.join(S1CC, 'build', 'test_simple_saw_env')
         r = subprocess.run([os.path.join(S1CC, 's1cc'), 'build',
-                            os.path.join(S1CC, 'examples', 'simple_saw_wrapped', 'simple_saw_env.c'), '-o', kernel],
+                            os.path.join(S1CC, 'examples', 'simple_saw_wrapped', 'simple_saw_env.c'), '-o', kernel,
+                            '--regs', '0,1,2,3,4,5,6,7'],
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
         self.env = dict(os.environ, KERNEL=kernel, OUTDIR=self.out)
@@ -116,7 +120,7 @@ class TestSystemS1cc(unittest.TestCase):
         shutil.rmtree(self.out, ignore_errors=True)
 
     def test_chain(self):
-        for voices in ('8', '2'):
+        for voices in ('8', '2'):                      # simple_saw_env: saws on DSP A (29), the ADSR on DSP B (46)
             r = subprocess.run([sys.executable, self.gen, '--sim'], env=dict(self.env, VOICES=voices),
                                capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -141,3 +145,31 @@ class TestSystemS1cc(unittest.TestCase):
         r = subprocess.run([sys.executable, self.gen], env=dict(self.env, BUDGET='100'), capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('over the budget of 100 instructions', r.stdout + r.stderr)
+
+
+@unittest.skipUnless(HAVE, 'needs clang and LLVM 19')
+class TestSystemS1ccHostEnvelopes(unittest.TestCase):
+    """SYSTEM-S1CC with the host's envelopes (s1_env): the assembly ADSRs on DSP B, by shape (the native reference
+    has the gate for s1_env), and a gate that comes after the trigger"""
+
+    def test_host_envelopes(self):
+        import tempfile
+        out = tempfile.mkdtemp()
+        try:
+            kernel = os.path.join(S1CC, 'build', 'test_simple_saw_hostenv')
+            r = subprocess.run([os.path.join(S1CC, 's1cc'), 'build',
+                                os.path.join(S1CC, 'examples', 'simple_saw_wrapped', 'simple_saw_hostenv.c'),
+                                '-o', kernel, '--regs', '0,1,2,3,4,5,6,7'], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+            r = subprocess.run([sys.executable, os.path.join(ROOT, 'examples', 'system_s1cc', 'make_s1cc.py'), '--sim'],
+                               env=dict(os.environ, KERNEL=kernel, OUTDIR=out), capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn('warning', r.stdout)
+            self.assertIn('no notes: peak 0.000000', r.stdout)
+            seg = [float(x) for x in re.search(r'peak per 5 ms: ([0-9. ]+)', r.stdout).group(1).split()]
+            top = max(seg)
+            self.assertGreater(top, 0.03)                       # it attacks
+            self.assertLess(seg[9], 0.6 * top)                  # decays towards the sustain (S 128) while held
+            self.assertLess(seg[-1], 0.01 * top)                # and releases after the gate (at 50 ms)
+        finally:
+            shutil.rmtree(out, ignore_errors=True)

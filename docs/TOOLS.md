@@ -3434,4 +3434,4 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                                       reference (sdk/s1cc refdsp), and the silence without notes
 ```
 
-Environment: `BUDGET` (default '708'), `KERNEL` (default ''), `OUTDIR` (default HERE), `SIM_N` (default '9600'), `VOICES` (default '8')
+Environment: `BUDGET` (default '708'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `OUTDIR` (default HERE), `SIM_N` (default '9600'), `VOICES` (default '8')

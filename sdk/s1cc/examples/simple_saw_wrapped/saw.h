@@ -11,5 +11,6 @@ struct saw {
 void saw_init(struct saw *s);
 void saw_set_frequency(struct saw *s, float hz, float sample_rate);
 float saw_process(struct saw *s);     /* one sample, -1 .. 1 */
+float square_process(struct saw *s);     /* one sample, -1 .. 1 */
 
 #endif

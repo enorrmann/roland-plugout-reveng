@@ -264,7 +264,7 @@ const std::map<std::string, std::string> kIntrinsicOps = {
     {"umax", "umax"}, {"abs", "abs"}, {"floor", "floor"}};
 
 const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_increment", "s1_param_get",
-                                        "s1_export", "s1_import", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2",
+                                        "s1_export", "s1_import", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env",
                                         "s1_range"};
 
 std::string intrinsicBase(const std::string &fn) { return fn.substr(5, fn.find('.', 5) - 5); }   // llvm.<base>.<type>
@@ -340,11 +340,10 @@ Problem instProblem(const Instruction &I, const std::map<std::string, std::strin
     }
     if (isa<PHINode>(I) || isa<LoadInst>(I) || isa<StoreInst>(I) || isa<BinaryOperator>(I) || isa<UnaryOperator>(I) ||
         isa<FreezeInst>(I) || isa<CmpInst>(I) || isa<SelectInst>(I) || isa<AllocaInst>(I) ||
-        isa<GetElementPtrInst>(I) || isa<ReturnInst>(I) || isa<BranchInst>(I) || isa<UnreachableInst>(I))
+        isa<GetElementPtrInst>(I) || isa<ReturnInst>(I) || isa<BranchInst>(I) || isa<UnreachableInst>(I) ||
+        isa<SwitchInst>(I))
         return {};
     std::string op = I.getOpcodeName();
-    if (op == "switch")
-        return {"E202", "instruction `switch` is not supported (a switch on a value: s1cc takes if / else chains and ?:)"};
     if (op == "invoke" || op == "landingpad" || op == "resume")
         return {"E203", "instruction `" + op + "` is not supported (C++ exceptions)"};
     return {"E201", "instruction `" + op + "` is not supported"};
@@ -603,6 +602,21 @@ struct Builder {
             vmap[CI] = n;
             return;
         }
+        if (fn == "s1_env") {                             // the host's envelopes: inputs of stage B only
+            if (S.name != "B")
+                fail("E117", "s1_env in S1_DSP_A " + where(CI) + ": the host's envelopes run on DSP B");
+            long i = constArg(0);
+            if (i < 0 || i > 1)
+                fail("E118", "s1_env(" + std::to_string(i) + "): the host has envelopes 0 and 1 " + where(CI));
+            std::string name = "env" + std::to_string(i);
+            Node *&n = inputs[name];
+            if (!n) {
+                n = mk(NK::Input, name, {}, CI);
+                n->name = name;
+            }
+            vmap[CI] = n;
+            return;
+        }
         if (fn == "s1_param_get") {
             long i = constArg(1);
             // `c ? s1_param(a, i) : s1_param(b, i)`: clang merges the two calls into one on a select of the two
@@ -814,6 +828,24 @@ struct Builder {
                             edge[{bb, f}] = band(p, bnot(c));
                         }
                     }
+                } else if (auto *Sw = dyn_cast<SwitchInst>(&I)) {
+                    // a switch is an if / else chain: each case an edge `cond == value`, the default `none of them`;
+                    // cases that share a successor are or-ed (exclusive: the sum of their predicates)
+                    Node *c = get(Sw->getCondition());
+                    int bits = (int)Sw->getCondition()->getType()->getIntegerBitWidth();
+                    std::map<BasicBlock *, Node *> to;
+                    Node *none = nullptr;
+                    for (auto &cs : Sw->cases()) {
+                        Node *eq = boolOp("icmp.eq", {c, cst((double)cs.getCaseValue()->getSExtValue(), true, bits)});
+                        Node *&e = to[cs.getCaseSuccessor()];
+                        e = e ? boolOp("bor", {e, band(p, eq)}) : band(p, eq);
+                        none = band(none, bnot(eq));
+                    }
+                    Node *&d = to[Sw->getDefaultDest()];
+                    Node *def = band(p, none);
+                    d = d ? boolOp("bor", {d, def}) : def;
+                    for (auto &kv : to)
+                        edge[{bb, kv.first}] = kv.second;
                 } else if (isa<UnreachableInst>(&I)) {
                 } else {
                     fail(instProblem(I).code, instProblem(I).msg + " " + where(&I));

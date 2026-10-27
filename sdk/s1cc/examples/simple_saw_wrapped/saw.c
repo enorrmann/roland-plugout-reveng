@@ -18,3 +18,10 @@ float saw_process(struct saw *s) {
         s->phase -= 1.0f;
     return 2.0f * s->phase - 1.0f;
 }
+
+float square_process(struct saw *s) {
+    s->phase += s->inc;
+    if (s->phase >= 1.0f)
+        s->phase -= 1.0f;
+    return s->phase < 0.5f ? 1.0f : -1.0f;
+}

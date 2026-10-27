@@ -127,6 +127,7 @@ struct Profile {
     std::map<int, bool> sovf, uovf;         // the operation wrapped (signed / unsigned view)
     std::map<int, std::vector<std::pair<double, double>>> island;   // island id -> samples (x, y)
     std::map<int, double> stateInit;        // state index -> value after S1_INIT
+    std::map<int, Range> stateRange;        // state index -> range at the start of a sample (all scenarios)
     std::map<int, std::vector<unsigned>> hist;   // divisor record id -> counts: [0..127] positive octaves
                                                  // -64..63, [128..255] negative, [256] zero
     void read(const std::string &path);
@@ -194,6 +195,7 @@ public:
     std::vector<std::string> lines();
     int units() const;
     int spills() const { return spills_; }
+    size_t opCount() const { return ops_.size(); }   // ops emitted so far (unused ones are dropped by lines())
 private:
     KVal *val(const std::string &name = "");
     KVal *op(const std::string &fmt, std::vector<KOperand> args, KVal *acc = nullptr);

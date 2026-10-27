@@ -6,6 +6,8 @@
  *   param (vt+0x30)   0x110+v note -> pitch A030+v; 0x120+v velocity -> gate A038+v and, at a note start, the
  *                     trigger A060+v toggles (s1_trig); any other id: the kernel's S1_PARAM table with that
  *                     panel id -> DSP A parameters C070.. and / or DSP B C060..
+ *                     HOST_ENVS (the kernel uses s1_env): AMP / FILTER A, D, S, R -> the host envelopes' DSP B
+ *                     parameters (C040.., C044..; make_s1cc.py tables, defaults until a fader moves)
  *   refresh (vt+0x24) voices from the current values, knob tables from the last values received
  */
 #include <stdint.h>
@@ -75,6 +77,37 @@ static void kparam_set(int id, int value) { (void)id; (void)value; }
 static void kparam_all(void) {}
 #endif
 
+/* ---- the host's envelopes (HOST_ENVS: the kernel uses s1_env): AMP and FILTER faders -> DSP B parameters ---- */
+
+#if HOST_ENVS
+static uint8_t henv_knob[8];                   /* (S, A, D, R) of envelope 0, then of envelope 1 */
+
+static void henv_apply(int k)
+{
+    int j = k & 3;                                 /* parameter order: sustain level, attack, decay, release rate */
+    const uint32_t *t = j == 0 ? level_bits : j == 1 ? attack_bits : decay_bits;
+    b6(1, (k < 4 ? H6_ENV0 : H6_ENV1) + j, t[henv_knob[k]]);
+}
+
+static void henv_set(int id, int value)
+{
+    for (int k = 0; k < 8; k++)
+        if (henv_panel[k] == id) {
+            henv_knob[k] = (uint8_t)(value < 0 ? 0 : value > 255 ? 255 : value);
+            henv_apply(k);
+        }
+}
+
+static void henv_all(void)
+{
+    for (int k = 0; k < 8; k++)
+        henv_apply(k);
+}
+#else
+static void henv_set(int id, int value) { (void)id; (void)value; }
+static void henv_all(void) {}
+#endif
+
 /* ---- engine object ------------------------------------------------------------------------------ */
 
 typedef struct engine {
@@ -96,6 +129,7 @@ static void voice_gate(engine_t *e, int v, int vel)
         e->trig[v] ^= 1;                               /* s1_trig: toggles at every note start */
         b5(B5_TRIG + v, e->trig[v] ? F_ONE : F_ZERO);
         kparam_all();                                  /* again at every note on, in case a load lost them */
+        henv_all();
     }
     e->on[v] = on;
     b5(B5_GATE + v, on ? F_ONE : F_ZERO);
@@ -110,6 +144,10 @@ static void e_init(engine_t *e)                                  /* vt+0x00 */
     for (int k = 0; k < KPARAMS; k++)
         kparam_knob[k] = 128;
 #endif
+#if HOST_ENVS
+    for (int k = 0; k < 8; k++)
+        henv_knob[k] = henv_default[k];
+#endif
 }
 
 static void e_load(engine_t *e)                                  /* vt+0x08 */
@@ -121,6 +159,7 @@ static void e_load(engine_t *e)                                  /* vt+0x08 */
     for (int v = 0; v < NV; v++)
         b5(B5_TRIG + v, e->trig[v] ? F_ONE : F_ZERO);
     kparam_all();
+    henv_all();
 }
 
 static void e_refresh(engine_t *e, int all)                      /* vt+0x24 */
@@ -133,6 +172,7 @@ static void e_refresh(engine_t *e, int all)                      /* vt+0x24 */
             voice_gate(e, v, vel);
     }
     kparam_all();
+    henv_all();
 }
 
 static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
@@ -147,6 +187,7 @@ static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
         return;
     }
     kparam_set(id, value);
+    henv_set(id, value);                       /* a fader may drive both (a kernel table and a host envelope) */
 }
 
 static const void *const engine_vt[22] = {

@@ -15,7 +15,7 @@ las instrucciones del anfitrión C-S1SY13 (LFO, ADSR, filtro, mezcla): unas 234 
 ## 1. Uso
 
 ```sh
-sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c --check
+sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c --regs 0,1,2,3,4,5,6,7 --check
 KERNEL=sdk/s1cc/build/simple_saw_env sh examples/system_s1cc/build.sh               # -> plugins/SYSTEM-S1CC
 KERNEL=sdk/s1cc/build/simple_saw_env python3 examples/system_s1cc/make_s1cc.py --sim   # programas + emulador
 python3 tools/plugout_tool.py install plugins/SYSTEM-S1CC --slot 1 --force --no-patches -y
@@ -28,7 +28,36 @@ python3 tools/plugout_tool.py install plugins/SYSTEM-S1CC --slot 1 --force --no-
 | `BUDGET=n` | instrucciones por muestra permitidas en cada DSP del esclavo: 708 por defecto, el máximo probado en el equipo; con 826 se colgó ([examples_system_1_synth_README.md](examples_system_1_synth_README.md) §4). Por encima, el build se detiene |
 | `NAME=…` | nombre del PLUG-OUT (`SYSTEM-S1CC`) |
 | `MODEL_ID`, `PARAMLOG=1` | como en MUTABLE-SYSTEM |
+| `ENV_TMIN=s`, `ENV_TMAX=s` | tiempos de las envolventes del anfitrión con el fader en 0 y en 255 (por defecto 0,001 y 10 s, exponencial entre medio, como C-S1SY). Solo si el kernel usa `s1_env` |
 | `OUTDIR=dir` | solo `make_s1cc.py`: dónde escribir los programas (los tests usan una carpeta temporal) |
+
+### 1.1 Lo decide el kernel
+
+No hay opciones para cada función: `make_s1cc.py` lee el kernel (`voice.s1k`) y arma solo lo que este usa.
+
+| el kernel tiene | `make_s1cc.py` agrega |
+|---|---|
+| `S1_DSP_B` | su código en el DSP B, por voz; sin él, el DSP B solo mezcla |
+| `s1_env(0)` y / o `s1_env(1)` | una ADSR en ensamblador por cada envolvente que lee, en el DSP B, y la copia de puerta y disparo en el DSP A (§3.1); en `engine.c`, las perillas AMP / FILTER A, D, S, R |
+| `s1_export(i, …)` | la palabra del banco 5 de la ranura `i` de cada voz (§2) |
+| `S1_PARAM` | las tablas, escritas por el ARM en el `panel_id` de cada una |
+| estado, derrames, primera muestra | el bloque de banco 0 de cada voz, del tamaño justo |
+
+Por eso los tres PLUG-OUT de ejemplo son el mismo generador con otro `KERNEL` (y otro `NAME`, que solo cambia el
+nombre del equipo y la carpeta de `plugins/`):
+
+| PLUG-OUT | `KERNEL` (fuente en `sdk/s1cc/examples/simple_saw_wrapped/`) | qué arma por eso |
+|---|---|---|
+| `SYSTEM-S1CC` | `simple_saw_env.c`: ADSR en C en `S1_DSP_B` | sierras en A, la ADSR del kernel en B |
+| `S1CC-HOSTENV` | `simple_saw_hostenv.c`: `s1_env(0)`, `s1_env(1)` | más las dos ADSR del anfitrión en B y sus perillas |
+| `S1CC-EXPORT` | `simple_saw_export.c`: `s1_export(0, …)` | más la ranura 0 en `A188+v` |
+
+```sh
+sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_hostenv.c --regs 0,1,2,3,4,5,6,7
+KERNEL=sdk/s1cc/build/simple_saw_hostenv NAME=S1CC-HOSTENV sh examples/system_s1cc/build.sh   # -> plugins/S1CC-HOSTENV
+```
+
+Los tres usan el slot 1 y el mismo id de modelo: instalar uno reemplaza al anterior.
 
 ## 2. Qué corre en cada DSP
 
@@ -75,15 +104,44 @@ Lo que en MUTABLE-SYSTEM ponía el anfitrión, aquí lo pone el C:
 | nivel | OSC1 MIX | el kernel (una tabla `S1_PARAM`) |
 | controles del panel | OSC1 / OSC2 COLOR libres | todos libres para `S1_PARAM`, salvo VOLUME, DELAY y REVERB, que son del OS / maestro |
 
-Ejemplo: `sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c`. Son dos sierras de la librería `saw.c`, con una
-envolvente de ataque / release de un polo:
+Ejemplo: `sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c`. Son dos sierras (librería `saw.c`) y una ADSR
+(librería `env.c`), las dos en C puro; el envoltorio las adapta a la voz y mapea el panel como C-S1SY:
 
 | control | tabla | qué hace |
 |---|---|---|
-| OSC1 COLOR | `level` | nivel |
-| OSC2 COLOR | `detune` | desafinación de la segunda sierra, 0…+50 cents |
-| AMP ATTACK (`0x187`) | `attack` | ataque, 1 ms…2 s |
-| AMP RELEASE (`0x18A`) | `release` | release, 1 ms…2 s |
+| OSC1 MIX (`0x174`) | `mix1` | nivel de la primera sierra |
+| OSC2 MIX (`0x175`) | `mix2` | nivel de la segunda sierra |
+| OSC2 FINE (`0x170`) | `fine2` | segunda sierra ±1 semitono (128 = afinada) |
+| AMP ATTACK / DECAY / RELEASE (`0x187`, `0x188`, `0x18A`) | `attack`, `decay`, `release` | tiempos 1 ms…2 s |
+| AMP SUSTAIN (`0x189`) | `sustain` | nivel 0…1 |
+
+Hasta que se mueven, todos valen 128: las dos sierras a 0,5, afinadas, ataque / decay / release ≈ 45 ms, sustain 0,5.
+
+### 3.1 Envolventes del anfitrión (`s1_env`)
+
+Si el kernel llama a `s1_env(0)` o `s1_env(1)` en `S1_DSP_B`, `make_s1cc.py` agrega por voz:
+* **DSP A:** la copia de la puerta y del disparo a `A160+v` / `A168+v`. El DSP B las lee de ahí: en C-S1SY, leer lo
+  que escribe el ARM daba silencio.
+* **DSP B, antes del kernel:** una ADSR en ensamblador por cada envolvente que el kernel lee (`s1_env(0)`,
+  `s1_env(1)` o las dos). Es `step_adsr` de C-S1SY, copiada sin cambios, que corre en el equipo desde el paso 4 de
+  C-S1SY. Cada una deja su nivel 0…1 en una palabra del bloque de la voz, y el kernel la lee como `s1_env(i)`. Las
+  envolventes no necesitan `s1_export`: ver [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) §7.2.
+* **ARM (`engine.c`):** las perillas → parámetros del DSP B. Envolvente 0: AMP S / A / D / R → `C040`–`C043`;
+  envolvente 1: FILTER S / A / D / R → `C044`–`C047`. Las tablas las genera `make_s1cc.py` con `ENV_TMIN` /
+  `ENV_TMAX`. Valores por defecto hasta que se mueve una perilla: AMP 255 / 0 / 128 / 60, FILTER 0 / 0 / 128 / 60.
+
+La ADSR sigue a la puerta misma (ataque = puerta − latch; el latch se borra con cada disparo), así que no le afecta
+que el disparo y la puerta lleguen separados. Costo: unas 17 instrucciones por envolvente y voz en el DSP B, una vez
+empaquetadas (8 voces, 2 envolventes y el kernel de `simple_saw_hostenv`, con su paso bajo: 471). Ejemplo y detalle de quién escribe
+qué: [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) §7.
+
+```sh
+sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_hostenv.c --regs 0,1,2,3,4,5,6,7 --check
+KERNEL=sdk/s1cc/build/simple_saw_hostenv NAME=S1CC-HOSTENV sh examples/system_s1cc/build.sh
+```
+
+En la referencia nativa y en `s1cc check`, `s1_env()` es la puerta. `--sim` verifica las envolventes reales por su
+forma (ataque, decay hacia el sustain, release) y no compara muestra a muestra.
 
 ## 4. Presupuesto
 
@@ -92,10 +150,28 @@ tiene la mezcla (12–16) más el kernel B × `NV`.
 
 | kernel | voces | DSP A | DSP B | |
 |---|---|---|---|---|
-| `simple_saw_env` (43 por voz) | 8 | 337 | 16 | entra |
-| `simple_saw_env` | 4 | 169 | 12 | entra |
-| `plaits_variable_shape` (311 por voz) | 8 | 2481 | — | rechazado (> 708) |
+| `simple_saw_env`: sierras en A (29 por voz), ADSR en B (46 por voz), 8 registros | 8 | 225 | 364 | entra, con margen |
+| la misma voz con todo en `S1_DSP_A` (100 por voz) | 8 | 801 | 16 | rechazado (> 708) |
+| idem | 6 | 601 | 14 | entra |
+| `simple_saw_env` de antes (solo ataque / release, 44 por voz) | 8 | 345 | 16 | entra (el primero probado en el equipo) |
+| `plaits_variable_shape` (311 por voz) | 8 | 2481 | — | rechazado |
 | `plaits_variable_shape` | 2 | entra | — | pero suena sin notas: su wrapper no usa la puerta (§3) |
+
+**Usar los dos DSP.** Cada voz pasa por el DSP A y después por el B, y cada uno tiene su propio presupuesto de
+≈ 708 instrucciones. Repartir el trabajo (osciladores en `S1_DSP_A`, envolventes / filtros en `S1_DSP_B`) dobla lo
+que entra. El costo extra es pasar a B lo que necesita de A: las entradas (`s1_gate()`, `s1_trig()`: una carga y un
+store en A cada una) y `s1_export` / `s1_import`.
+
+**Todos los registros.** `s1cc build` usa por defecto `--regs 0,1,2,3,4,7`, porque en MUTABLE-SYSTEM `r5` / `r6`
+son del anfitrión. SYSTEM-S1CC no tiene anfitrión: compilar el kernel con `--regs 0,1,2,3,4,5,6,7` deja más valores
+en registros y menos derrames ([S1CC.md](S1CC.md) §1.1). `make_s1cc.py` avisa si un kernel tiene derrames y no usa
+`r5` / `r6`.
+
+**Valores que cruzan de A a B.** `make_s1cc.py` informa, para `x`, las entradas copiadas, cada ranura de export y las
+copias de puerta y disparo, si en el equipo llegan en la misma muestra, una más tarde o en carrera. Los dos DSP del chip
+corren a la vez ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) §8). Mapa de la zona
+del banco 5 que escriben los DSP: `A151+v` `x`, `A160+v` / `A168+v` copias de puerta y disparo, `A188`–`A19F` ranuras
+de export 0…2, `A1A0`–`A1B7` entradas para B, `A1B8`–`A1FF` ranuras 3…11.
 
 ## 5. Verificación [sim, 2026-10-27]
 

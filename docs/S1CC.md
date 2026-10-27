@@ -38,8 +38,27 @@ sdk/s1cc/s1cc check sdk/s1cc/build/braids_saw_swarm_s1 --note 45 ratio=200 hp_h=
 `build --check` corre `check` al terminar (nota 57, perillas en 128), para ver las instrucciones y el SNR sin un
 segundo comando. `build` admite además `--tol X` (tolerancia de los ajustes, métrica de rango, por defecto 3·10⁻³),
 `--tollog X` (métrica en octavas, por defecto 0,005), `--maxdeg N` (grado máximo de un polinomio, 11) y
-`--regs LISTA` (registros que puede usar el kernel; por defecto 0,1,2,3,4,7, porque r5/r6 son del programa anfitrión
-de C-S1SY).
+`--regs LISTA` (los registros que puede usar el kernel, §1.1).
+
+### 1.1 Registros (`--regs`)
+
+El DSP tiene 8 registros, `r0`–`r7`. `--regs` es la lista de los que el asignador de registros del kernel puede
+usar (§7.5); los demás no los toca. Con menos registros, más valores no entran y se *derraman*: se guardan en una
+palabra temporal del banco 0 (`{T<k>}`, `.scratch` en el kernel) y se vuelven a cargar. Cada derrame cuesta una
+transferencia (casi siempre empaquetada gratis) y, a veces, una instrucción y una palabra por voz.
+
+| PLUG-OUT | `--regs` | por qué |
+|---|---|---|
+| MUTABLE-SYSTEM (`KERNEL=`) | `0,1,2,3,4,7` (el valor por defecto) | el programa anfitrión de C-S1SY tiene `r5` = 0 y `r6` = 1 durante toda la voz (sus ADSR los usan); el kernel corre en medio y no puede pisarlos |
+| SYSTEM-S1CC | `0,1,2,3,4,5,6,7` | no hay anfitrión que guarde nada en registros entre una voz y otra (las envolventes del anfitrión vuelven a poner `r5` / `r6` antes de cada voz) |
+
+```sh
+sdk/s1cc/s1cc build VOZ.c --regs 0,1,2,3,4,5,6,7      # para SYSTEM-S1CC
+```
+
+Ejemplo [sim, 2026-10-27], la ADSR en C de `simple_saw_env.c` en el DSP B: con 6 registros, 5 palabras de derrame y
+52 instrucciones por voz; con 8, 3 palabras y 50 instrucciones. `make_s1cc.py` avisa cuando un kernel tiene derrames y no usa `r5` / `r6`.
+Un kernel compilado con los 8 registros no sirve en MUTABLE-SYSTEM (pisaría `r5` / `r6`).
 
 Dependencias:
 * clang / clang++ y LLVM 19 (`llvm-link`, `llvm-config`, `libLLVM`);
@@ -110,10 +129,11 @@ Intrínsecos:
 | `s1_increment()` | paso de fase de ese tono para una fase −1…1: 2·f/96000 |
 | `s1_gate()`, `s1_trig()` | puerta 0 / 1; disparo: alterna 0 / 1 en cada comienzo de nota |
 | `s1_param(nombre, i)` | valor i de una tabla `S1_PARAM` |
-| `s1_export(i, v)` / `s1_import(i)` | un valor de `S1_DSP_A` (DSP A) a `S1_DSP_B` (DSP B), en la misma muestra |
+| `s1_export(i, v)` / `s1_import(i)` | un valor de `S1_DSP_A` a `S1_DSP_B` por la ranura `i` (una palabra del banco 5 por voz); cuándo llega: §3.1 |
 | `s1_wrap(x)`, `s1_clamp(x)`, `s1_tri(x)` | x envuelto a [−1, 1) / recortado a [−1, 1] / 1 − 2·\|wrap(−x − 1,5)\|: una op cada uno (`ph_wrap` / `ph_clamp` / `ph_tri`) |
 | `s1_exp2(x)` | 2ˣ (`exp2` del DSP: 10 ops más las cuadraturas que pida el rango) |
 | `s1_range(x, lo, hi)` | x, declarando su rango (cuando el perfilado no lo ve) |
+| `s1_env(i)` | solo en `S1_DSP_B`: la envolvente `i` del anfitrión, 0…1 (SYSTEM-S1CC: 0 = AMP, 1 = FILTER; [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.1). En la referencia nativa y en `check`, la puerta |
 
 ### 3.1 Cuándo corre cada parte
 
@@ -170,8 +190,12 @@ en los dos:
 * **Sinte.** Igual que `S1_DSP_A`, en el DSP B del esclavo: 8 copias, cada muestra. Va primero en la voz del DSP B.
   `x` es la salida de `S1_DSP_A` después de OSC1 MIX y el trémolo. Lo que devuelve sigue por la cadena del
   anfitrión: ADSR del VCA, ADSR del filtro y paso bajo.
-* **Comunicación.** `s1_export(i, v)` en `S1_DSP_A` y `s1_import(i)` acá: el valor de la misma muestra. Las
-  variables de estado no se comparten entre las dos (error E302).
+* **Comunicación.** `s1_export(i, v)` en `S1_DSP_A` y `s1_import(i)` acá; `i` es la ranura, una palabra del banco 5
+  por voz. s1cc guarda el valor en A con su representación y lo lee en B con la misma (`.export i s o`). En la
+  referencia y en el emulador llega en la misma muestra; en el equipo los dos DSP corren a la vez y puede llegar una
+  muestra después (`make_s1cc.py` lo informa por voz). Detalle:
+  [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) §8. Las variables de estado no se
+  comparten entre las dos (error E302).
 * **Sin `S1_DSP_B`**, la salida de `S1_DSP_A` va directo a la cadena del anfitrión.
 * **PC.** Después de cada `S1_DSP_A`, con `x` = lo que devolvió.
 
@@ -211,6 +235,9 @@ Ejemplo comentado parte por parte: [examples_simple_saw_wrapped_README.md](examp
 * **Estado.** Una palabra de estado es (variable global, desplazamiento). La primera carga lee el valor de la muestra
   anterior; las siguientes leen el último valor guardado en la muestra (reenvío en el grafo). El valor final se guarda
   en el anillo, siempre: un anillo que no se reescribe pierde el valor.
+* **`switch`.** Es una cadena de `if`: cada caso es una arista con predicado `cond == valor`, y la rama por
+  defecto toma "ningún caso"; los casos que van al mismo bloque se suman. clang convierte en `switch` un
+  `if / else if` sobre un entero (`env.c`, versión con estados del 2026-10-27).
 * **`s1_param` en un `?:`.** `c ? s1_param(a, i) : s1_param(b, i)` llega de clang como una sola llamada sobre un
   `select` de los dos descriptores. Se convierte en el `select` de los dos parámetros. Un parámetro sin registro de
   perfil propio toma el rango de su tabla, en todas las posiciones de la perilla (`simple_saw_env.c`: ataque /
@@ -257,6 +284,8 @@ error de 1,2·10⁻³ del rango, en 7 ops.
 * **Perfilado.** El perfil registra además su rango sólo cuando se toma la rama (`__s1p_c`).
 * **Lowering.** Usa ese rango y limita a él los nodos de entrada del cono (min/max). Sin esto el polyBLEP salía con
   ~20 dB de SNR; con esto, con 68–81 dB [sim].
+* **Booleanos.** No se limitan (ni por la especulación ni por los valores atípicos): el perfil los registra con su
+  vista con signo (verdadero = −1) y en el DSP valen 0 / 1; limitar 1 a [−1, 0] lo volvía falso.
 
 ## 5. Perfilado (`prof.cpp`, `runtime/s1rt.c`)
 
@@ -268,6 +297,12 @@ error de 1,2·10⁻³ del rango, en 7 ops.
 
 Agrega también los clones de las islas (`__s1p_isl_tab`) y `__s1p_reset()`, que devuelve el estado a sus valores
 iniciales.
+
+El runtime registra además, al empezar cada muestra, el rango de cada palabra de estado (`r índice mín máx` en
+`profile.txt`, por `__s1p_state`). Lo usa el valor del estado al empezar la muestra cuando no tiene registro propio:
+cuando el primer acceso de la muestra es un store condicional, no una carga (`if (start) stage = ATTACK;` antes de
+leer `stage`). Sin ese rango, un `select` con ese valor quedaba con el rango del otro lado solo, y una comparación
+con él se resolvía como constante.
 
 Escenarios (`s1rt.c prof`):
 * cada tabla `S1_PARAM` recorrida de 0 a 255 en pasos de 17, con las otras en 128;
@@ -322,7 +357,10 @@ Cada valor V del programa vive en un registro r con una escala s y un desplazami
 | desborde de `mul` en C | aviso; el port calcula sin envolver (en el código real casi siempre es un fallo, como el de Braids, [MUTABLE_SDK.md](MUTABLE_SDK.md) §7.3) |
 | `x & (2ᵐ − 1)`, máscara contigua, `x ^ 2ᵇ`, `~x` | mod 2ᵐ; resta de dos mod; + 2ᵇ mod 2ᵇ⁺¹; −x − 1 |
 | `a < b` y demás comparaciones | `ph_clamp(K·(a − b − θ))` en etapas de ganancia ≤ 16. Enteros: θ = ±0,5, exacto. Floats: hasta 2¹⁷ / rango |
-| `c ? a : b` | b + c·(a − b); con brazos constantes, afín en c (0 ops) |
+| `a == b` entre enteros | −\|a − b\| ≥ 0 (θ = −0,5). Hasta el 2026-10-27 era 0,5 − \|a − b\|, semientero: con \|a − b\| = 1 daba 0,5 |
+| comparación de un valor binario contra un umbral entre 0 y 1 | el valor mismo (o 1 − valor), 0 ops. Binario = siempre 0 o 1: `s1_gate()`, `s1_trig()`, las constantes 0 / 1, booleanos, `select` / producto / `min` / `max` de binarios, y un estado cuyo valor inicial y guardado son binarios (un flag) |
+| `a == b`, `a != b` entre dos binarios | (a − b)², 1 op |
+| `c ? a : b` | dos formas, y queda la que emite menos ops (la otra la elimina el código muerto): (b − o_c·s_c·d) + r_c·(s_c·d) con d = a − b, un `mad` sobre el registro de la condición sin pasarla a 0 / 1; o b + c01·d con c01 = c materializada. Con d constante: c escalada (gratis) + una suma; con brazos constantes, afín en c (0 ops). 2026-10-27: ADSR del DSP B 46 → 43, Plaits 311 → 303 |
 | `x < T ? x : x - K` (y la forma `>=`) | detectado: (T − K) + mod(x − (T − K), K), exacto, si el perfil deja x en [T − K, T + K) |
 | `min`, `max`, `CLIP`, `smin`/`smax` | 1 op por extremo |
 | `fabs`, `abs` | `max r, r, -r` |
@@ -428,7 +466,7 @@ Qué detecta `diag` (son las mismas reglas que usa el constructor del grafo, `gr
 | llamada a una función definida pero no inlineada | `noinline`, `optnone`, variádica, recursiva, o el motivo del inliner |
 | llamada indirecta | puntero a función o método virtual |
 | intrínseco de LLVM sin operación | su nombre (`llvm.*`) |
-| `switch`, `invoke` y otras instrucciones | la instrucción no está soportada (un `switch` se escribe con `if` / `?:`) |
+| `invoke` y otras instrucciones | la instrucción no está soportada |
 | `bitcast`, `ptrtoint`, `inttoptr`, `addrspacecast` | puntero usado como número o reinterpretación de tipo |
 
 Al final, `diag` también muestra las funciones C que sí quedaron inlineadas en la voz (`inlined into s1_dsp_a:`).
@@ -512,7 +550,7 @@ Los códigos son estables: un código no cambia de significado; un caso nuevo re
 
 | código | mensaje | causa | solución |
 |---|---|---|---|
-| `E010` | errores de `clang` / `clang++` (`error: unknown type name`, `file not found`) | el C no compila como C nativo | corregirlo como cualquier error de compilación. Falta un `-I` o falta definir una macro (`-DTEST` lo pone el driver si existe `build/deps/stmlib`) |
+| `E010` | errores de `clang` / `clang++` (`error: unknown type name`, `file not found`) | el C no compila como C nativo | corregirlo como cualquier error de compilación. Falta un `-I` o falta definir una macro (`-DTEST` lo pone el driver si existe `lib/stmlib` (`s1cc deps`)) |
 | `E011` | `undefined reference to 'f'` (enlace de `trips`, `ref` o `prof`) | `f` se llama y no está definida en ninguna fuente | agregar al build el `.c` / `.cc` que la define. `--debug` ya la lista antes como `it has no body in the module` |
 
 #### 9.2.2 Llamadas (`graph.cpp`, también en `diag`)
@@ -538,7 +576,6 @@ quedar llamadas a los intrínsecos `s1_*`, a libm (§7.3) y a intrínsecos de LL
 
 | código | mensaje | causa | solución |
 |---|---|---|---|
-| `E202` | `instruction 'switch' is not supported` | un `switch` con valor calculado (clang no siempre lo baja a `select`) | `if` / `else if` o `?:`. Clang a veces convierte un `switch` chico en `select`, pero no siempre (un `switch` de 5 casos de una línea queda como `switch`) |
 | `E203` | `instruction 'invoke' / 'landingpad' ...` | excepciones C++ | el driver compila con `-fno-exceptions`. Quitar `try` / `throw` del código de la voz |
 | `E204` | `cast bitcast / ptrtoint / inttoptr is not supported` | un puntero usado como número, o reinterpretación de tipo por puntero (`*(int *)&f`) | trabajar con el valor: para el exponente de un float, `log2f`; para el resto, aritmética o una tabla |
 | `E205` | `unsupported constant` | constante vectorial o de un tipo raro (`long double`, `__int128`) | `float`, `double` o enteros ≤ 64 bits |
@@ -610,6 +647,8 @@ preferencia:
 | `E604` | `compare 'P' not supported` | predicado de comparación raro (`ord`, `uno`: chequeos de NaN) | quitar los chequeos de NaN: el DSP no tiene NaN |
 | `E605` | `operation 'OP' not supported` | operación del IR sin bajada en `lower.cpp` (enteros de más de 64 bits, operaciones de bits raras) | reescribirla con operaciones de §7.2 |
 | `E116` | `s1_import(i) without an s1_export(i)` | `S1_DSP_B` importa un índice que `S1_DSP_A` nunca exporta | agregar el `s1_export(i, v)` |
+| `E117` | `s1_env in S1_DSP_A` | las envolventes del anfitrión corren en el DSP B | usar `s1_env` en `S1_DSP_B`; para que A dependa de una envolvente, calcularla en C ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md)) |
+| `E118` | `s1_env(i): the host has envelopes 0 and 1` | índice distinto de 0 (AMP) o 1 (FILTER) | `s1_env(0)` o `s1_env(1)` |
 | `E006` | `no table for S1_PARAM 'p' (tables file)` | `tables.txt` viejo o la función de la tabla no se ejecutó | rehacer el build completo |
 
 #### 9.2.8 Kernel (`kernel.cpp`)

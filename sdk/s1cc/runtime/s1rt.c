@@ -60,6 +60,7 @@ float s1_pitch(void) { return g_pitch; }
 float s1_increment(void) { return 2.0f * 440.0f * exp2f(g_pitch - 4.75f) / 96000.0f; }
 float s1_gate(void) { return g_gate; }
 float s1_trig(void) { return g_trig; }
+float s1_env(int i) { (void)i; return g_gate; }     /* the host's envelopes: the gate stands in (check too) */
 float s1_param_get(const s1_param_desc *d, int i) {
     params_init();
     for (int k = 0; k < np; k++)
@@ -146,12 +147,28 @@ static void reset(void) {
 
 static float note_pitch(double note) { return (float)((note - 12.0) / 12.0); }
 
+/* profiling: the range of every state word at the start of a sample (a state whose first access in the sample is a
+   store before any load has no load record of its own: docs/S1CC.md §5) */
+static int st_track;
+static double st_lo[4096], st_hi[4096], st_buf[4096];
+
+static void state_track(void) {
+    if (!st_track || !__s1p_state || !&__s1p_nstate)
+        return;
+    __s1p_state(st_buf);
+    for (int k = 0; k < __s1p_nstate && k < 4096; k++) {
+        if (st_buf[k] < st_lo[k]) st_lo[k] = st_buf[k];
+        if (st_buf[k] > st_hi[k]) st_hi[k] = st_buf[k];
+    }
+}
+
 /* one note: gate on with a note start at 0, off at `off`; returns the B output of the last sample */
 static void run(double note, long n, long off, FILE *out) {
     g_pitch = note_pitch(note);
     g_trig = 1.0f - g_trig;
     for (long t = 0; t < n; t++) {
         g_gate = t < off ? 1.0f : 0.0f;
+        state_track();
         float a = s1_dsp_a(), b = a;
         if (s1_dsp_b)
             b = s1_dsp_b(a);
@@ -239,6 +256,8 @@ int main(int argc, char **argv) {
         /* scenarios: every knob over its range (the others at 128), then random knob sets; notes 0..127;
            a gate that closes half way (envelopes, releases) */
         static const int notes[] = {0, 12, 24, 36, 48, 57, 60, 69, 72, 84, 96, 108, 120, 127};
+        for (int k = 0; k < 4096; k++) { st_lo[k] = 1e300; st_hi[k] = -1e300; }
+        st_track = 1;
         int nn = (int)(sizeof notes / sizeof notes[0]);
         long n = 2400;
         for (int p = 0; p < np || p == 0; p++) {
@@ -264,6 +283,9 @@ int main(int argc, char **argv) {
             __s1p_state(st);
             for (int k = 0; k < __s1p_nstate && k < 4096; k++)
                 fprintf(f, "s %d %.17g\n", k, st[k]);
+            for (int k = 0; k < __s1p_nstate && k < 4096; k++)     /* the range at the start of a sample */
+                if (st_lo[k] <= st_hi[k])
+                    fprintf(f, "r %d %.17g %.17g\n", k, st_lo[k], st_hi[k]);
         }
         for (int id = 0; id <= ntrip; id++)
             fprintf(f, "t %d %d\n", id, tripmax[id]);
