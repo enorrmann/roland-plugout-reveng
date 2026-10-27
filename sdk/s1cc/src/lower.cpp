@@ -1089,7 +1089,13 @@ struct Lowerer {
             if (it != prof.stateInit.end())
                 s.init = it->second;                  // after S1_INIT (or the C initializer)
             double r0 = s.init / sr.first + sr.second;
-            if (std::fabs(r0) > 1e-12) {
+            // a phase (modular word) that starts at 0 in the C starts at half a cycle in the ring: a fixed offset of
+            // a free-running oscillator, not worth a first-sample mad in every sample (docs/S1CC.md §11.1)
+            bool phaseAtZero = sr.second == -1 && s.init == 0;
+            if (phaseAtZero && std::fabs(r0) > 1e-12)
+                rep << "  state " << s.name << ": phase starting at 0, left at half a cycle (no first-sample "
+                       "correction)\n";
+            else if (std::fabs(r0) > 1e-12) {
                 if (opt.exactInit)
                     initR[s.index] = r0;              // first sample: r = r0 (ring words start at 0)
                 else
@@ -1183,8 +1189,12 @@ struct Lowerer {
         o << ".stage " << S.name << " " << k.units() << "\n";
         if (k.spills())
             o << ".scratch " << k.spills() << "\n";
-        if (firstFlag)
+        if (firstFlag) {
             o << ".initflag\n";
+            for (int st : S.states)                     // the words the flag corrects: the reference keeps their C start
+                if (initR.count(st))
+                    o << ".init " << st << "\n";
+        }
         for (auto &t : traced)
             o << ".trace " << t.first << " " << fmtImm(t.second).substr(1) << " " << traceWhere[t.first] << "\n";
         traced.clear();

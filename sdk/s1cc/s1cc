@@ -2,11 +2,12 @@
 # s1cc driver (docs/S1CC.md §9): C / C++ voice program -> kernel for the Roland BMC DSPs.
 #
 #   sdk/s1cc/s1cc build VOICE.cc [MORE.cc ...] [-I DIR ...] [-o OUTDIR] [--tol X] [--tollog X] [--maxdeg N] [--regs LIST]
-#           [--debug]
+#           [--debug] [--check]
 #       OUTDIR (default build/<voice>): voice.ll (linked IR), tables.txt (S1_PARAM tables), profile.txt,
 #       voice.s1k (the kernel), report.txt; ref / prof / refdsp (native reference, profiling, reference that
 #       starts from the DSP's initial state). --debug (or S1CC_DEBUG=1): C file:line and function in every error,
-#       and first the list of C functions s1cc cannot compile and why (OUTDIR/diag.txt); S1CC_DEBUG=2 adds every node
+#       and first the list of C functions s1cc cannot compile and why (OUTDIR/diag.txt); S1CC_DEBUG=2 adds every node.
+#       --check: `check OUTDIR` at the end (instructions, SNR against the native reference; note 57, knobs at 128)
 #   sdk/s1cc/s1cc check OUTDIR [--note N] [name=knob ...]   microcode on the emulator vs the native reference
 #   sdk/s1cc/s1cc deps                       fetch Mutable Instruments' stmlib (MIT) into build/deps (the eurorack
 #       checkout has its submodule empty): with it, `build` adds -I build/deps and stmlib's units.cc / random.cc,
@@ -20,12 +21,12 @@ CLANG=${CLANG:-clang}
 CLANGXX=${CLANGXX:-clang++}
 # driver errors carry a code too (docs/S1CC.md §9.2)
 fail() { echo "s1cc: error $1: $2" >&2; [ "${S1CC_DEBUG:-0}" = 0 ] || echo "s1cc: debug: cause and fix of $1: docs/S1CC.md §9.2" >&2; exit 1; }
-usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 1 ] || usage
 cmd=$1; shift
 case $cmd in
 build)
-    srcs=; incs=; out=; lower_opts=; debug=${S1CC_DEBUG:-0}
+    srcs=; incs=; out=; lower_opts=; debug=${S1CC_DEBUG:-0}; check=0
     while [ $# -gt 0 ]; do
         case $1 in
             -I) incs="$incs -I$2"; shift ;;
@@ -33,6 +34,7 @@ build)
             -o) out=$2; shift ;;
             --tol|--tollog|--maxdeg|--regs) lower_opts="$lower_opts $1 $2"; shift ;;
             --trace|--no-exact-init) lower_opts="$lower_opts $1" ;;
+            --check) check=1 ;;
             --debug) [ "$debug" -ge 1 ] 2>/dev/null || debug=1 ;;
             -h|--help) usage ;;
             *) srcs="$srcs $1" ;;
@@ -57,7 +59,7 @@ build)
             case " $srcs " in *" $s "*) ;; *) srcs="$srcs $s" ;; esac
         done
     fi
-    lls=
+    lls=; o0s=
     i=0
     for s in $srcs; do
         i=$((i + 1))
@@ -65,8 +67,16 @@ build)
         $cc -O2 -S -emit-llvm -w -fno-math-errno -mllvm -inline-threshold=100000 -fno-vectorize -fno-slp-vectorize $dbgflags $std -I"$HERE/include" $incs \
             "$s" -o "$out/src$i.ll" || fail E010 "clang could not compile $s"
         lls="$lls $out/src$i.ll"
+        if [ "$debug" != 0 ]; then         # the same at -O0: every instruction at its C line (srcmap.ll)
+            $cc -O0 -Xclang -disable-O0-optnone -S -emit-llvm -w -g $std -I"$HERE/include" $incs "$s" -o "$out/src$i.O0.ll"
+            o0s="$o0s $out/src$i.O0.ll"
+        fi
     done
     "$LLVM_BIN/llvm-link" -S $lls -o "$out/linked0.ll"
+    if [ "$debug" != 0 ]; then
+        "$LLVM_BIN/llvm-link" -S $o0s -o "$out/srcmap.ll"
+        export S1CC_SRCMAP="$out/srcmap.ll"
+    fi
     # across sources (a wrapper calling a library's render function): inline everything into the voice functions
     if [ "$debug" != 0 ]; then
         # the inliner's reasons for every call it kept, then what s1cc cannot compile (before any later error)
@@ -99,6 +109,7 @@ build)
     "$HERE/build/s1cc" init "$out/voice.ll" --kernel "$out/voice.s1k" --into "$out/linked.ll" -o "$out/refdsp.ll"
     $CLANG -O1 -w "$out/refdsp.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/refdsp"
     echo "kernel: $out/voice.s1k"
+    [ "$check" = 0 ] || python3 "$HERE/tools/s1check.py" "$out"
     ;;
 deps)
     mkdir -p "$HERE/build/deps"

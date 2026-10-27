@@ -2,12 +2,14 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <functional>
 #include <sstream>
 
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/Demangle/Demangle.h"
 #include "llvm/Analysis/ConstantFolding.h"
+#include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/Function.h"
@@ -16,6 +18,8 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IRReader/IRReader.h"
+#include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
@@ -26,10 +30,14 @@ using namespace llvm;
 
 namespace s1 {
 
+static void printSource();
+
 void fail(const std::string &code, const std::string &msg) {
     fprintf(stderr, "s1cc: error %s: %s\n", code.c_str(), msg.c_str());
-    if (debugLevel() >= 1)
+    if (debugLevel() >= 1) {
+        printSource();
         fprintf(stderr, "s1cc: debug: cause and fix of %s: docs/S1CC.md §9.2\n", code.c_str());
+    }
     exit(1);
 }
 
@@ -84,10 +92,139 @@ static std::string at(const DILocation *dl) {
     return fileOf(dl) + ":" + std::to_string(dl->getLine()) + " in " + cName(dl->getScope()->getSubprogram());
 }
 
+// ---- exact C lines (s1cc build --debug) -------------------------------------------------------------------------
+// -O2 moves the code of small ifs in front of them (SimplifyCFG speculation) and gives it the location of the if.
+// The same sources at -O0 (S1CC_SRCMAP = the driver's srcmap.ll) still have every instruction at its own line and
+// column: an instruction whose -O2 location has no instruction of its opcode in the -O0 code is looked up there,
+// among the instructions of that opcode inside the same lexical block.
+namespace {
+
+struct SrcInst {
+    unsigned line, col;
+    std::vector<std::pair<unsigned, unsigned>> blocks;   // (line, column) of its lexical blocks, innermost first
+};
+
+struct SrcMap {
+    LLVMContext ctx;
+    std::unique_ptr<Module> M;
+    std::map<std::pair<std::string, std::string>, std::vector<SrcInst>> byFnOp;   // (function, opcode)
+};
+
+std::string fnKey(const DISubprogram *sp) {
+    return sp->getLinkageName().empty() ? sp->getName().str() : sp->getLinkageName().str();
+}
+
+SrcMap *srcMap() {
+    static std::unique_ptr<SrcMap> map;
+    static bool tried = false;
+    if (tried)
+        return map.get();
+    tried = true;
+    const char *path = getenv("S1CC_SRCMAP");
+    if (!path || !*path)
+        return nullptr;
+    auto m = std::make_unique<SrcMap>();
+    SMDiagnostic err;
+    m->M = parseIRFile(path, err, m->ctx);
+    if (!m->M)
+        return nullptr;
+    for (Function &F : *m->M)
+        for (BasicBlock &bb : F)
+            for (Instruction &I : bb) {
+                const DILocation *dl = I.getDebugLoc();
+                if (!dl || !dl->getLine())
+                    continue;
+                SrcInst si{dl->getLine(), dl->getColumn(), {}};
+                for (const DIScope *sc = dl->getScope(); sc && isa<DILexicalBlockBase>(sc); sc = sc->getScope())
+                    if (auto *lb = dyn_cast<DILexicalBlock>(sc))
+                        si.blocks.push_back({lb->getLine(), lb->getColumn()});
+                m->byFnOp[{fnKey(dl->getScope()->getSubprogram()), I.getOpcodeName()}].push_back(si);
+            }
+    map = std::move(m);
+    return map.get();
+}
+
+struct Loc {
+    std::string file;
+    unsigned line = 0;
+    std::vector<unsigned> cols;
+    std::string note;
+};
+Loc lastLoc;   // the last location where() printed: fail() shows its source line
+
+// the C line (and columns) of I, whose innermost location is dl
+Loc exactLoc(const Instruction *I, const DILocation *dl) {
+    Loc l{fileOf(dl), dl->getLine(), {dl->getColumn()}, ""};
+    SrcMap *m = srcMap();
+    if (!m || isa<CallInst>(I) || isa<PHINode>(I))
+        return l;
+    auto it = m->byFnOp.find({fnKey(dl->getScope()->getSubprogram()), I->getOpcodeName()});
+    if (it == m->byFnOp.end())
+        return l;
+    std::pair<unsigned, unsigned> blk{0, 0};
+    auto *lb = dyn_cast<DILexicalBlock>(dl->getScope());
+    if (lb)
+        blk = {lb->getLine(), lb->getColumn()};
+    std::set<std::pair<unsigned, unsigned>> cands;
+    for (auto &si : it->second) {
+        if (si.line == dl->getLine() && si.col == dl->getColumn())
+            return l;                                     // the location is the C one
+        if (!lb || std::find(si.blocks.begin(), si.blocks.end(), blk) != si.blocks.end())
+            cands.insert({si.line, si.col});
+    }
+    std::string op = I->getOpcodeName();
+    std::set<unsigned> lines;
+    for (auto &c : cands)
+        lines.insert(c.first);
+    if (lines.size() == 1) {
+        l.line = *lines.begin();
+        l.cols.clear();
+        for (auto &c : cands)
+            l.cols.push_back(c.second);
+        l.note = "LLVM moved this `" + op + "` to line " + std::to_string(dl->getLine()) + "; in the C it is " +
+                 (l.cols.size() == 1 ? "here" : "one of the marked ones");
+    } else if (!cands.empty() && cands.size() <= 4) {
+        l.note = "LLVM moved this `" + op + "` from one of:";
+        for (auto &c : cands)
+            l.note += " " + std::to_string(c.first) + ":" + std::to_string(c.second);
+    } else {
+        l.note = "LLVM moved this `" + op + "`: the line is approximate";
+    }
+    return l;
+}
+
+}  // namespace
+
+static void printSource() {
+    if (lastLoc.line == 0)
+        return;
+    std::ifstream f(lastLoc.file);
+    std::string text;
+    for (unsigned k = 0; k < lastLoc.line && std::getline(f, text); k++) {
+    }
+    if (!f)
+        return;
+    std::string num = std::to_string(lastLoc.line), pad(num.size(), ' '), caret;
+    for (unsigned c : lastLoc.cols)
+        if (c > 0) {
+            if (caret.size() < c)
+                caret.resize(c - 1, ' ');
+            caret += '^';
+        }
+    fprintf(stderr, "s1cc: debug: %s | %s\n", num.c_str(), text.c_str());
+    if (!caret.empty())
+        fprintf(stderr, "s1cc: debug: %s | %s\n", pad.c_str(), caret.c_str());
+    if (!lastLoc.note.empty())
+        fprintf(stderr, "s1cc: debug: %s   (%s)\n", pad.c_str(), lastLoc.note.c_str());
+}
+
 std::string where(const Value *v) {
     if (auto *I = dyn_cast_or_null<Instruction>(v)) {
         if (const DILocation *dl = I->getDebugLoc()) {   // with -g (s1cc build --debug): the C function it came from
-            std::string s = at(dl);
+            Loc l = exactLoc(I, dl);
+            lastLoc = l;
+            std::string s = l.file + ":" + std::to_string(l.line) + (l.cols.size() == 1 ? ":" + std::to_string(l.cols[0]) : "") +
+                            " in " + cName(dl->getScope()->getSubprogram());
             for (const DILocation *in = dl->getInlinedAt(); in; in = in->getInlinedAt())
                 s += ", inlined at " + at(in);
             return s;
@@ -769,9 +906,85 @@ void signedness(Program &P, Stage &S) {
     }
 }
 
+// the C name of the field at byte offset `bits` / 8 inside a value of type t: ".state_.toy.held_sample", "[3]"
+static std::string memberPath(const DIType *t, uint64_t bits) {
+    while (auto *d = dyn_cast_or_null<DIDerivedType>(t)) {
+        if (d->getTag() != dwarf::DW_TAG_typedef && d->getTag() != dwarf::DW_TAG_const_type &&
+            d->getTag() != dwarf::DW_TAG_volatile_type)
+            break;
+        t = d->getBaseType();
+    }
+    auto *c = dyn_cast_or_null<DICompositeType>(t);
+    if (!c)
+        return "";
+    if (c->getTag() == dwarf::DW_TAG_array_type) {
+        const DIType *e = c->getBaseType();
+        uint64_t es = e ? e->getSizeInBits() : 0;
+        while (auto *d = dyn_cast_or_null<DIDerivedType>(e))
+            if (!es && d->getBaseType())
+                e = d->getBaseType(), es = e->getSizeInBits();
+            else
+                break;
+        if (!es)
+            return "";
+        return "[" + std::to_string(bits / es) + "]" + memberPath(c->getBaseType(), bits % es);
+    }
+    for (const DINode *el : c->getElements()) {
+        auto *m = dyn_cast<DIDerivedType>(el);
+        if (!m || (m->getTag() != dwarf::DW_TAG_member && m->getTag() != dwarf::DW_TAG_inheritance) ||
+            m->isStaticMember())
+            continue;
+        uint64_t o = m->getOffsetInBits(), sz = m->getSizeInBits();
+        if (!sz && m->getBaseType())
+            sz = m->getBaseType()->getSizeInBits();
+        if (bits >= o && bits < o + std::max<uint64_t>(sz, 1))
+            return (m->getTag() == dwarf::DW_TAG_member ? "." + m->getName().str() : "") +
+                   memberPath(m->getBaseType(), bits - o);
+    }
+    return "";
+}
+
+// a state word as the C sees it: osc.state_.toy.held_sample (debug info), else its LLVM name (_ZL3osc+40)
+static std::string stateCName(const StateVar &sv) {
+    SmallVector<DIGlobalVariableExpression *, 1> gves;
+    sv.gv->getDebugInfo(gves);
+    if (gves.empty())
+        return sv.name;
+    const DIGlobalVariable *g = gves[0]->getVariable();
+    return g->getName().str() + memberPath(g->getType(), (uint64_t)sv.offset * 8);
+}
+
+// the sources (inputs, parameters, state words) a node depends on, as the C names them
+static std::string sourcesOf(Program &P, Node *N) {
+    std::set<std::string> names;
+    std::set<Node *> seen;
+    std::vector<Node *> work = {N};
+    while (!work.empty()) {
+        Node *n = work.back();
+        work.pop_back();
+        if (!seen.insert(n).second)
+            continue;
+        switch (n->kind) {
+        case NK::Input: names.insert("s1_" + n->name + "()"); break;
+        case NK::Increment: names.insert("s1_increment()"); break;
+        case NK::Param: names.insert("s1_param(" + n->name + ", " + std::to_string((int)n->c) + ")"); break;
+        case NK::State: names.insert(stateCName(P.states[n->state])); break;
+        case NK::Import: names.insert("s1_import(" + std::to_string((int)n->c) + ")"); break;
+        case NK::XIn: names.insert("x (the input of S1_VOICE_B)"); break;
+        default:
+            for (Node *i : n->in)
+                work.push_back(i);
+        }
+    }
+    std::string s;
+    for (auto &n : names)
+        s += (s.empty() ? "" : ", ") + n;
+    return s;
+}
+
 // islands: for every bad node, the single values that cut all its paths to the sources (dominators of the
 // dependency DAG), highest first; members = the nodes that depend on the root only
-void islands(Stage &S) {
+void islands(Program &P, Stage &S) {
     std::map<Node *, Node *> idom;
     std::map<Node *, int> depth;
     Node *VR = nullptr;                                  // virtual root
@@ -807,9 +1020,12 @@ void islands(Stage &S) {
         std::vector<Node *> chain;
         for (Node *r = idom[N]; r; r = idom[r])
             chain.push_back(r);
-        if (chain.empty())
-            fail("E501", "a table read / function / division that depends on several values " + where(N->v) +
-                 ": only functions of one value can be tabulated");
+        if (chain.empty()) {
+            std::string what = N->v && isa<Instruction>(N->v) ? "`" + std::string(cast<Instruction>(N->v)->getOpcodeName()) + "` " : "";
+            std::string at = where(N->v);   // last: fail() shows this line
+            fail("E501", "a table read / function / division " + what + "that depends on several values (" +
+                 sourcesOf(P, N) + ") at " + at + ": only functions of one value can be tabulated");
+        }
         // candidates: the three highest roots and the immediate one (the rest only cost memory and time)
         std::vector<Node *> cands;
         for (auto it = chain.rbegin(); it != chain.rend() && cands.size() < 3; ++it)
@@ -957,7 +1173,7 @@ void build(Program &P, Module &M) {
         if (!S->fn)
             continue;
         speculation(*S);
-        islands(*S);
+        islands(P, *S);
         for (auto &isl : S->islands)
             isl.id = id++;
     }

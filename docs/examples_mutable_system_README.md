@@ -56,6 +56,12 @@ Opciones de la build (`build.sh --help`):
 Valores iniciales, hasta que se mueve la perilla: OSC1 COLOR = 128 (detune medio), OSC2 COLOR = 0 (paso alto
 abierto). Las tablas salen de `Param.table()` del componente (`make_mutable.py header()`).
 
+**VOLUME al instalar.** Observado en el equipo el 2026-10-27: MUTABLE-S1CC no sonaba hasta mover la perilla de
+VOLUME, en cualquier posición inicial. Hipótesis: `m_load` (`model.c`) escribe `C01C` con `FCEC` justo después de
+encolar la carga del programa del maestro B, y la carga encolada llega después y deja `C01C` en 0. Cambio:
+`a_note_on` vuelve a escribir el último VOLUME en cada nota (una escritura `FCEC`). Sin verificar en el equipo.
+C-S1SY y los demás `model.c` iguales no tienen este cambio.
+
 ## 3. Arquitectura
 
 | DSP | por voz | instrucciones |

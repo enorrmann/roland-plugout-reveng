@@ -59,6 +59,8 @@ class Kernel:
                 k.stages[cur]['scratch'] = int(p[1])
             elif p[0] == '.initflag':
                 k.stages[cur]['initflag'] = True
+            elif p[0] == '.init':             # a state word the first-sample flag corrects (s1cc init uses it)
+                k.stages[cur].setdefault('init', []).append(int(p[1]))
             elif p[0] == '.trace':
                 k.stages[cur].setdefault('trace', []).append((int(p[1]), float(p[2]), ' '.join(p[3:])))
             elif p[0] == '.end':

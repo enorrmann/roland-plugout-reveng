@@ -3,7 +3,7 @@
 //   s1cc lower IN.ll --profile P --tables T -o K.s1k [--report R] [--regs 0,1,2,3,4,7] [--tol 3e-3] [--tollog 0.005] [--maxdeg 11]
 //   s1cc init  IN.ll --kernel K.s1k [--into ORIG.ll] -o OUT.ll   reference module (ORIG, default IN) with
 //                                                      __s1p_dspstart(): the state words set to what the DSP starts
-//                                                      from (ring = 0 -> V = -o s; S1_INIT's values with .initflag)
+//                                                      from (ring = 0 -> V = -o s; S1_INIT's values for the .init words)
 //   s1cc trips IN.ll -o OUT.ll                         loop-count profiling module (prints the number of loops)
 //   s1cc unroll IN.ll --trips P -o OUT.ll              loops peeled to their profiled maximum (loops.cpp)
 //   s1cc graph IN.ll                                   the dataflow graph, for debugging
@@ -11,6 +11,7 @@
 //                                                      -pass-remarks-missed=inline output); s1cc build --debug
 #include <cstdio>
 #include <fstream>
+#include <set>
 #include <sstream>
 
 #include "llvm/IR/IRBuilder.h"
@@ -180,13 +181,16 @@ int main(int argc, char **argv) {
         std::ifstream kf(kernelPath);
         std::string line;
         std::map<int, std::pair<double, double>> rep;
-        bool flag = false;
+        std::set<int> exact;                       // corrected at the first sample: they start where the C starts
         while (std::getline(kf, line)) {
             std::istringstream ls(line);
             std::string tag;
             ls >> tag;
-            if (tag == ".initflag")
-                flag = true;
+            if (tag == ".init") {
+                int idx;
+                ls >> idx;
+                exact.insert(idx);
+            }
             if (tag == ".state") {
                 int idx;
                 std::string stage;
@@ -201,7 +205,7 @@ int main(int argc, char **argv) {
         IRBuilder<> b(BasicBlock::Create(C, "entry", F));
         for (auto &s : P.states) {
             auto it = rep.find(s.index);
-            if (it == rep.end() || flag)          // exact init: the reference keeps S1_INIT's values
+            if (it == rep.end() || exact.count(s.index))   // exact init: the reference keeps S1_INIT's values
                 continue;
             double v = -it->second.second * it->second.first;
             Type *t = s.isInt ? (Type *)Type::getIntNTy(C, s.bits)

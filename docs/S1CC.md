@@ -34,7 +34,8 @@ sdk/s1cc/s1cc check sdk/s1cc/build/braids_saw_swarm_s1 --note 45 ratio=200 hp_h=
 #   stage B: 31 units -> 26 instructions; SNR 41.3 dB (10 ms) ...
 ```
 
-`build` admite además `--tol X` (tolerancia de los ajustes, métrica de rango, por defecto 3·10⁻³),
+`build --check` corre `check` al terminar (nota 57, perillas en 128), para ver las instrucciones y el SNR sin un
+segundo comando. `build` admite además `--tol X` (tolerancia de los ajustes, métrica de rango, por defecto 3·10⁻³),
 `--tollog X` (métrica en octavas, por defecto 0,005), `--maxdeg N` (grado máximo de un polinomio, 11) y
 `--regs LISTA` (registros que puede usar el kernel; por defecto 0,1,2,3,4,7, porque r5/r6 son del programa anfitrión
 de C-S1SY).
@@ -309,6 +310,11 @@ candidatas descartadas y los avisos.
   la función C / C++ de la instrucción, y la cadena de inlining hasta la voz:
   `digital_oscillator.cc:306 in braids::DigitalOscillator::RenderToy, inlined at braids_wrapper_digital.cc:28 in
   s1_voice`. Sin `--debug` el error muestra la instrucción del IR y la función de la voz.
+* **Línea exacta.** Además, cada fuente se compila a `-O0` (`SALIDA/srcmap.ll`, por la variable `S1CC_SRCMAP`). Con
+  `-O2`, LLVM adelanta el código de los `if` chicos para ejecutarlo sin salto (SimplifyCFG) y le pone la ubicación del
+  `if`. Cuando la ubicación `-O2` de una instrucción no corresponde a ninguna instrucción de su tipo en `-O0`, s1cc la
+  busca en `-O0` entre las de ese tipo dentro del mismo bloque, y muestra esa línea. El error termina con la línea
+  del fuente, un `^` en cada columna candidata y la nota `LLVM moved this ...`.
 * **Diagnóstico previo.** Antes del perfilado, `s1cc diag linked.ll --remarks inline.txt` recorre `s1_voice` y
   `s1_voice_b` y lista todas las funciones C que no puede compilar, cada una con su motivo y sus lugares. La lista
   queda en `SALIDA/diag.txt` y también sale por stderr con el prefijo `s1cc: debug:`. Así se ven todos los
@@ -344,6 +350,25 @@ s1cc: debug:   inlined into s1_voice: braids::DigitalOscillator::set_parameters
 ```
 
 Con `--debug`, cada error termina con una referencia a su código en §9.2.
+
+Ejemplo, la envoltura con `digital_oscillator.cc` (E501):
+
+```
+s1cc: error E501: a table read / function / division `xor` that depends on several values (osc.phase_, osc.phase_increment_, s1_param(color, 0)) at /home/emilio/git/eurorack/braids/digital_oscillator.cc:308 in braids::DigitalOscillator::RenderToy, inlined at sdk/s1cc/examples/braids_wrapper_digital.cc:28 in s1_voice: only functions of one value can be tabulated
+s1cc: debug: 308 |         held_sample = (((phase >> 24) ^ (x << 1)) & (~x)) + (x >> 1);
+s1cc: debug:     |                                       ^              ^
+s1cc: debug:       (LLVM moved this `xor` to line 306; in the C it is one of the marked ones)
+```
+
+Sin `-O0`, LLVM daba la línea 306 (el `if (decimation_counter >= decimation_count)`). Los campos de estado se
+nombran como en el C (`osc.phase_`, por la información de depuración del struct), no como globales de LLVM
+(`_ZL3osc+4`).
+
+**Por qué no hay un chequeo completo del C antes de compilar.** Lo que `diag` detecta (llamadas, instrucciones) no
+depende de los valores y se decide antes. Los errores `E5xx` / `E6xx` sí dependen: `x ^ y` sirve si, después de
+inlinear y propagar constantes, uno de los dos es constante (`x` de un modo fijo en la envoltura) y falla si los
+dos varían. Un chequeo sobre el C solo daría falsos positivos. Por eso esos errores salen en `lower`, con la línea
+exacta.
 
 `S1CC_DEBUG=2` además vuelca cada nodo del grafo y su representación tras el lowering (`n12 fmul: %3 s ... V [...]`).
 `-g` no cambia el kernel: con y sin `--debug` sale el mismo `voice.s1k` (comprobado con `va_saw_svf.c` y
@@ -465,7 +490,9 @@ divisiones enteras por variables, funciones desconocidas) se convierte en una fu
 | `E505` | `F: the argument's range is unknown (use s1_range)` | `sin`, `tanh`, `log`... sobre un valor que el perfil nunca vio (rama no tomada) | `s1_range(x, lo, hi)` sobre el argumento |
 | `E506` | `pow with two variables` | `pow(x, y)` con ambos variables | `exp2(y * log2(x))`, que s1cc sí baja |
 
-**Varios valores.** Ejemplo real, `RenderToy` de Braids (`digital_oscillator.cc:308`):
+**Varios valores.** El mensaje dice qué operación es y de qué valores depende (entradas `s1_*`, parámetros y campos
+de estado con su nombre C). Con `--debug` muestra la línea exacta (§9.1). Ejemplo real, `RenderToy` de Braids
+(`digital_oscillator.cc:308`, que depende de `osc.phase_`, `osc.phase_increment_` y `s1_param(color, 0)`):
 `held_sample = (((phase >> 24) ^ (x << 1)) & (~x)) + (x >> 1)`, con `x` de un parámetro y `phase` del estado. El
 `xor` / `and` con una máscara **variable** no es aritmética, y depende de dos fuentes. Salidas, en orden de
 preferencia:
@@ -504,7 +531,7 @@ El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuán
 
 | código | aviso | qué significa | qué hacer |
 |---|---|---|---|
-| `W901` | `the original overflows at ... (integer product); the port computes it without wrapping` | el producto entero desborda en C y el DSP no reproduce el desborde | nada, si el desborde era accidental. Si el algoritmo depende de él (hash, ruido), reescribirlo con `&` / `%` por constante |
+| `W901` | `the original overflows at ... (integer product); the port computes it without wrapping` | el producto entero desborda en C y el DSP no reproduce el desborde | nada, si el desborde era accidental. Si el algoritmo depende de él (hash, ruido), reescribirlo con `&` / `%` por constante. Medir dónde ocurre: en los Braids solo pasa donde el filtro ya es inestable y no importa (§11) |
 | `W902` | `truncation wraps at ...` | un `trunc` a un entero más chico desborda en el perfil; el port reproduce el módulo | normalmente correcto (fases). Revisar si no era intencional |
 | `W903` | `division by a value in [lo, hi]: the port divides by max(y, c)` | el divisor llega a 0 o cruza el signo | proteger el divisor en el C, o `s1_range` |
 | `W904` | `division by a value over [...]: more than 16 octaves, the ends saturate` | divisor de rango demasiado amplio | acotar el divisor |
@@ -523,17 +550,71 @@ El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuán
 * **Comparación.** Contra `refdsp`: SNR en los primeros 10 ms (muestra a muestra) y en todo, niveles por banda e
   instrucciones.
 
-## 11. Ejemplos [sim, 2026-10-24]
+## 11. Ejemplos [sim, 2026-10-27]
 
 | ejemplo | qué prueba | A (instr.) | B (instr.) | SNR 10 ms A / B |
 |---|---|---|---|---|
-| `braids_saw_swarm.cc` | el bucle original de RenderSawSwarm (enteros, fases `uint32`, `Interpolate88`, SVF Q15, `lut_svf_cutoff` por isla) | 49 | 50 | 55–58 / 42–49 dB |
-| `braids_saw_swarm_s1.cc` | lo mismo, con el coeficiente del paso alto desde el incremento exportado (cabe en 8 voces) | 49 | 26 | 55–58 / 41–49 dB |
-| `va_saw_svf.c` | float: polyBLEP (`if`, divisiones por `dt`), SVF de Simper con `tanhf`, tablas con `powf`/`tanf` | 92 | 38 | 68–81 / 53–70 dB |
+| `braids_saw_swarm.cc` | el bucle original de RenderSawSwarm (enteros, fases `uint32`, `Interpolate88`, SVF Q15, `lut_svf_cutoff` por isla) | 49 | 46 | 58 / 44–49 dB |
+| `braids_saw_swarm_s1.cc` | lo mismo, con el coeficiente del paso alto desde el incremento exportado (cabe en 8 voces) | 49 | 26 | 58 / 46–49 dB |
+| `va_saw_svf.c` | float: polyBLEP (`if`, divisiones por `dt`), SVF de Simper con `tanhf`, tablas con `powf`/`tanf` | 84 | 31 | 68 / 54 dB |
 
-El SNR total (100 ms) es menor: las fases del original en float32 y las del DSP se separan poco a poco por el
-redondeo. Los niveles por banda coinciden a ±0,05 dB de 200 Hz a 12 kHz. Excepción: con el paso alto de Braids muy
-abierto, los graves por debajo de 200 Hz difieren ~5 dB, por los truncamientos enteros del original.
+Notas 45 y 57, perillas en 128. `tests/test_s1cc.py` usa estos valores con un margen (A ≤ 52 en los Braids).
+Entre el 2026-10-24 y el 2026-10-27 los Braids tuvieron 58 instrucciones en A: el arranque exacto corregía sus 7
+fases. Desde el 2026-10-27 las fases que empiezan en 0 no se corrigen (§11.1).
+
+**Aviso W901 de los Braids y zona inestable del paso alto** [sim, 2026-10-27]. El aviso viene de `f * bp` y
+`f * hp` de `S1_VOICE_B` (`braids_saw_swarm_s1.cc` líneas 50 y 53): productos `int32` que en el ARM de Braids dan la
+vuelta y en el port no. Medido sobre la referencia nativa con un contador de desbordes (1 s por caso, ratio = 128):
+
+| COLOR (`hp_h`) | nota 33 | nota 57 | nota 81 |
+|---|---|---|---|
+| 0, 85, 128, 200 | 0 | 0 | 0 |
+| 255 | 0 | 0 | 23 de 192 000 (0,012 %) |
+
+`check`, etapa B:
+
+| caso | desbordes | SNR 10 ms | picos port / ref |
+|---|---|---|---|
+| COLOR 255, nota 57 | 0 | 42,5 dB | 0,506 / 0,508 |
+| COLOR 255, nota 69 | 0 | 44,0 dB | 0,917 / 0,915 |
+| COLOR 200, nota 81 | 0 | 0,6 dB | 1,000 / 1,000 |
+| COLOR 230, nota 81 | 0 | −1,7 dB | 1,000 / 1,000 |
+| COLOR 255, nota 81 | 23 | −1,7 dB | 1,000 / 1,000 |
+
+* **La diferencia no es el desborde.** Con COLOR 200 y nota 81 no hay desborde y el port ya difiere igual.
+* **Causa.** Con nota aguda y COLOR alto, `u` llega al límite de Braids (0,3927, `f` ≈ 0,77). Con
+  `lut_svf_damp[0]` = 65534 (amortiguamiento 2) el SVF de Chamberlin es inestable ahí: auto-oscila y las dos
+  versiones saturan a ±1. La señal es caótica: una diferencia de 1 LSB de redondeo (§8: los `>>` no redondean igual)
+  crece hasta que las salidas no se parecen. Reproducir el desborde (2–3 instrucciones por producto) no acercaría el
+  resultado, así que no se hace.
+* **Sonido.** En esa zona los niveles por banda difieren mucho (nota 81, COLOR 255: +20 dB, −16 dB, −6 dB en las
+  tres primeras bandas). Es auto-oscilación saturada en los dos, pero con otro balance de frecuencias. Para que
+  coincidan en todo el rango habría que limitar `u` por debajo del límite de estabilidad, apartándose de Braids.
+* **Fuera de esa zona** no hay desborde y el port coincide: 42–49 dB (tabla de arriba y `tests/test_s1cc.py`).
+
+### 11.1 Arranque exacto del estado (`.initflag`, `--no-exact-init`)
+
+* **El problema.** El anillo de estado del DSP empieza en 0, y eso es V = −o·s (§8). Para una fase `uint32` (o = −1)
+  es medio ciclo (2³¹), no el 0 del C.
+* **La corrección.** Si una palabra de estado no empieza en 0 en el anillo (por el inicializador del C o por
+  `S1_INIT`), s1cc agrega una bandera de primera muestra (`{I}`: carga, `1 − bandera`, guarda 1) y un `mad` por
+  palabra: r ← r + primera·r₀. El kernel lista esas palabras (`.init <índice>`) y `s1cc init` deja solo esas en su
+  valor del C en la referencia `refdsp`.
+* **Costo.** El DSP no salta: esas instrucciones corren en **todas** las muestras, aunque solo cambian algo en la
+  primera. Con 7 palabras: 2 de la bandera + 7 `mad` = 9 por muestra.
+* **Cuándo actúa.** Una sola vez, en la primera muestra después de cargar el programa en el DSP. No en cada nota:
+  como en el C, el estado sigue entre notas.
+* **Fases: automático.** Una palabra modular (una fase `uint32`, o = −1) que en el C empieza en 0 **no** se
+  corrige: arranca medio ciclo corrida, un desfase fijo de un oscilador libre, que no se oye. `report.txt` lo
+  anota (`phase starting at 0, left at half a cycle`). Así SAW_SWARM ahorra 9 instrucciones (58 → 49) con el mismo
+  SNR (57,8 dB). Una fase que `S1_INIT` pone en otro valor sí se corrige.
+* **El resto sí se corrige**, porque el valor inicial suele ser parte del algoritmo: la semilla de un generador
+  de ruido (en 0 queda en 0 para siempre), un nivel o una ganancia que empiezan en 1, un filtro cuyo estado
+  inicial no es 0. Ejemplo [sim, 2026-10-27]: `static float lvl = 1.0f; ... return saw * lvl;` suena (pico 0,997);
+  con `--no-exact-init` queda muda (pico 0) y sale el aviso W907.
+* **`--no-exact-init`** quita también esas correcciones (un W907 por palabra).
+* **`S1_INIT`** es opcional. Sin él valen los inicializadores del C (`static uint32_t phase[7];` = 0). Lo que cuesta
+  instrucciones no es `S1_INIT`: es cualquier valor inicial que el anillo no da solo.
 
 ## 12. En el sinte (`examples/mutable_system`, `KERNEL=`)
 

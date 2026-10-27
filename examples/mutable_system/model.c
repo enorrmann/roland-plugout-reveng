@@ -157,7 +157,16 @@ static void a_reset(struct assign *a)
 }
 static void a_changed(struct assign *a, int group) { (void)a; (void)group; }
 static void a_note_off(struct assign *a, int note) { key_set(a, note, 0); key(a, note, 0); }
-static void a_note_on(struct assign *a, int note, int vel) { key_set(a, note, vel != 0); key(a, note, vel); }
+/* VOLUME again at every note: m_load writes it right after queueing the master DSP B program, and the queued load can
+   land later and leave C01C at 0 (silence until the knob moves, observed 2026-10-27). One FCEC write per note. */
+static void resend_volume(void);
+static void a_note_on(struct assign *a, int note, int vel)
+{
+    if (vel)
+        resend_volume();
+    key_set(a, note, vel != 0);
+    key(a, note, vel);
+}
 
 static void a_bend(struct assign *a, int v)                  /* 0..0x3FFF -> -0x2000..0x1FFF */
 {
@@ -229,6 +238,7 @@ static void set_volume(int v)
     volume = v < 0 ? 0 : v > 255 ? 255 : v;
     ((env_fn)SVC(0xEC))(1, M_VOLUME, volume_bits[volume]);
 }
+static void resend_volume(void) { set_volume(volume); }
 
 #ifdef PARAMLOG
 /* Diagnostic build (PARAMLOG=1 build.sh, examples/system_1/paramlog.py): every parameter the OS hands to the model
