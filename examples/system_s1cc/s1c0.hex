@@ -1,0 +1,8 @@
+# s1c0, own SYSTEM-1 program (make_s1cc.py KERNEL=/home/emilio/git/roland-plugout-reveng/sdk/s1cc/build/simple_saw_env VOICES=8)
+0000
+0c03
+0fe0
+e000
+0c03
+8fe0
+a004

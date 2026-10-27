@@ -175,6 +175,11 @@ en los dos:
 * **Sin `S1_DSP_B`**, la salida de `S1_DSP_A` va directo a la cadena del anfitrión.
 * **PC.** Después de cada `S1_DSP_A`, con `x` = lo que devolvió.
 
+Lo de arriba es MUTABLE-SYSTEM (§12), donde el anfitrión C-S1SY rodea al kernel. En SYSTEM-S1CC no hay anfitrión:
+`s1_pitch()` llega sin LFO ni RANGE, la salida de `S1_DSP_A` va directo a la mezcla (o a `S1_DSP_B`) y no hay VCA
+ni filtro después. El kernel tiene que aplicar su puerta o su envolvente
+([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3).
+
 Ejemplo comentado parte por parte: [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md).
 
 ### 3.2 Envolver una librería
@@ -206,6 +211,10 @@ Ejemplo comentado parte por parte: [examples_simple_saw_wrapped_README.md](examp
 * **Estado.** Una palabra de estado es (variable global, desplazamiento). La primera carga lee el valor de la muestra
   anterior; las siguientes leen el último valor guardado en la muestra (reenvío en el grafo). El valor final se guarda
   en el anillo, siempre: un anillo que no se reescribe pierde el valor.
+* **`s1_param` en un `?:`.** `c ? s1_param(a, i) : s1_param(b, i)` llega de clang como una sola llamada sobre un
+  `select` de los dos descriptores. Se convierte en el `select` de los dos parámetros. Un parámetro sin registro de
+  perfil propio toma el rango de su tabla, en todas las posiciones de la perilla (`simple_saw_env.c`: ataque /
+  release).
 * **Tablas.** Una carga de una global `const` con desplazamiento constante se pliega (`ConstantFoldLoadFromConst`).
   Con un índice calculado se marca para una isla.
 
@@ -726,6 +735,15 @@ vuelta y en el port no. Medido sobre la referencia nativa con un contador de des
   instrucciones no es `S1_INIT`: es cualquier valor inicial que el anillo no da solo.
 
 ## 12. En el sinte (`examples/mutable_system`, `KERNEL=`)
+
+Dos PLUG-OUTs toman un kernel:
+
+| PLUG-OUT | qué agrega al kernel | cuándo usarlo |
+|---|---|---|
+| MUTABLE-SYSTEM (`examples/mutable_system`, `KERNEL=`) | todo C-S1SY13: LFO y RANGE en el tono, OSC1 MIX, trémolo, ADSR del VCA y del filtro, paso bajo | un oscilador que quiere el resto de un sinte |
+| SYSTEM-S1CC (`examples/system_s1cc`, [examples_system_s1cc_README.md](examples_system_s1cc_README.md)) | nada: mezcla, VOLUME y delay / reverb del OS; `VOICES=1..8`; tope de instrucciones | una voz completa en C (con su puerta / envolvente), o un kernel que no entra junto al anfitrión |
+
+Lo que sigue describe MUTABLE-SYSTEM.
 
 * **Build.** `KERNEL=<salida de s1cc> sh examples/mutable_system/build.sh` cambia el oscilador de C-S1SY13 por la
   etapa A del kernel y pone la etapa B al principio de la voz del DSP B.

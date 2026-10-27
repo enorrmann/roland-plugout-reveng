@@ -5,8 +5,9 @@
  * Every S1_PARAM table is computed for knob = 0..255. Knobs and faders send 0..255; selectors send 0..5 (only
  * the first entries of their table are used).
  *
- * The host program (C-S1SY) also uses some of these controls: a voice that takes one of them adds its own use to
- * the host's (docs/examples_mutable_system_README.md, panel table). OSC1 / OSC2 COLOR are the free ones.
+ * In MUTABLE-SYSTEM the host program (C-S1SY) also uses some of these controls: a voice that takes one of them adds
+ * its own use to the host's (docs/examples_mutable_system_README.md, panel table); OSC1 / OSC2 COLOR are the free
+ * ones. In SYSTEM-S1CC (examples/system_s1cc) there is no host: all of them are the kernel's.
  * Not here: VOLUME (0x100) goes to the master (region 0), not to the voice; HPF cutoff sends nothing. */
 #ifndef S1PANEL_H_
 #define S1PANEL_H_

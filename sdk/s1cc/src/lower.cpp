@@ -860,6 +860,12 @@ struct Lowerer {
             x.r = K->load("{P:" + n->name + ":" + std::to_string((int)n->c) + "}", n->name);
             x.s = paramScale.at(n->name);
             x.V = rec;
+            if (!x.V.seen()) {                            // no record (one side of a select of two tables): the table
+                const auto &t = tables.at(n->name);        // column itself, every knob position
+                int cnt = P.paramCount.at(n->name);
+                for (size_t k = (size_t)n->c; k < t.size(); k += cnt)
+                    x.V.add(t[k]);
+            }
             return x;
         }
         case NK::State: {

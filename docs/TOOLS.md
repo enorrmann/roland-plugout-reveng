@@ -176,6 +176,7 @@ sdk/s1cc/s1cc build VOZ.cc ... --debug                             # qué funcio
 sdk/s1cc/s1cc build VOZ.cc ... --check                             # build + check (instrucciones, SNR)
 sdk/s1cc/s1cc check SALIDA [--note N] [--n MUESTRAS] [--all-forms] [nombre=perilla ...]
 KERNEL=SALIDA NAME=MUTABLE-S1CC sh examples/mutable_system/build.sh
+KERNEL=SALIDA [VOICES=1..8] sh examples/system_s1cc/build.sh           # SYSTEM-S1CC: solo el kernel (examples_system_s1cc_README.md)
 python3 -m unittest discover -s sdk/s1cc/tests                     # ≈ 8 s
 ```
 
@@ -844,6 +845,27 @@ is what the units fill; the rest is the slot array, whose length an instruction
 chooses. An instruction can be longer (more immediate words) or shorter than the
 layout's letters. Both tools must agree on how the letters map to body words, or
 a round trip breaks at the first unusual instruction.
+```
+
+### `asm/s1rules.py`
+
+```
+The SYSTEM-1 access rules, checked on scheduled programs (one instruction per line, units joined by ' | ').
+
+Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, measured by on-device bisection):
+    R2  bank 5: at most 1 load and 1 store per instruction
+    R3  bank 0: at most 2 loads and 2 stores per instruction
+    R4  bank 6: at most 2 loads per instruction
+    R5  one bank-5 access per instruction (load or store)                         [our rule, inferred]
+    R6  at most 2 loads of banks 5 + 6 + IOMD per instruction (the S1 never has more)  [inferred]
+    R7  a slave DSP stores to bank 5 only in A100..A1FF (A000..A0FF is what the ARM writes)
+    R8  ops sharing an instruction: only the groups proven on the device (asm/proven_forms.txt)
+and, as a warning: an instruction shape (accesses per bank, number of ops) that is not part of a shape of a program
+that ran on the device (PROVEN_PROGRAMS: C-S1V8, C-S1SY13).
+
+    import s1rules
+    s1rules.check('s1m0', lines)              -> list of warnings; SystemExit on a broken rule
+    python3 asm/s1rules.py FILE.s ...           the same from the command line
 ```
 
 ### `asm/slots.py`
@@ -3354,3 +3376,62 @@ Uses `amidi -d` (alsa-utils). Do not run it while another tool talks to the devi
 | `--raw` | print every message too |  |
 | `--file` | decode these amidi -d logs instead of listening |  |
 | `--device` | port name to listen on (SYSTEM-8 for the SYSTEM-8) | `SYSTEM-1` |
+
+## SYSTEM-S1CC: only an s1cc kernel (SYSTEM-1) (`examples/system_s1cc/`)
+
+### `examples/system_s1cc/build.sh`
+
+```
+usage: KERNEL=DIR [VAR=value ...] sh examples/system_s1cc/build.sh [--help]
+
+Builds SYSTEM-S1CC for the SYSTEM-1 -> plugins/<NAME>/Script/Code1.Dat (and Code.Dat, the same file): the voice is
+an s1cc kernel and nothing else (S1_DSP_A on the slave's DSP A, S1_DSP_B on its DSP B); the master only applies
+VOLUME and sends the mix through the OS delay / reverb (docs/examples_system_s1cc_README.md).
+Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force --no-patches -y
+Then select the PLUG-OUT on the panel.
+
+Panel: the kernel's S1_PARAM tables on their panel ids (sdk/s1cc/include/s1panel.h; row 128 until the control
+moves); VOLUME, DELAY and REVERB as the OS does them; every other control does nothing.
+
+Options (environment variables):
+  KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
+  VOICES=n      1..8 voices (default 8); fewer voices leave more instructions for each
+  BUDGET=n      instructions per sample a slave DSP may have (default 708, the most tried on the device; 826 hung it)
+  NAME=...      plug-out name shown on the device and plugins/ folder (default SYSTEM-S1CC); max 16 characters
+  MODEL_ID=0x.. (default 0x0010), PARAMLOG=1 (model.c sends the parameters to the PC)
+
+Examples:
+  sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c
+  KERNEL=sdk/s1cc/build/simple_saw_env sh examples/system_s1cc/build.sh          (-> plugins/SYSTEM-S1CC)
+  KERNEL=sdk/s1cc/build/simple_saw_env python3 examples/system_s1cc/make_s1cc.py --sim   (programs + emulator)
+```
+
+### `examples/system_s1cc/make_s1cc.py`
+
+```
+SYSTEM-S1CC: a SYSTEM-1 PLUG-OUT that is only an s1cc kernel (docs/examples_system_s1cc_README.md).
+
+No oscillator, envelope, filter or LFO of its own: everything a voice does is the kernel's C (sdk/s1cc). Around it
+only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the hardware:
+
+    slave A  s1m0 @0x0100   per voice v: stage A of the kernel (S1_DSP_A); pitch / gate / trigger read from bank 5
+                            (A030+v / A038+v / A060+v, written by engine.c); its output -> A151+v
+    slave B  s1m1 @0x0100   first the mix: sum of last sample's voice outputs x gain x C000 -> 6006 / 6007
+                            (6008..600D = 0); then per voice v: stage B of the kernel (S1_DSP_B) on x = A151+v ->
+                            its output word; without S1_DSP_B the mix reads A151+v
+    master B s1mm1 @0x1000  6006 / 6007 x VOLUME (C01C) -> OS effect send 2000 / 2002 (delay, reverb); the effect's
+                            return 2001 / 2003 -> A118 / A119 (C-S1SY13's master, unchanged)
+    knobs                   the kernel's S1_PARAM tables, by panel id: DSP A parameters from C070, DSP B from C060
+
+    KERNEL=dir (required)   an s1cc build directory (sdk/s1cc/s1cc build ... -o dir)
+    VOICES=n                1..8 (default 8): fewer voices, more instructions for each
+    BUDGET=n                instructions per sample a slave DSP may have (default 708, the most tried on the device;
+                            826 hung it: docs/examples_system_1_synth_README.md §4); above it the build stops
+    OUTDIR=dir              where the programs and build/s1_programs.h go (default: this folder)
+
+    python3 make_s1cc.py           -> s1*.s / s1*.hex here, build/s1_programs.h
+    python3 make_s1cc.py --sim     -> also the whole chain on the emulator (C core) against the kernel's native
+                                      reference (sdk/s1cc refdsp), and the silence without notes
+```
+
+Environment: `BUDGET` (default '708'), `KERNEL` (default ''), `OUTDIR` (default HERE), `SIM_N` (default '9600'), `VOICES` (default '8')

@@ -176,6 +176,7 @@ sdk/s1cc/s1cc build VOZ.cc ... --debug                             # qué funcio
 sdk/s1cc/s1cc build VOZ.cc ... --check                             # build + check (instrucciones, SNR)
 sdk/s1cc/s1cc check SALIDA [--note N] [--n MUESTRAS] [--all-forms] [nombre=perilla ...]
 KERNEL=SALIDA NAME=MUTABLE-S1CC sh examples/mutable_system/build.sh
+KERNEL=SALIDA [VOICES=1..8] sh examples/system_s1cc/build.sh           # SYSTEM-S1CC: solo el kernel (examples_system_s1cc_README.md)
 python3 -m unittest discover -s sdk/s1cc/tests                     # ≈ 8 s
 ```
 

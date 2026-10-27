@@ -94,3 +94,50 @@ class TestErrorCodes(unittest.TestCase):
         documented = set(re.findall(r'^\| `([EW]\d{3})`', doc, re.M)) | set(re.findall(r'^\| `[EW]\d{3}`, `([EW]\d{3})`', doc, re.M))
         self.assertEqual(used - documented, set(), 'codes without a row in docs/S1CC.md §9.2')
         self.assertEqual(documented - used, set(), 'documented codes the compiler never emits')
+
+
+@unittest.skipUnless(HAVE, 'needs clang and LLVM 19')
+class TestSystemS1cc(unittest.TestCase):
+    """examples/system_s1cc (SYSTEM-S1CC): the PLUG-OUT that is only the kernel. The whole chain on the emulator
+    (slave A, slave B, master) against the kernel's native reference, and the instruction budget guard."""
+
+    def setUp(self):
+        import tempfile
+        self.out = tempfile.mkdtemp()
+        kernel = os.path.join(S1CC, 'build', 'test_simple_saw_env')
+        r = subprocess.run([os.path.join(S1CC, 's1cc'), 'build',
+                            os.path.join(S1CC, 'examples', 'simple_saw_wrapped', 'simple_saw_env.c'), '-o', kernel],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        self.env = dict(os.environ, KERNEL=kernel, OUTDIR=self.out)
+        self.gen = os.path.join(ROOT, 'examples', 'system_s1cc', 'make_s1cc.py')
+
+    def tearDown(self):
+        shutil.rmtree(self.out, ignore_errors=True)
+
+    def test_chain(self):
+        for voices in ('8', '2'):
+            r = subprocess.run([sys.executable, self.gen, '--sim'], env=dict(self.env, VOICES=voices),
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            snrs = [float(x) for x in re.findall(r'SNR against the native reference ([-0-9.]+) dB \(10 ms\)', r.stdout)]
+            self.assertEqual(len(snrs), 2, r.stdout)
+            self.assertTrue(all(x > 90 for x in snrs), (voices, r.stdout))
+            self.assertIn('no notes: peak 0.000000', r.stdout)
+            self.assertNotIn('warning', r.stdout)
+
+    def test_header_layout(self):
+        # the OS loader reads 32-bit words with the first halfword in the high half; a uint16_t array would reach the
+        # DSP with every pair swapped (the first SYSTEM-S1CC builds: the device hung when the PLUG-OUT was selected)
+        r = subprocess.run([sys.executable, self.gen], env=self.env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        h = open(os.path.join(self.out, 'build', 's1_programs.h')).read()
+        for name in ('S1M0', 'S1M1', 'S1MM1'):
+            m = re.search(r'static const uint32_t mc_%s\[\d+\] = \{\s*(0x[0-9a-f]{8})' % name, h)
+            self.assertIsNotNone(m, name)
+            self.assertEqual(m.group(1), '0x0a02ff71', name)        # the section start marker 0a02 ff71
+
+    def test_budget_guard(self):
+        r = subprocess.run([sys.executable, self.gen], env=dict(self.env, BUDGET='100'), capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('over the budget of 100 instructions', r.stdout + r.stderr)

@@ -175,8 +175,18 @@ def load_proven(path=None):
     return out
 
 
+def _bank_name(addr):
+    """as asm/s1rules.py bank()"""
+    return {0x0: '0', 0x1: '1', 0x3: 'io', 0x5: '5', 0x6: '6', 0x7: 'e'}.get(addr >> 13, f'{addr >> 13:x}')
+
+
 class Ins:
     allowed = None                     # set of op signatures that may share an instruction (None: any)
+    one_bank5 = False                  # True: one bank-5 access per instruction, load or store (the SYSTEM-1 rule 5,
+                                       # docs/examples_system_1_jx_README.md §5; a load with a store of bank 5 was in
+                                       # the half of C-S1JX's MAIN3 that hung the device)
+    shapes = None                      # [(Counter of 'ld5' / 'st0' ..., number of ops)]: an instruction may only be
+                                       # part of one of these (asm/s1rules.py proven_shapes); None: any
 
     def __init__(self):
         self.ops, self.xf = [], []
@@ -185,6 +195,16 @@ class Ins:
         return ' | '.join([u.text for u in self.ops] + [u.text for u in self.xf])
 
     def fits(self, u):
+        if not self._fits(u):
+            return False
+        if self.shapes is None or u.barrier:
+            return True
+        import collections
+        acc = collections.Counter(f'{x.kind}{_bank_name(x.addr)}' for x in self.xf + ([u] if u.kind != 'op' else []))
+        ops = len(self.ops) + (u.kind == 'op')
+        return any(ops <= p_ops and not (acc - p_acc) for p_acc, p_ops in self.shapes)
+
+    def _fits(self, u):
         if u.barrier:
             return not self.ops and not self.xf
         if any(x.barrier for x in self.ops):
@@ -198,6 +218,8 @@ class Ins:
         if len(self.xf) >= MAX_XFER or any(mem_key(x.addr) == mem_key(u.addr) for x in self.xf):
             return False
         bank = u.addr >> 13
+        if self.one_bank5 and bank == 5 and any(x.addr >> 13 == 5 for x in self.xf):
+            return False
         same = sum(1 for x in self.xf if x.kind == u.kind and x.addr >> 13 == bank)
         return same < (2 if bank == 0 else 1)
 

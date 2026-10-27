@@ -16,11 +16,13 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
     VOICES=n                1..8 (default 8): fewer voices, more instructions for each
     BUDGET=n                instructions per sample a slave DSP may have (default 708, the most tried on the device;
                             826 hung it: docs/examples_system_1_synth_README.md §4); above it the build stops
+    OUTDIR=dir              where the programs and build/s1_programs.h go (default: this folder)
 
     python3 make_s1cc.py           -> s1*.s / s1*.hex here, build/s1_programs.h
     python3 make_s1cc.py --sim     -> also the whole chain on the emulator (C core) against the kernel's native
                                       reference (sdk/s1cc refdsp), and the silence without notes
 """
+import collections
 import os
 import struct
 import sys
@@ -32,6 +34,7 @@ sys.path.insert(0, os.path.join(ROOT, 'sdk', 's1cc', 'tools'))
 import asm  # noqa: E402
 import dspsched  # noqa: E402
 import s1kernel  # noqa: E402
+import s1rules  # noqa: E402  (asm/s1rules.py: the SYSTEM-1 access rules)
 
 KERNEL = os.environ.get('KERNEL', '')
 if not KERNEL or not os.path.exists(os.path.join(KERNEL, 'voice.s1k')):
@@ -40,6 +43,7 @@ NV = int(os.environ.get('VOICES', '8'))
 if not 1 <= NV <= 8:
     raise SystemExit('make_s1cc.py: VOICES must be 1..8 (the OS hands notes to 8 voice ids at most)')
 BUDGET = int(os.environ.get('BUDGET', '708'))
+OUTDIR = os.environ.get('OUTDIR', HERE)        # where the .s / .hex and build/s1_programs.h go (tests: elsewhere)
 KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 KTAB = s1kernel.read_tables(os.path.join(KERNEL, 'tables.txt'))
 HAS_B = 'B' in KDEF.stages
@@ -52,9 +56,10 @@ TRIG = [0xA060 + v for v in range(NV)]      # toggles 0 / 1 at every note start
 # bank 5, written by DSP A (a DSP stores only to A100..A1FF)
 XV = [0xA151 + v for v in range(NV)]        # stage A output of voice v = the input x of stage B
 X0, INB0 = 0xA188, 0xA1A0                   # exports i: X0 + 8 i + v; inputs B needs from A: INB0 + 8 j + v
-# bank 0 (ring, S / S+1): the voice blocks of the kernel, sized by what it needs
-A_BLOCK0, B_BLOCK0 = 0x0100, 0x0100
-B_OUT = [0x00C0 + 2 * v for v in range(NV)]  # stage B output of voice v (ring: read one sample later at S+1)
+# bank 0 (ring, S / S+1): the voice blocks of the kernel, sized by what it needs, in the regions our device-proven
+# programs used (C-S1V8 / C-S1SY: slave A 0x0300.., slave B 0x0400..; MUTABLE-SYSTEM's kernel B: 0x0600..)
+A_BLOCK0, B_BLOCK0 = 0x0300, 0x0600
+B_OUT = [0x0400 + 2 * v for v in range(NV)]  # stage B output of voice v (ring: read one sample later at S+1)
 K_A_PARAM0, K_B_PARAM0 = 0x70, 0x60         # the kernel's knob tables: DSP A C070.., DSP B C060..
 OUT_L, OUT_R = 0x6006, 0x6007               # slave B -> master (IOMD)
 OUT_ZERO = [0x6008, 0x6009, 0x600A, 0x600B, 0x600C, 0x600D]
@@ -172,10 +177,15 @@ def assemble(lines):
     return r
 
 
-def section(lines):
-    """a section program, scheduled with the op groups proven on the device only (asm/proven_forms.txt): SYSTEM-1
-    start marker (0a02 ff71), the code, end sequence"""
+def section(name, lines):
+    """a section program, scheduled with the op groups proven on the device only (asm/proven_forms.txt), one bank-5
+    access per instruction (rule 5) and only instruction shapes that are part of a proven program's; then checked
+    against every SYSTEM-1 rule (asm/s1rules.py). SYSTEM-1 start marker (0a02 ff71), the code, end sequence"""
+    dspsched.Ins.one_bank5 = True                  # rule 5: one bank-5 access per instruction (load or store)
+    dspsched.Ins.shapes = [(collections.Counter(acc), ops) for acc, ops in s1rules.proven_shapes()]
     lines = dspsched.schedule(lines, dspsched.load_proven())
+    for w in s1rules.check(name, lines, slave=name != 's1mm1'):   # every SYSTEM-1 rule; a broken one stops the build
+        print('warning:', w)
     r = assemble(lines)
     return [0x0A02, 0xFF71] + r.words + [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001], r, lines
 
@@ -193,7 +203,7 @@ def instr_count(lines):
 
 
 def sources():
-    return {'s1m0': section(prog_a()), 's1m1': section(prog_b()), 's1mm1': section(prog_master()),
+    return {'s1m0': section('s1m0', prog_a()), 's1m1': section('s1m1', prog_b()), 's1mm1': section('s1mm1', prog_master()),
             's1c0': close(0xA004), 's1c1': close(0xA005)}
 
 
@@ -208,9 +218,15 @@ def table(name, vals, n=8):
 
 
 def c_array(name, w):
-    rows = [', '.join(f'0x{x:04x}' for x in w[i:i + 12]) for i in range(0, len(w), 12)]
-    return (f'#define MC_{name.upper()}_BYTES {2 * len(w)}\nstatic const uint16_t mc_{name.upper()}[{len(w)}] = {{\n    '
-            + ',\n    '.join(rows) + '\n};')
+    """the program as the OS loader reads it: 32-bit words, the first halfword of each pair in the HIGH half
+    ((p[i] << 16) | p[i + 1]), an odd count padded with 0 (examples/mutable_system make_mutable.py c_array). The ARM is
+    little-endian: a uint16_t array in program order would reach the DSP with every pair swapped (2026-10-27: the
+    first SYSTEM-S1CC builds did that and hung the device when the PLUG-OUT was selected)"""
+    p = list(w) + [0] * (len(w) & 1)
+    words = [(p[i] << 16) | p[i + 1] for i in range(0, len(p), 2)]
+    body = ',\n'.join('    ' + ', '.join(f'0x{x:08x}' for x in words[i:i + 6]) for i in range(0, len(words), 6))
+    return (f'#define MC_{name.upper()}_BYTES 0x{2 * len(w):x}\n'
+            f'static const uint32_t mc_{name.upper()}[{len(words)}] = {{\n{body}\n}};\n')
 
 
 def header(progs):
@@ -304,21 +320,29 @@ def sim_report(progs):
             e = np.mean((out[lag:] - ref[:n - lag]) ** 2)
             if best is None or e < best[1]:
                 best = (lag, e)
-        lag, e = best
-        snr = 10 * np.log10(np.mean(ref[:n - lag] ** 2) / e) if e > 0 else float('inf')
+        lag = best[0]
+
+        def snr(m):                                # 10 ms: sample by sample; all: the phases drift apart (float32)
+            e = np.mean((out[lag:lag + m] - ref[:m]) ** 2)
+            return 10 * np.log10(np.mean(ref[:m] ** 2) / e) if e > 0 else float('inf')
         print(f'note {note}, voice 0: peak {np.max(np.abs(out)):.3f} (reference x gain {np.max(np.abs(ref)):.3f}), '
-              f'latency {lag} samples, SNR against the native reference {snr:.1f} dB')
+              f'latency {lag} samples, SNR against the native reference {snr(960):.1f} dB (10 ms), '
+              f'{snr(n - lag):.1f} dB (all)')
     chord = np.array(simulate(progs, {0: [(v, 48 + 3 * v) for v in range(NV)]}, n // 2))
     print(f'{NV} notes: peak {np.max(np.abs(chord)):.3f}')
-    print('no notes: peak %.6f' % max(abs(x) for x in simulate(progs, {}, 2000)))
+    quiet = max(abs(x) for x in simulate(progs, {}, 2000))
+    print('no notes: peak %.6f' % quiet)
+    if quiet > 1e-3:                               # no host VCA here: the kernel's own gate / envelope is the only one
+        print('warning: the kernel sounds without notes: SYSTEM-S1CC has no VCA of its own, the kernel must apply '
+              's1_gate() or an envelope (the comparison above then includes the other voices)')
 
 
 def main():
     progs = sources()
     over = []
     for name, (w, _, lines) in progs.items():
-        open(os.path.join(HERE, name + '.s'), 'w').write('\n'.join(lines) + '\n')
-        open(os.path.join(HERE, name + '.hex'), 'w').write(
+        open(os.path.join(OUTDIR, name + '.s'), 'w').write('\n'.join(lines) + '\n')
+        open(os.path.join(OUTDIR, name + '.hex'), 'w').write(
             f'# {name}, own SYSTEM-1 program (make_s1cc.py KERNEL={KERNEL} VOICES={NV})\n'
             + '\n'.join('%04x' % x for x in w) + '\n')
         print(f'{name:6s} {instr_count(lines):4d} instructions, {len(w)} halfwords')
@@ -329,8 +353,8 @@ def main():
     if over:
         raise SystemExit(f'make_s1cc.py: over the budget of {BUDGET} instructions per sample ({", ".join(over)}): '
                          f'fewer VOICES, a smaller kernel, or BUDGET=n at your own risk (826 hung the device)')
-    os.makedirs(os.path.join(HERE, 'build'), exist_ok=True)
-    open(os.path.join(HERE, 'build', 's1_programs.h'), 'w').write(header(progs))
+    os.makedirs(os.path.join(OUTDIR, 'build'), exist_ok=True)
+    open(os.path.join(OUTDIR, 'build', 's1_programs.h'), 'w').write(header(progs))
     if '--sim' in sys.argv:
         sim_report(progs)
 

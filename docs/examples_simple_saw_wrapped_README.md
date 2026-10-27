@@ -96,6 +96,9 @@ Lo que un envoltorio tiene que resolver con una librería más grande:
 * **Rangos ocultos.** Si una rama esconde el rango de un valor, declararlo con `s1_range(x, lo, hi)` (S1CC.md §3.2).
 * **Bloques.** Si la librería procesa bloques (`Render(out, size)`), llamarla con tamaño 1.
 
+Para SYSTEM-S1CC, que no tiene VCA propio, `simple_saw_env.c` es la misma voz con una envolvente de ataque /
+release en C (AMP ATTACK / RELEASE): [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.
+
 ## 4. Build y verificación
 
 ```sh

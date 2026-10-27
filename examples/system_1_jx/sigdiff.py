@@ -114,7 +114,7 @@ def features(ins):
             continue
         if mode != 0xFE:
             f['mode'].add(f'{mode:02x}')
-        acc[(BANK.get(bank, f'bank{bank:x}'), op)] += 1
+        acc[(BANK.get(bank, f'bank{bank:x}' if bank is not None else 'bank?'), op)] += 1
     for (b, op), n in acc.items():
         f['acc'].add(f'{b} {op} x{n}')
     if L is not None:

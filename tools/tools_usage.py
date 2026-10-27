@@ -29,6 +29,7 @@ DIRS = [
     ('sdk/mport', 'Mutable Instruments port toolkit (docs/MUTABLE_SDK.md)'),
     ('sdk/s1cc/tools', 's1cc glue: kernel placement and emulator check (docs/S1CC.md)'),
     ('examples/mutable_system', 'MUTABLE-SYSTEM (SYSTEM-1)'),
+    ('examples/system_s1cc', 'SYSTEM-S1CC: only an s1cc kernel (SYSTEM-1)'),
 ]
 
 

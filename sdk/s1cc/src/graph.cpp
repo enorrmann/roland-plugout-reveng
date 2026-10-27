@@ -604,15 +604,25 @@ struct Builder {
             return;
         }
         if (fn == "s1_param_get") {
-            long count = 0;
-            std::string name = paramName(CI->getArgOperand(0), count);
             long i = constArg(1);
-            if (i < 0 || i >= count)
-                fail("E111", "s1_param(" + name + ", " + std::to_string(i) + "): index out of the table " + where(CI));
-            Node *n = mk(NK::Param, "param", {}, CI);
-            n->name = name;
-            n->c = (double)i;
-            vmap[CI] = n;
+            // `c ? s1_param(a, i) : s1_param(b, i)`: clang merges the two calls into one on a select of the two
+            // descriptors; it becomes the select of the two parameters
+            std::function<Node *(Value *, Value *)> param = [&](Value *desc, Value *at) -> Node * {
+                if (auto *SI = dyn_cast<SelectInst>(desc->stripPointerCasts())) {
+                    Node *t = param(SI->getTrueValue(), nullptr), *f = param(SI->getFalseValue(), nullptr);
+                    return sel(get(SI->getCondition()), t, f, t);
+                }
+                long count = 0;
+                std::string name = paramName(desc, count);
+                if (i < 0 || i >= count)
+                    fail("E111", "s1_param(" + name + ", " + std::to_string(i) + "): index out of the table " +
+                                     where(CI));
+                Node *n = mk(NK::Param, "param", {}, at);
+                n->name = name;
+                n->c = (double)i;
+                return n;
+            };
+            vmap[CI] = param(CI->getArgOperand(0), CI);
             return;
         }
         if (fn == "s1_export") {
@@ -782,6 +792,8 @@ struct Builder {
                     n->bits = 1;
                     vmap[Cmp] = n;
                 } else if (auto *Sel = dyn_cast<SelectInst>(&I)) {
+                    if (Sel->getType()->isPointerTy())         // of two S1_PARAM descriptors: taken by s1_param
+                        continue;
                     vmap[Sel] = mk(NK::Op, "select", {get(Sel->getCondition()), get(Sel->getTrueValue()),
                                                       get(Sel->getFalseValue())}, Sel);
                 } else if (isa<AllocaInst>(&I)) {

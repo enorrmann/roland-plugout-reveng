@@ -1041,7 +1041,8 @@ def step_program(lines, packed=None):
     PACK=1 packs transfers into the ops' instructions"""
     if packed if packed is not None else PACK:
         # step 14 on (and FOLD, SWARM): only op groups proven on the device share an instruction (asm/proven_forms.txt)
-        lines = dspsched.schedule(lines, dspsched.load_proven() if STEP >= 14 or FOLD or SWARM else None) if SCHED else pack(lines)
+        # KERNEL too (2026-10-27: a kernel build had scheduled op groups never run on the device, asm/s1rules.py R8)
+        lines = dspsched.schedule(lines, dspsched.load_proven() if STEP >= 14 or FOLD or SWARM or KERNEL else None) if SCHED else pack(lines)
     r = assemble(lines)
     return [0x0A02, 0xFF71] + r.words + [0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001], r, lines
 
@@ -1441,6 +1442,10 @@ def main():
         open(os.path.join(HERE, name + '.hex'), 'w').write(
             f'# {name}, own SYSTEM-1 program (make_mutable.py STEP={STEP} SWARM={int(SWARM)})\n' + '\n'.join('%04x' % x for x in w) + '\n')
         print(f'{name:6s} {instr_count(lines):4d} instructions, {len(w)} halfwords')
+        if name in ('s1m0', 's1m1', 's1mm1') and (KERNEL or SWARM):   # the SYSTEM-1 access rules (asm/s1rules.py)
+            import s1rules
+            for warn in s1rules.check(name, lines, slave=name != 's1mm1'):
+                print('warning:', warn)
         limit = {'s1m0': 682, 's1m1': 708}.get(name)                # most tried on the device (README §4)
         if limit and instr_count(lines) > limit:
             print(f'warning: {name} has {instr_count(lines)} instructions, above the {limit} tried on the device')
