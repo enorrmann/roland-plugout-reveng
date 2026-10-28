@@ -28,11 +28,12 @@ import dspsched  # noqa: E402
 from s1kernel import Kernel, read_tables  # noqa: E402
 
 PITCH, GATE, TRIG, A_OUT, EXP0, INB0, B_OUT = 0xA030, 0xA038, 0xA060, 0xA151, 0xA1A0, 0xA1B0, 0xA1C0
+DT, RDT = 0xA040, 0xA048     # s1_dt() = f / 96000, s1_rdt() = 1 / dt / 16384 (the host's per-note tables)
 STATE0, PARAM0, SCRATCH0, TRACE0 = 0x0100, 0x40, 0x0300, 0x0400
 
 
 def layout(k):
-    addr = {'IN:pitch': PITCH, 'IN:gate': GATE, 'IN:trig': TRIG, 'XIN': A_OUT}
+    addr = {'IN:pitch': PITCH, 'IN:gate': GATE, 'IN:trig': TRIG, 'IN:dt': DT, 'IN:rdt': RDT, 'XIN': A_OUT}
     for s in k.states:
         addr[f'S{s["index"]}'] = STATE0 + 2 * s['index']
     i = PARAM0
@@ -93,6 +94,9 @@ def run_kernel(outdir, note, n, knobs, proven=True):
             i += p['count']
     b5 = sl.d[0].bank5
     b5[PITCH & 0x3FF] = f32((note - 12) / 12.0)
+    dt = f32(440.0 * 2.0 ** (f32((note - 12) / 12.0) - 4.75) / 96000.0)
+    b5[DT & 0x3FF] = dt
+    b5[RDT & 0x3FF] = f32(f32(1.0 / dt) / 16384.0)
     b5[GATE & 0x3FF] = 1.0
     b5[TRIG & 0x3FF] = 1.0
     words = [(0, A_OUT)] + ([(1, B_OUT)] if 1 in progs else [])

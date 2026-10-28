@@ -28,7 +28,9 @@
  *
  * Intrinsics:
  *   s1_pitch()            pitch of the voice in octaves (4.75 = A 440; LFO and range applied by the host)
- *   s1_increment()        phase step of that pitch for a phase -1..1: 2 f / 96000
+ *   s1_increment()        phase step of that pitch for a phase -1..1: 2 f / 96000 (exp2 of the pitch on the DSP)
+ *   s1_dt(), s1_rdt()     f / 96000 (phase step for a phase 0..1) and its inverse, from per-note tables the host
+ *                         writes with the pitch (SYSTEM-S1CC: two loads, no exp2, no division)
  *   s1_gate(), s1_trig()  gate 0 / 1; trigger: toggles 0 / 1 at every note start
  *   s1_param(name, i)     value i of the knob table `name` (a DSP parameter C0xx the ARM writes)
  *   s1_export(i, v), s1_import(i)   a value from S1_DSP_A to S1_DSP_B, same sample
@@ -64,6 +66,8 @@ typedef struct s1_param_desc {
 #define S1_FN __attribute__((const, nothrow))
 S1_EXTERN S1_IN float s1_pitch(void);
 S1_EXTERN S1_IN float s1_increment(void);
+S1_EXTERN S1_IN float s1_dt(void);
+S1_EXTERN S1_IN float s1_rdt(void);
 S1_EXTERN S1_IN float s1_gate(void);
 S1_EXTERN S1_IN float s1_trig(void);
 S1_EXTERN S1_IN float s1_param_get(const s1_param_desc *param, int i);

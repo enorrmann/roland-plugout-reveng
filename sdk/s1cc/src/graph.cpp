@@ -269,7 +269,7 @@ const std::map<std::string, std::string> kIntrinsicOps = {
     {"minimum", "fmin"}, {"maximum", "fmax"}, {"smin", "smin"}, {"smax", "smax"}, {"umin", "umin"},
     {"umax", "umax"}, {"abs", "abs"}, {"floor", "floor"}};
 
-const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_increment", "s1_param_get",
+const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_increment", "s1_dt", "s1_rdt", "s1_param_get",
                                         "s1_export", "s1_import", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env",
                                         "s1_range"};
 
@@ -836,7 +836,8 @@ struct Builder {
                 fail("E110", fn + ": argument " + std::to_string(i) + " must be a constant " + where(CI));
             return c->getSExtValue();
         };
-        if (fn == "s1_pitch" || fn == "s1_gate" || fn == "s1_trig" || fn == "s1_increment") {
+        if (fn == "s1_pitch" || fn == "s1_gate" || fn == "s1_trig" || fn == "s1_increment" || fn == "s1_dt" ||
+            fn == "s1_rdt") {
             Node *&n = inputs[fn];
             if (!n) {
                 n = mk(fn == "s1_increment" ? NK::Increment : NK::Input, fn, {}, CI);
@@ -1009,6 +1010,15 @@ struct Builder {
             B->getType()->getIntegerBitWidth() > 1 && xorMask(B))
             return;
         Node *a = get(B->getOperand(0)), *b = get(B->getOperand(1));
+        // x / y with y variable: x * recip(y). recip is an island when y depends on one value (a pitch: 1/y is then
+        // 2^polynomial of it, exact and without recipseed, which is not proven on the SYSTEM-1); else recipseed
+        // (off: the island clone of a recip gave constant samples for a root that is an input, 2026-10-27; to be
+        // fixed before it is turned on again)
+        if (false && (op == "udiv" || op == "sdiv" || op == "fdiv") && !isa<Constant>(B->getOperand(1))) {
+            Node *r = mk(NK::Op, "recip", {b});
+            r->bad = r->soft = true;
+            b = r;
+        }
         Node *n = mk(NK::Op, op, {a, b}, B);
         auto *cb = dyn_cast<ConstantInt>(B->getOperand(1));
         auto *ca = dyn_cast<ConstantInt>(B->getOperand(0));
@@ -1348,6 +1358,8 @@ void affineSimplify(Stage &S) {
             if (xi < 0)
                 continue;
             Node *y = a->in[1 - xi];
+            if (y->kind == NK::Const)            // x - 1: already one add, and the phase wrap stays recognisable
+                break;
             Node *zero = n->isInt ? cstN(0, n) : nullptr;
             if (!zero) {
                 auto z = std::make_unique<Node>();
@@ -1594,6 +1606,10 @@ void islands(Program &P, Stage &S) {
         std::vector<Node *> chain;
         for (Node *r = idom[N]; r; r = idom[r])
             chain.push_back(r);
+        if (chain.empty() && N->soft) {       // no single value: lowered directly (recipseed)
+            N->bad = false;
+            continue;
+        }
         if (chain.empty()) {
             std::string what = N->v && isa<Instruction>(N->v) ? "`" + std::string(cast<Instruction>(N->v)->getOpcodeName()) + "` " : "";
             std::string at = where(N->v);   // last: fail() shows this line
@@ -1657,7 +1673,7 @@ void islands(Program &P, Stage &S) {
                 for (Node *y : members)
                     if (cone.count(y)) {
                         isl.members.push_back(y);
-                        if (!y->v || !isa<Instruction>(y->v) || isa<PHINode>(y->v))
+                        if ((!y->v && y->op != "recip") || (y->v && (!isa<Instruction>(y->v) || isa<PHINode>(y->v))))
                             isl.cloneable = false;
                     }
                 if (!R->v)

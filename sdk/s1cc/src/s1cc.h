@@ -71,6 +71,7 @@ struct Node {
     Node *specSel = nullptr;
     bool specArmTrue = false;
     bool specFrontier = false;   // its operands are not speculated with it: the lowering clamps here
+    bool soft = false;           // bad, but lowerable directly when no island fits it (recip: 1/y by recipseed)
     int demand = 0;              // only the low `demand` bits are used (LLVM DemandedBits; 0 = all): the lowering may
                                  // keep the value modulo 2^demand, its smallest representative (§7.2)
 };
@@ -227,6 +228,8 @@ struct LowerOptions {
     double fitTol = 3e-3;        // span metric
     int maxKnots = 32;           // hinge fits: at most this many knots (2 ops each)
     double fitTolLog = 0.0005;   // log2 metric (octaves; 0.0005 = 0.6 cent: increments are pitches)
+    bool recipseed = true;       // 1/y by the SFU seed (proven on the SYSTEM-8 only); false (--no-recipseed): octave
+                                 // normalisation with proven ops (experimental: less exact, more ops)
     bool foldBranches = true;    // a compare with one value in every profiling scenario is that constant (W909)
     bool exactInit = true;       // state words with a non-zero start: first-sample flag + one mad each
     bool trace = false;          // debugging: every lowered value also stored to {D:<record id>} (s1cc check --trace)

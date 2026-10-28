@@ -64,6 +64,8 @@ static void params_init(void) {
 static float wrapf(float x) { float y = fmodf(x + 1.0f, 2.0f); if (y < 0) y += 2.0f; return y - 1.0f; }
 float s1_pitch(void) { return g_pitch; }
 float s1_increment(void) { return 2.0f * 440.0f * exp2f(g_pitch - 4.75f) / 96000.0f; }
+float s1_dt(void) { return 440.0f * exp2f(g_pitch - 4.75f) / 96000.0f; }
+float s1_rdt(void) { return 1.0f / s1_dt(); }
 float s1_gate(void) { return g_gate; }
 float s1_trig(void) { return g_trig; }
 float s1_env(int i) { (void)i; return g_gate; }     /* the host's envelopes: the gate stands in (check too) */

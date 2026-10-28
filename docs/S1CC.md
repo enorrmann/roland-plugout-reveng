@@ -133,6 +133,8 @@ Intrínsecos:
 | `s1_wrap(x)`, `s1_clamp(x)`, `s1_tri(x)` | x envuelto a [−1, 1) / recortado a [−1, 1] / 1 − 2·\|wrap(−x − 1,5)\|: una op cada uno (`ph_wrap` / `ph_clamp` / `ph_tri`) |
 | `s1_exp2(x)` | 2ˣ (`exp2` del DSP: 10 ops más las cuadraturas que pida el rango) |
 | `s1_range(x, lo, hi)` | x, declarando su rango (cuando el perfilado no lo ve) |
+| `s1_dt()`, `s1_rdt()` | f/96000 de la nota (paso de una fase 0…1) y su inverso. El anfitrión los escribe por voz desde tablas por nota (SYSTEM-S1CC: `A040+v`, `A048+v`; `s1_rdt` guardado /16384): dos cargas, sin `exp2` ni división. Es la forma de tener `1/dt` (polyBLEP) sin `recipseed` (W910) |
+| `S1_NOTE_RANGE(lo, hi)` | (declaración, a nivel de archivo) las notas MIDI a las que se toca la voz; el perfilado sólo usa esas (por defecto 0…127). Lo que sólo pasa fuera del rango (los dos bordes de un pulso en una muestra, un límite de altura) no se compila (W908 / W909) |
 | `s1_env(i)` | solo en `S1_DSP_B`: la envolvente `i` del anfitrión, 0…1 (SYSTEM-S1CC: 0 = AMP, 1 = FILTER; [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.1). En la referencia nativa y en `check`, la puerta |
 
 ### 3.1 Cuándo corre cada parte
@@ -287,6 +289,43 @@ error de 1,2·10⁻³ del rango, en 7 ops.
 * **Booleanos.** No se limitan (ni por la especulación ni por los valores atípicos): el perfil los registra con su
   vista con signo (verdadero = −1) y en el DSP valen 0 / 1; limitar 1 a [−1, 0] lo volvía falso.
 
+### 4.5 Transformaciones del grafo antes de las islas
+
+Todas mantienen el valor del C (módulo 2^bits en los enteros); el orden de los nodos y los ids de perfil son los
+mismos en `s1cc prof` y en `s1cc lower`, porque las dos construyen el grafo igual.
+
+| transformación | dónde | qué hace | ejemplo |
+|---|---|---|---|
+| `memset` / `memcpy` de tamaño constante | `Builder::memop` | una escritura por palabra que la etapa lee o escribe en el rango; las demás no cuestan | `Init()` de un objeto, `state_ = {}` |
+| `memset` / `memcpy` de tamaño variable o destino calculado | `memcpyVar`, `call` | sobre una variable chica (≤ 16 palabras): cada palabra condicionada a su distancia y a su dirección candidata (E310 si no) | `std::copy(&u[0], &u[7 - shift], &r[shift])` (Plaits StringSynth) |
+| índice calculado en un array chico | `ptrOf`, `load`, `store` | arrays de estado, locales o `const` de ≤ 16 elementos, o un `phi`/`select` de constantes o de punteros a la misma variable: la palabra se elige con comparaciones (`kSmallArray`) | `partial_phase[i]` de Braids |
+| `x ^ (c ? K : 0)` con los bits de `x` dentro de K | `xorMask` | `c ? K − x : x` | el triángulo de Braids |
+| sumas enteras que se cancelan | `affineSimplify` | forma afín de `add`/`sub`/`~`/×const, también a través de un `select` (sus dos brazos); si quedan ≤ 2 términos, el nodo se reconstruye con ellos | `prev + (prev < cur ? cur − prev : ~(prev − cur))` = `cur` o `cur − 1` |
+| `c ? x + y : x` | `affineSimplify` | `x + (c ? y : 0)`: un producto por c y una suma, en vez de restar los brazos (no si `y` es constante: el wrap de fase sigue reconocible) | los `this_sample += …` de los BLEP |
+| columnas derivadas de perilla (§4.6) | `deriveKnobColumns` | después de las islas | `intervals[parameter_ >> 9]` |
+| liveness de estado | `markLive` | una palabra de estado sólo se guarda si su valor viejo lo lee algo vivo | `strike_` en una forma que nunca golpea |
+| bits demandados | `build` (LLVM `DemandedBits`) | cada entero guarda cuántos bits bajos se usan (`Node::demand`); el lowering puede reducirlo módulo 2^demand donde un usuario desborda en C | `(int16_t)(t + 32768)` como `sext(t) ^ 0x7fff8000` |
+
+### 4.6 Columnas derivadas de perilla
+
+Un valor que depende sólo de una tabla `S1_PARAM` (y de constantes) es función de esa perilla, conocida exacta en
+sus 256 posiciones. `prof sweep` (`runtime/s1rt.c`) barre cada perilla 0…255 con las demás en 128 y registra todos
+los valores; `s1cc lower --sweep` convierte cada valor así que alimenta al resto de la voz (y cuesta ≥ 2 ops) en una
+tabla propia `perilla~id`, con el mismo `panel_id`, que el ARM escribe con la perilla. No hay ajuste ni trabajo en el
+DSP. `tables.txt` recibe esas tablas; `s1check` y `make_s1cc.py` les dan la posición de la perilla base.
+
+### 4.7 Llamadas indirectas (`devirt.cpp`)
+
+Antes de O2 el driver internaliza el módulo (sólo quedan públicas `s1_dsp_a`, `s1_dsp_b`, `s1_init`,
+`s1_note_range`): las tablas que nadie escribe pasan a constantes (`fn_table_` de Braids) y una llamada por una tabla
+en un índice constante queda directa. Los intrínsecos `s1_*` son `pure` / `const`, así que un `store` antes de una
+llamada llega al `load` de después (`set_shape(X); Render()`), y las funciones van alineadas a 16
+(`-falign-functions`): el bit virtual de un puntero a método se pliega. Lo que queda indirecto con un conjunto finito
+de destinos (un `phi`/`select`, una tabla constante en índices que son un conjunto finito de constantes) lo
+reescribe `s1cc devirt`: el destino se reconstruye con constantes de función y la llamada se versiona en llamadas
+directas (`versionCallSite`); O2 otra vez las inlinea. La rama virtual de un puntero a método (lee una vtable) no
+cuenta cuando las otras dan funciones.
+
 ## 5. Perfilado (`prof.cpp`, `runtime/s1rt.c`)
 
 `s1cc prof` inserta, después de cada valor de las funciones de voz:
@@ -330,6 +369,10 @@ los modelos que cumplen la tolerancia:
 * **Métrica en octavas.** Si la salida es positiva y cubre más de 3 octavas (un coeficiente, una frecuencia):
   |log2(ajuste / y)| sobre las muestras ≥ máx/64, con tolerancia `--tollog`.
 
+Modelo `hinge` (`fit.cpp`): `c0 + c1 t + Σ w_j max(0, t − k_j)`, un spline lineal con nudos uniformes o en los quiebres
+de las muestras, cuando ningún polinomio llega a la tolerancia; 2 ops por nudo, a lo sumo `--maxknots` (32). La
+tolerancia en octavas por defecto es `--tollog 0.0005` (0,6 cent: los incrementos son alturas).
+
 ## 7. Lowering (`lower.cpp`)
 
 ### 7.1 Representación de los valores
@@ -366,6 +409,36 @@ Cada valor V del programa vive en un registro r con una escala s y un desplazami
 | `fabs`, `abs` | `max r, r, -r` |
 | `floor` | V − mod(V, 1) |
 | casts | sin coste. Un `trunc` que envuelve pasa a mod; una constante leída con signo se corrige en `zext` |
+
+### 7.2.1 Vistas de los enteros y costos
+
+* **Vista de un operando.** Las operaciones que leen el signo (`ashr`, `sext`, `sitofp`, `sdiv`, `smin`, `icmp.slt`…)
+  o lo ignoran (`lshr`, `zext`, `uitofp`, `udiv`, `umin`, `icmp.ult`…) leen el operando en su vista: si su rango
+  calculado sale de ella, se reduce módulo 2^bits (`inV`, `toView`). Lo mismo en `add`/`sub`/`mul`/`shl` y en los
+  brazos de un `select`, contra la vista del resultado (`needsView`). Un wrap de un valor de 32 bits trabaja a escala
+  2^31, donde la mantisa de 29 bits del DSP deja pasos de 8.
+* **Islas.** Las muestras de la salida se pasan a la vista más estrecha; las de la raíz, a la vista y al módulo
+  (`demand`) en que el DSP tiene la raíz; los booleanos son 0 / 1 (`islandSamples`).
+* **Enteros chicos.** Una división entera por constante y un `fptosi` cuyo resultado tiene un rango perfilado ≤ 4096
+  se truncan (`floorLV` / `truncLV`, 2 ops): ahí 1 LSB es todo (`while (x < 0) { x += 1536; n++; }` que LLVM hace
+  división; `MAKE_INTEGRAL_FRACTIONAL`). Los demás, sin piso (§8).
+* **Desplazamiento variable.** `x << n` / `x >> n` = `x · exp2(±n)`.
+* **`xor` con constante.** Por tramos de bits contiguos k…j: `x ^ c = x + c − 2 (x mod 2^(j+1)) + 2 (x mod 2^k)`.
+* **Comparaciones.** Exactas hasta un rango de 2^19; más anchas (una fase de 32 bits), un paso de 2^−16 del rango (2
+  etapas de `ph_clamp`). Floats: 2^−24.
+* **Comparaciones constantes (W909).** Una comparación que dio siempre lo mismo en el perfilado se baja como esa
+  constante antes de la liveness: el lado que nunca toma no cuesta (`--no-fold-branches` las deja).
+* **Booleanos.** `band` de dos booleanos con el mismo nivel falso y la misma orientación: `min` (o `max`), 1 op.
+* **Selects.** `f = (1 + k) b − k a` con `k = o_c s_c`: con una condición negada (k = −1) es `a`, sin op.
+* **Mismo registro.** Dos valores del mismo registro se suman sin op (`(r − oa) sa + (r − ob) sb`); si se cancelan,
+  constante.
+* **Fases float.** Una palabra de estado float en [0, 1) que termina en su wrap (`c ? x : x − 1`) se guarda en
+  [−1, 1) (s = 1/2, o = −1): el wrap es un `ph_wrap` y la carga y el guardado no convierten. Arranca en media vuelta.
+* **Kernel.** Elimina ops idénticas repetidas (CSE) y no suma offsets menores que 2^−26 de la escala; una suma con
+  una constante fuera de ±512 se hace en pasos (antes E701).
+* **Recíproco.** Compartido por divisor (`recipCache`). Con `recipseed` (W910: no probado en el SYSTEM-1) por
+  defecto; `--no-recipseed`: normalización por octavas con comparaciones `ph_clamp`, semilla cúbica y Newton
+  (`recipNorm`, experimental: menos exacto, más ops).
 
 ### 7.3 Funciones y divisiones
 
@@ -508,6 +581,12 @@ exacta.
 `S1CC_DEBUG=2` además vuelca cada nodo del grafo y su representación tras el lowering (`n12 fmul: %3 s ... V [...]`).
 `-g` no cambia el kernel: con y sin `--debug` sale el mismo `voice.s1k` (comprobado con `va_saw_svf.c` y
 `braids_saw_swarm_s1.cc`, 2026-10-27).
+
+**Costo por línea de C.** `report.txt` termina cada etapa con `cost of stage S by C line (ops)`: las ops del kernel
+que sobreviven a la eliminación de código muerto, por la línea de C que las hizo (con `--debug`, `archivo:línea`; un
+nodo sintético, como el `select` de un `phi`, lleva `(select)` y la línea de un operando). Una instrucción del DSP
+lleva 1–3 ops, así que la suma es mayor que la cuenta de instrucciones. `S1CC_OPS=1 build/s1cc lower …` imprime cada
+op con sus operandos y su línea.
 
 ### 9.2 Errores y cómo resolverlos
 
@@ -675,6 +754,8 @@ El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuán
 | `W906` | `stage S: N values limited to the range of 99.99 % of their profiled samples` | valores con picos raros; se recortan para no arruinar la escala | nada si `check` da buen SNR; si no, `s1_range` en esos valores |
 | `W907` | `state 'v' starts at 0 in the ring (...)` | con `--no-exact-init`, la palabra de estado no arranca en su valor inicial | quitar `--no-exact-init` |
 | `W908` | `stage S: N values no profiling scenario computed (a branch none of them took) are 0 on the DSP; the first at ...` | código en una rama que ningún escenario del perfilado tomó (una segunda vuelta de un bucle desenrollado, un caso límite). Su rango es desconocido, y calcularlo con los rangos de sus operandos puede dar 10¹⁵, lo que arruina la escala de los valores que se combinan con él. Se calcula como 0, sin costo | nada, si esa rama no se toma en la práctica (Plaits `VariableShapeOscillator`: la segunda vuelta del `while` del BLEP, §11). Si se toma, hacer que un escenario la alcance o declarar los rangos con `s1_range`; `--debug` da la línea del C |
+| `W909` | `stage S: N compares gave one answer in every profiling scenario and are that constant` | una comparación dio siempre lo mismo en el perfilado (el cambio de forma que `S1_INIT` ya hizo, un límite que ninguna nota alcanza): se baja como esa constante, y el lado que nunca toma no cuesta nada | nada, si los escenarios cubren el uso (todas las perillas, las notas de `S1_NOTE_RANGE`). Si no, `--no-fold-branches` |
+| `W910` | `a division by a variable uses recipseed ... not on the SYSTEM-1` | `x / y` con `y` variable se baja con la semilla de recíproco de la SFU, decodificada y probada en el SYSTEM-8 pero no en el SYSTEM-1 (sospechosa de clicks en BRAIDS-CSAW, 2026-10-27) | sacar la división de la voz: el valor que depende de una perilla a una tabla `S1_PARAM`, el que depende de la nota con `s1_exp2` (`1/f` = `2^-pitch`); `--no-recipseed` usa una normalización por octavas con ops probadas (experimental) |
 
 ## 10. Verificación (`s1cc check`)
 

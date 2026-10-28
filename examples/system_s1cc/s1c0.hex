@@ -1,4 +1,4 @@
-# s1c0, own SYSTEM-1 program (make_s1cc.py KERNEL=/home/emilio/git/roland-plugout-reveng/sdk/s1cc/build/braids_fm/ VOICES=2)
+# s1c0, own SYSTEM-1 program (make_s1cc.py KERNEL=/home/emilio/git/roland-plugout-reveng/sdk/s1cc/build/mp_variable_shape/ VOICES=8)
 0000
 0c03
 0fe0

@@ -32,10 +32,19 @@ CASES = [
     ('braids_saw_swarm_s1.cc', BRAIDS, [(57, {}, 50, 40), (45, {'ratio': 200, 'hp_h': 85}, 50, 35),
                                         (81, {'ratio': 255, 'hp_h': 100}, 50, 40)], (52, 30)),
     ('va_saw_svf.c', [], [(45, {}, 60, 50), (69, {'cutoff': 200, 'damping': 200}, 60, 45),
-                          (93, {'cutoff': 60, 'damping': 50}, 60, 60)], (100, 42)),
+                          # B 55: since float phases are held in [-1, 1) (one ph_wrap) they start at half a cycle; at
+                          # this low cutoff the reference's output is 0.021 instead of 0.034 for the same error
+                          (93, {'cutoff': 60, 'damping': 50}, 60, 54)], (100, 42)),
     # Plaits as it is, with the real stmlib (s1cc deps): skipped without lib/stmlib; W908 (a branch never profiled)
     ('plaits_variable_shape.cc', ['-I', EURORACK], [(45, {}, 60, None), (69, {'pw': 200, 'shape': 50}, 70, None),
                                                     (81, {'shape': 255}, 75, None)], (330, None)),
+    # mutable_ported: C written for this DSP (s1_dt / s1_rdt, branch-free polyBLEP, the shared SVF + envelopes in B);
+    # the instruction counts are what lets 8 voices fit (docs/examples_mutable_ported_README.md)
+    ('mutable_ported/mp_saw.c', ['--regs', '0,1,2,3,4,5,6,7'], [(45, {}, 65, 50), (81, {'cutoff': 200}, 60, 50)], (27, 45)),
+    ('mutable_ported/mp_csaw.c', ['--regs', '0,1,2,3,4,5,6,7'], [(57, {'width': 40, 'depth': 200}, 65, 50)], (68, 45)),
+    # cutoff open: with the filter at 128 the 1-4 kHz band of B is ~100 dB down, where only the filter's noise floor is
+    ('mutable_ported/mp_harmonic.c', ['--regs', '0,1,2,3,4,5,6,7'], [(57, {'amp': 200, 'cutoff': 255}, 75, 50)], (86, 45)),
+    ('mutable_ported/mp_filter_ladder.c', ['--regs', '0,1,2,3,4,5,6,7'], [(45, {'reso': 200}, 65, 60)], (27, 46)),
     # s1_export / s1_import: DSP A's note frequency to DSP B's key-tracked low-pass
     ('simple_saw_wrapped/simple_saw_export.c', ['--regs', '0,1,2,3,4,5,6,7'],
      [(45, {'track': 100}, 90, 85), (69, {'track': 200}, 90, 85)], (31, 17)),
@@ -71,7 +80,11 @@ class TestExamples(unittest.TestCase):
                     if sb is not None:
                         self.assertGreater(s1check.snr(pb[:960], rb[:960]), sb, (src, note, knobs, 'B'))
                     for p, r in ((pa, ra), (pb, rb)) if sb is not None else ((pa, ra),):
-                        d = np.array(s1check.bands(p)[1:4]) - np.array(s1check.bands(r)[1:4])
+                        # bands 1..3 that carry sound: within 60 dB of the loudest (an empty band shows only the
+                        # DSP's numeric floor: the additive oscillator above its last harmonic)
+                        bp, br = np.array(s1check.bands(p)), np.array(s1check.bands(r))
+                        live = br[1:4] > br.max() - 60
+                        d = (bp[1:4] - br[1:4])[live]
                         self.assertTrue(np.all(np.abs(d) < 0.5), (src, note, knobs, d))
                 self.assertLessEqual(info['A'][1], maxa, src)
                 if maxb is not None:
@@ -126,7 +139,9 @@ class TestSystemS1cc(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             snrs = [float(x) for x in re.findall(r'SNR against the native reference ([-0-9.]+) dB \(10 ms\)', r.stdout)]
             self.assertEqual(len(snrs), 2, r.stdout)
-            self.assertTrue(all(x > 90 for x in snrs), (voices, r.stdout))
+            # 88: the saw's phase starts at half a cycle since float phases are held in [-1, 1) (10 ms 89.7 dB
+            # instead of 91.8, and over the whole run 72 dB instead of 24)
+            self.assertTrue(all(x > 88 for x in snrs), (voices, r.stdout))
             self.assertIn('no notes: peak 0.000000', r.stdout)
             self.assertNotIn('warning', r.stdout)
 

@@ -1,0 +1,16 @@
+/* mp_feedback_fm.c: Braids FEEDBACK_FM: a sine modulated by its own previous output (from sine to saw-like).
+ * OSC1 COLOR = feedback 0 .. 0.4 cycles, OSC1 MIX = level. DSP B: mp_voice.h. */
+#include "mp_voice.h"
+
+S1_PARAM(fb, S1_OSC1_COLOR, 1) { out[0] = 0.4f * knob / 255.0f; }
+S1_PARAM(level, S1_OSC1_MIX, 1) { out[0] = 0.25f + 0.5f * knob / 255.0f; }
+
+static float ph, fb1, fb2;
+
+S1_DSP_A {
+  float p = mp_advance(&ph, mp_dt());
+  float y = mp_sin(p + s1_param(fb, 0) * (fb1 + fb2));    /* two-sample average: tames the feedback's chatter */
+  fb2 = fb1;
+  fb1 = y;
+  return y * s1_param(level, 0);
+}

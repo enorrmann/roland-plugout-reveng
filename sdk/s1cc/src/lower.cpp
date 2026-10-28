@@ -290,7 +290,7 @@ struct Lowerer {
         v.add(isMin ? std::min(ra.lo, rb.lo) : std::max(ra.lo, rb.lo));
         v.add(isMin ? std::min(ra.hi, rb.hi) : std::max(ra.hi, rb.hi));
         r.V = v;
-        return r;
+        return normalize(r);
     }
 
     LV absLV(LV x) {
@@ -489,6 +489,7 @@ struct Lowerer {
     // 1/y once per divisor: two divisions by the same value (Braids' BLEP times, / (phase_increment >> 16) on
     // both edges) share it
     std::map<std::pair<const Node *, KVal *>, LV> recipCache;
+    bool warnedSeed = false;
     LV recip(LV y, const Node *yn = nullptr) {
         if (!yn || y.isConst())
             return recip1(y, yn);
@@ -572,6 +573,14 @@ struct Lowerer {
             warnings.push_back({"W904", "division by a value over [" + std::to_string(alo) + ", " + std::to_string(ahi) +
                                "]: more than 16 octaves, the ends saturate"});
         KVal *yy = materialize(y, pk, 0);                   // y' = y / pk
+        if (!opt.recipseed)
+            return recipNorm(y, alo, ahi, v.hi >= -v.lo);
+        if (!warnedSeed) {
+            warnings.push_back({"W910", "a division by a variable uses recipseed (the SFU seed), proven on the SYSTEM-8 "
+                                "but not on the SYSTEM-1; the first at " + (yn ? where(yn->v) : std::string("?")) +
+                                ". On the SYSTEM-1 keep divisions out of the voice (S1_PARAM tables, s1_exp2)"});
+            warnedSeed = true;
+        }
         auto nf = K->recipseed(yy);
         KVal *m = K->mul(yy, KOperand::of(nf.first));
         KVal *F = nf.second;
@@ -581,6 +590,106 @@ struct Lowerer {
         r.s = 1 / pk;
         r.o = 0;
         return r;
+    }
+
+    // 1/y with the ops proven on the SYSTEM-1 (recipseed, the SFU seed, is decoded on the SYSTEM-8 only): y on one
+    // side of 0, |y| in [alo, ahi]. m = |y| / ahi in [alo / ahi, 1] is brought into [1/2, 1] octave groups at a
+    // time (8, 4, 2, 1): t = clamp(G (2^-j - m)) is +1 below the threshold, -1 above, and m and the factor E get the
+    // same f = 1 + (t + 1) / 2 (2^j - 1). Near a threshold t is in between, but m E^-1 stays |y| / ahi, so the result
+    // is exact all the same; m only ends a little outside [1/2, 1]. Then a cubic seed for 1/m and Newton steps
+    // F (2 - m F), and 1/y = sign F E / ahi. About 20 ops for 8 octaves
+    LV recipNorm(LV y, double alo, double ahi, bool pos) {
+        alo = std::max(alo, ahi / 4096);
+        LV m = scale(y, (pos ? 1 : -1) / ahi);         // in [alo / ahi, 1]
+        m.V = Range();
+        m.V.add(alo / ahi);
+        m.V.add(1);
+        LV E = cst(1);
+        int oct = (int)std::ceil(std::log2(ahi / alo) - 1e-9);
+        double lo = alo / ahi;                         // the smallest m so far
+        for (int j : {8, 4, 2, 1}) {
+            if (oct <= j && !(j == 1 && oct >= 1))
+                continue;
+            double th = std::ldexp(1.0, -j), mhi = rangeOf(m).hi;
+            // t: G1 keeps |G1 (th - m)| <= LIM; a second stage when the band 1 / (G1 th) is wider than 1/32 of th
+            double G1 = LIM / std::max(mhi, 1.0);
+            KVal *t = K->clamp(materialize(addLV(neg(m), cst(th)), 1 / G1, 0));
+            double w = 1 / (G1 * th);
+            if (w > 1.0 / 32) {
+                double G2 = std::min(LIM, w * 32);
+                t = K->clamp(K->mul(t, KOperand::im(G2)));
+            }
+            LV T;
+            T.r = t;
+            T.s = 1;
+            T.o = 0;
+            T.V.add(-1);
+            T.V.add(1);
+            double A = (std::ldexp(1.0, j) + 1) / 2, B = (std::ldexp(1.0, j) - 1) / 2;
+            Range mr = rangeOf(m);
+            LV mt = mulLV(m, T, nullptr);
+            m = addLV(scale(m, A), scale(mt, B));
+            m.V = Range();
+            m.V.add(std::max(lo * std::ldexp(1.0, j), th) * 0.9);
+            m.V.add(std::max(mr.hi, th * std::ldexp(1.0, j) * (1 + 1.0 / 32)));
+            if (E.isConst())
+                E = addLV(scale(T, B), cst(A));
+            else {
+                Range er = rangeOf(E);
+                LV et = mulLV(E, T, nullptr);
+                E = addLV(scale(E, A), scale(et, B));
+                E.V = Range();
+                E.V.add(er.lo);
+                E.V.add(er.hi * std::ldexp(1.0, j));
+            }
+            E.V = Range();
+            E.V.add(1);
+            E.V.add(ahi / alo * 1.1);
+            lo = std::max(lo * std::ldexp(1.0, j), th * 0.9);
+            oct = j;
+        }
+        // m in [lo, hi]: a cubic for 1/m (least squares, relative), two Newton steps
+        double mlo = std::min(rangeOf(m).lo, 0.45), mhi = std::max(rangeOf(m).hi, 1.1);
+        std::vector<double> c(4, 0);
+        {
+            double A[4][4] = {}, bb[4] = {};
+            for (int i = 0; i <= 400; i++) {
+                double x = mlo + (mhi - mlo) * i / 400.0, wgt = x * x, p[4] = {1, x, x * x, x * x * x};
+                for (int a = 0; a < 4; a++) {
+                    bb[a] += wgt * p[a] / x;
+                    for (int b2 = 0; b2 < 4; b2++)
+                        A[a][b2] += wgt * p[a] * p[b2];
+                }
+            }
+            for (int col = 0; col < 4; col++)          // Gauss-Jordan
+                for (int row = 0; row < 4; row++)
+                    if (row != col) {
+                        double f = A[row][col] / A[col][col];
+                        for (int k = 0; k < 4; k++)
+                            A[row][k] -= f * A[col][k];
+                        bb[row] -= f * bb[col];
+                    }
+            for (int a = 0; a < 4; a++)
+                c[a] = bb[a] / A[a][a];
+        }
+        KVal *mr = materialize(m, 1, 0);
+        KVal *F = K->add(K->mul(mr, KOperand::im(c[3])), KOperand::im(c[2]));
+        F = K->ymac(F, mr, KOperand::im(c[1]));
+        F = K->ymac(F, mr, KOperand::im(c[0]));
+        for (int it = 0; it < 2; it++)
+            F = K->mul(F, KOperand::of(K->twoMinus(K->mul(mr, KOperand::of(F)))));
+        LV Fv;
+        Fv.r = F;
+        Fv.s = 1;
+        Fv.o = 0;
+        Fv.V.add(1 / mhi);
+        Fv.V.add(1 / mlo);
+        LV r = mulLV(Fv, E, nullptr);
+        r = scale(r, (pos ? 1 : -1) / ahi);
+        r.V = Range();
+        r.V.add((pos ? 1 : -1) / alo);
+        r.V.add((pos ? 1 : -1) / ahi);
+        return normalize(r);
     }
 
     // a known math function of one argument, on the argument's range: exp / exp2 / pow(c, x) exactly through
@@ -683,6 +792,17 @@ struct Lowerer {
                     bestErr = worst;
                     bestRoot = R;
                 }
+            }
+            bool bestGood = false;
+            if (bestRoot) {
+                bestGood = true;
+                for (auto &isl : S.islands)
+                    if (isl.root == bestRoot && isl.cloneable && fits.count(&isl))
+                        bestGood = bestGood && fits[&isl].err <= (fits[&isl].metric == "log2" ? opt.fitTolLog : opt.fitTol);
+            }
+            if (N->soft && (!bestRoot || !bestGood)) {     // a recip no fit follows: computed (recipNorm)
+                N->bad = false;
+                continue;
             }
             if (!bestRoot)
                 fail("E502", "cannot tabulate " + where(N->v) + ": no single-value island could be sampled");
@@ -1066,6 +1186,8 @@ struct Lowerer {
             LV x;
             x.r = K->load("{IN:" + n->name + "}", n->name);
             x.V = rec.seen() ? rec : Range{0, 1};
+            if (n->name == "rdt")                     // 1/dt up to 12000: the host writes it / 16384
+                x.s = 16384;
             return x;
         }
         case NK::Increment: {
@@ -1136,6 +1258,8 @@ struct Lowerer {
         const std::string &op = n->op;
         if (chosen.count(n))
             return emitIsland(*chosen[n], val.at(chosen[n]->root));
+        if (op == "recip")                      // no island chose it: recipseed and Newton
+            return recip(in(0), n->in[0]);
         if (n->bad)
             fail("E504", "not translatable and not tabulated: " + where(n->v));
         auto constIn = [&](int i) -> double {
@@ -1244,6 +1368,8 @@ struct Lowerer {
         if (op == "fdiv") {
             if (val.at(n->in[1]).isConst())
                 return withRange(scale(in(0), 1 / constIn(1)));
+            if (n->in[1]->op == "recip")
+                return mulLV(in(0), in(1), res);
             return mulLV(in(0), recip(in(1), n->in[1]), res);
         }
         if (op == "udiv" || op == "sdiv") {           // the DSP computes in reals: no floor (≤ 1 LSB, §8)
@@ -1256,6 +1382,8 @@ struct Lowerer {
                     return withRange(op == "sdiv" ? truncLV(q, qr) : floorLV(q));
                 return withRange(q);
             }
+            if (n->in[1]->op == "recip")
+                return mulLV(in(0), in(1), res);
             return mulLV(in(0), recip(in(1), n->in[1]), res);
         }
         if (op.rfind("call.", 0) == 0) {
@@ -1410,12 +1538,7 @@ struct Lowerer {
                 if (needsView(n->in[2], unsignedView(n), n->bits))
                     b = toView(b, n->in[2], unsignedView(n), n->bits);
             }
-            size_t k0 = K->opCount();
             LV r = withRange(select(in(0), a, b));
-            if (getenv("S1DBGSEL"))
-                fprintf(stderr, "SEL n%d ops=%zu c(s=%g o=%g bool=%d) a(%s s=%g o=%g k=%d) b(%s s=%g o=%g k=%d) -> s=%g o=%g\n",
-                        n->id, K->opCount() - k0, in(0).s, in(0).o, in(0).isBool, n->in[1]->op.c_str(), a.s, a.o,
-                        a.isConst(), n->in[2]->op.c_str(), b.s, b.o, b.isConst(), r.s, r.o);
             return r;
         }
         if (op == "band") {
@@ -1463,6 +1586,20 @@ struct Lowerer {
         fail("E605", "operation `" + op + "` not supported " + where(n->v));
     }
 
+    // c ? x : x - 1 (or c ? x - 1 : x, x + -1): the wrap of a phase in [0, 1); not an envelope's stage select
+    static bool isPhaseWrap(const Node *f) {
+        if (!f || f->kind != NK::Op || f->op != "select" || f->in.size() != 3)
+            return false;
+        for (int arm = 1; arm <= 2; arm++) {
+            const Node *a = f->in[arm], *b = f->in[3 - arm];
+            if (a->kind != NK::Op || a->in.size() != 2 || a->in[0] != b || a->in[1]->kind != NK::Const)
+                continue;
+            if ((a->op == "fsub" && a->in[1]->c == 1) || (a->op == "fadd" && a->in[1]->c == -1))
+                return true;
+        }
+        return false;
+    }
+
     void chooseStateReps() {
         for (auto &s : P.states) {
             Range r;
@@ -1479,6 +1616,10 @@ struct Lowerer {
                 stateRep[s.index] = {M / 2, -1};        // modular (a phase): r in [-1, 1)
             } else if (s.isInt && !s.isUnsigned && r.seen() && (r.hi > M / 4 || r.lo < -M / 4) && s.bits >= 16) {
                 stateRep[s.index] = {M / 2, 0};
+            } else if (!s.isInt && r.seen() && r.lo >= 0 && r.hi <= 1.0 + 1e-6 && isPhaseWrap(s.final)) {
+                // a float phase in [0, 1) that ends in its wrap (p += dt; if (p >= 1) p -= 1): r in [-1, 1), the
+                // form ph_wrap works in, so the wrap is one op and the load and the store need no conversion
+                stateRep[s.index] = {0.5, -1};
             } else {
                 double m = r.seen() ? std::max(std::fabs(r.lo), std::fabs(r.hi)) : 1;
                 stateRep[s.index] = {p2ceil(m), 0};
@@ -1510,6 +1651,7 @@ struct Lowerer {
         K = &k;
         val.clear();
         recipCache.clear();
+        warnedSeed = false;
         firstFlag = nullptr;
         chooseIslands(S);
         std::set<std::string> inputsUsed;

@@ -163,6 +163,7 @@ void instrument(Program &P) {
             for (Node *m : isl.members)
                 members.insert(m->v);
             bool ok = true;
+            Value *recipOut = nullptr;      // a recip member (no IR value): 1 / its operand, in double
             std::function<Value *(Value *)> remap = [&](Value *v) -> Value * {
                 auto it = vm.find(v);
                 if (it != vm.end())
@@ -182,11 +183,32 @@ void instrument(Program &P) {
                 vm[v] = c;
                 return c;
             };
-            for (Node *m : isl.members)
+            auto toD = [&](Value *v, const Node *n) -> Value * {
+                if (v->getType()->isIntegerTy())
+                    return n->isUnsigned ? b.CreateUIToFP(v, d) : b.CreateSIToFP(v, d);
+                return b.CreateFPExt(v, d);
+            };
+            for (Node *m : isl.members) {
+                if (!m->v && m->op == "recip") {
+                    Node *y = m->in[0];
+                    Value *yv = y == isl.root ? root : remap(y->v);
+                    recipOut = b.CreateFDiv(ConstantFP::get(d, 1.0), toD(yv, y));
+                    continue;
+                }
                 remap(m->v);
+            }
             if (!ok) {
                 F->eraseFromParent();
                 isl.cloneable = false;
+                continue;
+            }
+            if (!isl.out->v) {                     // the island is the recip itself
+                if (!recipOut && isl.out->op == "recip")
+                    recipOut = b.CreateFDiv(ConstantFP::get(d, 1.0), toD(root, isl.root));
+                b.CreateRet(recipOut);
+                rows.push_back(ConstantStruct::get(rowTy, {ConstantInt::get(i32, isl.id),
+                                                           ConstantInt::get(i32, isl.root->prof), F,
+                                                           ConstantInt::get(i32, isl.root->isInt ? 1 : 0)}));
                 continue;
             }
             Value *out = vm[isl.out->v];

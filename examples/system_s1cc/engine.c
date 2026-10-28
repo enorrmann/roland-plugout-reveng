@@ -3,7 +3,7 @@
  * s1cc needs. Freestanding, no library, no floating point (floats are bit patterns from make_s1cc.py tables).
  *
  *   load (vt+0x08)    voice sections of the OS off, then our programs on DSP A and DSP B; the knob tables
- *   param (vt+0x30)   0x110+v note -> pitch A030+v; 0x120+v velocity -> gate A038+v and, at a note start, the
+ *   param (vt+0x30)   0x110+v note -> pitch A030+v, s1_dt A040+v, s1_rdt A048+v; 0x120+v velocity -> gate A038+v and, at a note start, the
  *                     trigger A060+v toggles (s1_trig); any other id: the kernel's S1_PARAM table with that
  *                     panel id -> DSP A parameters C070.. and / or DSP B C060..
  *                     HOST_ENVS (the kernel uses s1_env): AMP / FILTER A, D, S, R -> the host envelopes' DSP B
@@ -115,17 +115,24 @@ typedef struct engine {
     uint8_t note[NV], on[NV], trig[NV];
 } engine_t;
 
+static void voice_note_words(engine_t *e, int v)      /* pitch, s1_dt, s1_rdt of the voice's note */
+{
+    b5(B5_PITCH + v, pitch_bits[e->note[v]]);
+    b5(B5_DT + v, dt_bits[e->note[v]]);
+    b5(B5_RDT + v, rdt_bits[e->note[v]]);
+}
+
 static void voice_pitch(engine_t *e, int v, int note)
 {
     e->note[v] = (uint8_t)(note & 0x7F);
-    b5(B5_PITCH + v, pitch_bits[e->note[v]]);
+    voice_note_words(e, v);
 }
 
 static void voice_gate(engine_t *e, int v, int vel)
 {
     int on = vel > 0;
     if (on) {
-        b5(B5_PITCH + v, pitch_bits[e->note[v]]);      /* the note may have arrived after the gate */
+        voice_note_words(e, v);                        /* the note may have arrived after the gate */
         e->trig[v] ^= 1;                               /* s1_trig: toggles at every note start */
         b5(B5_TRIG + v, e->trig[v] ? F_ONE : F_ZERO);
         kparam_all();                                  /* again at every note on, in case a load lost them */

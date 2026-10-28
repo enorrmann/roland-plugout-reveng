@@ -70,7 +70,8 @@ maestro B (s1mm1 @0x1000)  6006 / 6007 × VOLUME (C01C)                 → env�
 ```
 
 * **Entradas de la voz.** `s1_pitch()`, `s1_gate()` y `s1_trig()` se leen directo del banco 5: `A030+v`, `A038+v`
-  y `A060+v`, que escribe `engine.c`. A diferencia de MUTABLE-SYSTEM, **no** hay LFO ni RANGE: el tono es el de
+  y `A060+v`, que escribe `engine.c`. `s1_dt()` (f/96000) y `s1_rdt()` (96000/f/16384) en `A040+v` y `A048+v`: el
+  ARM los escribe con el pitch desde tablas por nota (`dt_bits`, `rdt_bits`; 2026-10-28, sin probar en el equipo). A diferencia de MUTABLE-SYSTEM, **no** hay LFO ni RANGE: el tono es el de
   la nota.
 * **Mezcla.** Con `S1_DSP_B`, el DSP B suma las salidas de B de la muestra anterior (palabras de anillo, S+1). Sin
   él, suma `A151+v`. La ganancia 2/(1,5·NV) es la de C-S1SY13; `C000` es el nivel que deja el OS.
