@@ -3430,8 +3430,10 @@ controls (docs/examples_system_s1cc_README.md §3.2); every other control does n
 
 Options (environment variables):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
-  VOICES=n      1..8 voices (default 8); fewer voices leave more instructions for each
-  BUDGET=n      instructions per sample a slave DSP may have (default 708, the most tried on the device; 826 hung it)
+  (the number of voices is not an option: the build takes the most, 8 down to 1, whose slave programs fit the
+  measured limits, instructions per sample and the 6 KiB of the main program, and says how many at the end)
+  BUDGET_A=n, BUDGET_B=n, MAIN_BYTES=n  the limits (default 703 / 708 instructions per sample, 6144 bytes: what ran
+                on the device; past them it hung), only to try more at your own risk
   NAME=...      plug-out name shown on the device and plugins/ folder (default SYSTEM-S1CC); max 16 characters
   MODEL_ID=0x.. (default 0x0010), PARAMLOG=1 (model.c sends the parameters to the PC)
   TRY_FORMS=... op groups to test on the device before they go into asm/proven_forms.txt: 'all' or
@@ -3464,9 +3466,13 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
     knobs                   the kernel's S1_PARAM tables, by panel id: DSP A parameters from C070, DSP B from C060
 
     KERNEL=dir (required)   an s1cc build directory (sdk/s1cc/s1cc build ... -o dir)
-    VOICES=n                1..8 (default 8): fewer voices, more instructions for each
-    BUDGET=n                instructions per sample a slave DSP may have (default 708, the most tried on the device;
-                            826 hung it: docs/examples_system_1_synth_README.md §4); above it the build stops
+    VOICES=n                1..8 (default 8). build.sh sets it: the most voices that fit (it tries 8, 7, ...)
+    BUDGET_A=n, BUDGET_B=n  instructions per sample the slave's DSP A / DSP B may have, measured on the device
+                            (docs/examples_system_1_synth_README.md §4): DSP A 703 ran (MP-CSAW 8 voices,
+                            2026-10-28), 826 hung; DSP B 708 ran. Defaults 703 / 708. BUDGET=n sets both
+    MAIN_BYTES=n            the size each slave main program may have: 6144 bytes, its region 0x0100..0x18FF before
+                            section 2 (docs/DSP_PROGRAM_MEMORY.md §3.1); 5854 bytes ran, 6534 and 6740 hung the
+                            device (2026-10-28). Above a budget or the size the build stops (exit code 3)
     OUTDIR=dir              where the programs and build/s1_programs.h go (default: this folder)
 
     python3 make_s1cc.py           -> s1*.s / s1*.hex here, build/s1_programs.h
@@ -3474,4 +3480,4 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                                       reference (sdk/s1cc refdsp), and the silence without notes
 ```
 
-Environment: `BUDGET` (default '708'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_PITCH` (default '1'), `OUTDIR` (default HERE), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')
+Environment: `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')

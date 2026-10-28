@@ -24,8 +24,8 @@ python3 tools/plugout_tool.py install plugins/SYSTEM-S1CC --slot 1 --force --no-
 | variable | qué hace |
 |---|---|
 | `KERNEL=dir` | obligatoria: la carpeta de salida de `s1cc build` |
-| `VOICES=n` | 1…8 voces (8 por defecto). Menos voces dejan más instrucciones a cada una |
-| `BUDGET_A=n`, `BUDGET_B=n` | instrucciones por muestra permitidas en el DSP A / DSP B del esclavo: 693 / 708 por defecto, lo que corrió en el equipo. En el DSP A, 702 se colgó (2026-10-28) y 826 también ([examples_system_1_synth_README.md](examples_system_1_synth_README.md) §4). Por encima, el build se detiene. `BUDGET=n` pone los dos. Hasta el 2026-10-28 era un único `BUDGET` de 708 para los dos DSP: un error, porque 708 sólo estaba probado en el B |
+| (voces) | no es una opción: `build.sh` prueba 8, 7, … y se queda con la mayor cantidad que entra en los límites (instrucciones por muestra y los 6 KiB del principal), y la anuncia al final (`SYSTEM-S1CC: 6 voices`) |
+| `BUDGET_A=n`, `BUDGET_B=n`, `MAIN_BYTES=n` | los límites medidos: 703 instrucciones por muestra en el DSP A (826 se colgó), 708 en el DSP B, y 6144 bytes de cada programa principal, su región `0x0100`–`0x18FF` ([DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md) §3.1: 5854 bytes corrieron, 6534 y 6740 colgaron el equipo, 2026-10-28). Sólo para probar más, a riesgo propio |
 | `NAME=…` | nombre del PLUG-OUT (`SYSTEM-S1CC`) |
 | `MODEL_ID`, `PARAMLOG=1` | como en MUTABLE-SYSTEM |
 | `ENV_TMIN=s`, `ENV_TMAX=s` | tiempos de las envolventes del anfitrión con el fader en 0 y en 255 (por defecto 0,001 y 10 s, exponencial entre medio, como C-S1SY). Solo si el kernel usa `s1_env` |
@@ -84,8 +84,9 @@ maestro B (s1mm1 @0x1000)  6006 / 6007 × VOLUME (C01C)                 → env�
   tope de 16 palabras como en MUTABLE-SYSTEM; el límite es que las `NV` voces entren hasta `0x07FF`. Lo de abajo de
   `0x0018` es del OS ([../system-1/DSP_BANKS.md](../system-1/DSP_BANKS.md)).
 * **Parámetros.** Las tablas `S1_PARAM` van a `C070`… del DSP A y `C060`… del DSP B, por `panel_id`. El ARM
-  escribe la fila 128 al cargar y la de la posición de la perilla cada vez que se mueve, y las vuelve a escribir
-  en cada nota.
+  escribe la fila de la posición de la perilla cada vez que llega, y las vuelve a escribir en cada nota. Al cargar,
+  el modelo del maestro hace `touch` de los controles `0x160`–`0x18F` del grupo 3 y `flush`: el OS le manda al
+  engine sus valores actuales (sin eso quedaban en la fila 128 hasta mover la perilla) [medido 2026-10-28].
 * **Planificación y reglas.** El planificador (`asm/dspsched.py`) solo arma:
   * grupos de operaciones probados en el equipo (`asm/proven_forms.txt`);
   * un acceso al banco 5 por instrucción (regla 5, `Ins.one_bank5`);
@@ -301,9 +302,68 @@ Ejemplo (`mp_csaw`, 6 voces, con el LFO del anfitrión y COLOR MOD): DSP A 669 �
 (12, DSP A) y `mad:imm + mul:reg` (18, DSP B). En el emulador, el armado con `all` da la misma envolvente y
 silencio sin notas.
 
-**[medido] 2026-10-28.** `MP-CSAW-TRY` (ese armado) corrió en el equipo y sonó igual que `MP-CSAW`: notas, acordes,
-COLOR MOD, LFO y envolventes. Los 14 grupos se promovieron a `asm/proven_forms.txt` (29 → 43), y desde ahí todos los
-armados los usan.
+**[medido] 2026-10-28.** Lo que corrió en el equipo, y lo que lo colgó:
+
+| armado (`mp_csaw`) | grupos nuevos | resultado | lista |
+|---|---|---|---|
+| `MP-CSAW-TRY` (6 voces, secuencial) | 14 | funciona | promovidos (29 → 43) |
+| `MP-CSAW-T8` (8 voces, pares, secciones) | 22 (`TRY_FORMS=all`) | **cuelga** | — |
+| `MP-CSAW-H2` | 12 de esos (sin dos inmediatos) | **cuelga** | — |
+| `MP-CSAW-G2` | 8 de H2: A+A y A+B | funciona | promovidos (43 → 51) |
+| `MP-CSAW-H1` | 8 con dos inmediatos (A+A) | funciona | promovidos (51 → 59) |
+
+El cuelgue está en los 4 grupos que quedan de H2: `max + max`, `ph_wrap + ph_wrap`, `ph_clamp + ph_clamp` y
+`min + min`, **dos ops de la unidad B en una instrucción** (Roland fusiona A+B y A+A+B). No se separó cuál. Están en
+`asm/bad_forms.txt` con `min:imm + min:imm` (B+B, no probado): el planificador no los usa nunca, ni con
+`TRY_FORMS=all`. La bisección: partir los grupos sospechosos en mitades, armar cada mitad con `TRY_FORMS`, y separar
+primero por familia (dos inmediatos, dos ops B) para que cada prueba diga algo aunque cuelgue.
+
+### 4.2 Voces de a pares (`PAIRS`) [medido 2026-10-28]
+
+El código de una voz es una cadena de dependencias: aunque el DSP ejecuta hasta 3 ops por instrucción, 397 de las 447
+instrucciones del DSP A de `mp_saw` tenían una sola. Con pares, cada DSP corre las voces de a dos: la par en r0–r3 y
+la impar, el mismo código, en r4–r7, intercaladas. El planificador junta en una instrucción ops de las dos. Es la
+forma que sugiere el hardware: en la unidad B el operando X nombra 4 registros y la paridad del opcode elige la mitad
+([DSP_HARDWARE.md](DSP_HARDWARE.md) §5.2), y en el SYSTEM-8 cada DSP de oscilador lleva dos voces. Se activa solo
+cuando el kernel está en r0–r3 (`PAIRS=0` / `1` lo fuerza); el DSP B, cuando su kernel también lo está:
+
+```sh
+sdk/s1cc/s1cc build KERNEL.c --regs-a 0,1,2,3 --regs-b 0,1,2,3 -o sdk/s1cc/build/X     # el kernel en 4 registros
+KERNEL=sdk/s1cc/build/X sh examples/system_s1cc/build.sh
+```
+
+* **El anfitrión, en 4 registros.** El LFO por voz, COLOR MOD y las ADSR del DSP B usan r0–r3, con los valores que
+  duran más (inicio de nota, lf, el sub) en palabras del bloque de la voz. Las ADSR vuelven a cargar el nivel para el
+  último paso en lugar de tenerlo en un registro.
+* **`ph_wrap rD, r3, rY`.** El `r3` del medio de `ph_wrap` / `ph_tri` / `ph_clamp` es parte del opcode, no un
+  registro: con `r7` el DSP hace otra cosa (emulador; el primer armado de pares daba las voces impares mal desde la
+  primera muestra). El remapeo a r4–r7 lo deja, y `asm/dspsched.py` ya no lo cuenta como lectura de r3.
+* **Verificación.** Con el mismo kernel, el programa de pares da las mismas muestras que el secuencial (diferencia
+  0 en 9600 muestras, 8 notas, LFO a tono / filtro / amp, COLOR MOD, notas que se sueltan y vuelven). Con grupos de
+  dos inmediatos, 1,3·10⁻⁶ (−118 dB): la precisión de un inmediato al compartir la instrucción [inferido].
+* **En el equipo:** `MP-CSAW-P6` (6 voces, pares) y los armados de §4.1 y §4.3 funcionan.
+
+| `mp_csaw`, LFO y COLOR MOD | voces | DSP A | DSP B |
+|---|---|---|---|
+| secuencial, al empezar el día | 6 | 603 | 427 |
+| pares + secciones, 59 grupos probados (`MP-CSAW`) | **8** | 629 (471 + 158 en la sección 2) | 431 |
+
+### 4.3 Secciones [medido 2026-10-28]
+
+Cada programa principal tiene 6 KiB (§1, [DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md) §3); pasarlos cuelga el equipo.
+Cuando el principal de un DSP no entra, `make_s1cc.py` pone las voces (o pares) que no caben en sus secciones, en el
+orden en que el DSP las corre después del principal: 2 (`0x1900`), 3 (`0x3100`), 4 (`0x4900`), 5 (`0x6100`). Programas
+`s1a2`…`s1a5` (DSP A) y `s1b2`…`s1b5` (DSP B); `engine.c` coloca cada una con
+`FC40(índice, set del programa, vacío, vacío, vacío)` y la enciende con `FC44(índice, 1)`, como la sinte de serie
+coloca sus programas de voz.
+
+* **Dan espacio, no tiempo:** el principal y sus secciones corren en la misma muestra, en el mismo DSP, y suman al
+  mismo presupuesto (`BUDGET_A` / `BUDGET_B` cuentan todo).
+* **`FC40`, no `FC30`.** Encolada con `FC30` en `0x1900`, la sección se copiaba pero no corría (`MP-CSAW-S` con la
+  voz 6 muda, también encendiéndola en cada nota). Con `FC40` corre (`MP-CSAW-S`: las 7 voces suenan).
+* **`FC44(i, 1)` enciende:** el bit que maneja es de apagado (`0x60003F96`). `engine.c` la vuelve a encender en
+  cada `refresh` y en cada nota, como las tablas de perillas.
+* El emulador corre las secciones después del principal (`--sim`).
 
 ## 5. Verificación [sim, 2026-10-27]
 

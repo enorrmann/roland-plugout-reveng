@@ -19,7 +19,9 @@ Estado: 2026-10-23.
    los límites por instrucción (`chain.access_violations`). Un `mov rN, rN` de relleno sólo se escribe en el
    código sin empaquetar y desaparece al empaquetar.
 3. **Operaciones independientes fusionadas.** Dos o tres ops que no dependen entre sí van en una instrucción
-   (`op1 | op2`, A+B, A+A+B). Todas leen antes de escribir. Lo hace el planificador `asm/dspsched.py` (§5),
+   (`op1 | op2`, A+B, A+A+B). **Dos ops de la unidad B en una instrucción cuelgan el SYSTEM-1** [medido 2026-10-28:
+   `max + max`, `ph_wrap + ph_wrap`, `ph_clamp + ph_clamp`, `min + min`; `asm/bad_forms.txt`]. Los grupos que corrieron
+   están en `asm/proven_forms.txt` (59), y los nuevos se prueban con `TRY_FORMS` ([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §4.1). Todas leen antes de escribir. Lo hace el planificador `asm/dspsched.py` (§5),
    reordenando dentro de las dependencias. `pack()` con `FUSE=1` es la versión anterior, sólo con vecinas.
 4. **Sin cargas repetidas.** Un valor que ya está en un registro o en memoria de la misma muestra no se vuelve a
    cargar (por ejemplo, la puerta: una carga por voz y por muestra, que también sirve para la copia hacia el DSP B).

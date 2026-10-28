@@ -225,6 +225,7 @@ std::string fmtImm(double x);
 // ---- lowering ---------------------------------------------------------------------------------------------------
 struct LowerOptions {
     std::vector<int> regs = {0, 1, 2, 3, 4, 7};
+    std::vector<int> regsA, regsB;   // --regs-a / --regs-b: for one DSP only (SYSTEM-S1CC PAIRS=1: DSP A in r0..r3)
     double fitTol = 3e-3;        // span metric
     int maxKnots = 32;           // hinge fits: at most this many knots (2 ops each)
     double fitTolLog = 0.0005;   // log2 metric (octaves; 0.0005 = 0.6 cent: increments are pitches)

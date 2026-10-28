@@ -147,7 +147,9 @@ struct Lowerer {
         return r;
     }
 
-    KVal *materialize(const LV &x, double st, double ot) {      // r' with V = (r' - ot) st
+    // mulFirst: multiply, then add, whatever the immediates: compares of one value against several thresholds (a
+    // table's steps) then share the product (the kernel's CSE) and pay one add each
+    KVal *materialize(const LV &x, double st, double ot, bool mulFirst = false) {      // r' with V = (r' - ot) st
         if (x.isConst())
             return K->mov(KOperand::im(x.k / st + ot));
         // r' = a r + b  (multiply, then add b)  or  (r + b / a) a  (add, then multiply): the smaller immediate
@@ -158,7 +160,12 @@ struct Lowerer {
         KVal *r = x.r;
         // an offset below 2^-26 of the register's scale is representation noise (a phase offset of 2^-29): no add
         bool hasA = std::fabs(a - 1) > 1e-15, hasB = std::fabs(b) > std::ldexp(1.0, -26) * std::max(1.0, std::fabs(ot));
-        if (hasA && hasB && std::fabs(b / a) < std::fabs(b))
+        if (mulFirst && hasA && hasB) {                // only when a r stays in the DSP's range (an offset can be big)
+            Range r0 = rr(x);
+            if (!r0.seen() || std::max(std::fabs(r0.lo), std::fabs(r0.hi)) * std::fabs(a) > LIM)
+                mulFirst = false;
+        }
+        if (hasA && hasB && !mulFirst && std::fabs(b / a) < std::fabs(b))
             return K->mul(K->add(r, KOperand::im(b / a)), KOperand::im(a));
         if (hasA)
             r = K->mul(r, KOperand::im(a));
@@ -337,7 +344,7 @@ struct Lowerer {
         if (isInt && need < 2 && m < std::ldexp(1.0, 19))
             need = 2;
         double k1 = std::min(need, LIM / m);
-        KVal *t = K->clamp(materialize(X, 1 / k1, -k1 * theta));
+        KVal *t = K->clamp(materialize(X, 1 / k1, -k1 * theta, true));
         for (double got = k1; got < need; ) {                     // after a clamp |t| <= 1: gains up to 256
             double k = std::min(need / got, LIM);
             t = K->clamp(K->mul(t, KOperand::im(k)));
@@ -1653,7 +1660,8 @@ struct Lowerer {
     }
 
     std::string run(Dsp &S, std::string &report) {
-        Kernel k(opt.regs);
+        Kernel k(S.name == "A" && !opt.regsA.empty() ? opt.regsA : S.name == "B" && !opt.regsB.empty() ? opt.regsB
+                                                                                                  : opt.regs);
         K = &k;
         val.clear();
         recipCache.clear();

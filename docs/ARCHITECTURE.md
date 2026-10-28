@@ -74,6 +74,10 @@ cambio sí puede llamar a los servicios del slave (`0x0113FC00`). Cada slave cor
 
 ## 4. Mapa de memoria de un DSP (igual en maestro y slaves, cada uno ve los suyos)
 
+Capacidad de cada DSP: ≈ 925–945 instrucciones por muestra (1 ciclo cada una, cualquiera sea su contenido; pasarse
+cuelga el slave), hasta 3 ops y 6 transferencias por instrucción, programa de hasta 64 KiB en principal + ranuras
+(`DSP_HARDWARE.md` §1, `DSP_PROGRAM_MEMORY.md` §2). SYSTEM-1: §6.
+
 | Dirección (DSP n = 0..5) | Contenido | ARM puede |
 |---|---|---|
 | `0x41400000 + n·0x100000` (+`0x2000` SD31, +`0x4000` RAW) | banco 0 (DT0): RAM de datos del programa (refs `02nn`/`04nn`/`06nn`), un **anillo** que rota una palabra por muestra (los DSP corren a 96 kHz) | leer (escribir no queda) |
@@ -105,4 +109,6 @@ Resumen; detalle en `system-1/ARCHITECTURE.md`. El SYSTEM-1 tiene un solo esclav
 ARM no tienen FPU (el SYSTEM-8 sí, VFP: recuento en `system-1/ARCHITECTURE.md` §1.1, `system-1/vfp_count.py`; el código ARM de un PLUG-OUT del SYSTEM-8 no corre allí sin portarlo), la región 0 va en `0x60800000` y la 1 en `0x60200000` (un solo slot, sin reubicación), las dos
 tablas de servicios están en `0x0100FC00`, y la modulación por voz del sinte de serie se calcula en el maestro. Su
 región 0 tiene un objeto modelo que recibe los parámetros (`vt+0x30`); en el SYSTEM-8 no existe ese punto, lo que
-importa para capturar parámetros (`docs/examples_system_1_README.md` §6.3).
+importa para capturar parámetros (`docs/examples_system_1_README.md` §6.3). Sus DSP del esclavo tienen menos
+tiempo (DSP A: 703 instrucciones por muestra corrieron, 826 colgaron) y un programa principal de 6 KiB que no se
+puede pasar (`system-1/ARCHITECTURE.md` §1.0).

@@ -42,6 +42,10 @@ segundo comando. `build` admite además `--tol X` (tolerancia de los ajustes, m�
 
 ### 1.1 Registros (`--regs`)
 
+`--regs-a LIST` / `--regs-b LIST`: lo mismo para un solo DSP. SYSTEM-S1CC con `PAIRS=1` necesita el kernel en
+r0–r3 (`--regs-a 0,1,2,3 --regs-b 0,1,2,3`): la otra mitad es la voz del par
+([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §4.2).
+
 El DSP tiene 8 registros, `r0`–`r7`. `--regs` es la lista de los que el asignador de registros del kernel puede
 usar (§7.5); los demás no los toca. Con menos registros, más valores no entran y se *derraman*: se guardan en una
 palabra temporal del banco 0 (`{T<k>}`, `.scratch` en el kernel) y se vuelven a cargar. Cada derrame cuesta una
@@ -300,7 +304,7 @@ mismos en `s1cc prof` y en `s1cc lower`, porque las dos construyen el grafo igua
 |---|---|---|---|
 | `memset` / `memcpy` de tamaño constante | `Builder::memop` | una escritura por palabra que el DSP lee o escribe en el rango; las demás no cuestan | `Init()` de un objeto, `state_ = {}` |
 | `memset` / `memcpy` de tamaño variable o destino calculado | `memcpyVar`, `call` | sobre una variable chica (≤ 16 palabras): cada palabra condicionada a su distancia y a su dirección candidata (E310 si no) | `std::copy(&u[0], &u[7 - shift], &r[shift])` (Plaits StringSynth) |
-| índice calculado en un array chico | `ptrOf`, `load`, `store` | arrays de estado, locales o `const` de ≤ 16 elementos, o un `phi`/`select` de constantes o de punteros a la misma variable: la palabra se elige con comparaciones (`kSmallArray`) | `partial_phase[i]` de Braids |
+| índice calculado en un array chico | `ptrOf`, `load`, `store` | arrays de estado, locales o `const` de ≤ 16 elementos, o un `phi`/`select` de constantes o de punteros a la misma variable: la palabra se elige con comparaciones (`kSmallArray`). Una tabla `float` de constantes se lee como suma de escalones e0 + Σ (e_k − e_k−1)·[idx ≥ k]: una comparación entera exacta y una suma por elemento, y las comparaciones de un índice se comparten entre las tablas que lee (2026-10-28: los acordes de Plaits 290 → 139 instrucciones por voz). Fuera de rango, el extremo más cercano | `partial_phase[i]` de Braids; `kR0[c]` de `mp_chord.c` |
 | `x ^ (c ? K : 0)` con los bits de `x` dentro de K | `xorMask` | `c ? K − x : x` | el triángulo de Braids |
 | sumas enteras que se cancelan | `affineSimplify` | forma afín de `add`/`sub`/`~`/×const, también a través de un `select` (sus dos brazos); si quedan ≤ 2 términos, el nodo se reconstruye con ellos | `prev + (prev < cur ? cur − prev : ~(prev − cur))` = `cur` o `cur − 1` |
 | `c ? x + y : x` | `affineSimplify` | `x + (c ? y : 0)`: un producto por c y una suma, en vez de restar los brazos (no si `y` es constante: el wrap de fase sigue reconocible) | los `this_sample += …` de los BLEP |
@@ -432,6 +436,11 @@ Cada valor V del programa vive en un registro r con una escala s y un desplazami
 * **`xor` con constante.** Por tramos de bits contiguos k…j: `x ^ c = x + c − 2 (x mod 2^(j+1)) + 2 (x mod 2^k)`.
 * **Comparaciones.** Exactas hasta un rango de 2^19; más anchas (una fase de 32 bits), un paso de 2^−16 del rango (2
   etapas de `ph_clamp`). Floats: 2^−24.
+* **Comparaciones de un valor contra varios umbrales.** El valor se multiplica primero y después se le resta cada
+  umbral (`materialize(..., mulFirst)`): el producto es el mismo en todas y el CSE del kernel lo comparte. Un escalón
+  de tabla cuesta 3 ops en lugar de 4.
+* **Pendiente: `a·(1 − x)` con x diminuto** (un decaimiento por muestra calculado en el DSP) pierde la precisión de
+  x; `a − a·x` no (mp_bell / mp_kick, 2026-10-28: SNR 0 dB → 88 dB).
 * **Comparaciones constantes (W909).** Una comparación que dio siempre lo mismo en el perfilado se baja como esa
   constante antes de la liveness: el lado que nunca toma no cuesta (`--no-fold-branches` las deja).
 * **Booleanos.** `band` de dos booleanos con el mismo nivel falso y la misma orientación: `min` (o `max`), 1 op.

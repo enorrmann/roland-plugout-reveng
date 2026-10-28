@@ -92,10 +92,22 @@ y DSP B `0x1000` (programa del PLUG-OUT); y cierres de sección vacíos en `0x5F
 * Programas: **sets** `{dirección, bytes, puntero}` terminados en `{0, 0, 0}` en las colas `FC30` (DSP A) y `FC34`
   (DSP B); `FC38`/`FC3C` son colas de datos. El OS vacía las colas y luego llama a `load` del motor (esclavo) o del
   modelo (maestro), que encola lo suyo; el maestro encola antes sus propios sets de modo PLUG-OUT.
-* Secciones de voz: `FC44(índice 0–7, on)` pone o quita el bit `1 << sección` de la máscara del DSP (A/B); `FC40`
-  coloca un programa de voz en una sección. Índice → (DSP, sección): 0 → A/2, 1 → A/4, 2 → B/2, 3 → B/4,
-  4 → A/3, 5 → A/5, 6 → B/3, 7 → B/5 ([../system-1/SH101_POLY.md](../system-1/SH101_POLY.md) §2). Al recargar, el
-  OS limpia los bits 1–5 de las dos máscaras (`bic 0x3E`) [código].
+* Secciones de voz [código, medido 2026-10-28]:
+  * `FC40(índice, set del programa, set de datos 1, set de datos 2, set de datos 3)` (`0x60003F22`) coloca un programa
+    en una sección. Los cuatro argumentos son listas `{dirección, bytes, puntero}` terminadas en `{0, 0, 0}`; los de
+    datos inicializan memoria de datos de la voz (Roland: `{0x17f8, 8, …}`) y pueden ir vacíos. Encola en su propia
+    cola (`0x600602d8`) con el número de sección y llama a la maquinaria de tareas. La sinte de serie la usa así
+    (`0x6004ecb4`: `FC40(i, set de voz, set de datos, vacío, vacío)`).
+  * **Un programa encolado con `FC30` / `FC34` en la dirección de una sección se copia pero no corre** [medido:
+    la voz de la sección 2 quedaba muda]. Con `FC40` corre.
+  * `FC44(índice, on)` (`0x60003F96`) maneja el bit `1 << sección` de `[0x60018520 + A/B·4 + 0x68]`, que es un
+    bit de **apagado**: `on = 1` lo borra (enciende la sección), `on = 0` lo pone [código]. El OS apaga las
+    secciones al recargar (`bic 0x3E`).
+  * Índice → (DSP, sección, dirección): 0 → A/2 `0x1900`, 4 → A/3 `0x3100`, 1 → A/4 `0x4900`, 5 → A/5 `0x6100`,
+    2 → B/2, 6 → B/3, 3 → B/4, 7 → B/5 ([../system-1/SH101_POLY.md](../system-1/SH101_POLY.md) §2).
+  * Una sección corre **después del principal, en la misma muestra**, con los mismos registros y la misma memoria;
+    sus instrucciones suman al mismo presupuesto de tiempo: dan espacio, no tiempo [medido: SYSTEM-S1CC con la
+    voz 6 en la sección 2 suena igual que las otras].
 * El principal y el cierre corren siempre (C-S1V4 suena con todas las secciones apagadas) [medido].
 
 ### 3.3 Usos
@@ -106,9 +118,9 @@ y DSP B `0x1000` (programa del PLUG-OUT); y cierres de sección vacíos en `0x5F
 | principal + secciones de voz (un programa por voz) | sinte de serie (4 por DSP), SH-2 (2 en el DSP A) | [código] |
 | encender/apagar voces sin recargar | `FC44(i, on)`: también ahorra ciclos | [código] |
 | cambiar el programa de una voz | `FC40` sobre una sección | [código] |
-| principal más largo que 6 KiB (pisando `0x1900`…) | con las secciones apagadas nada ejecuta ni escribe esa zona después de `load` (sólo `FC40` o un set la escribirían). El programa seguiría siendo uno solo, lineal, hasta su `0b02 00f8`. Límite: no llegar a `0x7FF2` (el cierre) | [abierto] |
+| principal más largo que 6 KiB (pisando `0x1900`…) | **cuelga el equipo** [medido 2026-10-28, SYSTEM-S1CC: 6534 bytes con 702 instrucciones y 6740 bytes con 578 instrucciones colgaron; 5854 bytes con 703 instrucciones corrieron]. Falta saber si es el tamaño de la región o los bytes ejecutados por muestra (los dos coinciden en ≈ 6 KiB); un programa partido entre el principal y la sección 2 lo distinguiría | [medido] / [abierto] |
 | código que no corre en cada muestra | saltos condicionales: programas alternativos en la misma memoria, elegidos por una bandera; lo salteado no cuesta | [medido en el SYSTEM-8; ISA igual] |
-| usar una sección como "segundo principal" | poner un programa propio en `0x1900` y encenderlo con `FC44(0, 1)`: corre después del principal en el mismo DSP | [abierto] (el SH-2 lo hace con programas de voz) |
+| usar una sección como "segundo principal" | colocar el programa con `FC40` (no con `FC30`) y encenderlo con `FC44(índice, 1)`: corre después del principal en el mismo DSP. SYSTEM-S1CC lo hace solo cuando el principal no entra en sus 6 KiB (`examples/system_s1cc/make_s1cc.py SECTIONS`) | [medido 2026-10-28] |
 
 ## 4. Elegir
 

@@ -28,8 +28,8 @@ Tabla de servicios del slave en `0x0100FC00` (copiada de `0x6005A6B0`, 0x288 byt
 | `0x0100FC34` | `0x60003ED9` | ídem **DSP1** (`0x600603F0`) |
 | `0x0100FC38` / `FC3C` | `0x60003EE3` / `0x60003EED` | ídem DSP2 / DSP3 (`0x60060400` / `0x60060410`) |
 | `0x0100FC28` / `FC2C` | `0x60003EBD` / `0x60003EC5` | ídem DSP4 / DSP5 (`0x60060420` / `0x60060430`) |
-| `0x0100FC40` | `0x60003F22` | coloca un programa de voz: índice 0–7 → (A/B, ranura, sección) |
-| `0x0100FC44` | `0x60003F96` | activa/desactiva una de esas 8 ranuras (bit `1 << sección` en `[0x60018520 + A/B·4 + 0x68]`) |
+| `0x0100FC40` | `0x60003F22` | coloca un programa de voz: `FC40(índice 0–7, set del programa, 3 sets de datos)` → (A/B, ranura, sección) por su propia cola (`0x600602d8`) [código]; un programa propio colocado así corre [medido 2026-10-28] |
+| `0x0100FC44` | `0x60003F96` | activa/desactiva una de esas 8 ranuras: el bit `1 << sección` de `[0x60018520 + A/B·4 + 0x68]` es de **apagado**; `FC44(i, 1)` lo borra (enciende), `FC44(i, 0)` lo pone [código] |
 
 La asignación de cada DSP a una cola sale del orden de los desplazamientos (`-0x40` … `+0x10` sobre `0x60060420`)
 y es [inferida]; el resto es [código].

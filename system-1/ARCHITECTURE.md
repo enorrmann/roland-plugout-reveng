@@ -37,6 +37,21 @@ Leyenda: **[medido]** · **[código]** · **[inferido]** · **[abierto]**.
 | muestreo | 96 kHz | 96 kHz [inferido: la sierra calibrada a 96 kHz suena afinada, a oído] |
 | panel | STM32F103 por UART | [abierto]: el actualizador no trae imagen de otro micro (`FIRMWARE.md` §2.1) |
 
+### 1.0 Capacidad de los DSP del esclavo (lo que entra en un PLUG-OUT)
+
+| recurso | DSP A | DSP B | certeza / detalle |
+|---|---|---|---|
+| tiempo por muestra (96 kHz) | **703** instrucciones corrieron, 826 colgaron | **708** corrieron (sin límite buscado) | [medido], `docs/examples_system_1_synth_README.md` §4. 1 ciclo por instrucción, cualquiera sea su contenido (medido en el SYSTEM-8, `docs/DSP_HARDWARE.md` §1) |
+| programa principal | **6 KiB** (`0x0100`–`0x18FF`); pasarse cuelga | igual | [medido 2026-10-28], `docs/DSP_PROGRAM_MEMORY.md` §3 |
+| memoria de programa total | 32 KiB: principal + secciones 2–5 (~6 KiB c/u) + cierre. Una sección propia se coloca con `FC40` (con `FC30` se copia pero no corre) y se enciende con `FC44(i, 1)`; corre después del principal y suma a su tiempo | igual | [medido 2026-10-28], `docs/DSP_PROGRAM_MEMORY.md` §3.2 |
+| tamaño de una instrucción | 2–62 bytes; ≈ 8–10 en los nuestros: 6 KiB son ≈ 600–750 instrucciones | | [medido] |
+| ops por instrucción | hasta 3 (sólo los grupos de `asm/proven_forms.txt`) y 3 transferencias, con las reglas R2–R8 | | [medido], `asm/s1rules.py`, `docs/MICROCODE_OPTIMIZATION.md` |
+| registros | r0–r7 compartidos por todos los programas del DSP; dos mitades r0–r3 / r4–r7 (dos voces de a pares, `docs/examples_system_s1cc_README.md` §4.2) | | [medido] |
+| memoria de datos | banco 0 (anillo, 0x800 palabras), 1, 5 (0x400, el que escriben el ARM y los DSP: `A100`–`A1FF` para los DSP), 6 (parámetros, sólo lectura) | | [medido], `system-1/DSP_BANKS.md`, `docs/DSP_HARDWARE.md` §7 |
+
+El build de SYSTEM-S1CC aplica estos límites (`make_s1cc.py`: `BUDGET_A` / `BUDGET_B` / `MAIN_BYTES`) y elige solo
+cuántas voces entran.
+
 ### 1.1 Coma flotante: el SYSTEM-8 tiene FPU, el SYSTEM-1 no [código]
 
 Los ARM de los BMC del SYSTEM-8 tienen unidad de coma flotante (VFP, simple precisión) y todo su código la usa; los
@@ -90,6 +105,7 @@ la región 1 sólo puede llamar a los servicios del esclavo, y sólo la región 
 | pasar al PLUG-OUT | maestro: `get_b()` → `vt[0]`, `get_a()` = asignador; colas del maestro vaciadas, sets de modo PLUG-OUT del OS, `model->vt[2]` (load). Esclavo: `get_b()` → `vt[0]`, colas vaciadas, secciones apagadas, `engine->vt[2]` [código, medido] |
 | nota | OS → asignador `note_on` → `set(2, 0x110+v / 0x120+v)` → maestro (su DSP) y esclavo (`engine vt+0x30(id, 0, valor)`) → el motor escribe el banco 5 (`FD6C`) [medido] |
 | control del panel | OS → `model vt+0x30(id, flag, valor)` en el maestro (VOLUME = `0x100`) y, para los grupos 0–3, `engine vt+0x30` en el esclavo [medido con PARAMLOG] |
+| valores del panel al entrar al PLUG-OUT | el OS no los reenvía; el modelo hace `touch(3, id)` de `0x160`–`0x18F` y `flush(3)` en `load` y el OS los manda al engine (`examples/system_s1cc/model.c resend_panel`) [medido 2026-10-28: los controles del sinte son del grupo 3] |
 | audio | esclavo A → B (banco 5) → IOMD `6006`–`600D` → maestro B → `A118`/`A119` → maestro A (`0x82`) → `6000`/`6001` → salida [medido] |
 | modulación (sinte de serie) | maestro (programa de 696 instrucciones) → IOMD `600E`–`6021` → esclavo A [código] |
 | MIDI hacia el PC | sólo desde el maestro: la región 0 puede usar el envío del OS (`0x600065B0`, objeto `0x605F20D4`, cable 3, máscara 1) → sale por MIDI 1 [medido] |

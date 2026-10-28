@@ -1,0 +1,9 @@
+# op groups that hung the SYSTEM-1 when they shared one instruction (asm/dspsched.py never uses them, not even with
+# TRY_FORMS=all). 2026-10-28, SYSTEM-S1CC MP-CSAW 8 voices: MP-CSAW-H2 (these 4 + 8 others) hung, MP-CSAW-G2 (the 8
+# others) ran: one or more of these 4, all two unit-B ops in one instruction (Roland fuses A+B and A+A+B)
+max:reg + max:reg
+ph_wrap:reg + ph_wrap:reg
+ph_clamp:reg + ph_clamp:reg
+min:reg + min:reg
+# not run on the device, kept out with them: also two unit-B ops (2026-10-28)
+min:imm + min:imm

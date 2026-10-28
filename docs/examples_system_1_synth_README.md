@@ -163,18 +163,25 @@ paso 13 + `FOLD` = A 585 / B 471. Cada build lo imprime (`s1m0 … instructions`
 
 ## 4. Presupuesto de tiempo de los DSP del esclavo [medido]
 
-| programa del DSP A | instrucciones (una unidad cada una) | resultado |
-|---|---|---|
-| paso 6 | 682 | funciona |
-| paso 7 | 826 | cuelga al seleccionar el PLUG-OUT |
-| paso 6 + 144 `mov r4, r4` | 826 | cuelga |
-| C-S1SY9 (paso 9) | 693 | funciona |
-| SYSTEM-S1CC `MP-CSAW`, 6 voces | 669 y 603 | funcionan (2026-10-28) |
-| SYSTEM-S1CC `MP-CSAW`, 7 voces | 702 | **cuelga** al tocar (2026-10-28; mismo programa que el de 6 voces con una voz más) |
+| programa del DSP A | instrucciones (una unidad cada una) | bytes del programa | resultado |
+|---|---|---|---|
+| paso 6 | 682 | — | funciona |
+| paso 7 | 826 | — | cuelga al seleccionar el PLUG-OUT |
+| paso 6 + 144 `mov r4, r4` | 826 | — | cuelga |
+| C-S1SY9 (paso 9) | 693 | — | funciona |
+| SYSTEM-S1CC `MP-CSAW`, 8 voces (el primero con COLOR MOD) | **703** | 5854 | funciona (2026-10-28) |
+| SYSTEM-S1CC `MP-CSAW`, 6 voces / `MP-CSAW-P6` (pares) | 669 / 557 | 5742 / 5626 | funcionan (2026-10-28) |
+| SYSTEM-S1CC `MP-CSAW`, 7 voces | 702 | **6534** | **cuelga** al tocar (2026-10-28) |
+| SYSTEM-S1CC `MP-CSAW-P8` (pares) | 578 | **6740** | **cuelga** (2026-10-28) |
 
-El límite del SYSTEM-1 está **entre 693 y 702** instrucciones por muestra en el DSP A del esclavo (antes: entre 682 y 826), más bajo que las
-925–945 medidas en el SYSTEM-8 (`docs/DSP_HARDWARE.md` §1). No se buscó el valor exacto: cada intento por encima
-cuelga el equipo y hay que apagarlo y encenderlo. Para diseñar se toma **682 como máximo probado**.
+Dos límites:
+* **Tiempo:** entre **703** (lo más alto que corrió) y 826 instrucciones por muestra en el DSP A del esclavo, más bajo
+  que las 925–945 medidas en el SYSTEM-8 (`docs/DSP_HARDWARE.md` §1). No se buscó el valor exacto: cada intento por
+  encima cuelga el equipo y hay que apagarlo y encenderlo.
+* **Tamaño:** el programa principal tiene que entrar en su región, `0x0100`–`0x18FF` = **6144 bytes**
+  ([DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md) §3.1). Los dos cuelgues de 2026-10-28 la pasan con menos de 703
+  instrucciones (702 y 578), y todo lo que corrió entra. [abierto]: si es el tamaño de la región o los bytes
+  ejecutados por muestra (coinciden en ≈ 6 KiB).
 
 Con el empaquetado (§5), las 587 instrucciones del paso 7 funcionan, así que una instrucción con hasta tres
 transferencias cuesta como una sola [inferido: lo mismo que se midió en el SYSTEM-8 con A/A/B].

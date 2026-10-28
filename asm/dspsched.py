@@ -85,6 +85,8 @@ class Unit:
             self.dest, self.reads = None, set(range(8))
             return
         self.dest = regs[0]
+        if mn in ('ph_wrap', 'ph_tri', 'ph_clamp'):      # `ph_wrap rD, r3, rY`: that r3 is part of the opcode
+            regs = regs[:1] + regs[2:]
         self.reads = set(regs[1:]) | ({regs[0]} if mn in READS_DEST else set())
 
 
@@ -200,6 +202,11 @@ def candidate_forms(lines, proven):
     return sorted(out, key=lambda x: (-x[1], -x[2])), len(base), len(free)
 
 
+def load_bad(path=None):
+    """op groups that hung the device (asm/bad_forms.txt): never fused, not even when every group is allowed"""
+    return load_proven(path or os.path.join(HERE, 'bad_forms.txt'))
+
+
 def load_proven(path=None):
     """op groups proven on the device (asm/proven_forms.txt: one signature per line, ops joined by ' + ')"""
     path = path or os.path.join(HERE, 'proven_forms.txt')
@@ -214,6 +221,15 @@ def load_proven(path=None):
 def _bank_name(addr):
     """as asm/s1rules.py bank()"""
     return {0x0: '0', 0x1: '1', 0x3: 'io', 0x5: '5', 0x6: '6', 0x7: 'e'}.get(addr >> 13, f'{addr >> 13:x}')
+
+
+_BAD = []
+
+
+def _bad():
+    if not _BAD:
+        _BAD.append(load_bad() if os.path.exists(os.path.join(HERE, 'bad_forms.txt')) else set())
+    return _BAD[0]
 
 
 class Ins:
@@ -248,8 +264,11 @@ class Ins:
         if u.kind == 'op':
             if len(self.ops) >= MAX_OPS:
                 return False
-            if self.ops and self.allowed is not None:
-                return op_signature([x.text for x in self.ops] + [u.text]) in self.allowed
+            if self.ops:
+                sig = op_signature([x.text for x in self.ops] + [u.text])
+                if self.allowed is not None:
+                    return sig in self.allowed
+                return sig not in _bad()
             return True
         if len(self.xf) >= MAX_XFER or any(mem_key(x.addr) == mem_key(u.addr) for x in self.xf):
             return False

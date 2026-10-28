@@ -43,7 +43,7 @@ CASES = [
     ('mutable_ported/mp_saw.c', ['--regs', '0,1,2,3,4,5,6,7'], [(45, {}, 65, 50), (81, {'cutoff': 200}, 60, 50)], (27, 45)),
     ('mutable_ported/mp_csaw.c', ['--regs', '0,1,2,3,4,5,6,7'], [(57, {'color0': 40, 'color1': 200}, 65, 50)], (68, 45)),
     # cutoff open: with the filter at 128 the 1-4 kHz band of B is ~100 dB down, where only the filter's noise floor is
-    ('mutable_ported/mp_harmonic.c', ['--regs', '0,1,2,3,4,5,6,7'], [(57, {'amp': 200, 'cutoff': 255}, 75, 50)], (86, 45)),
+    ('mutable_ported/mp_harmonic.c', ['--regs', '0,1,2,3,4,5,6,7'], [(57, {'color0': 200, 'cutoff': 255}, 75, 50)], (92, 45)),
     ('mutable_ported/mp_filter_ladder.c', ['--regs', '0,1,2,3,4,5,6,7'], [(45, {'reso': 200}, 65, 60)], (27, 46)),
     # s1_export / s1_import: DSP A's note frequency to DSP B's key-tracked low-pass
     ('simple_saw_wrapped/simple_saw_export.c', ['--regs', '0,1,2,3,4,5,6,7'],

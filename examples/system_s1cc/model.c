@@ -290,7 +290,7 @@ static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x
    moves, so on entering the PLUG-OUT the kernel's tables, envelopes and LFO kept their defaults (CUTOFF and
    RESONANCE at 128 whatever the knobs said, 2026-10-28). touch + flush makes the OS send them all again with their
    values. The synth's controls 0x160..0x18F are patch words (patch id 0x160 + k) of group 3, as 0x18A..0x190
-   (system-1/FX_CHAIN.md §1) [inferred: group 3 for 0x160..0x189] */
+   (system-1/FX_CHAIN.md §1). [measured 2026-10-28: MP-CSAW reads CUTOFF / RESONANCE as they are when selected] */
 enum { ID_PANEL0 = 0x160, ID_PANEL1 = 0x18F };
 
 static void resend_panel(void)

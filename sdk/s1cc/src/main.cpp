@@ -92,12 +92,13 @@ int main(int argc, char **argv) {
         else if (a == "--trace") opt.trace = true;
         else if (a == "--maxdeg") opt.maxDeg = std::stoi(next());
         else if (a == "--maxknots") opt.maxKnots = std::stoi(next());
-        else if (a == "--regs") {
-            opt.regs.clear();
+        else if (a == "--regs" || a == "--regs-a" || a == "--regs-b") {
+            std::vector<int> &dst = a == "--regs" ? opt.regs : a == "--regs-a" ? opt.regsA : opt.regsB;
+            dst.clear();
             std::stringstream ss(next());
             std::string r;
             while (std::getline(ss, r, ','))
-                opt.regs.push_back(std::stoi(r));
+                dst.push_back(std::stoi(r));
         } else usage();
     }
     LLVMContext ctx;

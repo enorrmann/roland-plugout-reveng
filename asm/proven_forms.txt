@@ -44,3 +44,21 @@ mov:imm + mul:imm
 mov:reg + mul:imm
 mov:reg + mul:reg
 mul:imm + ymacd:imm
+# proven 2026-10-28 by MP-CSAW-G2 (TRY_FORMS build run on the device)
+addxy:reg + mul:imm
+addxy:reg + subxy:imm
+mad:imm + subxy:reg
+mad:reg + mad:reg
+mad:reg + subxy:reg
+mov:reg + mov:reg
+mul:reg + ph_tri:reg
+mul:reg + ymacd:imm
+# proven 2026-10-28 by MP-CSAW-H1 (TRY_FORMS build run on the device)
+add:imm + add:imm
+addxy:imm + addxy:imm
+addxy:imm + mad:imm
+mad:imm + mad:imm
+mad:imm + mul:imm
+mul:imm + mul:imm
+subxy:imm + subxy:imm
+ymacd:imm + ymacd:imm

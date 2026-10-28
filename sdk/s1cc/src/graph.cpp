@@ -600,14 +600,36 @@ struct Builder {
     void load(LoadInst *L) {
         Ptr p = ptrOf(L->getPointerOperand());
         if (p.idx) {                      // a small computed address: the word whose key the index is
-            Node *v = nullptr;
+            std::vector<Node *> es;
+            bool consts = true;
             for (size_t k = 0; k < p.cand.size(); k++) {
                 Ptr q = p;
                 q.idx = nullptr;
                 q.off = p.off + p.cand[k];
-                Node *e = getWord(q, L->getType(), L);
-                v = v ? sel(eqIdx(p.idx, (int)p.key[k]), e, v, e) : e;
+                es.push_back(getWord(q, L->getType(), L));
+                consts = consts && es.back()->kind == NK::Const;
             }
+            // a float table: a sum of steps e0 + sum (e_k - e_k-1) [idx >= key_k] (keys ascending). An integer compare
+            // is exact, a select of constants costs nothing, and the compares of one index are the same in every
+            // table it reads (the kernel's CSE shares them): ~2 ops per element instead of ~6 for idx == key_k
+            // selects (Plaits' chord tables: 290 -> ... instructions per voice). Out of range: the nearest end
+            if (consts && es.size() > 2 && !es[0]->isInt) {
+                Node *v = es[0];
+                for (size_t k = 1; k < es.size(); k++) {
+                    double d = es[k]->c - es[k - 1]->c;
+                    if (d == 0)
+                        continue;
+                    Node *ge = mk(NK::Op, "icmp.sge", {p.idx, cst((double)p.key[k], true, p.idx->bits)});
+                    ge->isInt = true;
+                    ge->bits = 1;
+                    v = mk(NK::Op, "fadd", {v, sel(ge, cst(d), cst(0.0), es[0])});
+                }
+                vmap[L] = v;
+                return;
+            }
+            Node *v = nullptr;
+            for (size_t k = 0; k < es.size(); k++)
+                v = v ? sel(eqIdx(p.idx, (int)p.key[k]), es[k], v, es[k]) : es[k];
             vmap[L] = v;
             return;
         }

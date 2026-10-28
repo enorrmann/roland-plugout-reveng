@@ -16,9 +16,13 @@ representativos; **[inferido]** = deducido del corpus o del lado ARM, sin medici
 | Chips | 3 BMC (maestro + 2 slaves de 4 voces cada uno), iguales en hardware | [inferido] |
 | DSP por BMC | 6 (DSP0..DSP5) + DSPM (sin estudiar) | [inferido] |
 | Frecuencia de muestreo | 96 kHz; el programa de cada DSP corre entero una vez por muestra | [exacto] |
-| Ciclos por muestra | ≈ 925–945 (≈ 90 MHz) en todos los DSP del SYSTEM-8. **SYSTEM-1, esclavo DSP A: entre 682 y 826** (682 funciona, 826 cuelga, también con relleno puro; `docs/examples_system_1_synth_README.md` §4) | [medido] |
+| Ciclos por muestra | ≈ 925–945 (≈ 90 MHz) en todos los DSP del SYSTEM-8. **SYSTEM-1, esclavo DSP A: entre 703 y 826** (703 funciona, 826 cuelga, también con relleno puro); esclavo DSP B: 708 funciona, sin límite buscado (`docs/examples_system_1_synth_README.md` §4) | [medido] |
 | Costo | **1 ciclo por instrucción**, cualquiera sea su contenido (1 op, A/A/B, 1 o 2 MAC, hasta 6 transferencias, marcadores); salto tomado +1 ciclo; lo salteado por un salto no cuesta | [medido] |
 | Pasarse del presupuesto | se pierde el final del programa; en los slaves deja el equipo inestable hasta apagarlo | [medido] |
+| Memoria de programa | SYSTEM-8: hasta 64 KiB por DSP (principal en `0x0100`, ranuras en `0x6000` / `0x8000` / `0xB000`). SYSTEM-1: 32 KiB por DSP, en regiones: principal `0x0100`–`0x18FF` (**6 KiB**), secciones 2–5 de ~6 KiB, cierre en `0x7FF2` (`DSP_PROGRAM_MEMORY.md`) | [código] |
+| Tamaño del principal (SYSTEM-1) | **6144 bytes**: un principal que pisa `0x1900` cuelga el equipo aunque tenga menos de 703 instrucciones (6534 bytes / 702 instr. y 6740 / 578 colgaron; 5854 / 703 corrió, 2026-10-28) | [medido] |
+| Tamaño de una instrucción | 1–31 palabras de 16 bits (cabecera incluida, §4.2): 2–62 bytes; media 6–8 bytes en los programas de Roland, ≈ 8–10 en los nuestros (inmediatos de 32 bits) | [exacto] / [medido] |
+| Contenido de una instrucción | hasta 3 ops (A/A/B, como Roland) y 6 transferencias; los programas del SYSTEM-1 respetan además las reglas de acceso R2–R8 (`asm/s1rules.py`: 1 acceso al banco 5, ≤ 2 cargas del banco 0, …) y sólo los grupos de ops probados (`asm/proven_forms.txt`) | [medido] |
 | Reloj común | todos los DSP de un BMC comparten el contador de muestras (posición de escritura del retardo idéntica en DSP3 y DSP4) | [medido] |
 
 Cada DSP ejecuta **varios programas por muestra**: un programa principal y "ranuras" (slots) que el ARM agrega

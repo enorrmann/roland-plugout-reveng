@@ -274,6 +274,9 @@ std::vector<std::string> Kernel::lines() {
     std::deque<int> freeRegs(regs_.begin(), regs_.end());
     std::map<int, KVal *> live;            // value number -> value, in a register
     std::map<int, std::string> spilled;    // value number -> scratch word
+    // a value reloaded from its scratch word keeps it until its last use: values do not change, so spilling it again
+    // needs no store (2026-10-28: mp_csaw in four registers stored T3 back unchanged)
+    std::map<int, std::string> home;
     std::vector<KOp> out2;
     int nslot = 0;
     std::vector<std::string> freeSlots;
@@ -293,6 +296,13 @@ std::vector<std::string> Kernel::lines() {
             }
         if (!victim)
             fail("E704", "kernel: out of registers (" + std::to_string(regs_.size()) + " usable) even with spilling");
+        auto hm = home.find(victim->n);
+        if (hm != home.end()) {                  // still in its scratch word: no store
+            spilled[victim->n] = hm->second;
+            home.erase(hm);
+            live.erase(victim->n);
+            return victim->reg;
+        }
         std::string slot;
         if (!freeSlots.empty()) {
             slot = freeSlots.back();
@@ -326,7 +336,7 @@ std::vector<std::string> Kernel::lines() {
             ld.d = nv;
             ld.addr = it->second;
             out2.push_back(ld);
-            freeSlots.push_back(it->second);
+            std::string slot = it->second;
             spilled.erase(it);
             // later reads of v read nv
             for (int j = i; j < (int)ops.size(); j++) {
@@ -337,6 +347,7 @@ std::vector<std::string> Kernel::lines() {
                     ops[j].acc = nv;
             }
             uses[nv->n] = uses[v->n];
+            home[nv->n] = slot;
             keep.insert(nv->n);
             live[nv->n] = nv;
             o = ops[i];
@@ -349,6 +360,11 @@ std::vector<std::string> Kernel::lines() {
             bool dies = nextUse(v->n, i + 1) == 1 << 30;
             if (dies && live.erase(v->n))
                 freeRegs.push_back(v->reg);
+            auto hm = home.find(v->n);
+            if (dies && hm != home.end()) {        // its scratch word is free again
+                freeSlots.push_back(hm->second);
+                home.erase(hm);
+            }
         }
         if (o.kind == "pair") {                      // recipseed: two adjacent registers r, r + 1
             int got = -1;

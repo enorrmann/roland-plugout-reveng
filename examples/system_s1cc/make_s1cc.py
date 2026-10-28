@@ -13,11 +13,13 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
     knobs                   the kernel's S1_PARAM tables, by panel id: DSP A parameters from C070, DSP B from C060
 
     KERNEL=dir (required)   an s1cc build directory (sdk/s1cc/s1cc build ... -o dir)
-    VOICES=n                1..8 (default 8): fewer voices, more instructions for each
+    VOICES=n                1..8 (default 8). build.sh sets it: the most voices that fit (it tries 8, 7, ...)
     BUDGET_A=n, BUDGET_B=n  instructions per sample the slave's DSP A / DSP B may have, measured on the device
-                            (docs/examples_system_1_synth_README.md §4): DSP A 693 ran (C-S1SY9), 702 hung
-                            (MP-CSAW 7 voices, 2026-10-28), 826 hung; DSP B 708 ran. Defaults 693 / 708; above
-                            them the build stops. BUDGET=n sets both
+                            (docs/examples_system_1_synth_README.md §4): DSP A 703 ran (MP-CSAW 8 voices,
+                            2026-10-28), 826 hung; DSP B 708 ran. Defaults 703 / 708. BUDGET=n sets both
+    MAIN_BYTES=n            the size each slave main program may have: 6144 bytes, its region 0x0100..0x18FF before
+                            section 2 (docs/DSP_PROGRAM_MEMORY.md §3.1); 5854 bytes ran, 6534 and 6740 hung the
+                            device (2026-10-28). Above a budget or the size the build stops (exit code 3)
     OUTDIR=dir              where the programs and build/s1_programs.h go (default: this folder)
 
     python3 make_s1cc.py           -> s1*.s / s1*.hex here, build/s1_programs.h
@@ -46,8 +48,9 @@ if not KERNEL or not os.path.exists(os.path.join(KERNEL, 'voice.s1k')):
 NV = int(os.environ.get('VOICES', '8'))
 if not 1 <= NV <= 8:
     raise SystemExit('make_s1cc.py: VOICES must be 1..8 (the OS hands notes to 8 voice ids at most)')
-BUDGET = {'s1m0': int(os.environ.get('BUDGET_A', os.environ.get('BUDGET', '693'))),    # DSP A: 693 ran, 702 hung
+BUDGET = {'s1m0': int(os.environ.get('BUDGET_A', os.environ.get('BUDGET', '703'))),    # DSP A: 703 ran, 826 hung
           's1m1': int(os.environ.get('BUDGET_B', os.environ.get('BUDGET', '708')))}    # DSP B: 708 ran
+MAIN_BYTES = int(os.environ.get('MAIN_BYTES', '6144'))  # 0x0100..0x18FF: 5854 bytes ran, 6534 / 6740 hung
 OUTDIR = os.environ.get('OUTDIR', HERE)        # where the .s / .hex and build/s1_programs.h go (tests: elsewhere)
 KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 KTAB = s1kernel.read_tables(os.path.join(KERNEL, 'tables.txt'))
@@ -67,8 +70,67 @@ LFO_PITCH = os.environ.get('LFO_PITCH', '1') == '1'
 PITCH_MOD = [n for n in ('pitch', 'dt', 'rdt') if LFO_PITCH and f'IN:{n}' in A_READS]
 LFO_F, LFO_A = 'IN:lfo_filter' in A_READS, 'IN:lfo_amp' in A_READS
 HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A)
+# the LFO runs on DSP B (room there; DSP A is for the oscillators): its lf goes to DSP A through bank 5 (LFB), one
+# sample later; the pitch envelope (COLOR MOD source and PITCH ENV AMOUNT -> pitch) stays on DSP A
+PENV = bool(PITCH_MOD or CMOD)
+# the host's mixer on DSP A, after the kernel: voice = kernel + SUB x a square one octave down + NOISE x the LFO's
+# noise, before DSP B's filter (SUB 0x176, NOISE 0x177; 0 until the knobs move). MIX=0 leaves it out
+HOST_MIX = HOST_LFO and os.environ.get('MIX', '1') == '1'
+# inputs of DSP B the host makes on DSP A (-> amp, -> filter, the modulated pitch): the host stores them straight to
+# their bank-5 word (INB), and the kernel's copy (ld IN / st INB, at the end of its DSP A code) goes away
+HOSTB = [n for n in KDEF.inputs_b if n in ('lfo_amp', 'lfo_filter') or (n == 'pitch' and 'pitch' in PITCH_MOD)]
+
+
+def _reads(line, reg):
+    """does this kernel line read register reg (ld writes only; st, mad, ymacd read every register they name)"""
+    m = line.split()
+    if not m or m[0] == 'ld' or re.fullmatch(r'\s*mov (r\d), \1\s*', line):    # a load delay filler reads nothing
+        return False
+    regs = re.findall(r'-?r(\d)', line)
+    if m[0] in ('st', 'mad', 'ymacd'):
+        return str(reg) in regs
+    return str(reg) in regs[1:]
+
+
+def _strip_copies(lines):
+    """the DSP A kernel without its copies of the HOSTB inputs: each `st rX, [{INB:n}]`, and the `ld rX, [{IN:n}]`
+    feeding it when nothing else reads rX before it is written again"""
+    out = list(lines)
+    for n in HOSTB:
+        for k, line in enumerate(out):
+            m = line and re.match(r'st r(\d), \[\{INB:' + n + r'\}\]', line.strip())
+            if not m:
+                continue
+            reg = int(m.group(1))
+            out[k] = None
+            j = k - 1
+            while j >= 0 and (out[j] is None or not re.match(rf'(\w+) r{reg},', out[j].strip())):
+                j -= 1
+            if j >= 0 and out[j].strip().startswith(f'ld r{reg}, [{{IN:{n}}}]'):
+                live = False
+                for line2 in out[j + 1:]:
+                    if line2 is None:
+                        continue
+                    if _reads(line2, reg):
+                        live = True
+                        break
+                    if re.match(rf'(\w+) r{reg},', line2.strip()) and not line2.strip().startswith(('st', 'mad', 'ymacd')):
+                        break
+                if not live:
+                    out[j] = None
+            break
+    return [x for x in out if x is not None]
+
+
+if HOSTB:
+    KDEF.dsps['A']['lines'] = _strip_copies(KDEF.dsps['A']['lines'])
+A_SELF = set(KDEF.placeholders('A'))           # what the kernel's DSP A code itself reads, after the copies went
+if A_SELF & {'IN:lfo_amp', 'IN:lfo_filter'}:
+    raise SystemExit('make_s1cc.py: s1_lfo_amp / s1_lfo_filter in S1_DSP_A: the host LFO runs on DSP B (use them in '
+                     'S1_DSP_B)')
 HOST_ENV_USED = [0, 1] if CMOD else HOST_ENV_KERNEL
 HOST_ENVS = bool(HOST_ENV_USED)
+GT_B = HOST_ENVS or HOST_LFO                  # DSP A copies gate and trigger for DSP B (its envelopes, its LFO)
 ENV_TMIN = float(os.environ.get('ENV_TMIN', '0.001'))    # seconds at fader 0 (attack, decay, release)
 ENV_TMAX = float(os.environ.get('ENV_TMAX', '10.0'))     # seconds at fader 255; exponential in between (C-S1SY's)
 
@@ -121,12 +183,21 @@ H_ENV_WORDS = 6 if HOST_ENVS else 0             # per voice on DSP B: (level, la
 # (octaves), C04D / C04E -> amp M / |M|, C050 + 8 i: color i's weights (manual, LFO, pitch env, filter env, amp env,
 # sub; LFO and sub are -1..1: with them selected manual = that weight = knob / 2)
 ENVX = ([0xA170 + v for v in range(NV)], [0xA178 + v for v in range(NV)])
-A6_LRATE, A6_LSG, A6_LWAVE, A6_PENV, A6_COL = 0x40, 0x41, 0x42, 0x48, (0x50, 0x58)
-A6_LDELAY, A6_LPITCH, A6_LFILT, A6_LAMP, A6_LAMPABS = 0x4A, 0x4B, 0x4C, 0x4D, 0x4E
+A6_PENV, A6_COL = 0x48, (0x50, 0x58)
+# LFO SHAPE -> C042..C045 (alpha, beta, K, w): lfo = t (alpha + beta t^2) + ph_clamp(K p) + w g, t the triangle of
+# the phase p, g the sample & glide value (C041 = its coefficient k; k = 1 is the sample & hold)
+LFO_SHAPES = [(1.5, -0.5, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0), (0.0, 0.0, 256.0, 0.0),
+              (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0)]       # sine, triangle, saw, square, S&G, S&H
+A6_LPITCH, A6_PAMT, A6_RANGE1 = 0x4B, 0x5E, 0x5F   # DSP A: LFO TO PITCH, PITCH ENV AMOUNT, OSC1 RANGE (octaves)
+# DSP B: the LFO (rate, S&G coefficient, shape alpha / beta / K / w, fade step, -> filter, -> amp M / |M|)
+B6_LRATE, B6_LSG, B6_LWAVE, B6_LDELAY, B6_LFILT, B6_LAMP, B6_LAMPABS = 0x48, 0x49, 0x4A, 0x4E, 0x4F, 0x50, 0x51
+LFB = [0xA120 + v for v in range(NV)]           # bank 5: lf of voice v, DSP B -> DSP A
+A6_SUBMIX, A6_NOISEMIX = 0x56, 0x57             # the host mixer's SUB / NOISE levels
 # the host LFO's controls, in engine.c's order (hlfo_panel): names, panel ids, defaults until a control moves
 HLFO = [('lfo_shape', 0x160, 1), ('lfo_rate', 0x162, 128), ('lfo_delay', 0x161, 0), ('lfo_pitch', 0x163, 128),
         ('lfo_filter', 0x164, 128), ('lfo_amp', 0x165, 128), ('penv_a', 0x17B, 0), ('penv_d', 0x17C, 128),
-        ('color0', 0x168, 128), ('color1', 0x16D, 128), ('mod0', 0x169, 0), ('mod1', 0x16E, 0)]
+        ('color0', 0x168, 128), ('color1', 0x16D, 128), ('mod0', 0x169, 0), ('mod1', 0x16E, 0),
+        ('sub_mix', 0x176, 0), ('noise_mix', 0x177, 0), ('penv_amt', 0x17A, 128), ('range1', 0x16A, 3)]
 HLFO_DEFAULT = {n: d for n, _, d in HLFO}
 NOISE_K = 7.31275                               # the LFO's noise (MUTABLE-SYSTEM step 9): n = wrap(K n + w), w a Weyl
 NOISE_W = 166008623 / 2 ** 28                   # counter (odd multiple of 2^-28)
@@ -134,16 +205,23 @@ SG_K = 4.0                                      # sample & glide: k = min(1, SG_
 
 
 def host_a_words():
-    """the host's words per voice on DSP A, before the kernel's (ring words): last trigger, LFO phase, S&H, S&G,
-    fade; the modulated pitch / dt / rdt and the -> filter / -> amp terms (written and read in the same sample);
-    COLOR MOD's pitch envelope (level, latch), sub phase and the colors"""
-    w = (['pt', 'lph', 'lsh', 'lsg', 'fade'] if HOST_LFO else []) + [n + 'm' for n in PITCH_MOD]
-    w += (['lff'] if LFO_F else []) + (['lfa'] if LFO_A else [])
-    return w + (['pe', 'pf', 'sp'] + [f'color{i}' for i in COLOR_USED] if CMOD else [])
+    """the host's words per voice on DSP A, before the kernel's (ring words): last trigger, the pitch envelope
+    (level, latch), the modulated pitch / dt / rdt (written and read in the same sample), the sub's phase and its
+    square, the colors, the kernel's output for the mixer"""
+    w = (['pt', 'pe', 'pf'] if PENV else []) + [n + 'm' for n in PITCH_MOD if f'IN:{n}' in A_SELF]
+    w += ['sp', 'swb'] if CMOD or HOST_MIX else []
+    return w + [f'color{i}' for i in COLOR_USED] + (['xo'] if HOST_MIX else [])
+
+
+def host_b_words():
+    """the host LFO's words per voice on DSP B, after its envelopes': last trigger, phase, S&H, S&G, fade; -> amp
+    and -> filter for the kernel (same sample)"""
+    return ['bpt', 'lph', 'lsh', 'lsg', 'fade', 'lfa', 'lff'] if HOST_LFO else []
 
 
 H_A_WORDS = len(host_a_words())
-LFO_WORDS = 2 if HOST_LFO else 0                # after the voice blocks: the S&H noise (noise, Weyl counter)
+H_B_WORDS = len(host_b_words())
+LFO_WORDS = 2                                   # after the voice blocks: a noise source (noise, Weyl counter)
 
 
 # ---- the kernel's addresses ---------------------------------------------------------------------------------------
@@ -163,7 +241,7 @@ def layout():
 
 def words(dsp):
     """bank-0 words a voice of this DSP needs: state, scratch (spills), the first-sample flag"""
-    host = H_ENV_WORDS if dsp == 'B' else H_A_WORDS
+    host = H_ENV_WORDS + H_B_WORDS if dsp == 'B' else H_A_WORDS
     if dsp not in KDEF.dsps:                   # no S1_DSP_B: only the host's envelopes (COLOR MOD)
         return host
     st = KDEF.dsps[dsp]
@@ -173,16 +251,17 @@ def words(dsp):
 def block(dsp, v):
     """bank-0 block of voice v (2 ring words per value: S and S+1)"""
     base = A_BLOCK0 if dsp == 'A' else B_BLOCK0
-    top = base + 2 * words(dsp) * NV + (2 * LFO_WORDS if dsp == 'A' else 0)
+    top = base + 2 * words(dsp) * NV + 2 * LFO_WORDS
     if top > 0x0800:
         raise SystemExit(f'kernel DSP {dsp}: {words(dsp)} words x {NV} voices do not fit in bank 0 '
                          f'(0x{base:04x}..0x07ff)')
     return base + 2 * words(dsp) * v
 
 
-def lfo_block():
-    """DSP A bank-0 words of the global LFO (after the voice blocks): name -> address"""
-    base = A_BLOCK0 + 2 * words('A') * NV
+def lfo_block(dsp='A'):
+    """bank-0 words of a DSP's global noise source (after its voice blocks): name -> address. DSP A: the mixer's
+    NOISE; DSP B: the LFOs' sample & hold"""
+    base = (A_BLOCK0 if dsp == 'A' else B_BLOCK0) + 2 * words(dsp) * NV
     return {n: base + 2 * j for j, n in enumerate(('nz', 'w'))}
 
 
@@ -191,11 +270,15 @@ def addresses(dsp, v):
     if dsp == 'B' and HOST_ENVS:                  # the host's envelopes first: level, latch, last trigger each
         addr['IN:env0'], addr['IN:env1'] = base, base + 6
         k = H_ENV_WORDS
+    if dsp == 'B' and HOST_LFO:                   # then the host LFO's; -> amp / -> filter for the kernel
+        hb = {n: base + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
+        k = H_ENV_WORDS + H_B_WORDS
     if dsp == 'A' and HOST_LFO:                   # the host's words: LFO, modulated inputs, COLOR MOD
         h = {n: base + 2 * j for j, n in enumerate(host_a_words())}
         addr.update({f'IN:{n}': h[n] for n in [f'color{i}' for i in COLOR_USED]})
-        addr.update({f'IN:{n}': h[n + 'm'] for n in PITCH_MOD})
-        addr.update({k_: h[n] for k_, n in (('IN:lfo_filter', 'lff'), ('IN:lfo_amp', 'lfa')) if n in h})
+        addr.update({f'IN:{n}': h[n + 'm'] for n in PITCH_MOD if n + 'm' in h})
+        if 'xo' in h:                           # the kernel's output, for the host's mixer
+            addr['OUT'] = h['xo']
         k = H_A_WORDS
     for s in KDEF.states:
         if s['dsp'] == dsp:
@@ -223,107 +306,198 @@ def addresses(dsp, v):
             addr.setdefault(key, a)                 # the host's modulated words first
     else:
         addr.update({'XIN': XV[v], 'OUT': B_OUT[v]})
+        if HOST_LFO:
+            addr.update({'IN:lfo_amp': hb['lfa'], 'IN:lfo_filter': hb['lff']})
     return addr
 
 
 # ---- programs -------------------------------------------------------------------------------------------------------
-def hlfo_global():
-    """the noise source of the voices' S&H LFOs (MUTABLE-SYSTEM step 11 step_noise, proven on the device)"""
-    G = lfo_block()
-    return ['; host LFO: noise n = wrap(K n + w), w = Weyl counter',
+def hlfo_global(dsp='A'):
+    """a DSP's global noise source (MUTABLE-SYSTEM step 11 step_noise, proven on the device): n = wrap(K n + w), w a
+    Weyl counter. DSP A: the mixer's NOISE; DSP B: the LFOs' sample & hold"""
+    G = lfo_block(dsp)
+    return [f'; host: noise n = wrap(K n + w), w = Weyl counter (DSP {dsp})',
             f'ld r2, [{G["nz"] + 1:04x}]', f'ld r0, [{G["w"] + 1:04x}]', 'mov r1, r1', f'add r0, #{NOISE_W!r}:32',
             'ph_wrap r0, r3, r0', f'st r0, [{G["w"]:04x}]', f'mul r2, r2, #{NOISE_K!r}', 'addxy r2, r2, r0',
             'ph_wrap r2, r3, r2', f'st r2, [{G["nz"]:04x}]']
 
 
-def hlfo_voice(v):
-    """the host's LFO of voice v and what it drives, before the kernel (uses r0..r7):
+def hlfo_voice_b(v):
+    """the host LFO of voice v on DSP B, before its envelopes; four registers (pairs: r4..r7 for the odd voice):
+    * note start d: the trigger copy changed
     * LFO (MUTABLE-SYSTEM step 11 step_lfo_voice, proven on the device): phase restarted at the note start, own S&H
-      of the global noise at each wrap, own S&G; shapes x C042..C047 -> lfo -1..1; fade f 0 -> 1 from the gate
-      (DELAY TIME), lf = f lfo
+      of DSP B's noise at each wrap, own sample & glide g += k (h - g) (k = 1: sample & hold);
+      lfo = w g + ph_clamp(K p) + t (alpha + beta t^2), t the triangle of the phase p (B6_LSG .. : k, alpha, beta,
+      K, w per shape); fade f 0 -> 1 from the gate copy (DELAY TIME), lf = f lfo -> bank 5 LFB+v for DSP A
     * -> amp: 1 + f (M lf - |M|) (tremolo down from full level; M < 0 the inverted LFO) -> s1_lfo_amp()
-    * -> filter: F lf octaves -> s1_lfo_filter()
-    * -> pitch: y = P lf octaves; pitch + y, dt 2^y, rdt 2^-y (2^z: Taylor of e^(z ln2 / 2) to z^4, squared; 0.6
-      cents at 0.7 octaves) -> the words the kernel reads as s1_pitch / s1_increment, s1_dt, s1_rdt
-    * COLOR MOD (if the kernel reads s1_color): pitch envelope AD (the host ADSR's math, adsr(), proven on the
-      device, with the gate at 1 and sustain 0: latch cleared at a note start, attack = 1 - latch, level toward
-      1.25 attack at rate attack kA + latch kD), sub oscillator (square one octave down), the AMP / FILTER envelope
-      levels from DSP B (A170+v / A178+v); color i = weights (C050 + 8 i ..) x (1, lf, pitch env, filter env,
-      amp env, sub)"""
+    * -> filter: F lf octaves -> s1_lfo_filter()"""
+    hb = {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
+    G = lfo_block('B')
+    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
+    P = lambda k: f'c0{k:02x}'  # noqa: E731
+    return [f'; voice {v}: host LFO (DSP B), b = d = 1 at a note start',
+            f'ld {a}, [{TB[v]:04x}]', f'ld {b}, [{hb["bpt"] + 1:04x}]', f'mov {a}, {a}', f'st {a}, [{hb["bpt"]:04x}]',
+            f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}',
+            f'; voice {v}: LFO phase a, 0 at a note start; c = 2 at a wrap',
+            f'ld {a}, [{hb["lph"] + 1:04x}]', f'ld {c}, [{P(B6_LRATE)}]', f'mov {a}, {a}', f'mad {a}, {a}, -{b}',
+            f'addxy {c}, {a}, {c}', f'ph_wrap {a}, r3, {c}', f'st {a}, [{hb["lph"]:04x}]', f'subxy {c}, {a}, {c}',
+            f'; voice {v}: sample & hold b of the noise at each wrap',
+            f'ld {b}, [{hb["lsh"] + 1:04x}]', f'ld {d}, [{G["nz"]:04x}]', f'mov {d}, {d}',
+            f'subxy {d}, {b}, {d}', f'mul {d}, {d}, {c}', f'mad {b}, {d}, #0.5', f'st {b}, [{hb["lsh"]:04x}]',
+            f'; voice {v}: sample & glide d += k (b - d)',
+            f'ld {c}, [{P(B6_LSG)}]', f'ld {d}, [{hb["lsg"] + 1:04x}]', f'mov {d}, {d}',
+            f'subxy {b}, {d}, {b}', f'mad {d}, {b}, {c}', f'st {d}, [{hb["lsg"]:04x}]',
+            f'; voice {v}: lfo d = w g + ph_clamp(K p) + t (alpha + beta t^2)',
+            f'ld {b}, [{P(B6_LWAVE + 3)}]', f'mov {b}, {b}', f'mul {d}, {d}, {b}',
+            f'ld {b}, [{P(B6_LWAVE + 2)}]', f'mov {b}, {b}', f'mul {c}, {a}, {b}', f'ph_clamp {c}, r3, -{c}',
+            f'addxy {d}, {d}, {c}', f'ph_tri {a}, r3, -{a}', f'mul {c}, {a}, {a}',
+            f'ld {b}, [{P(B6_LWAVE + 1)}]', f'mov {b}, {b}', f'mul {c}, {c}, {b}',
+            f'ld {b}, [{P(B6_LWAVE)}]', f'mov {b}, {b}', f'addxy {c}, {c}, {b}', f'mad {d}, {a}, {c}',
+            f'; voice {v}: fade a (0 -> 1 from the gate copy, DELAY TIME), d = lf = lfo x fade -> DSP A',
+            f'ld {a}, [{hb["fade"] + 1:04x}]', f'ld {b}, [{P(B6_LDELAY)}]', f'ld {c}, [{GB[v]:04x}]', f'mov {c}, {c}',
+            f'addxy {a}, {a}, {b}', f'mul {a}, {a}, {c}', f'min {a}, {a}, #1.0', f'st {a}, [{hb["fade"]:04x}]',
+            f'mul {d}, {d}, {a}', f'st {d}, [{LFB[v]:04x}]',
+            f'; voice {v}: -> amp 1 + f (M lf - |M|), -> filter F lf (for the kernel)',
+            f'ld {b}, [{P(B6_LAMP)}]', f'ld {c}, [{P(B6_LAMPABS)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}',
+            f'mad {b}, {a}, -{c}', f'add {b}, #1.0', f'st {b}, [{hb["lfa"]:04x}]',
+            f'ld {b}, [{P(B6_LFILT)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}', f'st {b}, [{hb["lff"]:04x}]']
+
+
+def hlfo_voice(v):
+    """the host's DSP A part of voice v, before the kernel; four registers (pairs: r4..r7 for the odd voice), longer
+    lived values in same-sample words of the voice block:
+    * gate and trigger copies for DSP B (its envelopes and LFO), from their loads; note start d (trigger changed)
+    * pitch envelope AD (the host ADSR's math, adsr(), proven on the device, with the gate at 1 and sustain 0: latch
+      cleared at a note start, attack = 1 - latch, level toward 1.25 attack at rate kA + latch (kD - kA))
+    * -> pitch: y = P lf + E pe + R octaves (LFO TO PITCH, PITCH ENV AMOUNT, OSC1 RANGE 64'..2' = -3..+2; lf from
+      DSP B, one sample late); pitch + y,
+      dt 2^y = (e^(y ln2 / 8))^8 (Taylor to the 4th power, three squarings: ~2 cents at 6 octaves), rdt 2^-y (to the
+      3rd: it only sets a polyBLEP's width) -> the words the kernel reads as s1_pitch / s1_increment,
+      s1_dt, s1_rdt; DSP B's pitch straight to its word (HOSTB)
+    * sub oscillator (square one octave down): COLOR MOD source, SUB of the mixer
+    * COLOR MOD (if the kernel reads s1_color): color i = weights (C050 + 8 i ..) x (1, lf, pitch env, filter env,
+      amp env, sub), the envelopes from DSP B (A170+v / A178+v)"""
     h = {n: block('A', v) + 2 * j for j, n in enumerate(host_a_words())}
-    G = lfo_block()
-    w = lambda i: f'ld r4, [c0{A6_LWAVE + i:02x}]'  # noqa: E731
-    L = [f'; voice {v}: host LFO, d = 1 at a note start (the trigger changed)',
-         f'ld r3, [{TRIG[v]:04x}]', f'ld r0, [{h["pt"] + 1:04x}]', 'mov r3, r3', f'st r3, [{h["pt"]:04x}]',
-         'subxy r0, r0, r3', 'mul r0, r0, r0',
-         f'; voice {v}: LFO, phase 0 at a note start; r7 = 2 at a wrap',
-         f'ld r1, [{h["lph"] + 1:04x}]', f'ld r4, [c0{A6_LRATE:02x}]', 'mov r3, r3', 'mad r1, r1, -r0',
-         'addxy r7, r1, r4', 'ph_wrap r1, r3, r7', f'st r1, [{h["lph"]:04x}]', 'subxy r7, r1, r7',
-         f'ld r3, [{h["lsh"] + 1:04x}]', f'ld r2, [{G["nz"]:04x}]', 'mov r4, r4',
-         'subxy r4, r3, r2', 'mul r4, r4, r7', 'mad r3, r4, #0.5', f'st r3, [{h["lsh"]:04x}]',
-         f'; voice {v}: sample & glide g += k (h - g)', f'ld r4, [c0{A6_LSG:02x}]', f'ld r2, [{h["lsg"] + 1:04x}]',
-         'mov r7, r7', 'subxy r7, r2, r3', 'mad r2, r7, r4', f'st r2, [{h["lsg"]:04x}]',
-         f'; voice {v}: shape = sine, tri, saw, square, S&G, S&H x C042..C047',
-         w(5), 'mov r7, r7', 'mul r7, r3, r4', w(4), 'mov r3, r3', 'mad r7, r2, r4', w(2), 'mov r3, r3',
-         'mad r7, r1, r4', w(3), 'mul r3, r1, #256.0', 'ph_clamp r3, r3, -r3', 'mad r7, r3, r4',
-         w(1), 'ph_tri r3, r3, -r1', 'mad r7, r3, r4',
-         'mul r2, r3, r3', w(0), 'mul r2, r2, #-0.5', 'add r2, #1.5', 'mul r2, r2, r3', 'mad r7, r2, r4',
-         f'; voice {v}: fade (0 -> 1 from the gate, DELAY TIME), r7 = lf = lfo x fade',
-         f'ld r2, [{h["fade"] + 1:04x}]', f'ld r4, [c0{A6_LDELAY:02x}]', f'ld r3, [{GATE[v]:04x}]', 'mov r1, r1',
-         'addxy r2, r2, r4', 'mul r2, r2, r3', 'min r2, r2, #1.0', f'st r2, [{h["fade"]:04x}]', 'mul r7, r7, r2']
-    if LFO_A:
-        L += [f'; voice {v}: -> amp 1 + f (M lf - |M|)', f'ld r4, [c0{A6_LAMP:02x}]', f'ld r3, [c0{A6_LAMPABS:02x}]',
-              'mov r1, r1', 'mul r5, r7, r4', 'mad r5, r2, -r3', 'add r5, #1.0', f'st r5, [{h["lfa"]:04x}]']
-    if LFO_F:
-        L += [f'; voice {v}: -> filter F lf', f'ld r4, [c0{A6_LFILT:02x}]', 'mov r1, r1', 'mul r5, r7, r4',
-              f'st r5, [{h["lff"]:04x}]']
+    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
+    P = lambda k: f'c0{k:02x}'  # noqa: E731
+
+    def put(reg, word, name):                       # the kernel's word (DSP A reads it) and / or DSP B's (INB)
+        out = [f'st {reg}, [{h[word]:04x}]'] if word in h else []
+        if name in HOSTB:
+            out.append(f'st {reg}, [{INB0 + 8 * KDEF.inputs_b.index(name) + v:04x}]')
+        return out
+    L = [f'; voice {v}: host (DSP A): gate / trigger copies for DSP B, b = d = 1 at a note start',
+         f'ld {a}, [{TRIG[v]:04x}]', f'ld {c}, [{GATE[v]:04x}]',
+         *([f'ld {b}, [{h["pt"] + 1:04x}]'] if PENV else []), f'mov {a}, {a}',
+         *([f'st {a}, [{TB[v]:04x}]', f'st {c}, [{GB[v]:04x}]'] if GT_B else []),
+         *([f'st {a}, [{h["pt"]:04x}]', f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}'] if PENV else [])]
+    if PENV:
+        L += [f'; voice {v}: pitch envelope a: the ADSR\'s latch form with gate 1, sustain 0',
+              f'ld {a}, [{h["pe"] + 1:04x}]', f'ld {c}, [{h["pf"] + 1:04x}]', f'mov {c}, {c}',
+              f'mad {c}, {c}, -{b}',                                             # latch *= 1 - d
+              # latch = 1 once the level passed 0.999: 256 (256 (e - 0.999)) in two clamped steps (one product would
+              # pass the DSP's +-512)
+              f'addxy {b}, {a}, #-0.999', f'mul {b}, {b}, #256.0', f'ph_clamp {b}, r3, -{b}', f'mul {b}, {b}, #256.0',
+              f'ph_clamp {b}, r3, -{b}', f'max {c}, {c}, {b}', f'st {c}, [{h["pf"]:04x}]',
+              # attack flag c = clamp(256 (1 - latch)): 1 until the latch is full. With the attack 1 - latch itself a
+              # latch caught half way in the 0.999 band (slow attacks) left the target 1.25 (1 - latch) under the
+              # level and the envelope stuck there (2026-10-28, on the device: it stayed at a value, never fell to 0)
+              f'subxy {c}, {c}, #1.0', f'mul {c}, {c}, #256.0', f'ph_clamp {c}, r3, -{c}',
+              f'ld {b}, [{P(A6_PENV)}]', f'ld {d}, [{P(A6_PENV + 1)}]', f'mov {d}, {d}',
+              f'subxy {d}, {b}, {d}', f'mad {b}, {c}, {d}',                      # rate = kD + attack (kA - kD)
+              f'mul {c}, {c}, #1.25',                                            # target 1.25 attack
+              f'subxy {c}, {a}, {c}', f'mad {a}, {c}, {b}', f'min {a}, {a}, #1.0', f'st {a}, [{h["pe"]:04x}]']
     if PITCH_MOD:
-        L += [f'; voice {v}: -> pitch y = P lf octaves', f'ld r4, [c0{A6_LPITCH:02x}]', 'mov r1, r1', 'mul r4, r7, r4']
+        L += [f'; voice {v}: -> pitch b = y = P lf + E pe + OSC1 RANGE octaves', f'ld {b}, [{LFB[v]:04x}]',
+              f'ld {c}, [{P(A6_LPITCH)}]', f'mov {c}, {c}', f'mul {b}, {b}, {c}', f'ld {c}, [{P(A6_PAMT)}]',
+              f'mov {c}, {c}', f'mad {b}, {a}, {c}', f'ld {c}, [{P(A6_RANGE1)}]', f'mov {c}, {c}', f'addxy {b}, {b}, {c}']
         if 'pitch' in PITCH_MOD:
-            L += [f'ld r3, [{PITCH[v]:04x}]', 'mov r1, r1', 'addxy r3, r3, r4', f'st r3, [{h["pitchm"]:04x}]']
+            L += [f'ld {c}, [{PITCH[v]:04x}]', f'mov {c}, {c}', f'addxy {c}, {c}, {b}'] + put(c, 'pitchm', 'pitch')
+        # 2^y = (e^(y ln2 / 8))^8: Taylor of e^z on |z| <= 0.52 (y up to +-6 octaves: RANGE, PITCH ENV, LFO), then
+        # three squarings; dt to z^4 (~2 cents at 6 octaves), rdt (a polyBLEP's width) to z^3
+        poly = {'dt': [f'mov {a}, #0.041666666666666664', f'ymacd {a}, {c}, #0.16666666666666666',
+                       f'ymacd {a}, {c}, #0.5', f'ymacd {a}, {c}, #1.0', f'ymacd {a}, {c}, #1.0'],
+                'rdt': [f'mov {a}, #0.16666666666666666', f'ymacd {a}, {c}, #0.5', f'ymacd {a}, {c}, #1.0',
+                        f'ymacd {a}, {c}, #1.0']}
         for n, src, sign in (('dt', DT, 1.0), ('rdt', RDT, -1.0)):
             if n in PITCH_MOD:
-                L += [f'mul r3, r4, #{sign * math.log(2) / 2!r}', 'mov r5, #0.041666666666666664',
-                      'ymacd r5, r3, #0.16666666666666666', 'ymacd r5, r3, #0.5', 'ymacd r5, r3, #1.0',
-                      'ymacd r5, r3, #1.0', 'mul r5, r5, r5', f'ld r3, [{src[v]:04x}]', 'mov r1, r1',
-                      'mul r3, r3, r5', f'st r3, [{h[n + "m"]:04x}]']
-    if not CMOD:
-        return L
-    L += [f'; voice {v}: COLOR MOD pitch envelope: the ADSR\'s latch form with gate 1, sustain 0',
-          f'ld r1, [{h["pe"] + 1:04x}]', f'ld r2, [{h["pf"] + 1:04x}]', 'mov r5, #0.0', 'mov r6, #1.0',
-          'mad r2, r2, -r0',                                                     # latch *= 1 - d
-          'addxy r4, r1, #-0.999', 'mul r4, r4, #256.0', 'mul r4, r4, #256.0', 'max r4, r4, r5', 'min r4, r4, r6',
-          'max r2, r2, r4', f'st r2, [{h["pf"]:04x}]', 'subxy r3, r2, #1.0',     # attack = 1 - latch
-          f'ld r4, [c0{A6_PENV + 1:02x}]', 'mov r0, r0', 'mul r0, r3, r4',      # rate = attack kA + latch kD
-          f'ld r4, [c0{A6_PENV:02x}]', 'mov r0, r0', 'mad r0, r2, r4',
-          'mul r4, r3, #1.25', 'subxy r4, r1, r4', 'mad r1, r4, r0', 'min r1, r1, r6', f'st r1, [{h["pe"]:04x}]',
-          f'; voice {v}: COLOR MOD sub oscillator',
-          f'ld r2, [{h["sp"] + 1:04x}]', f'ld r0, [{DT[v]:04x}]', 'mov r3, r3',
-          'addxy r0, r2, r0', 'ph_wrap r2, r3, r0', f'st r2, [{h["sp"]:04x}]', 'mul r2, r2, #256.0',
-          'ph_clamp r2, r3, -r2',
-          f'; voice {v}: COLOR MOD envelopes from DSP B', f'ld r4, [{ENVX[0][v]:04x}]', f'ld r0, [{ENVX[1][v]:04x}]']
+                L += [f'mul {c}, {b}, #{sign * math.log(2) / 8!r}'] + poly[n] + \
+                    [f'mul {a}, {a}, {a}', f'mul {a}, {a}, {a}', f'mul {a}, {a}, {a}', f'ld {c}, [{src[v]:04x}]',
+                     f'mov {c}, {c}', f'mul {c}, {c}, {a}', f'st {c}, [{h[n + "m"]:04x}]']
+    if 'sp' in h:
+        L += [f'; voice {v}: sub oscillator: a square one octave down (COLOR MOD source, SUB of the mixer)',
+              f'ld {b}, [{h["sp"] + 1:04x}]', f'ld {c}, [{DT[v]:04x}]', f'mov {c}, {c}',
+              f'addxy {c}, {b}, {c}', f'ph_wrap {b}, r3, {c}', f'st {b}, [{h["sp"]:04x}]', f'mul {b}, {b}, #256.0',
+              f'ph_clamp {b}, r3, -{b}', f'st {b}, [{h["swb"]:04x}]']
     for i in COLOR_USED:
-        c = A6_COL[i]
-        L += [f'; voice {v}: color {i}', f'ld r5, [c0{c:02x}]', f'ld r6, [c0{c + 1:02x}]', 'mov r3, r3',
-              'mad r5, r7, r6', f'ld r6, [c0{c + 2:02x}]', 'mov r3, r3', 'mad r5, r1, r6',
-              f'ld r6, [c0{c + 3:02x}]', 'mov r3, r3', 'mad r5, r0, r6', f'ld r6, [c0{c + 4:02x}]', 'mov r3, r3',
-              'mad r5, r4, r6', f'ld r6, [c0{c + 5:02x}]', 'mov r3, r3', 'mad r5, r2, r6',
-              f'st r5, [{h[f"color{i}"]:04x}]']
+        k = A6_COL[i]
+        L += [f'; voice {v}: color {i} = w0 + w1 lf + w2 pe + w3 fe + w4 ae + w5 sub (c)', f'ld {c}, [{P(k)}]']
+        for w_, src in ((1, LFB[v]), (2, h['pe']), (3, ENVX[1][v]), (4, ENVX[0][v]), (5, h['swb'])):
+            L += [f'ld {b}, [{src:04x}]', f'ld {d}, [{P(k + w_)}]', f'mov {d}, {d}', f'mad {c}, {b}, {d}']
+        L += [f'st {c}, [{h[f"color{i}"]:04x}]']
     return L
+
+
+def voice_a(v):
+    """DSP A code of voice v: the host's (four registers), the kernel's, and the host's mixer"""
+    L = [f'; voice {v}'] + (hlfo_voice(v) if HOST_LFO else []) + KDEF.place('A', addresses('A', v))
+    if HOST_MIX:                                # kernel (its output word xo) + SUB x sub + NOISE x noise -> x of DSP B
+        h = {n: block('A', v) + 2 * j for j, n in enumerate(host_a_words())}
+        L += [f'; voice {v}: mixer', f'ld r0, [{h["xo"]:04x}]', f'ld r1, [{h["swb"]:04x}]',
+              f'ld r2, [c0{A6_SUBMIX:02x}]', 'mov r2, r2', 'mad r0, r1, r2',
+              f'ld r1, [{lfo_block("A")["nz"]:04x}]', f'ld r2, [c0{A6_NOISEMIX:02x}]', 'mov r2, r2', 'mad r0, r1, r2',
+              f'st r0, [{XV[v]:04x}]']
+    if HOST_ENVS and not HOST_LFO:             # gate and trigger for the host's envelopes on DSP B (with the host LFO,
+                                                # hlfo_voice stores them from its loads)
+        L += [f'ld r0, [{GATE[v]:04x}]', f'st r0, [{GB[v]:04x}]', f'ld r1, [{TRIG[v]:04x}]', f'st r1, [{TB[v]:04x}]']
+    return L
+
+
+def _upper(lines):
+    """the same code in r4..r7. The r3 in the middle of ph_wrap / ph_tri / ph_clamp is part of the opcode (Roland's
+    `ph_wrap rD, r3, rY`), not a register: it stays (with r7 the DSP does something else, emulator 2026-10-28)"""
+    def up(x):
+        if x.startswith(';'):
+            return x
+        m = re.match(r'(\s*ph_\w+\s+)(r\d)(,\s*r3,)(.*)$', x)
+        sub = lambda t: re.sub(r'\br([0-3])\b', lambda m_: f'r{int(m_.group(1)) + 4}', t)  # noqa: E731
+        return m.group(1) + sub(m.group(2)) + m.group(3) + sub(m.group(4)) if m else sub(x)
+    return [up(x) for x in lines]
+
+
+def prog_a_parts():
+    """DSP A as (the head: comment and the global part, [the code of each voice pair, or voice]); prog_a() is all of
+    it in one program, sources() may put the last pairs in section 2"""
+    head = [f'; s1m0: slave DSP A main @0x0100: {NV} voices x s1cc kernel {KERNEL} DSP A -> A151+v'
+            + (' (voice pairs interleaved, PAIRS=1)' if PAIRS else '')]
+    if HOST_MIX:
+        head += hlfo_global('A')
+    units, v = [], 0
+    while v < NV:
+        if PAIRS and v + 1 < NV:               # two voices, independent registers: the scheduler fuses across them
+            x, y, L = voice_a(v), _upper(voice_a(v + 1)), []
+            for i in range(max(len(x), len(y))):
+                L += x[i:i + 1] + y[i:i + 1]
+            units.append(L)
+            v += 2
+        else:
+            units.append(voice_a(v))
+            v += 1
+    return head, units
 
 
 def prog_a():
-    L = [f'; s1m0: slave DSP A main @0x0100: {NV} voices x s1cc kernel {KERNEL} DSP A -> A151+v']
-    if HOST_LFO:
-        L += hlfo_global()
-    for v in range(NV):
-        L += [f'; voice {v}'] + (hlfo_voice(v) if HOST_LFO else []) + KDEF.place('A', addresses('A', v))
-        if HOST_ENVS:                               # gate and trigger for the host's envelopes on DSP B
-            L += [f'ld r0, [{GATE[v]:04x}]', f'st r0, [{GB[v]:04x}]', f'ld r1, [{TRIG[v]:04x}]', f'st r1, [{TB[v]:04x}]']
-    return L
+    head, units = prog_a_parts()
+    return head + [x for u in units for x in u]
 
 
 def prog_b():
+    head, units = prog_b_parts()
+    return head + [x for u in units for x in u]
+
+
+def prog_b_parts():
+    """DSP B as (the head: the mix, [the code of each voice pair, or voice])"""
     L = [f'; s1m1: slave DSP B main @0x0100: mix of {NV} voices x {GAIN!r} x C000 -> 6006 / 6007'
          + (f'; per voice s1cc kernel DSP B' if HAS_B else ''), 'mov r7, #0.0']
     for v in range(NV):                         # B outputs of the sample before (ring S+1); A outputs as they are
@@ -331,41 +505,65 @@ def prog_b():
     L += ['ld r6, [c000]', f'mul r7, r7, #{GAIN!r}', 'mul r7, r7, r6',
           f'st r7, [{OUT_L:04x}]', f'st r7, [{OUT_R:04x}]', 'mov r0, #0.0']
     L += [f'st r0, [{x:04x}]' for x in OUT_ZERO]
-    if HAS_B or HOST_ENVS:
-        for v in range(NV):
-            L += [f'; voice {v}']
-            if HOST_ENVS:
-                b = block('B', v)
-                L += ['mov r5, #0.0', 'mov r6, #1.0']
-                for i in HOST_ENV_USED:
-                    e = b + 6 * i
-                    L += [f'; voice {v}: host envelope {i}'] + adsr(e, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
-                    if CMOD:                        # its level for COLOR MOD on DSP A
-                        L += [f'st r1, [{ENVX[i][v]:04x}]']
-            if HAS_B:
-                L += KDEF.place('B', addresses('B', v))
+    if HOST_LFO:
+        L += hlfo_global('B')
+    units = []
+    if HAS_B or HOST_ENVS or HOST_LFO:
+        v = 0
+        while v < NV:
+            if PAIRS_B and v + 1 < NV:          # two voices, independent registers (as DSP A, PAIRS=1)
+                x, y, u = voice_b(v), _upper(voice_b(v + 1)), []
+                for i in range(max(len(x), len(y))):
+                    u += x[i:i + 1] + y[i:i + 1]
+                units.append(u)
+                v += 2
+            else:
+                units.append(voice_b(v))
+                v += 1
+    return L, units
+
+
+def voice_b(v):
+    """DSP B code of voice v: the host's envelopes (four registers) and the kernel's"""
+    L = [f'; voice {v}'] + (hlfo_voice_b(v) if HOST_LFO else [])
+    if HOST_ENVS:
+        b = block('B', v)
+        for i in HOST_ENV_USED:
+            e = b + 6 * i
+            L += [f'; voice {v}: host envelope {i}'] + adsr(e, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
+            if CMOD:                                # its level for COLOR MOD on DSP A
+                L += [f'st r0, [{ENVX[i][v]:04x}]']
+    if HAS_B:
+        L += KDEF.place('B', addresses('B', v))
     return L
 
 
 def adsr(e, latch, pt, gate, trig, prm):
-    """C-S1SY's ADSR, copied unchanged from examples/mutable_system/make_mutable.py step_adsr (proven on the device):
-    -> r1 (stored at e); r5 = 0, r6 = 1; uses r0..r4. prm: sustain, attack, decay, release rate. latch = 1 once the
-    attack reached 1; target 1.25 (attack) / S (decay) / 0 (release); a change of trig clears the latch (new note).
-    The attack is g - latch: it follows the gate itself, so a trigger and a gate that arrive apart lose nothing."""
-    return [f'ld r1, [{e + 1:04x}]', f'ld r2, [{latch + 1:04x}]', f'ld r4, [{gate:04x}]', f'ld r3, [{trig:04x}]',
-            f'ld r0, [{pt + 1:04x}]', 'mov r5, r5',
-            f'st r3, [{pt:04x}]',
-            'subxy r0, r0, r3', 'mul r0, r0, r0',        # d = (trig - last trig)^2
-            'subxy r0, r0, #1.0', 'mul r2, r2, r0',      # latch *= 1 - d
-            'addxy r3, r1, #-0.999', 'mul r3, r3, #256.0', 'mul r3, r3, #256.0', 'max r3, r3, r5', 'min r3, r3, r6',
-            'max r2, r2, r3', 'mul r2, r2, r4', f'st r2, [{latch:04x}]',
-            'subxy r3, r2, r4',                          # attack = g - latch
-            'subxy r4, r4, #1.0',                        # 1 - g
-            f'ld r0, [{prm + 3:04x}]', 'mov r5, r5', 'mul r0, r0, r4',            # rate = (1 - g) kR
-            f'ld r4, [{prm + 1:04x}]', 'mov r5, r5', 'mad r0, r3, r4',            #   + attack kA
-            f'ld r4, [{prm + 2:04x}]', 'mov r5, r5', 'mad r0, r2, r4',            #   + latch kD
-            f'ld r4, [{prm:04x}]', 'mov r5, r5', 'mul r4, r4, r2', 'mad r4, r3, #1.25',   # target
-            'subxy r4, r1, r4', 'mad r1, r4, r0', 'min r1, r1, r6', f'st r1, [{e:04x}]']
+    """C-S1SY's ADSR (examples/mutable_system/make_mutable.py step_adsr, proven on the device) in four registers,
+    r0..r3 (PAIRS=1 runs the odd voice's copy in r4..r7) -> r0 (stored at e). prm: sustain, attack, decay, release
+    rate. latch = 1 once the attack reached 1; target 1.25 (attack) / S (decay) / 0 (release); a change of trig
+    clears the latch (new note). The attack is g - latch: it follows the gate itself, so a trigger and a gate that
+    arrive apart lose nothing. The same math as step_adsr, except: the end of the attack, 65536 (e - 0.999), is two
+    clamped steps of 256 (one product passes the DSP's +-512); the attack is clamp(256 (g - latch)), 1 while the
+    latch is not full (with g - latch a latch caught half way in the 0.999 band, slow attacks, kept the envelope
+    stuck: 2026-10-28, the pitch envelope on the device); the level is loaded again for the last step instead of
+    holding a register"""
+    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
+    return [f'ld {a}, [{e + 1:04x}]', f'ld {b}, [{latch + 1:04x}]', f'ld {c}, [{trig:04x}]', f'ld {d}, [{pt + 1:04x}]',
+            f'mov {d}, {d}', f'st {c}, [{pt:04x}]',
+            f'subxy {d}, {d}, {c}', f'mul {d}, {d}, {d}',                       # d = (trig - last trig)^2
+            f'subxy {d}, {d}, #1.0', f'mul {b}, {b}, {d}',                      # latch *= 1 - d
+            f'addxy {c}, {a}, #-0.999', f'mul {c}, {c}, #256.0', f'ph_clamp {c}, r3, -{c}', f'mul {c}, {c}, #256.0',
+            f'ph_clamp {c}, r3, -{c}',                                           # two clamped steps: no overflow
+            f'max {b}, {b}, {c}', f'ld {d}, [{gate:04x}]', f'mov {d}, {d}', f'mul {b}, {b}, {d}', f'st {b}, [{latch:04x}]',
+            f'subxy {c}, {b}, {d}', f'mul {c}, {c}, #256.0', f'ph_clamp {c}, r3, -{c}',   # attack = clamp(256 (g - latch))
+            f'subxy {d}, {d}, #1.0',                                             # 1 - g
+            f'ld {a}, [{prm + 3:04x}]', f'mov {a}, {a}', f'mul {d}, {d}, {a}',  # rate = (1 - g) kR
+            f'ld {a}, [{prm + 1:04x}]', f'mov {a}, {a}', f'mad {d}, {c}, {a}',  #   + attack kA
+            f'ld {a}, [{prm + 2:04x}]', f'mov {a}, {a}', f'mad {d}, {b}, {a}',  #   + latch kD
+            f'ld {a}, [{prm:04x}]', f'mov {a}, {a}', f'mul {b}, {b}, {a}', f'mad {b}, {c}, #1.25',   # target
+            f'ld {a}, [{e + 1:04x}]', f'mov {a}, {a}', f'subxy {b}, {a}, {b}', f'mad {a}, {b}, {d}',
+            f'min {a}, {a}, #1.0', f'st {a}, [{e:04x}]']
 
 
 def env_time(v):
@@ -447,20 +645,31 @@ def lfo_amp(v):
     return 0.5 * bipolar(v)
 
 
+def penv_amt(v):
+    """PITCH ENV AMOUNT -> octaves, bipolar -4 .. +4 as 4 b |b| (fine near the centre, as LFO TO PITCH)"""
+    b = bipolar(v)
+    return 4.0 * b * abs(b)
+
+
 def hlfo_params(knobs):
-    """DSP A parameters of the host's LFO and COLOR MOD as engine.c writes them; knobs: HLFO's names"""
+    """the parameters of the host's LFO (DSP B), pitch envelope, COLOR MOD and mixer (DSP A) as engine.c writes
+    them -> (DSP A's, DSP B's); knobs: HLFO's names"""
     k = dict(HLFO_DEFAULT, **{n: x for n, x in knobs.items() if n in HLFO_DEFAULT})
-    pa = {0xC000 + A6_LRATE: f32(lfo_rate(k['lfo_rate'])), 0xC000 + A6_LSG: f32(lfo_sg(k['lfo_rate'])),
-          0xC000 + A6_PENV: f32(decay_rate(k['penv_d'])), 0xC000 + A6_PENV + 1: f32(attack_rate(k['penv_a'])),
-          0xC000 + A6_LDELAY: f32(lfo_delay(k['lfo_delay'])), 0xC000 + A6_LPITCH: f32(lfo_pitch(k['lfo_pitch'])),
-          0xC000 + A6_LFILT: f32(lfo_filt(k['lfo_filter'])), 0xC000 + A6_LAMP: f32(lfo_amp(k['lfo_amp'])),
-          0xC000 + A6_LAMPABS: f32(abs(lfo_amp(k['lfo_amp'])))}
-    for j in range(6):
-        pa[0xC000 + A6_LWAVE + j] = 1.0 if j == k['lfo_shape'] else 0.0
+    pa = {0xC000 + A6_PENV: f32(decay_rate(k['penv_d'])), 0xC000 + A6_PENV + 1: f32(attack_rate(k['penv_a'])),
+          0xC000 + A6_LPITCH: f32(lfo_pitch(k['lfo_pitch'])), 0xC000 + A6_PAMT: f32(penv_amt(k['penv_amt'])),
+          0xC000 + A6_RANGE1: float(min(max(k['range1'], 0), 5) - 3),
+          0xC000 + A6_SUBMIX: f32(k['sub_mix'] / 510.0), 0xC000 + A6_NOISEMIX: f32(k['noise_mix'] / 510.0)}
+    pb = {0xC000 + B6_LRATE: f32(lfo_rate(k['lfo_rate'])), 0xC000 + B6_LSG: f32(lfo_sg(k['lfo_rate'])),
+          0xC000 + B6_LDELAY: f32(lfo_delay(k['lfo_delay'])), 0xC000 + B6_LFILT: f32(lfo_filt(k['lfo_filter'])),
+          0xC000 + B6_LAMP: f32(lfo_amp(k['lfo_amp'])), 0xC000 + B6_LAMPABS: f32(abs(lfo_amp(k['lfo_amp'])))}
+    for j, x in enumerate(LFO_SHAPES[min(max(k['lfo_shape'], 0), 5)]):
+        pb[0xC000 + B6_LWAVE + j] = x
+    if k['lfo_shape'] == 5:                         # sample & hold: the glide follows at once
+        pb[0xC000 + B6_LSG] = 1.0
     for i in (0, 1):
         for j, x in enumerate(color_weights(k[f'color{i}'], k[f'mod{i}'])):
             pa[0xC000 + A6_COL[i] + j] = f32(x)
-    return pa
+    return pa, pb
 
 
 def prog_master():
@@ -491,10 +700,20 @@ def assemble(lines):
 # §4.1): 'all' (every encodable group) or 'mad:reg + mul:imm; ...'; the build lists the ones it used in
 # build/try_forms.txt, and tools/proven_forms.py promote adds them to the list once the PLUG-OUT worked on the device
 TRY_FORMS = os.environ.get('TRY_FORMS', '').strip()
+# PAIRS: DSP A runs voices two at a time, the even one in r0..r3 and the odd one in r4..r7, interleaved, so the
+# scheduler can put the ops of both in one instruction (one voice is a chain of dependencies). On when the kernel is
+# built with --regs-a 0,1,2,3 (and DSP B too with --regs-b 0,1,2,3)
+# automatic (PAIRS=0 / 1 forces it): pairs when the kernel's DSP A code is in r0..r3
+_A_LOW = not any(re.search(r'\br[4-7]\b', x) for x in KDEF.dsps['A']['lines'])
+PAIRS = {'0': False, '1': True}.get(os.environ.get('PAIRS', ''), _A_LOW)
+if PAIRS and not _A_LOW:
+    raise SystemExit('make_s1cc.py: PAIRS=1 needs the kernel built with --regs-a 0,1,2,3 (its DSP A uses r4..r7)')
+# DSP B in pairs too when its kernel is in r0..r3 (--regs-b 0,1,2,3, or --regs 0,1,2,3); else one voice at a time
+PAIRS_B = PAIRS and not any(re.search(r'\br[4-7]\b', x) for x in KDEF.dsps.get('B', {}).get('lines', []))
 TRIED = collections.Counter()                     # op groups not proven on the device that this build used
 
 
-def section(name, lines):
+def section(name, lines, record=True):
     """a section program, scheduled with the op groups proven on the device only (asm/proven_forms.txt; with
     TRY_FORMS also those), one bank-5 access per instruction (rule 5) and only instruction shapes that are part of a
     proven program's; then checked against every SYSTEM-1 rule (asm/s1rules.py). SYSTEM-1 start marker (0a02 ff71),
@@ -505,7 +724,8 @@ def section(name, lines):
     allowed = None if TRY_FORMS == 'all' else proven | dspsched.parse_forms(TRY_FORMS)
     lines = dspsched.schedule(lines, allowed)
     new = {s: c for s, c in dspsched.signatures(lines).items() if s not in proven}
-    TRIED.update(new)
+    if record:
+        TRIED.update(new)
     for w in s1rules.check(name, lines, slave=name != 's1mm1', proven_ops=proven | set(new)):   # a broken rule stops the build
         print('warning:', w)
     r = assemble(lines)
@@ -524,9 +744,54 @@ def instr_count(lines):
     return sum(1 for x in lines if x.strip() and not x.startswith(';'))
 
 
+# Sections: when a DSP's main program (0x0100, 6 KiB) does not hold all its voices, the rest go to its sections, in
+# the order the DSP runs them after the main (2, 3, 4, 5), as many voice pairs as each holds. engine.c places each
+# with FC40(index, program set, empty data sets) and switches it on with FC44(index, 1), the way the stock synth
+# places its voice programs (2026-10-28: a program queued at 0x1900 with FC30 was copied but never ran; with FC40 it
+# runs). A section runs in the same sample as the main, with the same registers and memory: more room, not more time
+# (the instructions of a DSP's main and sections count together in its BUDGET). docs/DSP_PROGRAM_MEMORY.md §3
+# (name, FC40 / FC44 index, start, end) per DSP; the index table is FC40's (system-1/SH101_POLY.md §2)
+SECTIONS = {'A': [('s1a2', 0, 0x1900, 0x3100), ('s1a3', 4, 0x3100, 0x4900), ('s1a4', 1, 0x4900, 0x6100),
+                  ('s1a5', 5, 0x6100, 0x7FF2)],
+            'B': [('s1b2', 2, 0x1900, 0x3100), ('s1b3', 6, 0x3100, 0x4900), ('s1b4', 3, 0x4900, 0x6100),
+                  ('s1b5', 7, 0x6100, 0x7FF2)]}
+SECTION_OF = {n: (dsp, idx, a, b) for dsp, lst in SECTIONS.items() for n, idx, a, b in lst}
+
+
+def _fill(main, head, units, dsp):
+    """{program name: unscheduled lines}: the main with the head and the most units it holds, then each section in
+    turn; leftovers (nothing holds them) go to the last one used, and the size check of main() reports it"""
+    flat = lambda us: [x for u in us for x in u]  # noqa: E731
+    size = lambda n, lines: 2 * len(section(n, lines, record=False)[0])  # noqa: E731
+    regions = [(main, 0x0100, 0x0100 + MAIN_BYTES)] + [(n, a, b) for n, _, a, b in SECTIONS[dsp]]
+    out, rest = {}, list(units)
+    for name, a, b in regions:
+        hd = head if name == main else [f'; {name}: slave DSP {dsp} section @0x{a:04x}, after the main']
+        k = len(rest)
+        while k > 0 and size(name, hd + flat(rest[:k])) > b - a:
+            k -= 1
+        if name == main or k:
+            out[name] = hd + flat(rest[:k])
+        rest = rest[k:]
+        if not rest:
+            return out
+    out[name if name in out else main] += flat(rest)
+    return out
+
+
 def sources():
-    return {'s1m0': section('s1m0', prog_a()), 's1m1': section('s1m1', prog_b()), 's1mm1': section('s1mm1', prog_master()),
-            's1c0': close(0xA004), 's1c1': close(0xA005)}
+    raw = _fill('s1m0', *prog_a_parts(), 'A')
+    raw.update(_fill('s1m1', *prog_b_parts(), 'B'))
+    TRIED.clear()
+    progs = {n: section(n, lines) for n, lines in raw.items()}      # the groups the final programs use, once
+    progs.update({'s1mm1': section('s1mm1', prog_master()), 's1c0': close(0xA004), 's1c1': close(0xA005)})
+    return progs
+
+
+def dsp_programs(progs, dsp):
+    """the programs of one slave DSP in the order it runs them: main, then its sections"""
+    return [('s1m0' if dsp == 'A' else 's1m1', progs['s1m0' if dsp == 'A' else 's1m1'])] + \
+        [(n, progs[n]) for n, _, _, _ in SECTIONS[dsp] if n in progs]
 
 
 # ---- ARM header -----------------------------------------------------------------------------------------------------
@@ -560,6 +825,14 @@ def header(progs):
     out = [f'/* generated by make_s1cc.py (KERNEL={KERNEL}, VOICES={NV}): our own DSP programs and tables */',
            '#include <stdint.h>', '']
     out += [c_array(name, w) for name, (w, _, _) in progs.items()]
+    sect = [(n, SECTION_OF[n]) for n in progs if n in SECTION_OF]
+    out.append(f'/* sections (make_s1cc.py SECTIONS): FC40 / FC44 index and program set of each, placed by engine.c */\n'
+               f'#define NSECT {len(sect)}')
+    if sect:
+        out.append('static const uint8_t sect_index[NSECT] = { ' + ', '.join(str(x[1][1]) for x in sect) + ' };')
+        out.append('static struct s1_prog sect_set[NSECT][2] = {\n' + ',\n'.join(
+            f'    {{ {{ 0x{a:04x}, MC_{n.upper()}_BYTES, mc_{n.upper()} }}, {{ 0, 0, 0 }} }}' for n, (_, _, a, _) in sect)
+            + '\n};')
     out.append('/* pitch word of a MIDI note: (note - 12) / 12 octaves (4.75 = A 440) */')
     out.append(table('pitch_bits', [(n - 12) / 12.0 for n in range(128)]))
     out.append('/* s1_dt / s1_rdt words of a MIDI note: f / 96000 and 96000 / f / 16384 */')
@@ -584,15 +857,23 @@ def header(progs):
         out.append(table('level_bits', [v / 255.0 for v in range(256)]))
     out.append(f'#define HOST_LFO {int(HOST_LFO)}')
     if HOST_LFO:
-        out.append(f'/* the host LFO and COLOR MOD: DSP A parameters; controls (panel id, default); tables */\n'
-                   f'#define A6_LRATE 0x{A6_LRATE:02x}\n#define A6_LSG 0x{A6_LSG:02x}\n#define A6_LWAVE 0x{A6_LWAVE:02x}\n'
+        out.append(f'/* the host: LFO (DSP B parameters B6_*), pitch envelope, COLOR MOD, mixer (DSP A, A6_*); controls\n'
+                   f'   (panel id, default); tables */\n'
+                   f'#define B6_LRATE 0x{B6_LRATE:02x}\n#define B6_LSG 0x{B6_LSG:02x}\n#define B6_LWAVE 0x{B6_LWAVE:02x}\n'
+                   f'#define B6_LDELAY 0x{B6_LDELAY:02x}\n#define B6_LFILT 0x{B6_LFILT:02x}\n#define B6_LAMP 0x{B6_LAMP:02x}\n'
+                   f'#define B6_LAMPABS 0x{B6_LAMPABS:02x}\n'
                    f'#define A6_PENV 0x{A6_PENV:02x}\n#define A6_COL0 0x{A6_COL[0]:02x}\n#define A6_COL1 0x{A6_COL[1]:02x}\n'
-                   f'#define A6_LDELAY 0x{A6_LDELAY:02x}\n#define A6_LPITCH 0x{A6_LPITCH:02x}\n'
-                   f'#define A6_LFILT 0x{A6_LFILT:02x}\n#define A6_LAMP 0x{A6_LAMP:02x}\n#define A6_LAMPABS 0x{A6_LAMPABS:02x}')
-        out.append('static const uint16_t hlfo_panel[12] = { ' + ', '.join(f'0x{p:03x}' for _, p, _ in HLFO) + ' };')
-        out.append('static const uint8_t hlfo_default[12] = { ' + ', '.join(str(d) for _, _, d in HLFO) + ' };')
+                   f'#define A6_LPITCH 0x{A6_LPITCH:02x}\n#define A6_PAMT 0x{A6_PAMT:02x}\n#define A6_RANGE1 0x{A6_RANGE1:02x}\n'
+                   f'#define A6_SUBMIX 0x{A6_SUBMIX:02x}\n#define A6_NOISEMIX 0x{A6_NOISEMIX:02x}')
+        out.append(f'static const uint16_t hlfo_panel[{len(HLFO)}] = {{ ' + ', '.join(f'0x{p:03x}' for _, p, _ in HLFO) + ' };')
+        out.append(f'static const uint8_t hlfo_default[{len(HLFO)}] = {{ ' + ', '.join(str(d) for _, _, d in HLFO) + ' };')
         out.append(table('lfo_rate_bits', [lfo_rate(v) for v in range(256)]))
         out.append(table('lfo_sg_bits', [lfo_sg(v) for v in range(256)]))
+        out.append(table('penv_amt_bits', [penv_amt(v) for v in range(256)]))
+        out.append('/* OSC RANGE 64\'..2\' (0..5) -> octaves -3..+2 */')
+        out.append(table('range_bits', [r - 3.0 for r in range(6)]))
+        out.append('/* LFO SHAPE -> (alpha, beta, K, w) of DSP B B6_LWAVE.. */')
+        out.append(table('lfo_shape_bits', [x for sh in LFO_SHAPES for x in sh], 4))
         out.append(table('lfo_delay_bits', [lfo_delay(v) for v in range(256)]))
         out.append(table('lfo_pitch_bits', [lfo_pitch(v) for v in range(256)]))
         out.append(table('lfo_filt_bits', [lfo_filt(v) for v in range(256)]))
@@ -630,7 +911,9 @@ def params(knobs):
             for j, x in enumerate(env_params(i, knobs.get(f'env{i}', H_ENV_DEFAULT[i]))):
                 pb[0xC000 + H6_ENV[i] + j] = f32(x)
     if HOST_LFO:
-        pa.update(hlfo_params(knobs))
+        ha, hb = hlfo_params(knobs)
+        pa.update(ha)
+        pb.update(hb)
     for name, (cnt, ab, bb) in layout().items():
         vals = KDEF.param_values(name, knobs.get(name.split('~')[0], 128), KTAB)   # name~id: derived from that knob
         for i in range(cnt):
@@ -649,9 +932,10 @@ def simulate(progs, events, n, knobs=None, gate_lag=0):
     sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 'emu'))
     import chain
     import cchain
-    P = {k: chain.Program(progs[k][0], k) for k in ('s1m0', 's1m1', 's1mm1')}
+    P = {k: chain.Program(progs[k][0], k) for k in progs if k not in ('s1c0', 's1c1')}
     model = chain.Model(order=(0, 1, 2), shared5=((0, 1),), own_params=(0, 1, 2))
-    sl = cchain.Slave({0: (P['s1m0'], []), 1: (P['s1m1'], []), 2: (P['s1mm1'], [])}, model)
+    sl = cchain.Slave({0: (P['s1m0'], [P[n] for n, _ in dsp_programs(progs, 'A')[1:]]),
+                       1: (P['s1m1'], [P[n] for n, _ in dsp_programs(progs, 'B')[1:]]), 2: (P['s1mm1'], [])}, model)
     for d, prm in zip(sl.d, params(knobs or {})):
         d.params.update(prm)
     a5 = sl.d[0].bank5
@@ -796,25 +1080,38 @@ def main():
         return
     progs = sources()
     over = []
+    for n in ['s1s0'] + list(SECTION_OF):             # sections this build does not use: no stale files
+        if n not in progs:
+            for ext in ('.s', '.hex'):
+                if os.path.exists(os.path.join(OUTDIR, n + ext)):
+                    os.remove(os.path.join(OUTDIR, n + ext))
     for name, (w, _, lines) in progs.items():
         open(os.path.join(OUTDIR, name + '.s'), 'w').write('\n'.join(lines) + '\n')
         open(os.path.join(OUTDIR, name + '.hex'), 'w').write(
             f'# {name}, own SYSTEM-1 program (make_s1cc.py KERNEL={KERNEL} VOICES={NV})\n'
             + '\n'.join('%04x' % x for x in w) + '\n')
         print(f'{name:6s} {instr_count(lines):4d} instructions, {len(w)} halfwords')
-        if name in BUDGET and instr_count(lines) > BUDGET[name]:
-            over.append(f'{name}: {instr_count(lines)} instructions, budget {BUDGET[name]}')
+        if name in BUDGET:                             # a DSP's time: its main and its sections
+            parts = dsp_programs(progs, 'A' if name == 's1m0' else 'B')
+            n_ins = sum(instr_count(x[1][2]) for x in parts)
+            if n_ins > BUDGET[name]:
+                over.append(f'{name}: {n_ins} instructions{" (with its sections)" if len(parts) > 1 else ""}, '
+                            f'budget {BUDGET[name]}')
+            if 2 * len(w) > MAIN_BYTES:
+                over.append(f'{name}: {2 * len(w)} bytes, its region has {MAIN_BYTES}')
+        if name in SECTION_OF and 2 * len(w) > SECTION_OF[name][3] - SECTION_OF[name][2]:
+            over.append(f'{name}: {2 * len(w)} bytes, its section has {SECTION_OF[name][3] - SECTION_OF[name][2]}')
     print(f'kernel per voice: A {len(KDEF.dsps["A"]["lines"])} lines, {words("A")} words'
           + (f'; B {len(KDEF.dsps["B"]["lines"])} lines, {words("B")} words' if HAS_B else '; no DSP B'))
     crossing_report(progs)
     for st in KDEF.dsps:                       # spills, and r5 / r6 left unused: built for MUTABLE-SYSTEM's registers
         lines = KDEF.dsps[st]['lines']
-        if KDEF.dsps[st].get('scratch') and not any(re.search(r'\br[56]\b', x) for x in lines):
+        if KDEF.dsps[st].get('scratch') and not PAIRS and not any(re.search(r'\br[56]\b', x) for x in lines):
             print(f'note: DSP {st} has {KDEF.dsps[st]["scratch"]} spill words and does not use r5 / r6: SYSTEM-S1CC '
                   'has no host keeping them, build the kernel with --regs 0,1,2,3,4,5,6,7 (docs/S1CC.md §1.1)')
     if over:
-        raise SystemExit(f'make_s1cc.py: over the budget ({", ".join(over)}): fewer VOICES, a smaller kernel, or '
-                         f'BUDGET_A / BUDGET_B=n at your own risk (DSP A: 702 hung the device)')
+        print(f'make_s1cc.py: {NV} voices do not fit ({", ".join(over)})')
+        sys.exit(3)
     os.makedirs(os.path.join(OUTDIR, 'build'), exist_ok=True)
     open(os.path.join(OUTDIR, 'build', 's1_programs.h'), 'w').write(header(progs))
     tried = os.path.join(OUTDIR, 'build', 'try_forms.txt')
