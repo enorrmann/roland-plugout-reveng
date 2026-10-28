@@ -1,8 +1,9 @@
 /* mp_vosim.c: Braids VOSIM: two formants (squared sines at their own rates, restarted every period of the note) whose
  * sum is windowed by the period: a vowel-like, buzzy pulse train.
- * OSC1 COLOR = formant 1 (1 .. 8 x the note), OSC2 COLOR = formant 2 (2 .. 16 x), OSC1 MIX = level. DSP B: mp_voice.h. */
+ * OSC1 COLOR = formant 1 (1 .. 8 x the note), OSC2 COLOR = formant 2 (2 .. 16 x), OSC1 MIX = level. DSP B: mp_dsp_b.h. */
 #include <math.h>
-#include "mp_voice.h"
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 S1_PARAM(f1, S1_OSC1_COLOR, 1) { out[0] = powf(8.0f, knob / 255.0f); }
 S1_PARAM(f2, S1_OSC2_COLOR, 1) { out[0] = 2.0f * powf(8.0f, knob / 255.0f); }

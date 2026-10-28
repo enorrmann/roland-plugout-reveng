@@ -1,6 +1,7 @@
 /* mp_saw.c: band-limited sawtooth (polyBLEP), the basic analog oscillator of Braids / Plaits, for SYSTEM-S1CC.
- * DSP A: the saw; DSP B: mp_voice.h (SVF low pass + envelopes). OSC1 MIX = level. */
-#include "mp_voice.h"
+ * DSP A: the saw; DSP B: mp_dsp_b.h (SVF low pass + envelopes). OSC1 MIX = level. */
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 S1_PARAM(level, S1_OSC1_MIX, 1) { out[0] = 0.25f + 0.5f * knob / 255.0f; }
 

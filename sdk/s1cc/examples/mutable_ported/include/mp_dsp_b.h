@@ -1,15 +1,16 @@
-/* mp_voice.h: the DSP B every mutable_ported oscillator kernel shares, and its panel. An oscillator kernel defines
- * S1_DSP_A (and its own S1_PARAM knobs on OSC1 / OSC2 COLOR, ...) and includes this file:
+/* mp_dsp_b.h: an optional DSP B program (VCF + VCA) and its panel, shared by most mutable_ported kernels. A kernel
+ * defines S1_DSP_A (with mp_dsp_a.h, and its own S1_PARAM knobs on OSC1 / OSC2 COLOR, ...) and includes this file
+ * to get:
  *   x (from DSP A) -> filter (MP_FILTER, default the SVF low pass) -> x the AMP envelope (s1_env(0)) -> out
  * The cutoff moves with the FILTER envelope (s1_env(1)) times FILTER ENV AMOUNT and with the key (KEY TRACK).
  * Both envelopes are SYSTEM-S1CC's ADSRs in assembly on DSP B (docs/examples_system_s1cc_README.md §3.1).
  *   FILTER CUTOFF 20 Hz .. 17 kHz, RESONANCE, ENV AMOUNT -8 .. +8 octaves (128 = 0), KEY TRACK 0 .. 1 (pitch).
  * MP_FILTER: MP_SVF_LP (default), MP_SVF_BP, MP_SVF_HP, MP_LADDER, MP_LPG (the AMP envelope drives the gate),
- * MP_NONE (VCA only). */
-#ifndef MP_VOICE_H_
-#define MP_VOICE_H_
+ * MP_NONE (VCA only). A kernel with a DSP B of its own does not include this file: it writes S1_DSP_B itself from
+ * the pieces of mp_filter.h (mp_vowel.c); SYSTEM-S1CC runs whatever S1_DSP_B the kernel has, and adds no filter. */
+#ifndef MP_DSP_B_H_
+#define MP_DSP_B_H_
 #include <math.h>
-#include "mp_dsp.h"
 #include "mp_filter.h"
 
 #define MP_SVF_LP 0

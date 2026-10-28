@@ -85,7 +85,7 @@ struct StateVar {
     int bits = 0;
     bool isUnsigned = false;
     double init = 0;
-    std::string stage;           // "A" / "B"
+    std::string dsp;             // "A" / "B"
     Node *final = nullptr;       // value at the end of the sample (stored back to the ring)
 };
 
@@ -97,20 +97,20 @@ struct Island {
     bool cloneable = true;
 };
 
-struct Stage {
+struct Dsp {
     std::string name;            // "A" / "B"
     llvm::Function *fn = nullptr;
     std::vector<std::unique_ptr<Node>> nodes;   // topological order
     Node *ret = nullptr;
     std::map<int, Node *> exports;
-    std::vector<int> states;     // indices of the state words this stage writes
+    std::vector<int> states;     // indices of the state words this DSP writes
     std::vector<Island> islands; // candidates (several roots per bad node)
 };
 
 struct Program {
     llvm::Module *M = nullptr;
     std::vector<StateVar> states;
-    Stage A, B;                  // B.fn == nullptr: no S1_DSP_B
+    Dsp A, B;                    // B.fn == nullptr: no S1_DSP_B
     std::map<std::string, llvm::GlobalVariable *> params;   // name -> descriptor
     std::map<std::string, int> paramCount;
     // knob-derived columns (§4.6): `prof sweep` values, record id -> knob table -> value at knob 0..255; build() turns
@@ -122,7 +122,7 @@ struct Program {
 void assignProfIds(Program &P);   // graph.cpp: the record ids `s1cc prof` gives (and lower reads)
 
 void build(Program &P, llvm::Module &M);    // graph.cpp
-void relive(Program &P, Stage &S);          // graph.cpp: live nodes and stored state words again, from the outputs
+void relive(Program &P, Dsp &S);            // graph.cpp: live nodes and stored state words again, from the outputs
 
 // ---- profile (written by runtime/s1rt.c) ----------------------------------------------------------------------
 struct Range {

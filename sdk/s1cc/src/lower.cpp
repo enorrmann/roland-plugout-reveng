@@ -128,7 +128,7 @@ struct Lowerer {
     int saturated = 0;                                     // values limited to their 99.99 % range
     std::vector<Node *> unreached;                         // values no profiling scenario computed: 0 (W908)
     std::map<int, std::string> traceWhere;
-    KVal *firstFlag = nullptr;                             // 1 at the first sample of the stage, else 0
+    KVal *firstFlag = nullptr;                             // 1 at the first sample of the DSP's program, else 0
     std::set<std::string> inputsB;
     std::vector<std::pair<std::string, std::string>> warnings;   // code, text
 
@@ -750,7 +750,7 @@ struct Lowerer {
     std::set<Node *> covered;
     std::map<const Island *, Fit> fits;
 
-    void chooseIslands(Stage &S) {
+    void chooseIslands(Dsp &S) {
         for (auto &np : S.nodes) {
             Node *N = np.get();
             if (!N->live || !N->bad || covered.count(N) || unreachedValue(N))
@@ -1137,7 +1137,7 @@ struct Lowerer {
         return addLV(f, fix);
     }
 
-    LV lowerNode(Stage &S, Node *n) {
+    LV lowerNode(Dsp &S, Node *n) {
         {   // the tag of the ops this node makes: its C line (a synthetic node: the line of an operand)
             const Node *src = n;
             for (int d = 0; d < 3 && !src->v && !src->in.empty(); d++) {
@@ -1174,7 +1174,7 @@ struct Lowerer {
         return r;
     }
 
-    LV lowerNode1(Stage &S, Node *n) {
+    LV lowerNode1(Dsp &S, Node *n) {
         auto in = [&](int i) { return val.at(n->in[i]); };
         Range rec = recRange(n);
         const Range *res = rec.seen() ? &rec : nullptr;
@@ -1188,6 +1188,8 @@ struct Lowerer {
             x.V = rec.seen() ? rec : Range{0, 1};
             if (n->name == "rdt")                     // 1/dt up to 12000: the host writes it / 16384
                 x.s = 16384;
+            if (n->name == "color0" || n->name == "color1")   // 0..1 whatever the profile saw (the host modulates it)
+                x.V = Range{0, 1};
             return x;
         }
         case NK::Increment: {
@@ -1603,7 +1605,7 @@ struct Lowerer {
     void chooseStateReps() {
         for (auto &s : P.states) {
             Range r;
-            for (Stage *S : {&P.A, &P.B})
+            for (Dsp *S : {&P.A, &P.B})
                 for (auto &np : S->nodes)
                     if (np->live && np->kind == NK::State && np->state == s.index)
                         r = recRange(np.get());
@@ -1646,7 +1648,7 @@ struct Lowerer {
         }
     }
 
-    std::string run(Stage &S, std::string &report) {
+    std::string run(Dsp &S, std::string &report) {
         Kernel k(opt.regs);
         K = &k;
         val.clear();
@@ -1727,16 +1729,16 @@ struct Lowerer {
                 k.store(v, "{INB:" + in + "}");
             }
         if (saturated)
-            warnings.push_back({"W906", "stage " + S.name + ": " + std::to_string(saturated) + " values limited to the range "
+            warnings.push_back({"W906", "DSP " + S.name + ": " + std::to_string(saturated) + " values limited to the range "
                                "of 99.99 % of their profiled samples (rare outliers would ruin their scale)"});
         saturated = 0;
         if (!unreached.empty())
-            warnings.push_back({"W908", "stage " + S.name + ": " + std::to_string(unreached.size()) + " values no "
+            warnings.push_back({"W908", "DSP " + S.name + ": " + std::to_string(unreached.size()) + " values no "
                                 "profiling scenario computed (a branch none of them took) are 0 on the DSP; the "
                                 "first at " + where(unreached.front()->v)});
         unreached.clear();
         std::vector<std::string> lines = k.lines();
-        report += "stage " + S.name + ": " + std::to_string(k.units()) + " units" +
+        report += "DSP " + S.name + ": " + std::to_string(k.units()) + " units" +
                   (k.spills() ? ", " + std::to_string(k.spills()) + " scratch words (spills)" : "") + "\n";
         {   // ops kept per C line (before scheduling: an instruction holds 1-3 of them; s1cc build --debug for
             // file:line)
@@ -1744,12 +1746,12 @@ struct Lowerer {
             for (auto &kv : k.liveByTag)
                 byCost.push_back({kv.second, kv.first.empty() ? "(kernel: stores, inputs)" : kv.first});
             std::sort(byCost.rbegin(), byCost.rend());
-            rep << "  cost of stage " << S.name << " by C line (ops):\n";
+            rep << "  cost of DSP " << S.name << " by C line (ops):\n";
             for (auto &c : byCost)
                 rep << "    " << c.first << "  " << c.second << "\n";
         }
         std::ostringstream o;
-        o << ".stage " << S.name << " " << k.units() << "\n";
+        o << ".dsp " << S.name << " " << k.units() << "\n";
         if (k.spills())
             o << ".scratch " << k.spills() << "\n";
         if (firstFlag) {
@@ -1790,7 +1792,7 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
     // the state words only that side kept cost nothing. The profile sweeps every knob and notes 0..127; W909 lists
     // them, --no-fold-branches keeps them
     if (opt.foldBranches)
-        for (Stage *S : {&P.A, &P.B}) {
+        for (Dsp *S : {&P.A, &P.B}) {
             if (!S->fn)
                 continue;
             std::vector<Node *> folded;
@@ -1812,7 +1814,7 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
             if (folded.empty())
                 continue;
             relive(P, *S);
-            L.warnings.push_back({"W909", "stage " + S->name + ": " + std::to_string(folded.size()) + " compares gave "
+            L.warnings.push_back({"W909", "DSP " + S->name + ": " + std::to_string(folded.size()) + " compares gave "
                                   "one answer in every profiling scenario and are that constant (--no-fold-branches "
                                   "keeps them); the first at " + where(folded.front()->v)});
         }
@@ -1827,7 +1829,7 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
     o << "; s1cc kernel (docs/S1CC.md §8): V = (r - o) s for every scaled word\n";
     for (auto &s : P.states) {
         auto sr = L.stateRep.at(s.index);
-        o << ".state " << s.index << " " << s.stage << " " << fmtImm(sr.first).substr(1) << " "
+        o << ".state " << s.index << " " << s.dsp << " " << fmtImm(sr.first).substr(1) << " "
           << fmtImm(sr.second).substr(1) << " " << s.name << "\n";
     }
     for (auto &kv : P.paramCount)

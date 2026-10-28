@@ -134,7 +134,7 @@ puede compilar y por qué (S1CC.md §9.1).
 
 ## 5. Resultados [sim, 2026-10-27]
 
-Etapa A: 40 unidades → **30 instrucciones** (una sola sierra: 19). `check`:
+DSP A: 40 unidades → **30 instrucciones** (una sola sierra: 19). `check`:
 
 | nota | perillas | SNR 10 ms | SNR total | niveles por banda port − ref |
 |---|---|---|---|---|

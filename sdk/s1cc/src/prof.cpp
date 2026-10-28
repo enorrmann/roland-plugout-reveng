@@ -59,7 +59,7 @@ void instrument(Program &P) {
     Type *d = Type::getDoubleTy(C), *i32 = Type::getInt32Ty(C);
     int id = 0;
     std::map<Value *, int> recId;
-    for (Stage *S : {&P.A, &P.B}) {
+    for (Dsp *S : {&P.A, &P.B}) {
         if (!S->fn)
             continue;
         for (auto &np : S->nodes) {
@@ -99,7 +99,7 @@ void instrument(Program &P) {
     // divisors: a histogram of sign and octave (__s1p_h), so the reciprocal knows its usual range
     {
         FunctionCallee rech = M.getOrInsertFunction("__s1p_h", Type::getVoidTy(C), i32, d);
-        for (Stage *S : {&P.A, &P.B}) {
+        for (Dsp *S : {&P.A, &P.B}) {
             if (!S->fn)
                 continue;
             for (auto &np : S->nodes) {
@@ -116,7 +116,7 @@ void instrument(Program &P) {
     // speculated values: also recorded at their select, when the arm they feed is taken
     {
         FunctionCallee recc = M.getOrInsertFunction("__s1p_c", Type::getVoidTy(C), i32, i32, d, d);
-        for (Stage *S : {&P.A, &P.B}) {
+        for (Dsp *S : {&P.A, &P.B}) {
             if (!S->fn)
                 continue;
             for (auto &np : S->nodes) {
@@ -141,7 +141,7 @@ void instrument(Program &P) {
     // islands: one native function per candidate
     std::vector<Constant *> rows;
     StructType *rowTy = StructType::get(C, {i32, i32, PointerType::getUnqual(C), i32});   // + root is an integer
-    for (Stage *S : {&P.A, &P.B}) {
+    for (Dsp *S : {&P.A, &P.B}) {
         if (!S->fn)
             continue;
         for (Island &isl : S->islands) {

@@ -1,4 +1,4 @@
-/* mp_dsp.h: building blocks of the mutable_ported kernels (docs/examples_mutable_ported_README.md), written for the
+/* mp_dsp_a.h: DSP A building blocks of the mutable_ported kernels (oscillators, noise, folding) (docs/examples_mutable_ported_README.md), written for the
  * SYSTEM-1 slave DSPs as s1cc compiles them:
  *   - no division in the voice: what depends on a knob goes to an S1_PARAM table (runs on the PC), what depends on
  *     the note comes from the host's per-note words (s1_dt, s1_rdt); recipseed, the hardware reciprocal, is not
@@ -7,12 +7,14 @@
  *   - every `if` costs both sides (the DSP has no branches): branch-free forms where they are cheaper;
  *   - one sample per call, at 96 kHz.
  * Algorithms after Mutable Instruments' Braids / Plaits / stmlib (Emilie Gillet, MIT), rewritten for this DSP. */
-#ifndef MP_DSP_H_
-#define MP_DSP_H_
+#ifndef MP_DSP_A_H_
+#define MP_DSP_A_H_
 #include <math.h>
 #include "s1dsp.h"
 
+#ifndef MP_FS
 #define MP_FS 96000.0f
+#endif
 
 /* the voice's phase step in cycles per sample (phase 0..1) and its inverse: per-note tables the host writes with the
    pitch (s1_dt / s1_rdt: two loads; computing them would take two exp2 and the division recipseed) */
@@ -61,12 +63,6 @@ static inline float mp_cos(float p) {
   float t = s1_tri(p + p + 0.5f);
   float t2 = t * t;
   return t * (1.5704f + t2 * (-0.6427f + t2 * 0.0727f));
-}
-
-/* soft clip, cubic, odd: x - x^3 / 3 on [-1, 1], 2/3 beyond (the shape of Plaits' overdrive at low drive) */
-static inline float mp_soft(float x) {
-  x = s1_clamp(x);
-  return x - x * x * x * (1.0f / 3.0f);
 }
 
 /* wavefolder: the DSP triangle of the scaled signal (Braids' fold tables are this shape, without their smoothing) */

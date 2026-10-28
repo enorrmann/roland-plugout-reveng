@@ -1,7 +1,8 @@
 /* mp_super_square.c: Plaits' SuperSquareOscillator: two band-limited squares, detuned below the knob's middle,
  * the second hard-synced and swept above it (a "supersaw" for squares).
- * OSC1 COLOR = shape, OSC1 MIX = level. DSP B: mp_voice.h. */
-#include "mp_voice.h"
+ * OSC1 COLOR = shape, OSC1 MIX = level. DSP B: mp_dsp_b.h. */
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 /* Plaits: ratio = shape < 0.5 ? 0.51 + 0.98 shape : 1 + 16 (shape - 0.5)^2; above 0.5 the second square is synced */
 S1_PARAM(shape, S1_OSC1_COLOR, 3) {

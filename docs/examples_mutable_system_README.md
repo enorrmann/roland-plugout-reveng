@@ -183,10 +183,10 @@ del DSP A es `step_lfo_voice` + `kernel_voice_a`; la del DSP B empieza con `kern
 |---|---|
 | tono del kernel (`V9_PM` + range de OSC1) | `V8_PHASE[v] + 2` del DSP A (se escribe y se lee en la misma muestra) |
 | puerta / disparo | `A038+v` / `A060+v` |
-| estado y temporales de la etapa A | banco 0 del DSP A, `0x0400 + 0x20·v` (2 palabras cada uno, hasta 16) |
-| estado y temporales de la etapa B | banco 0 del DSP B, `0x0600 + 0x20·v` |
-| salida de la etapa A | `V8_PHASE[v]` → × nivel de OSC1 × trémolo → `A151+v` (= entrada de B) |
-| salida de la etapa B | bloque de voz de B + `0x1A` → ADSR de VCA, como el paso alto de SAW_SWARM |
+| estado y temporales del código del DSP A | banco 0 del DSP A, `0x0400 + 0x20·v` (2 palabras cada uno, hasta 16) |
+| estado y temporales del código del DSP B | banco 0 del DSP B, `0x0600 + 0x20·v` |
+| salida del código del DSP A | `V8_PHASE[v]` → × nivel de OSC1 × trémolo → `A151+v` (= entrada de B) |
+| salida del código del DSP B | bloque de voz de B + `0x1A` → ADSR de VCA, como el paso alto de SAW_SWARM |
 | `s1_export(i)` | `A188 + 8·i + v` |
 | entradas que B toma de A | `A1A0 + 8·j + v` |
 | tablas `S1_PARAM` | parámetros del DSP A desde `C070`, del DSP B desde `C060`, en el orden del kernel |

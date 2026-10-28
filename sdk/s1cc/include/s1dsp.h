@@ -39,6 +39,10 @@
  *   s1_env(i)             S1_DSP_B only: envelope i of the host, 0..1 (SYSTEM-S1CC builds them in assembly on DSP B
  *                         when a kernel uses them: 0 = AMP ATTACK / DECAY / SUSTAIN / RELEASE, 1 = FILTER A / D / S / R;
  *                         docs/examples_system_s1cc_README.md §3). The native reference and `check` give the gate
+ *   s1_color(i)           S1_DSP_A only: OSC1 (i = 0) / OSC2 (1) COLOR, 0..1, with its COLOR MOD source: MANUAL = the
+ *                         knob; LFO, PITCH ENV, FILTER ENV, AMP ENV, SUB OSC = knob x source (0..1). SYSTEM-S1CC makes
+ *                         the sources in assembly when a kernel uses s1_color (docs/examples_system_s1cc_README.md §3.2).
+ *                         The native reference and `check` give the knob: color0=K / color1=K (default 128)
  *   s1_range(x, lo, hi)   x, declaring its range: lo and hi go to s1cc as constants, and the profile must reach
  *                         the call (a branch that always takes the same way leaves it unseen: docs/S1CC.md §3.2)
  */
@@ -79,6 +83,7 @@ S1_EXTERN S1_FN float s1_tri(float x);
 S1_EXTERN S1_FN float s1_exp2(float x);
 S1_EXTERN S1_FN float s1_range(float x, float lo, float hi);
 S1_EXTERN S1_IN float s1_env(int i);
+S1_EXTERN S1_IN float s1_color(int i);
 
 #define s1_param(name, i) s1_param_get(&s1_param_desc_##name, (i))
 

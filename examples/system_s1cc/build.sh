@@ -12,7 +12,9 @@ Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force -
 Then select the PLUG-OUT on the panel.
 
 Panel: the kernel's S1_PARAM tables on their panel ids (sdk/s1cc/include/s1panel.h; row 128 until the control
-moves); VOLUME, DELAY and REVERB as the OS does them; every other control does nothing.
+moves); VOLUME, DELAY and REVERB as the OS does them. A kernel that calls s1_color also gets OSC1 / OSC2 COLOR with
+COLOR MOD (manual, LFO, pitch env, filter env, amp env, sub osc) and the LFO SHAPE / RATE and PITCH ENV A / D
+controls (docs/examples_system_s1cc_README.md §3.2); every other control does nothing.
 
 Options (environment variables):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)

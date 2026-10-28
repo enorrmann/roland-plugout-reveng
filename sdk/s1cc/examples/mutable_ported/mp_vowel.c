@@ -3,8 +3,8 @@
  * Braids' vowel data, Peterson & Barney averages). The AMP envelope is the VCA.
  * OSC1 COLOR = vowel, OSC2 COLOR = formant shift (-1 .. +1 octave), OSC1 MIX = level, RESONANCE = formant width. */
 #include <math.h>
-#include "mp_dsp.h"
-#include "mp_filter.h"
+#include "include/mp_dsp_a.h"
+#include "include/mp_filter.h"
 
 static const float kF[5][3] = {               /* Hz: a, e, i, o, u */
   { 730.0f, 1090.0f, 2440.0f }, { 530.0f, 1840.0f, 2480.0f }, { 270.0f, 2290.0f, 3010.0f },

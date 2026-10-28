@@ -19,7 +19,7 @@ is C-S1SY13's.
 
 Options (environment variables):
   KERNEL=DIR    a voice compiled from C / C++ by s1cc (sdk/s1cc/s1cc build ... -o DIR) instead of the oscillator:
-                its stage A on DSP A, stage B first in the voice of DSP B, its S1_PARAM tables on their panel ids
+                its DSP A code on DSP A, its DSP B code first in the voice of DSP B, its S1_PARAM tables on their panel ids
                 (docs/S1CC.md §12, e.g. KERNEL=sdk/s1cc/build/braids_saw_swarm_s1 NAME=MUTABLE-S1CC)
   SWARM=0|1     1 (default without KERNEL): SAW_SWARM written in Python (sdk/mport); 0: C-S1SY's DCO1 + DCO2
   WS_DEGREE=n   degree of the odd polynomial that replaces Braids' ws_moderate_overdrive table (default 9:

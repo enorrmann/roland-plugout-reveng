@@ -1,9 +1,21 @@
-/* mp_filter.h: filters of the mutable_ported kernels, for DSP B (mp_dsp.h for the rules). The cutoff arrives as w,
+/* mp_filter.h: filters of the mutable_ported kernels, for DSP B (mp_dsp_a.h for the rules). The cutoff arrives as w,
  * 2 pi fc / fs at 96 kHz; the coefficients are linear in w (no tan(), no division), which the high sample rate
  * allows, and the SVF runs twice per sample (each half with w/2): stable up to ~20 kHz at every resonance. */
 #ifndef MP_FILTER_H_
 #define MP_FILTER_H_
-#include "mp_dsp.h"
+#include <math.h>
+#include "s1dsp.h"
+
+#ifndef MP_FS
+#define MP_FS 96000.0f
+#endif
+
+/* soft clip, cubic, odd: x - x^3 / 3 on [-1, 1], 2/3 beyond (the shape of Plaits' overdrive at low drive) */
+static inline float mp_soft(float x) {
+  x = s1_clamp(x);
+  return x - x * x * x * (1.0f / 3.0f);
+}
+
 
 /* state variable filter (Chamberlin, as Braids' svf.h, in float), double sampled. Stable while f + q < 2: q (the
    damping) 1.4 (no resonance, Butterworth-like) .. 0.02, f at most 0.55 (~17 kHz at 2 fs). Outputs low, band and

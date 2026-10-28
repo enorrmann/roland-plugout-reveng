@@ -3243,9 +3243,9 @@ s1cc check: a built kernel on the emulator against the native reference of the s
 
     sdk/s1cc/s1cc check OUTDIR [--note 57] [--n 9600] [name=knob ...] [--show]
 
-Bench: slave DSP A (emulator DSP 0) runs stage A, slave DSP B (DSP 1) stage B, one shared bank 5 (the SYSTEM-1
-slave pair); pitch word at A030, gate A038 = 1, trigger A060 = 1 (one note start, as the reference); stage A's
-output to A151 (= stage B's input), exports at A1A0 + i, inputs for B at A1B0 + i, B's output to A1C0; state words
+Bench: slave DSP A (emulator DSP 0) runs the kernel's DSP A code, slave DSP B (DSP 1) its DSP B code, one shared bank 5 (the SYSTEM-1
+slave pair); pitch word at A030, gate A038 = 1, trigger A060 = 1 (one note start, as the reference); DSP A's
+output to A151 (= DSP B's input), exports at A1A0 + i, inputs for B at A1B0 + i, B's output to A1C0; state words
 in each DSP's bank 0 from 0x0100 (2 words each), scratch words from 0x0300; parameters from C040 in .param order, on both DSPs. Programs
 scheduled with asm/dspsched.py (only the proven op groups unless --all-forms). Prints the SNR over the first
 10 ms and over all, the band levels port - reference, and the instruction counts.
@@ -3259,6 +3259,9 @@ scheduled with asm/dspsched.py (only the proven op groups unless --all-forms). P
 | `--all-forms` | schedule with every op group (not only the proven) |  |
 | `--show` | print the scheduled programs |  |
 | `--trace` | the kernel must be built with --trace (s1cc build --trace): report the first C operation whose value differs |  |
+| `--trace-tol` | --trace: relative tolerance (fitted tables are within --tol / --tollog of the C, not 1e-3) | `0.001` |
+| `--trace-n` | --trace: samples compared (from the first) | `2400` |
+| `--trace-count` | --trace: how many differing records to list | `12` |
 | `knobs` | name=knob (0..255; default 128) |  |
 
 ### `sdk/s1cc/tools/s1kernel.py`
@@ -3293,7 +3296,7 @@ is C-S1SY13's.
 
 Options (environment variables):
   KERNEL=DIR    a voice compiled from C / C++ by s1cc (sdk/s1cc/s1cc build ... -o DIR) instead of the oscillator:
-                its stage A on DSP A, stage B first in the voice of DSP B, its S1_PARAM tables on their panel ids
+                its DSP A code on DSP A, its DSP B code first in the voice of DSP B, its S1_PARAM tables on their panel ids
                 (docs/S1CC.md §12, e.g. KERNEL=sdk/s1cc/build/braids_saw_swarm_s1 NAME=MUTABLE-S1CC)
   SWARM=0|1     1 (default without KERNEL): SAW_SWARM written in Python (sdk/mport); 0: C-S1SY's DCO1 + DCO2
   WS_DEGREE=n   degree of the odd polynomial that replaces Braids' ws_moderate_overdrive table (default 9:
@@ -3391,7 +3394,9 @@ Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force -
 Then select the PLUG-OUT on the panel.
 
 Panel: the kernel's S1_PARAM tables on their panel ids (sdk/s1cc/include/s1panel.h; row 128 until the control
-moves); VOLUME, DELAY and REVERB as the OS does them; every other control does nothing.
+moves); VOLUME, DELAY and REVERB as the OS does them. A kernel that calls s1_color also gets OSC1 / OSC2 COLOR with
+COLOR MOD (manual, LFO, pitch env, filter env, amp env, sub osc) and the LFO SHAPE / RATE and PITCH ENV A / D
+controls (docs/examples_system_s1cc_README.md §3.2); every other control does nothing.
 
 Options (environment variables):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
@@ -3414,10 +3419,10 @@ SYSTEM-S1CC: a SYSTEM-1 PLUG-OUT that is only an s1cc kernel (docs/examples_syst
 No oscillator, envelope, filter or LFO of its own: everything a voice does is the kernel's C (sdk/s1cc). Around it
 only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the hardware:
 
-    slave A  s1m0 @0x0100   per voice v: stage A of the kernel (S1_DSP_A); pitch / gate / trigger read from bank 5
+    slave A  s1m0 @0x0100   per voice v: DSP A of the kernel (S1_DSP_A); pitch / gate / trigger read from bank 5
                             (A030+v / A038+v / A060+v, written by engine.c); its output -> A151+v
     slave B  s1m1 @0x0100   first the mix: sum of last sample's voice outputs x gain x C000 -> 6006 / 6007
-                            (6008..600D = 0); then per voice v: stage B of the kernel (S1_DSP_B) on x = A151+v ->
+                            (6008..600D = 0); then per voice v: DSP B of the kernel (S1_DSP_B) on x = A151+v ->
                             its output word; without S1_DSP_B the mix reads A151+v
     master B s1mm1 @0x1000  6006 / 6007 x VOLUME (C01C) -> OS effect send 2000 / 2002 (delay, reverb); the effect's
                             return 2001 / 2003 -> A118 / A119 (C-S1SY13's master, unchanged)

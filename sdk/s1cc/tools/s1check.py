@@ -2,9 +2,9 @@
 
     sdk/s1cc/s1cc check OUTDIR [--note 57] [--n 9600] [name=knob ...] [--show]
 
-Bench: slave DSP A (emulator DSP 0) runs stage A, slave DSP B (DSP 1) stage B, one shared bank 5 (the SYSTEM-1
-slave pair); pitch word at A030, gate A038 = 1, trigger A060 = 1 (one note start, as the reference); stage A's
-output to A151 (= stage B's input), exports at A1A0 + i, inputs for B at A1B0 + i, B's output to A1C0; state words
+Bench: slave DSP A (emulator DSP 0) runs the kernel's DSP A code, slave DSP B (DSP 1) its DSP B code, one shared bank 5 (the SYSTEM-1
+slave pair); pitch word at A030, gate A038 = 1, trigger A060 = 1 (one note start, as the reference); DSP A's
+output to A151 (= DSP B's input), exports at A1A0 + i, inputs for B at A1B0 + i, B's output to A1C0; state words
 in each DSP's bank 0 from 0x0100 (2 words each), scratch words from 0x0300; parameters from C040 in .param order, on both DSPs. Programs
 scheduled with asm/dspsched.py (only the proven op groups unless --all-forms). Prints the SNR over the first
 10 ms and over all, the band levels port - reference, and the instruction counts.
@@ -29,11 +29,13 @@ from s1kernel import Kernel, read_tables  # noqa: E402
 
 PITCH, GATE, TRIG, A_OUT, EXP0, INB0, B_OUT = 0xA030, 0xA038, 0xA060, 0xA151, 0xA1A0, 0xA1B0, 0xA1C0
 DT, RDT = 0xA040, 0xA048     # s1_dt() = f / 96000, s1_rdt() = 1 / dt / 16384 (the host's per-note tables)
+COLOR = (0xA050, 0xA058)     # s1_color(i): the knob color0= / color1= (s1rt.c), as the host gives it with MOD = MANUAL
 STATE0, PARAM0, SCRATCH0, TRACE0 = 0x0100, 0x40, 0x0300, 0x0400
 
 
 def layout(k):
-    addr = {'IN:pitch': PITCH, 'IN:gate': GATE, 'IN:trig': TRIG, 'IN:dt': DT, 'IN:rdt': RDT, 'XIN': A_OUT}
+    addr = {'IN:pitch': PITCH, 'IN:gate': GATE, 'IN:trig': TRIG, 'IN:dt': DT, 'IN:rdt': RDT, 'XIN': A_OUT,
+            'IN:color0': COLOR[0], 'IN:color1': COLOR[1]}
     for s in k.states:
         addr[f'S{s["index"]}'] = STATE0 + 2 * s['index']
     i = PARAM0
@@ -68,21 +70,21 @@ def run_kernel(outdir, note, n, knobs, proven=True):
     base = layout(k)
     progs, info = {}, {}
     for st, dsp in (('A', 0), ('B', 1)):
-        if st not in k.stages:
+        if st not in k.dsps:
             continue
         addr = dict(base, OUT=A_OUT if st == 'A' else B_OUT)
-        for j in range(k.stages[st]['scratch']):
+        for j in range(k.dsps[st]['scratch']):
             addr[f'T{j}'] = SCRATCH0 + 2 * j
         addr['I'] = SCRATCH0 - 2
         if st == 'B':
             for j, name in enumerate(k.inputs_b):
                 addr[f'IN:{name}'] = INB0 + j
             addr['IN:env0'] = addr['IN:env1'] = GATE        # the host's envelopes: the gate stands in (s1rt.c s1_env)
-        for j, (rid, _, _) in enumerate(k.stages[st].get('trace', [])):
+        for j, (rid, _, _) in enumerate(k.dsps[st].get('trace', [])):
             addr[f'D:{rid}'] = TRACE0 + j
         words, code = program(k.place(st, addr), proven)
         progs[dsp] = (chain.Program(words, st), [])
-        info[st] = (k.stages[st]['units'], len(code))
+        info[st] = (k.dsps[st]['units'], len(code))
     model = chain.Model(order=tuple(sorted(progs)), shared5=((0, 1),) if len(progs) == 2 else (),
                         own_params=tuple(sorted(progs)))
     sl = cchain.Slave(progs, model)
@@ -99,11 +101,13 @@ def run_kernel(outdir, note, n, knobs, proven=True):
     b5[RDT & 0x3FF] = f32(f32(1.0 / dt) / 16384.0)
     b5[GATE & 0x3FF] = 1.0
     b5[TRIG & 0x3FF] = 1.0
+    for i, a in enumerate(COLOR):
+        b5[a & 0x3FF] = f32(knobs.get(f'color{i}', 128) / 255.0)
     words = [(0, A_OUT)] + ([(1, B_OUT)] if 1 in progs else [])
     tr = []
     for st, dsp in (('A', 0), ('B', 1)):
-        if st in k.stages:
-            for j, (rid, scale, where) in enumerate(k.stages[st].get('trace', [])):
+        if st in k.dsps:
+            for j, (rid, scale, where) in enumerate(k.dsps[st].get('trace', [])):
                 tr.append((dsp, TRACE0 + j, rid, scale, where))
     if tr:
         # bank-0 trace words: read back after every sample (the ring moves: the word written at S this sample is
@@ -216,7 +220,7 @@ def main(argv=None):
             continue
         units, ins = info[st]
         bp, br = bands(p), bands(r)
-        print(f'stage {st}: {units} units -> {ins} instructions; SNR {snr(p[:w], r[:w]):.1f} dB (10 ms), '
+        print(f'DSP {st}: {units} units -> {ins} instructions; SNR {snr(p[:w], r[:w]):.1f} dB (10 ms), '
               f'{snr(p, r):.1f} dB (all); peak {np.max(np.abs(p)):.3f} / ref {np.max(np.abs(r)):.3f}; '
               'bands port - ref (dB): ' + ' '.join(f'{x - y:+.2f}' for x, y in zip(bp, br)))
 

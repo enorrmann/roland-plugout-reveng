@@ -446,7 +446,7 @@ def step_lfo_voice(v):
 
 
 # ---- KERNEL=dir: a voice compiled from C / C++ by s1cc (docs/S1CC.md §12) ----------------------------------------
-# Stage A of the kernel replaces DCO1 + DCO2 on DSP A (after the LFO of the voice), stage B goes first in the voice
+# The kernel's DSP A code replaces DCO1 + DCO2 on DSP A (after the LFO of the voice), DSP B goes first in the voice
 # of DSP B (before the amp ADSR), like the SAW_SWARM high-pass. Addresses per voice v:
 #   pitch (V9_PM + OSC1 range) -> A block V8_PHASE[v] + 2 (same-sample word); gate / trigger A038+v / A060+v
 #   A state / scratch words: bank 0 of DSP A, 0x0400 + 0x20 v; B: bank 0 of DSP B, 0x0600 + 0x20 v (2 words each)
@@ -462,8 +462,8 @@ if KERNEL:
 
 
 def kernel_layout():
-    """{param name: (count, A base or None, B base or None)} and the local state / scratch slots per stage"""
-    used = {st: {m.split(':')[1] for m in KDEF.placeholders(st) if m.startswith('P:')} for st in KDEF.stages}
+    """{param name: (count, A base or None, B base or None)} and the local state / scratch slots per DSP"""
+    used = {st: {m.split(':')[1] for m in KDEF.placeholders(st) if m.startswith('P:')} for st in KDEF.dsps}
     out, a, b = {}, K_A_PARAM0, K_B_PARAM0
     for p in KDEF.params:
         ab = bb = None
@@ -475,23 +475,23 @@ def kernel_layout():
     return out
 
 
-def kernel_addr(stage, v):
-    base = (0x0400 if stage == 'A' else 0x0600) + 0x20 * v
+def kernel_addr(dsp, v):
+    base = (0x0400 if dsp == 'A' else 0x0600) + 0x20 * v
     addr, k = {}, 0
     for s_ in KDEF.states:
-        if s_['stage'] == stage:
+        if s_['dsp'] == dsp:
             addr[f'S{s_["index"]}'] = base + 2 * k
             k += 1
-    for j in range(KDEF.stages[stage].get('scratch', 0)):
+    for j in range(KDEF.dsps[dsp].get('scratch', 0)):
         addr[f'T{j}'] = base + 2 * k
         k += 1
-    if KDEF.stages[stage].get('initflag'):           # S1_INIT: the first-sample flag word
+    if KDEF.dsps[dsp].get('initflag'):           # S1_INIT: the first-sample flag word
         addr['I'] = base + 2 * k
         k += 1
     if 2 * k > 0x20:
-        raise SystemExit(f'kernel stage {stage}: {k} state + scratch words, at most 16 per voice')
+        raise SystemExit(f'kernel DSP {dsp}: {k} state + scratch words, at most 16 per voice')
     for name, (cnt, ab, bb) in kernel_layout().items():
-        pb = ab if stage == 'A' else bb
+        pb = ab if dsp == 'A' else bb
         if pb is not None:
             for i in range(cnt):
                 addr[f'P:{name}:{i}'] = 0xC000 + pb + i
@@ -499,7 +499,7 @@ def kernel_addr(stage, v):
         addr[f'X:{e}'] = 0xA188 + 8 * e + v
     for j, name in enumerate(KDEF.inputs_b):
         addr[f'INB:{name}'] = 0xA1A0 + 8 * j + v
-    if stage == 'A':
+    if dsp == 'A':
         addr.update({'IN:pitch': V8_PHASE[v] + 2, 'IN:gate': GATE[v], 'IN:trig': TRIG[v], 'OUT': V8_PHASE[v]})
     else:
         for j, name in enumerate(KDEF.inputs_b):
@@ -509,8 +509,8 @@ def kernel_addr(stage, v):
 
 
 def kernel_voice_a(v):
-    """KERNEL: voice v on DSP A after step_lfo_voice: pitch + range -> the kernel's stage A -> x level x tremolo"""
-    L = [f'; voice {v}: s1cc kernel {KERNEL} stage A', f'ld r0, [{V9_PM[v]:04x}]', f'ld r4, [c0{B6_RANGE1:02x}]',
+    """KERNEL: voice v on DSP A after step_lfo_voice: pitch + range -> the kernel's DSP A code -> x level x tremolo"""
+    L = [f'; voice {v}: s1cc kernel {KERNEL} DSP A', f'ld r0, [{V9_PM[v]:04x}]', f'ld r4, [c0{B6_RANGE1:02x}]',
          'mov r4, r4', 'addxy r0, r0, r4', f'st r0, [{V8_PHASE[v] + 2:04x}]']
     L += KDEF.place('A', kernel_addr('A', v))
     L += [f'ld r0, [{V8_PHASE[v]:04x}]', f'ld r4, [{STEP_LEVEL1:04x}]', 'mov r4, r4', 'mul r0, r0, r4',
@@ -519,7 +519,7 @@ def kernel_voice_a(v):
 
 
 def kernel_voice_b(v):
-    return [f'; voice {v}: s1cc kernel stage B'] + KDEF.place('B', kernel_addr('B', v))
+    return [f'; voice {v}: s1cc kernel DSP B'] + KDEF.place('B', kernel_addr('B', v))
 
 
 def kernel_params(knobs):
@@ -659,7 +659,7 @@ def step_filter_voice(v):
     """step 6: voice v on DSP B: amp ADSR, x = A151+v x env x gain, cutoff -> g, 4 one-pole stages with feedback"""
     b = STEP_B_BASE[v]
     y = [b + o for o in B_Y]
-    kb = bool(KERNEL) and 'B' in KDEF.stages
+    kb = bool(KERNEL) and 'B' in KDEF.dsps
     pre = swarm_hp_voice(v) if SWARM else kernel_voice_b(v) if kb else []
     L = pre + [f'; voice {v}: amp ADSR'] + step_adsr(b, b + 2, b + 4, STEP_GB[v], STEP_TB[v], STEP_AENV_B)
     if STEP >= 8:                                        # x = A151+v x amp env, then the filter ADSR -> r1

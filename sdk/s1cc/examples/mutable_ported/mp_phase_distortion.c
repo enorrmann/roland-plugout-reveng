@@ -1,7 +1,8 @@
 /* mp_phase_distortion.c: Casio CZ phase distortion (Plaits' phase distortion engine, its basic shape): the phase
  * runs fast up to a knee, slow after it, and drives a cosine: from sine to saw-like.
- * OSC1 COLOR = knee (distortion), OSC1 MIX = level. DSP B: mp_voice.h. */
-#include "mp_voice.h"
+ * OSC1 COLOR = knee (distortion), OSC1 MIX = level. DSP B: mp_dsp_b.h. */
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 /* knee k and the two slopes 0.5 / k, 0.5 / (1 - k), on the PC (no division on the DSP) */
 S1_PARAM(pd, S1_OSC1_COLOR, 3) {

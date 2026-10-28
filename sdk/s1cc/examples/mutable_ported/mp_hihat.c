@@ -2,7 +2,8 @@
  * of the note, summed and high passed in DSP B (MP_SVF_HP, FILTER CUTOFF high); the level decay is the AMP envelope.
  * OSC1 COLOR = noise mixed in, OSC1 MIX = level. */
 #define MP_FILTER MP_SVF_HP
-#include "mp_voice.h"
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 static const float kRatios[6] = { 1.0f, 1.304f, 1.466f, 1.787f, 1.932f, 2.536f };   /* the 808's cymbal ratios */
 S1_PARAM(noise, S1_OSC1_COLOR, 1) { out[0] = knob / 255.0f; }

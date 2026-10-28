@@ -1,8 +1,9 @@
 /* mp_saw_swarm.c: Braids SAW_SWARM: seven saws spread around the note (naive saws: at 96 kHz and with seven of them
  * the aliasing is masked, as in Braids, which does not band-limit them either).
- * OSC1 COLOR = detune (Braids: detune grows with the square of the knob), OSC1 MIX = level. DSP B: mp_voice.h. */
+ * OSC1 COLOR = detune (Braids: detune grows with the square of the knob), OSC1 MIX = level. DSP B: mp_dsp_b.h. */
 #include <math.h>
-#include "mp_voice.h"
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 /* the frequency ratio of saw i (i - 3 semitone fractions): Braids' detune = (TIMBRE + 1024)^2 >> 9, x (i - 3) */
 S1_PARAM(ratio, S1_OSC1_COLOR, 7) {

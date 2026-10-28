@@ -3,10 +3,10 @@
 No oscillator, envelope, filter or LFO of its own: everything a voice does is the kernel's C (sdk/s1cc). Around it
 only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the hardware:
 
-    slave A  s1m0 @0x0100   per voice v: stage A of the kernel (S1_DSP_A); pitch / gate / trigger read from bank 5
+    slave A  s1m0 @0x0100   per voice v: DSP A of the kernel (S1_DSP_A); pitch / gate / trigger read from bank 5
                             (A030+v / A038+v / A060+v, written by engine.c); its output -> A151+v
     slave B  s1m1 @0x0100   first the mix: sum of last sample's voice outputs x gain x C000 -> 6006 / 6007
-                            (6008..600D = 0); then per voice v: stage B of the kernel (S1_DSP_B) on x = A151+v ->
+                            (6008..600D = 0); then per voice v: DSP B of the kernel (S1_DSP_B) on x = A151+v ->
                             its output word; without S1_DSP_B the mix reads A151+v
     master B s1mm1 @0x1000  6006 / 6007 x VOLUME (C01C) -> OS effect send 2000 / 2002 (delay, reverb); the effect's
                             return 2001 / 2003 -> A118 / A119 (C-S1SY13's master, unchanged)
@@ -23,6 +23,7 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                                       reference (sdk/s1cc refdsp), and the silence without notes
 """
 import collections
+import math
 import os
 import re
 import struct
@@ -47,9 +48,15 @@ BUDGET = int(os.environ.get('BUDGET', '708'))
 OUTDIR = os.environ.get('OUTDIR', HERE)        # where the .s / .hex and build/s1_programs.h go (tests: elsewhere)
 KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 KTAB = s1kernel.read_tables(os.path.join(KERNEL, 'tables.txt'))
-HAS_B = 'B' in KDEF.stages
+HAS_B = 'B' in KDEF.dsps
 # the host's envelopes (s1_env(0) / s1_env(1) in S1_DSP_B): two ADSRs in assembly per voice on DSP B, C-S1SY's
-HOST_ENV_USED = [i for i in (0, 1) if HAS_B and f'IN:env{i}' in KDEF.placeholders('B')]   # only the ones it reads
+HOST_ENV_KERNEL = [i for i in (0, 1) if HAS_B and f'IN:env{i}' in KDEF.placeholders('B')]   # the ones it reads
+# s1_color(i) in S1_DSP_A: OSC1 / OSC2 COLOR with its COLOR MOD source, made on DSP A (cmod_global / cmod_voice):
+# MANUAL = the knob, else knob x source (0..1): an LFO, a pitch envelope (AD) and a sub oscillator per voice on
+# DSP A, the AMP and FILTER envelopes (the host's ADSRs on DSP B, then both are built) copied to bank 5 by DSP B
+COLOR_USED = [i for i in (0, 1) if f'IN:color{i}' in KDEF.placeholders('A')]
+CMOD = bool(COLOR_USED)
+HOST_ENV_USED = [0, 1] if CMOD else HOST_ENV_KERNEL
 HOST_ENVS = bool(HOST_ENV_USED)
 ENV_TMIN = float(os.environ.get('ENV_TMIN', '0.001'))    # seconds at fader 0 (attack, decay, release)
 ENV_TMAX = float(os.environ.get('ENV_TMAX', '10.0'))     # seconds at fader 255; exponential in between (C-S1SY's)
@@ -62,7 +69,7 @@ TRIG = [0xA060 + v for v in range(NV)]      # toggles 0 / 1 at every note start
 DT = [0xA040 + v for v in range(NV)]        # s1_dt(): f / 96000 of the note (engine.c, per-note table)
 RDT = [0xA048 + v for v in range(NV)]       # s1_rdt(): 96000 / f / 16384 (the DSP holds at most 512)
 # bank 5, written by DSP A (a DSP stores only to A100..A1FF)
-XV = [0xA151 + v for v in range(NV)]        # stage A output of voice v = the input x of stage B
+XV = [0xA151 + v for v in range(NV)]        # DSP A output of voice v = the input x of DSP B
 X0, INB0 = 0xA188, 0xA1A0                   # exports i: X0 + 8 i + v; inputs B needs from A: INB0 + 8 j + v
 # bank 5 A100..A1FF (what a slave DSP may store): A151.. x, A160.. / A168.. gate / trigger copies, A188..A19F export
 # slots 0..2, A1A0..A1B7 the inputs for B (pitch, gate, trigger), A1B8..A1FF free: export slots 3..11
@@ -77,7 +84,7 @@ def export_addr(i, v):
 # bank 0 (ring, S / S+1): the voice blocks of the kernel, sized by what it needs, in the regions our device-proven
 # programs used (C-S1V8 / C-S1SY: slave A 0x0300.., slave B 0x0400..; MUTABLE-SYSTEM's kernel B: 0x0600..)
 A_BLOCK0, B_BLOCK0 = 0x0300, 0x0600
-B_OUT = [0x0400 + 2 * v for v in range(NV)]  # stage B output of voice v (ring: read one sample later at S+1)
+B_OUT = [0x0400 + 2 * v for v in range(NV)]  # DSP B output of voice v (ring: read one sample later at S+1)
 K_A_PARAM0, K_B_PARAM0 = 0x70, 0x60         # the kernel's knob tables: DSP A C070.., DSP B C060..
 OUT_L, OUT_R = 0x6006, 0x6007               # slave B -> master (IOMD)
 OUT_ZERO = [0x6008, 0x6009, 0x600A, 0x600B, 0x600C, 0x600D]
@@ -96,12 +103,30 @@ H_ENV_DEFAULT = ((255, 0, 128, 60), (0, 0, 128, 60))
 GB = [0xA160 + v for v in range(NV)]
 TB = [0xA168 + v for v in range(NV)]
 H_ENV_WORDS = 6 if HOST_ENVS else 0             # per voice on DSP B: (level, latch, last trigger) x 2
+# COLOR MOD (CMOD). DSP B -> DSP A: the envelope levels, A170+v (AMP, env 0) / A178+v (FILTER, env 1), free words of
+# bank 5. DSP A parameters (engine.c): C040 LFO rate (phase -1..1 per sample), C041 S&G coefficient, C042..C047 LFO
+# shape weights (sine, triangle, saw, square, S&G, S&H; one of them 0.5: u = 0.5 + 0.5 lfo), C048 / C049 pitch
+# envelope decay / attack rates, C050 + 8 i: color i's weights (manual, LFO, pitch env, filter env, amp env, sub;
+# the sub square is -1..1: with SUB OSC selected manual = sub = knob / 2)
+ENVX = ([0xA170 + v for v in range(NV)], [0xA178 + v for v in range(NV)])
+A6_LRATE, A6_LSG, A6_LWAVE, A6_PENV, A6_COL = 0x40, 0x41, 0x42, 0x48, (0x50, 0x58)
+P_LFO_SHAPE, P_LFO_RATE, P_PENV_A, P_PENV_D = 0x160, 0x162, 0x17B, 0x17C
+P_COLOR, P_COLOR_MOD = (0x168, 0x16D), (0x169, 0x16E)
+CMOD_DEFAULT = dict(lfo_shape=1, lfo_rate=128, penv_a=0, penv_d=128, color0=128, color1=128, mod0=0, mod1=0)
+NOISE_K = 7.31275                               # the LFO's noise (MUTABLE-SYSTEM step 9): n = wrap(K n + w), w a Weyl
+NOISE_W = 166008623 / 2 ** 28                   # counter (odd multiple of 2^-28)
+SG_K = 4.0                                      # sample & glide: k = min(1, SG_K x rate) (time constant = period / 8)
+# per voice on DSP A, before the kernel's words (ring): pitch envelope (level, attack flag, last trigger), sub
+# oscillator phase, LFO (phase, S&H, S&G), then the colors (written and read in the same sample); after the voice
+# blocks the global noise of the S&H (noise, Weyl counter)
+H_A_WORDS = (7 + len(COLOR_USED)) if CMOD else 0
+LFO_WORDS = 2 if CMOD else 0
 
 
 # ---- the kernel's addresses ---------------------------------------------------------------------------------------
 def layout():
-    """{param name: (count, A base or None, B base or None)}: a table used by one stage only gets no slot on the other"""
-    used = {st: {m.split(':')[1] for m in KDEF.placeholders(st) if m.startswith('P:')} for st in KDEF.stages}
+    """{param name: (count, A base or None, B base or None)}: a table used by one DSP only gets no slot on the other"""
+    used = {st: {m.split(':')[1] for m in KDEF.placeholders(st) if m.startswith('P:')} for st in KDEF.dsps}
     out, a, b = {}, K_A_PARAM0, K_B_PARAM0
     for p in KDEF.params:
         ab = bb = None
@@ -113,39 +138,51 @@ def layout():
     return out
 
 
-def words(stage):
-    """bank-0 words a voice of this stage needs: state, scratch (spills), the first-sample flag"""
-    st = KDEF.stages[stage]
-    host = H_ENV_WORDS if stage == 'B' else 0
-    return host + sum(1 for s in KDEF.states if s['stage'] == stage) + st.get('scratch', 0) + bool(st.get('initflag'))
+def words(dsp):
+    """bank-0 words a voice of this DSP needs: state, scratch (spills), the first-sample flag"""
+    host = H_ENV_WORDS if dsp == 'B' else H_A_WORDS
+    if dsp not in KDEF.dsps:                   # no S1_DSP_B: only the host's envelopes (COLOR MOD)
+        return host
+    st = KDEF.dsps[dsp]
+    return host + sum(1 for s in KDEF.states if s['dsp'] == dsp) + st.get('scratch', 0) + bool(st.get('initflag'))
 
 
-def block(stage, v):
+def block(dsp, v):
     """bank-0 block of voice v (2 ring words per value: S and S+1)"""
-    base = A_BLOCK0 if stage == 'A' else B_BLOCK0
-    top = base + 2 * words(stage) * NV
+    base = A_BLOCK0 if dsp == 'A' else B_BLOCK0
+    top = base + 2 * words(dsp) * NV + (2 * LFO_WORDS if dsp == 'A' else 0)
     if top > 0x0800:
-        raise SystemExit(f'kernel stage {stage}: {words(stage)} words x {NV} voices do not fit in bank 0 '
+        raise SystemExit(f'kernel DSP {dsp}: {words(dsp)} words x {NV} voices do not fit in bank 0 '
                          f'(0x{base:04x}..0x07ff)')
-    return base + 2 * words(stage) * v
+    return base + 2 * words(dsp) * v
 
 
-def addresses(stage, v):
-    addr, k, base = {}, 0, block(stage, v)
-    if stage == 'B' and HOST_ENVS:                  # the host's envelopes first: level, latch, last trigger each
+def lfo_block():
+    """DSP A bank-0 words of the global LFO (after the voice blocks): name -> address"""
+    base = A_BLOCK0 + 2 * words('A') * NV
+    return {n: base + 2 * j for j, n in enumerate(('nz', 'w'))}
+
+
+def addresses(dsp, v):
+    addr, k, base = {}, 0, block(dsp, v)
+    if dsp == 'B' and HOST_ENVS:                  # the host's envelopes first: level, latch, last trigger each
         addr['IN:env0'], addr['IN:env1'] = base, base + 6
         k = H_ENV_WORDS
+    if dsp == 'A' and CMOD:                       # pitch envelope, sub phase, then the colors
+        for j, i in enumerate(COLOR_USED):
+            addr[f'IN:color{i}'] = base + 2 * (7 + j)
+        k = H_A_WORDS
     for s in KDEF.states:
-        if s['stage'] == stage:
+        if s['dsp'] == dsp:
             addr[f'S{s["index"]}'] = base + 2 * k
             k += 1
-    for j in range(KDEF.stages[stage].get('scratch', 0)):
+    for j in range(KDEF.dsps[dsp].get('scratch', 0)):
         addr[f'T{j}'] = base + 2 * k
         k += 1
-    if KDEF.stages[stage].get('initflag'):
+    if KDEF.dsps[dsp].get('initflag'):
         addr['I'] = base + 2 * k
     for name, (cnt, ab, bb) in layout().items():
-        pb = ab if stage == 'A' else bb
+        pb = ab if dsp == 'A' else bb
         if pb is not None:
             for i in range(cnt):
                 addr[f'P:{name}:{i}'] = 0xC000 + pb + i
@@ -153,9 +190,9 @@ def addresses(stage, v):
         addr[f'X:{e}'] = export_addr(e, v)
     for j, name in enumerate(KDEF.inputs_b):
         addr[f'INB:{name}'] = INB0 + 8 * j + v
-        if stage == 'B':
+        if dsp == 'B':
             addr[f'IN:{name}'] = INB0 + 8 * j + v
-    if stage == 'A':
+    if dsp == 'A':
         addr.update({'IN:pitch': PITCH[v], 'IN:gate': GATE[v], 'IN:trig': TRIG[v], 'IN:dt': DT[v], 'IN:rdt': RDT[v],
                      'OUT': XV[v]})
     else:
@@ -164,10 +201,73 @@ def addresses(stage, v):
 
 
 # ---- programs -------------------------------------------------------------------------------------------------------
+def cmod_global():
+    """the noise source of the voices' S&H LFOs (MUTABLE-SYSTEM step 11 step_noise, proven on the device)"""
+    G = lfo_block()
+    return ['; COLOR MOD: noise n = wrap(K n + w), w = Weyl counter',
+            f'ld r2, [{G["nz"] + 1:04x}]', f'ld r0, [{G["w"] + 1:04x}]', 'mov r1, r1', f'add r0, #{NOISE_W!r}:32',
+            'ph_wrap r0, r3, r0', f'st r0, [{G["w"]:04x}]', f'mul r2, r2, #{NOISE_K!r}', 'addxy r2, r2, r0',
+            'ph_wrap r2, r3, r2', f'st r2, [{G["nz"]:04x}]']
+
+
+def cmod_voice(v):
+    """COLOR MOD of voice v, before its kernel (uses r0..r7):
+    * LFO of the voice (MUTABLE-SYSTEM step 11 step_lfo_voice, proven on the device): phase restarted at the note
+      start, own S&H of the global noise at each wrap, own S&G; shapes x C042..C047 -> u = 0.5 + 0.5 lfo
+    * pitch envelope AD: the host ADSR's math (adsr(), proven on the device) with the gate at 1 and sustain 0: the
+      latch (1 once the level passed 0.999) is cleared at a note start; attack = 1 - latch; the level goes toward
+      1.25 attack at rate attack kA + latch kD
+    * sub oscillator: a square one octave down (phase -1..1 += f / 96000)
+    * the AMP / FILTER envelope levels from DSP B (A170+v / A178+v)
+    color i = manual + weights (C050 + 8 i ..) x (u, pitch env, filter env, amp env, sub) -> its word"""
+    b = block('A', v)
+    pe, pf, pt, sp, lph, lsh, lsg = (b + 2 * j for j in range(7))      # pf: the latch
+    G = lfo_block()
+    w = lambda i: f'ld r4, [c0{A6_LWAVE + i:02x}]'  # noqa: E731
+    L = [f'; voice {v}: COLOR MOD, d = 1 at a note start',
+         f'ld r3, [{TRIG[v]:04x}]', f'ld r0, [{pt + 1:04x}]', 'mov r3, r3', f'st r3, [{pt:04x}]',
+         'subxy r0, r0, r3', 'mul r0, r0, r0',
+         f'; voice {v}: LFO, phase 0 at a note start; r7 = 2 at a wrap',
+         f'ld r1, [{lph + 1:04x}]', f'ld r4, [c0{A6_LRATE:02x}]', 'mov r3, r3', 'mad r1, r1, -r0',
+         'addxy r7, r1, r4', 'ph_wrap r1, r3, r7', f'st r1, [{lph:04x}]', 'subxy r7, r1, r7',
+         f'ld r3, [{lsh + 1:04x}]', f'ld r2, [{G["nz"]:04x}]', 'mov r4, r4',
+         'subxy r4, r3, r2', 'mul r4, r4, r7', 'mad r3, r4, #0.5', f'st r3, [{lsh:04x}]',
+         f'; voice {v}: sample & glide g += k (h - g)', f'ld r4, [c0{A6_LSG:02x}]', f'ld r2, [{lsg + 1:04x}]',
+         'mov r7, r7', 'subxy r7, r2, r3', 'mad r2, r7, r4', f'st r2, [{lsg:04x}]',
+         f'; voice {v}: shape = sine, tri, saw, square, S&G, S&H x C042..C047 (0.5 each), u = 0.5 + that',
+         w(5), 'mov r7, r7', 'mul r7, r3, r4', w(4), 'mov r3, r3', 'mad r7, r2, r4', w(2), 'mov r3, r3',
+         'mad r7, r1, r4', w(3), 'mul r3, r1, #256.0', 'ph_clamp r3, r3, -r3', 'mad r7, r3, r4',
+         w(1), 'ph_tri r3, r3, -r1', 'mad r7, r3, r4',
+         'mul r2, r3, r3', w(0), 'mul r2, r2, #-0.5', 'add r2, #1.5', 'mul r2, r2, r3', 'mad r7, r2, r4',
+         'add r7, #0.5',
+         f'; voice {v}: pitch envelope: the ADSR\'s latch form with gate 1, sustain 0',
+         f'ld r1, [{pe + 1:04x}]', f'ld r2, [{pf + 1:04x}]', 'mov r5, #0.0', 'mov r6, #1.0',
+         'mad r2, r2, -r0',                                                     # latch *= 1 - d
+         'addxy r4, r1, #-0.999', 'mul r4, r4, #256.0', 'mul r4, r4, #256.0', 'max r4, r4, r5', 'min r4, r4, r6',
+         'max r2, r2, r4', f'st r2, [{pf:04x}]', 'subxy r3, r2, #1.0',          # attack = 1 - latch
+         f'ld r4, [c0{A6_PENV + 1:02x}]', 'mov r0, r0', 'mul r0, r3, r4',      # rate = attack kA + latch kD
+         f'ld r4, [c0{A6_PENV:02x}]', 'mov r0, r0', 'mad r0, r2, r4',
+         'mul r4, r3, #1.25', 'subxy r4, r1, r4', 'mad r1, r4, r0', 'min r1, r1, r6', f'st r1, [{pe:04x}]',
+         f'; voice {v}: sub oscillator',
+         f'ld r2, [{sp + 1:04x}]', f'ld r0, [{DT[v]:04x}]', 'mov r3, r3',
+         'addxy r0, r2, r0', 'ph_wrap r2, r3, r0', f'st r2, [{sp:04x}]', 'mul r2, r2, #256.0', 'ph_clamp r2, r3, -r2',
+         f'; voice {v}: envelopes from DSP B', f'ld r4, [{ENVX[0][v]:04x}]', f'ld r0, [{ENVX[1][v]:04x}]']
+    for j, i in enumerate(COLOR_USED):
+        c = A6_COL[i]
+        L += [f'; voice {v}: color {i}', f'ld r5, [c0{c:02x}]', f'ld r6, [c0{c + 1:02x}]', 'mov r3, r3',
+              'mad r5, r7, r6', f'ld r6, [c0{c + 2:02x}]', 'mov r3, r3', 'mad r5, r1, r6',
+              f'ld r6, [c0{c + 3:02x}]', 'mov r3, r3', 'mad r5, r0, r6', f'ld r6, [c0{c + 4:02x}]', 'mov r3, r3',
+              'mad r5, r4, r6', f'ld r6, [c0{c + 5:02x}]', 'mov r3, r3', 'mad r5, r2, r6',
+              f'st r5, [{b + 2 * (7 + j):04x}]']
+    return L
+
+
 def prog_a():
-    L = [f'; s1m0: slave DSP A main @0x0100: {NV} voices x s1cc kernel {KERNEL} stage A -> A151+v']
+    L = [f'; s1m0: slave DSP A main @0x0100: {NV} voices x s1cc kernel {KERNEL} DSP A -> A151+v']
+    if CMOD:
+        L += cmod_global()
     for v in range(NV):
-        L += [f'; voice {v}'] + KDEF.place('A', addresses('A', v))
+        L += [f'; voice {v}'] + (cmod_voice(v) if CMOD else []) + KDEF.place('A', addresses('A', v))
         if HOST_ENVS:                               # gate and trigger for the host's envelopes on DSP B
             L += [f'ld r0, [{GATE[v]:04x}]', f'st r0, [{GB[v]:04x}]', f'ld r1, [{TRIG[v]:04x}]', f'st r1, [{TB[v]:04x}]']
     return L
@@ -175,13 +275,13 @@ def prog_a():
 
 def prog_b():
     L = [f'; s1m1: slave DSP B main @0x0100: mix of {NV} voices x {GAIN!r} x C000 -> 6006 / 6007'
-         + (f'; per voice s1cc kernel stage B' if HAS_B else ''), 'mov r7, #0.0']
+         + (f'; per voice s1cc kernel DSP B' if HAS_B else ''), 'mov r7, #0.0']
     for v in range(NV):                         # B outputs of the sample before (ring S+1); A outputs as they are
         L += [f'ld r{v & 1}, [{(B_OUT[v] + 1) if HAS_B else XV[v]:04x}]', f'addxy r7, r7, r{v & 1}']
     L += ['ld r6, [c000]', f'mul r7, r7, #{GAIN!r}', 'mul r7, r7, r6',
           f'st r7, [{OUT_L:04x}]', f'st r7, [{OUT_R:04x}]', 'mov r0, #0.0']
     L += [f'st r0, [{x:04x}]' for x in OUT_ZERO]
-    if HAS_B:
+    if HAS_B or HOST_ENVS:
         for v in range(NV):
             L += [f'; voice {v}']
             if HOST_ENVS:
@@ -190,7 +290,10 @@ def prog_b():
                 for i in HOST_ENV_USED:
                     e = b + 6 * i
                     L += [f'; voice {v}: host envelope {i}'] + adsr(e, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
-            L += KDEF.place('B', addresses('B', v))
+                    if CMOD:                        # its level for COLOR MOD on DSP A
+                        L += [f'st r1, [{ENVX[i][v]:04x}]']
+            if HAS_B:
+                L += KDEF.place('B', addresses('B', v))
     return L
 
 
@@ -234,6 +337,50 @@ def env_params(i, knobs):
     """envelope i's 4 DSP B parameter values (sustain, attack, decay, release rates) for faders (S, A, D, R)"""
     S, A, D, R = knobs
     return [S / 255.0, attack_rate(A), decay_rate(D), decay_rate(R)]
+
+
+def lfo_hz(v):
+    """LFO RATE knob -> Hz: 0.05 .. 40 Hz exponential (MUTABLE-SYSTEM)"""
+    return 0.05 * 800 ** (v / 255.0)
+
+
+def on_grid(x):
+    """x on the register grid (multiples of 2^-32 below 0.125, MUTABLE-SYSTEM)"""
+    return math.floor(x * 2 ** 32) / 2 ** 32 if abs(x) < 0.125 else x
+
+
+def lfo_rate(v):
+    return on_grid(2 * lfo_hz(v) / FS)          # phase -1..1
+
+
+def lfo_sg(v):
+    return on_grid(min(1.0, SG_K * lfo_rate(v)))
+
+
+def color_weights(knob, src):
+    """color i's 6 DSP A parameters (manual, LFO, pitch env, filter env, amp env, sub) for COLOR knob and MOD 0..5"""
+    c, wv = knob / 255.0, [0.0] * 6
+    src = min(max(src, 0), 5)
+    if src == 0:
+        wv[0] = c
+    elif src == 5:                                 # the sub square is -1..1: c (0.5 + 0.5 sq)
+        wv[0] = wv[5] = c / 2
+    else:
+        wv[src] = c
+    return wv
+
+
+def cmod_params(knobs):
+    """DSP A parameters of COLOR MOD as engine.c writes them; knobs: CMOD_DEFAULT's names"""
+    k = dict(CMOD_DEFAULT, **{n: x for n, x in knobs.items() if n in CMOD_DEFAULT})
+    pa = {0xC000 + A6_LRATE: f32(lfo_rate(k['lfo_rate'])), 0xC000 + A6_LSG: f32(lfo_sg(k['lfo_rate'])),
+          0xC000 + A6_PENV: f32(decay_rate(k['penv_d'])), 0xC000 + A6_PENV + 1: f32(attack_rate(k['penv_a']))}
+    for j in range(6):
+        pa[0xC000 + A6_LWAVE + j] = 0.5 if j == k['lfo_shape'] else 0.0
+    for i in (0, 1):
+        for j, x in enumerate(color_weights(k[f'color{i}'], k[f'mod{i}'])):
+            pa[0xC000 + A6_COL[i] + j] = f32(x)
+    return pa
 
 
 def prog_master():
@@ -343,6 +490,21 @@ def header(progs):
         out.append(table('attack_bits', [attack_rate(v) for v in range(256)]))
         out.append(table('decay_bits', [decay_rate(v) for v in range(256)]))
         out.append(table('level_bits', [v / 255.0 for v in range(256)]))
+    out.append(f'#define CMOD {int(CMOD)}')
+    if CMOD:
+        out.append(f'/* COLOR MOD (s1_color): DSP A parameters; panel ids; LFO rate / S&G tables; knob / 2 */\n'
+                   f'#define A6_LRATE 0x{A6_LRATE:02x}\n#define A6_LSG 0x{A6_LSG:02x}\n#define A6_LWAVE 0x{A6_LWAVE:02x}\n'
+                   f'#define A6_PENV 0x{A6_PENV:02x}\n#define A6_COL0 0x{A6_COL[0]:02x}\n#define A6_COL1 0x{A6_COL[1]:02x}\n'
+                   f'#define P_LFO_SHAPE 0x{P_LFO_SHAPE:03x}\n#define P_LFO_RATE 0x{P_LFO_RATE:03x}\n'
+                   f'#define P_PENV_A 0x{P_PENV_A:03x}\n#define P_PENV_D 0x{P_PENV_D:03x}\n'
+                   f'#define P_COLOR0 0x{P_COLOR[0]:03x}\n#define P_COLOR1 0x{P_COLOR[1]:03x}\n'
+                   f'#define P_COLOR_MOD0 0x{P_COLOR_MOD[0]:03x}\n#define P_COLOR_MOD1 0x{P_COLOR_MOD[1]:03x}\n'
+                   f'#define F_HALF 0x{float_bits(0.5):08x}u')
+        out.append('static const uint8_t cmod_default[8] = { ' + ', '.join(str(CMOD_DEFAULT[n]) for n in
+                   ('lfo_shape', 'lfo_rate', 'penv_a', 'penv_d', 'color0', 'color1', 'mod0', 'mod1')) + ' };')
+        out.append(table('lfo_rate_bits', [lfo_rate(v) for v in range(256)]))
+        out.append(table('lfo_sg_bits', [lfo_sg(v) for v in range(256)]))
+        out.append(table('half_bits', [v / 510.0 for v in range(256)]))
     rows, bits, off = [], [], 0
     for name, (cnt, ab, bb) in layout().items():
         rows.append((KTAB[name][0], cnt, 0xFF if ab is None else ab, 0xFF if bb is None else bb, off))
@@ -373,6 +535,8 @@ def params(knobs):
         for i in range(2):
             for j, x in enumerate(env_params(i, knobs.get(f'env{i}', H_ENV_DEFAULT[i]))):
                 pb[0xC000 + H6_ENV[i] + j] = f32(x)
+    if CMOD:
+        pa.update(cmod_params(knobs))
     for name, (cnt, ab, bb) in layout().items():
         vals = KDEF.param_values(name, knobs.get(name.split('~')[0], 128), KTAB)   # name~id: derived from that knob
         for i in range(cnt):
@@ -435,14 +599,14 @@ def sim_report(progs):
     import numpy as np
     import s1check
     n = int(os.environ.get('SIM_N', '9600'))
-    if HOST_ENVS:                                  # the reference has the gate for s1_env: no sample comparison
+    if HOST_ENV_KERNEL:                            # the reference has the gate for s1_env: no sample comparison
         print('host envelopes on DSP B: the native reference uses the gate for s1_env; checked by shape instead')
         out = np.abs(np.array(simulate(progs, {0: [(0, 57)], n // 2: [(0, None)]}, n,
                                         {'env0': (128, 60, 128, 60), 'env1': (0, 0, 128, 60)})))
         w = int(0.005 * FS)
         seg = [out[k:k + w].max() for k in range(0, n, w)]
         print('amp envelope (A 60, D 128, S 128, R 60), peak per 5 ms: ' + ' '.join('%.3f' % x for x in seg[:20]))
-    for note in (45, 69) if not HOST_ENVS else ():
+    for note in (45, 69) if not HOST_ENV_KERNEL else ():
         out = np.array(simulate(progs, {0: [(0, note)]}, n))
         ra, rb = s1check.run_ref(KERNEL, note, n, {})
         ref = (rb if HAS_B else ra) * GAIN
@@ -529,13 +693,13 @@ def main():
         print(f'{name:6s} {instr_count(lines):4d} instructions, {len(w)} halfwords')
         if name in ('s1m0', 's1m1') and instr_count(lines) > BUDGET:
             over.append(f'{name}: {instr_count(lines)} instructions')
-    print(f'kernel per voice: A {len(KDEF.stages["A"]["lines"])} lines, {words("A")} words'
-          + (f'; B {len(KDEF.stages["B"]["lines"])} lines, {words("B")} words' if HAS_B else '; no stage B'))
+    print(f'kernel per voice: A {len(KDEF.dsps["A"]["lines"])} lines, {words("A")} words'
+          + (f'; B {len(KDEF.dsps["B"]["lines"])} lines, {words("B")} words' if HAS_B else '; no DSP B'))
     crossing_report(progs)
-    for st in KDEF.stages:                       # spills, and r5 / r6 left unused: built for MUTABLE-SYSTEM's registers
-        lines = KDEF.stages[st]['lines']
-        if KDEF.stages[st].get('scratch') and not any(re.search(r'\br[56]\b', x) for x in lines):
-            print(f'note: stage {st} has {KDEF.stages[st]["scratch"]} spill words and does not use r5 / r6: SYSTEM-S1CC '
+    for st in KDEF.dsps:                       # spills, and r5 / r6 left unused: built for MUTABLE-SYSTEM's registers
+        lines = KDEF.dsps[st]['lines']
+        if KDEF.dsps[st].get('scratch') and not any(re.search(r'\br[56]\b', x) for x in lines):
+            print(f'note: DSP {st} has {KDEF.dsps[st]["scratch"]} spill words and does not use r5 / r6: SYSTEM-S1CC '
                   'has no host keeping them, build the kernel with --regs 0,1,2,3,4,5,6,7 (docs/S1CC.md §1.1)')
     if over:
         raise SystemExit(f'make_s1cc.py: over the budget of {BUDGET} instructions per sample ({", ".join(over)}): '

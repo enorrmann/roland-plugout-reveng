@@ -1,8 +1,9 @@
 /* mp_bell.c: Braids STRUCK_BELL, a few partials: four sines at a bell's inharmonic ratios, each with its own decay
  * from the note start (the high ones die first). The AMP envelope is the overall level (long DECAY / RELEASE).
- * OSC1 COLOR = decay time, OSC2 COLOR = inharmonicity, OSC1 MIX = level. DSP B: mp_voice.h. */
+ * OSC1 COLOR = decay time, OSC2 COLOR = inharmonicity, OSC1 MIX = level. DSP B: mp_dsp_b.h. */
 #include <math.h>
-#include "mp_voice.h"
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 static const float kRatio[4] = { 1.0f, 2.756f, 5.404f, 8.933f };     /* a bell's (Rayleigh) partials */
 static const float kAmp[4] = { 1.0f, 0.6f, 0.4f, 0.25f };

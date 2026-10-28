@@ -168,10 +168,10 @@ int main(int argc, char **argv) {
     }
     s1::build(P, *M);
     if (cmd == "graph") {
-        for (s1::Stage *S : {&P.A, &P.B}) {
+        for (s1::Dsp *S : {&P.A, &P.B}) {
             if (!S->fn)
                 continue;
-            printf("stage %s\n", S->name.c_str());
+            printf("dsp %s\n", S->name.c_str());
             for (auto &n : S->nodes) {
                 if (!n->live)
                     continue;
@@ -190,7 +190,7 @@ int main(int argc, char **argv) {
                        isl.members.size(), isl.cloneable ? "" : " (not cloneable)");
         }
         for (auto &s : P.states)
-            printf("state %d %s stage %s %s%d%s\n", s.index, s.name.c_str(), s.stage.c_str(), s.isInt ? "i" : "f",
+            printf("state %d %s dsp %s %s%d%s\n", s.index, s.name.c_str(), s.dsp.c_str(), s.isInt ? "i" : "f",
                    s.bits, s.isUnsigned ? " unsigned" : "");
         return 0;
     }
@@ -219,9 +219,9 @@ int main(int argc, char **argv) {
             }
             if (tag == ".state") {
                 int idx;
-                std::string stage;
+                std::string dsp;
                 double s, o;
-                ls >> idx >> stage >> s >> o;
+                ls >> idx >> dsp >> s >> o;
                 rep[idx] = {s, o};
             }
         }
@@ -267,7 +267,7 @@ int main(int argc, char **argv) {
         {
             int id = 0;
             std::map<llvm::Value *, int> ids;
-            for (s1::Stage *S : {&P.A, &P.B}) {
+            for (s1::Dsp *S : {&P.A, &P.B}) {
                 if (!S->fn)
                     continue;
                 for (auto &n : S->nodes) {

@@ -1,7 +1,8 @@
 /* mp_toy.c: Braids TOY / the CRUSHER of a sampler: a saw through a sample-rate reducer (hold) and a bit reducer.
- * OSC1 COLOR = sample rate 96 kHz .. 1 kHz, OSC2 COLOR = levels 256 .. 4, OSC1 MIX = level. DSP B: mp_voice.h. */
+ * OSC1 COLOR = sample rate 96 kHz .. 1 kHz, OSC2 COLOR = levels 256 .. 4, OSC1 MIX = level. DSP B: mp_dsp_b.h. */
 #include <math.h>
-#include "mp_voice.h"
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 S1_PARAM(rate, S1_OSC1_COLOR, 1) { out[0] = powf(96.0f, -knob / 255.0f); }          /* hold phase step */
 S1_PARAM(bits, S1_OSC2_COLOR, 2) { float n = powf(2.0f, 8.0f - 6.0f * knob / 255.0f); out[0] = n; out[1] = 1.0f / n; }

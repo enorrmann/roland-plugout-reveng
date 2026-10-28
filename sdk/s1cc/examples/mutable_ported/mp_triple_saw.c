@@ -1,8 +1,9 @@
 /* mp_triple_saw.c: Braids TRIPLE_SAW: three band-limited saws at the note and two intervals (Braids' chord table:
  * unison, fifths, octaves, minor / major chords as the knob turns).
- * OSC1 COLOR = interval of saw 2, OSC2 COLOR = interval of saw 3, OSC1 MIX = level. DSP B: mp_voice.h. */
+ * OSC1 COLOR = interval of saw 2, OSC2 COLOR = interval of saw 3, OSC1 MIX = level. DSP B: mp_dsp_b.h. */
 #include <math.h>
-#include "mp_voice.h"
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 static const float kIntervals[] = { 0.0f, 0.03f, 3.0f, 4.0f, 5.0f, 7.0f, 9.0f, 12.0f, 15.0f, 16.0f, 19.0f, 24.0f };
 static float interval(int knob) {                      /* semitones, quantised to the table as Braids does */

@@ -31,8 +31,8 @@ Ejemplo, SAW_SWARM de Braids a partir del C++ original:
 sdk/s1cc/s1cc build sdk/s1cc/examples/braids_saw_swarm_s1.cc -I sdk/mport/ref -I ~/git/eurorack
 #   source: .../eurorack/braids/resources.cc (for resources.h; --no-auto to leave it out)
 sdk/s1cc/s1cc check sdk/s1cc/build/braids_saw_swarm_s1 --note 45 ratio=200 hp_h=85
-#   stage A: 74 units -> 49 instructions; SNR 57.6 dB (10 ms) ...; bands port - ref (dB): -0.00 +0.00 ...
-#   stage B: 31 units -> 26 instructions; SNR 41.3 dB (10 ms) ...
+#   DSP A: 74 units -> 49 instructions; SNR 57.6 dB (10 ms) ...; bands port - ref (dB): -0.00 +0.00 ...
+#   DSP B: 31 units -> 26 instructions; SNR 41.3 dB (10 ms) ...
 ```
 
 `build --check` corre `check` al terminar (nota 57, perillas en 128), para ver las instrucciones y el SNR sin un
@@ -136,6 +136,7 @@ Intrínsecos:
 | `s1_dt()`, `s1_rdt()` | f/96000 de la nota (paso de una fase 0…1) y su inverso. El anfitrión los escribe por voz desde tablas por nota (SYSTEM-S1CC: `A040+v`, `A048+v`; `s1_rdt` guardado /16384): dos cargas, sin `exp2` ni división. Es la forma de tener `1/dt` (polyBLEP) sin `recipseed` (W910) |
 | `S1_NOTE_RANGE(lo, hi)` | (declaración, a nivel de archivo) las notas MIDI a las que se toca la voz; el perfilado sólo usa esas (por defecto 0…127). Lo que sólo pasa fuera del rango (los dos bordes de un pulso en una muestra, un límite de altura) no se compila (W908 / W909) |
 | `s1_env(i)` | solo en `S1_DSP_B`: la envolvente `i` del anfitrión, 0…1 (SYSTEM-S1CC: 0 = AMP, 1 = FILTER; [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.1). En la referencia nativa y en `check`, la puerta |
+| `s1_color(i)` | solo en `S1_DSP_A`: OSC1 (0) / OSC2 (1) COLOR, 0…1, con su fuente COLOR MOD (manual = la perilla; LFO, PITCH ENV, FILTER ENV, AMP ENV, SUB OSC = perilla × fuente; SYSTEM-S1CC las arma en ensamblador, [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.2). Rango declarado 0…1 sea cual sea el perfil (el perfilado lo barre 0…1 en cada nota). En la referencia nativa y en `check`, la perilla: `color0=K` / `color1=K` (128 por defecto) |
 
 ### 3.1 Cuándo corre cada parte
 
@@ -296,7 +297,7 @@ mismos en `s1cc prof` y en `s1cc lower`, porque las dos construyen el grafo igua
 
 | transformación | dónde | qué hace | ejemplo |
 |---|---|---|---|
-| `memset` / `memcpy` de tamaño constante | `Builder::memop` | una escritura por palabra que la etapa lee o escribe en el rango; las demás no cuestan | `Init()` de un objeto, `state_ = {}` |
+| `memset` / `memcpy` de tamaño constante | `Builder::memop` | una escritura por palabra que el DSP lee o escribe en el rango; las demás no cuestan | `Init()` de un objeto, `state_ = {}` |
 | `memset` / `memcpy` de tamaño variable o destino calculado | `memcpyVar`, `call` | sobre una variable chica (≤ 16 palabras): cada palabra condicionada a su distancia y a su dirección candidata (E310 si no) | `std::copy(&u[0], &u[7 - shift], &r[shift])` (Plaits StringSynth) |
 | índice calculado en un array chico | `ptrOf`, `load`, `store` | arrays de estado, locales o `const` de ≤ 16 elementos, o un `phi`/`select` de constantes o de punteros a la misma variable: la palabra se elige con comparaciones (`kSmallArray`) | `partial_phase[i]` de Braids |
 | `x ^ (c ? K : 0)` con los bits de `x` dentro de K | `xorMask` | `c ? K − x : x` | el triángulo de Braids |
@@ -383,6 +384,10 @@ Cada valor V del programa vive en un registro r con una escala s y un desplazami
   instrucciones.
 * **Normalización.** Se mantiene |r| ≤ 16, y se lleva a ≤ 1 cuando se pasa (1 op). También se reescala hacia arriba
   si |r| < 2⁻⁸: por debajo de 0,125 la rejilla del DSP es 2⁻³² absoluta y un registro diminuto pierde precisión.
+  Vale también para el resultado de `min` / `max` (desde 2026-10-28). Un valor recortado (el corte `w ≤ 0,55` de un
+  `exp2` de ±10 octavas) quedaba con escala 2⁻¹⁰, y cada producto suyo pagaba dos `mul` de reescala. Ahora se paga una
+  vez al recortarlo. SVF de mutable_ported: DSP B 42 → 39 por voz y SNR 57 → 85 dB; envoltorios de Braids entre
+  −21 y +4.
 * **Escala de un parámetro.** Es la potencia de 2 que cubre su tabla; el ARM escribe valor / escala.
 * **Escala de una palabra de estado.** También una potencia de 2, salvo:
   * entero sin signo que recorre todo su rango (una fase): s = 2ⁿ⁻¹, o = −1, es decir r ∈ [−1, 1), listo para
@@ -456,11 +461,11 @@ Cada valor V del programa vive en un registro r con una escala s y un desplazami
 .param <nombre> <n> <escala>         tabla S1_PARAM (el ARM escribe valor / escala)
 .export <i> <s> <o>                  s1_export i y su representación
 .inputb <entrada>                    entrada que B necesita de A (A la copia)
-.stage A <unidades>
+.dsp A <unidades>
 .scratch <n>                         palabras temporales del derrame
 <líneas de una unidad con marcadores {IN:pitch} {IN:gate} {IN:trig} {S<i>} {S<i>+1} {P:<nombre>:<i>}
  {X:<i>} {INB:<entrada>} {T<k>} {XIN} {OUT}>
-.stage B <unidades>
+.dsp B <unidades>
 ...
 .end
 ```
@@ -507,7 +512,7 @@ El anfitrión cambia cada marcador por una dirección (`tools/s1kernel.py place`
 6. `s1cc init voice.ll --kernel voice.s1k -o refdsp.ll` y `clang ... -o refdsp`: la referencia que arranca del
    estado del DSP.
 
-`report.txt` incluye las unidades por etapa, los derrames, cada isla y ajuste (modelo, grado, error, coste), las
+`report.txt` incluye las unidades por DSP, los derrames, cada isla y ajuste (modelo, grado, error, coste), las
 candidatas descartadas y los avisos.
 
 ### 9.1 Depuración (`--debug`)
@@ -582,7 +587,7 @@ exacta.
 `-g` no cambia el kernel: con y sin `--debug` sale el mismo `voice.s1k` (comprobado con `va_saw_svf.c` y
 `braids_saw_swarm_s1.cc`, 2026-10-27).
 
-**Costo por línea de C.** `report.txt` termina cada etapa con `cost of stage S by C line (ops)`: las ops del kernel
+**Costo por línea de C.** `report.txt` termina cada DSP con `cost of DSP S by C line (ops)`: las ops del kernel
 que sobreviven a la eliminación de código muerto, por la línea de C que las hizo (con `--debug`, `archivo:línea`; un
 nodo sintético, como el `select` de un `phi`, lleva `(select)` y la línea de un operando). Una instrucción del DSP
 lleva 1–3 ops, así que la suma es mayor que la cuenta de instrucciones. `S1CC_OPS=1 build/s1cc lower …` imprime cada
@@ -728,6 +733,8 @@ preferencia:
 | `E116` | `s1_import(i) without an s1_export(i)` | `S1_DSP_B` importa un índice que `S1_DSP_A` nunca exporta | agregar el `s1_export(i, v)` |
 | `E117` | `s1_env in S1_DSP_A` | las envolventes del anfitrión corren en el DSP B | usar `s1_env` en `S1_DSP_B`; para que A dependa de una envolvente, calcularla en C ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md)) |
 | `E118` | `s1_env(i): the host has envelopes 0 and 1` | índice distinto de 0 (AMP) o 1 (FILTER) | `s1_env(0)` o `s1_env(1)` |
+| `E119` | `s1_color in S1_DSP_B` | el anfitrión arma los colores en el DSP A | leer `s1_color` en `S1_DSP_A` y pasar el valor a B con `s1_export` / `s1_import` |
+| `E120` | `s1_color(i): the panel has colors 0 (OSC1) and 1 (OSC2)` | índice distinto de 0 o 1 | `s1_color(0)` o `s1_color(1)` |
 | `E006` | `no table for S1_PARAM 'p' (tables file)` | `tables.txt` viejo o la función de la tabla no se ejecutó | rehacer el build completo |
 
 #### 9.2.8 Kernel (`kernel.cpp`)
@@ -751,15 +758,15 @@ El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuán
 | `W903` | `division by a value in [lo, hi]: the port divides by max(y, c)` | el divisor llega a 0 o cruza el signo | proteger el divisor en el C, o `s1_range` |
 | `W904` | `division by a value over [...]: more than 16 octaves, the ends saturate` | divisor de rango demasiado amplio | acotar el divisor |
 | `W905` | `F at ...: the fit misses the tolerance (error E)` / `island at ...: the fit misses the tolerance` | el ajuste no llega a `--tol` / `--tollog` | `--maxdeg` más alto, `--tol` más grande, o un rango más chico (`s1_range`) |
-| `W906` | `stage S: N values limited to the range of 99.99 % of their profiled samples` | valores con picos raros; se recortan para no arruinar la escala | nada si `check` da buen SNR; si no, `s1_range` en esos valores |
+| `W906` | `DSP S: N values limited to the range of 99.99 % of their profiled samples` | valores con picos raros; se recortan para no arruinar la escala | nada si `check` da buen SNR; si no, `s1_range` en esos valores |
 | `W907` | `state 'v' starts at 0 in the ring (...)` | con `--no-exact-init`, la palabra de estado no arranca en su valor inicial | quitar `--no-exact-init` |
-| `W908` | `stage S: N values no profiling scenario computed (a branch none of them took) are 0 on the DSP; the first at ...` | código en una rama que ningún escenario del perfilado tomó (una segunda vuelta de un bucle desenrollado, un caso límite). Su rango es desconocido, y calcularlo con los rangos de sus operandos puede dar 10¹⁵, lo que arruina la escala de los valores que se combinan con él. Se calcula como 0, sin costo | nada, si esa rama no se toma en la práctica (Plaits `VariableShapeOscillator`: la segunda vuelta del `while` del BLEP, §11). Si se toma, hacer que un escenario la alcance o declarar los rangos con `s1_range`; `--debug` da la línea del C |
-| `W909` | `stage S: N compares gave one answer in every profiling scenario and are that constant` | una comparación dio siempre lo mismo en el perfilado (el cambio de forma que `S1_INIT` ya hizo, un límite que ninguna nota alcanza): se baja como esa constante, y el lado que nunca toma no cuesta nada | nada, si los escenarios cubren el uso (todas las perillas, las notas de `S1_NOTE_RANGE`). Si no, `--no-fold-branches` |
+| `W908` | `DSP S: N values no profiling scenario computed (a branch none of them took) are 0 on the DSP; the first at ...` | código en una rama que ningún escenario del perfilado tomó (una segunda vuelta de un bucle desenrollado, un caso límite). Su rango es desconocido, y calcularlo con los rangos de sus operandos puede dar 10¹⁵, lo que arruina la escala de los valores que se combinan con él. Se calcula como 0, sin costo | nada, si esa rama no se toma en la práctica (Plaits `VariableShapeOscillator`: la segunda vuelta del `while` del BLEP, §11). Si se toma, hacer que un escenario la alcance o declarar los rangos con `s1_range`; `--debug` da la línea del C |
+| `W909` | `DSP S: N compares gave one answer in every profiling scenario and are that constant` | una comparación dio siempre lo mismo en el perfilado (el cambio de forma que `S1_INIT` ya hizo, un límite que ninguna nota alcanza): se baja como esa constante, y el lado que nunca toma no cuesta nada | nada, si los escenarios cubren el uso (todas las perillas, las notas de `S1_NOTE_RANGE`). Si no, `--no-fold-branches` |
 | `W910` | `a division by a variable uses recipseed ... not on the SYSTEM-1` | `x / y` con `y` variable se baja con la semilla de recíproco de la SFU, decodificada y probada en el SYSTEM-8 pero no en el SYSTEM-1 (sospechosa de clicks en BRAIDS-CSAW, 2026-10-27) | sacar la división de la voz: el valor que depende de una perilla a una tabla `S1_PARAM`, el que depende de la nota con `s1_exp2` (`1/f` = `2^-pitch`); `--no-recipseed` usa una normalización por octavas con ops probadas (experimental) |
 
 ## 10. Verificación (`s1cc check`)
 
-* **Banco.** DSP 0 del emulador = etapa A, DSP 1 = etapa B, un banco 5 compartido como en el par de esclavos.
+* **Banco.** DSP 0 del emulador = el código del DSP A, DSP 1 = el del DSP B, un banco 5 compartido como en el par de esclavos.
 * **Entradas.** Tono en `A030`, puerta `A038` = 1, disparo `A060` = 1.
 * **Conexiones.** La salida de A va a `A151`, que es la entrada de B.
 * **Memoria.** Estado desde `0x0100` y temporales desde `0x0300` en el banco 0 de cada DSP; parámetros desde
@@ -791,7 +798,7 @@ vuelta y en el port no. Medido sobre la referencia nativa con un contador de des
 | 0, 85, 128, 200 | 0 | 0 | 0 |
 | 255 | 0 | 0 | 23 de 192 000 (0,012 %) |
 
-`check`, etapa B:
+`check`, DSP B:
 
 | caso | desbordes | SNR 10 ms | picos port / ref |
 |---|---|---|---|
@@ -866,7 +873,7 @@ Dos PLUG-OUTs toman un kernel:
 Lo que sigue describe MUTABLE-SYSTEM.
 
 * **Build.** `KERNEL=<salida de s1cc> sh examples/mutable_system/build.sh` cambia el oscilador de C-S1SY13 por la
-  etapa A del kernel y pone la etapa B al principio de la voz del DSP B.
+  código del DSP A del kernel y pone su código del DSP B al principio de la voz del DSP B.
 * **Perillas.** Cada `S1_PARAM` queda en la perilla de su `panel_id` (tablas `kparam_*`, `engine.c kparam_set`).
 * **Direcciones.** [examples_mutable_system_README.md](examples_mutable_system_README.md) §8.
 

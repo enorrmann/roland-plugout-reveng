@@ -1,8 +1,9 @@
 /* mp_chord.c: Plaits' chord engine in one voice: four band-limited saws on a chord (Plaits' chord table: octave,
  * fifth, sus4, minor, minor 7, minor 9, major, major 7, ...), a paraphonic pad from one key.
- * OSC1 COLOR = chord, OSC1 MIX = level. DSP B: mp_voice.h. */
+ * OSC1 COLOR = chord, OSC1 MIX = level. DSP B: mp_dsp_b.h. */
 #include <math.h>
-#include "mp_voice.h"
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 static const float kChords[11][3] = {            /* semitones above the root (plaits/dsp/chords/chord_bank.cc) */
   { 12.0f, 19.0f, 24.0f }, { 7.0f, 12.0f, 19.0f }, { 5.0f, 7.0f, 12.0f }, { 3.0f, 7.0f, 12.0f },

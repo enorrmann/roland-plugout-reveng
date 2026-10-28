@@ -40,6 +40,7 @@ No hay opciones para cada función: `make_s1cc.py` lee el kernel (`voice.s1k`) y
 | `S1_DSP_B` | su código en el DSP B, por voz; sin él, el DSP B solo mezcla |
 | `s1_env(0)` y / o `s1_env(1)` | una ADSR en ensamblador por cada envolvente que lee, en el DSP B, y la copia de puerta y disparo en el DSP A (§3.1); en `engine.c`, las perillas AMP / FILTER A, D, S, R |
 | `s1_export(i, …)` | la palabra del banco 5 de la ranura `i` de cada voz (§2) |
+| `s1_color(0)` y / o `s1_color(1)` | en el DSP A, LFO, envolvente de pitch y sub oscilador por voz y la mezcla de cada color; en el DSP B, las dos ADSR del anfitrión; en `engine.c`, LFO SHAPE / RATE, PITCH ENV A / D, COLOR y COLOR MOD (§3.2) |
 | `S1_PARAM` | las tablas, escritas por el ARM en el `panel_id` de cada una |
 | estado, derrames, primera muestra | el bloque de banco 0 de cada voz, del tamaño justo |
 
@@ -103,7 +104,7 @@ Lo que en MUTABLE-SYSTEM ponía el anfitrión, aquí lo pone el C:
 | filtro | paso bajo del anfitrión, después de `S1_DSP_B` | solo el del kernel, si lo tiene |
 | LFO, RANGE | en el tono de `s1_pitch()` | no hay |
 | nivel | OSC1 MIX | el kernel (una tabla `S1_PARAM`) |
-| controles del panel | OSC1 / OSC2 COLOR libres | todos libres para `S1_PARAM`, salvo VOLUME, DELAY y REVERB, que son del OS / maestro |
+| controles del panel | OSC1 / OSC2 COLOR libres | todos libres para `S1_PARAM`, salvo VOLUME, DELAY y REVERB, que son del OS / maestro; OSC1 / OSC2 COLOR con su COLOR MOD también como `s1_color` (§3.2) |
 
 Ejemplo: `sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c`. Son dos sierras (librería `saw.c`) y una ADSR
 (librería `env.c`), las dos en C puro; el envoltorio las adapta a la voz y mapea el panel como C-S1SY:
@@ -143,6 +144,70 @@ KERNEL=sdk/s1cc/build/simple_saw_hostenv NAME=S1CC-HOSTENV sh examples/system_s1
 
 En la referencia nativa y en `s1cc check`, `s1_env()` es la puerta. `--sim` verifica las envolventes reales por su
 forma (ataque, decay hacia el sustain, release) y no compara muestra a muestra.
+
+### 3.2 COLOR con su fuente de modulación (`s1_color`) [sim, 2026-10-28; sin probar en el equipo]
+
+`s1_color(i)` en `S1_DSP_A` es OSC1 COLOR (i = 0) u OSC2 COLOR (i = 1), 0…1, con la fuente de su selector COLOR MOD
+(`0x169` / `0x16E`), como en el SYSTEM-1: con MANUAL la perilla fija el color; con otra fuente, la perilla es la
+profundidad y el color = perilla × fuente (0…1). El kernel elige qué hace con el color (un ancho de pulso, una
+ganancia, una relación con `s1_exp2`…); lo que no es un `s1_color` sigue en tablas `S1_PARAM`, sin modulación.
+
+| COLOR MOD | fuente | dónde |
+|---|---|---|
+| 0 MANUAL | la perilla | — |
+| 1 LFO | LFO de la voz, 0,5 + 0,5 · lfo; LFO SHAPE (`0x160`: seno, triángulo, sierra, cuadrada, S&G, S&H) y LFO RATE (`0x162`, 0,05…40 Hz) | DSP A |
+| 2 PITCH ENV | AD de la voz: PITCH ENV ATTACK / DECAY (`0x17B` / `0x17C`, 1 ms…10 s) | DSP A |
+| 3 FILTER ENV | la ADSR 1 del anfitrión (§3.1) | DSP B → `A178+v` → DSP A |
+| 4 AMP ENV | la ADSR 0 del anfitrión (§3.1) | DSP B → `A170+v` → DSP A |
+| 5 SUB OSC | cuadrada una octava abajo de la nota, 0 / 1 | DSP A |
+
+Si el kernel llama a `s1_color`, `make_s1cc.py` agrega:
+* **DSP A, una vez por muestra:** la fuente de ruido de los S&H (`step_noise` de MUTABLE-SYSTEM paso 11).
+* **DSP A, por voz, antes del kernel** (`cmod_voice`):
+  * LFO: `step_lfo_voice` de MUTABLE-SYSTEM paso 11 (probado en el equipo), sin el fade ni las salidas a tono,
+    filtro y amplitud. Fase reiniciada en cada comienzo de nota, S&H y S&G propios, las 6 formas pesadas por
+    `C042`–`C047`.
+  * Envolvente de pitch: las cuentas de la ADSR del anfitrión (`adsr()`, probada) con la puerta en 1 y sustain 0.
+    El latch (1 cuando el nivel pasó 0,999) se borra con cada disparo; ataque = 1 − latch; el nivel va hacia
+    1,25 · ataque con tasa ataque · kA + latch · kD.
+  * Sub oscilador: fase −1…1 + `s1_dt()` por muestra, cuadrada por `ph_clamp`.
+  * Color i = Σ pesos (`C050 + 8 i`…) × (1, u, pitch env, filter env, amp env, sub), a una palabra del bloque de la
+    voz que el kernel lee como `s1_color(i)`.
+* **DSP B:** las dos ADSR del anfitrión aunque el kernel no lea `s1_env`, y su nivel a `A170+v` / `A178+v`. El DSP A
+  lo lee una muestra después.
+* **ARM (`engine.c`, `cmod_*`):** las perillas → parámetros del DSP A, como las demás tablas. Se escriben al cargar,
+  en cada nota y cuando se mueve la perilla.
+
+| parámetro del DSP A | valor |
+|---|---|
+| `C040` | paso de fase del LFO (−1…1 por muestra) |
+| `C041` | coeficiente del S&G, min(1, 4 · paso) |
+| `C042`–`C047` | forma del LFO: 0,5 en la elegida, 0 en las demás |
+| `C048` / `C049` | tasas de decay / ataque de la envolvente de pitch (tablas `decay_bits` / `attack_bits`) |
+| `C050 + 8 i` … `+5` | pesos del color i: manual, LFO, pitch env, filter env, amp env, sub. Con SUB OSC: manual = sub = perilla / 2 |
+
+Por defecto, hasta que se mueve un control: LFO triángulo con RATE 128, PITCH ENV A 0 / D 128, colores en 128 con
+MOD = MANUAL.
+
+**Costo.** Unas 43 instrucciones por voz en el DSP A, ya empaquetadas: 8 voces de `mp_csaw` dan 703 (antes 368),
+y el DSP B queda igual. Por eso sólo lo agregan los kernels que llaman a `s1_color`, y un kernel con más de ~45
+instrucciones por voz en A necesita menos voces.
+
+**Verificación.** En el emulador, la palabra de color de la voz 0 con cada fuente (perilla en 255, 0,6 s, la puerta
+baja a la mitad):
+
+| fuente | resultado |
+|---|---|
+| MANUAL | 1,000 constante |
+| LFO, las 6 formas | seno, triángulo y sierra recorren 0…1; la cuadrada salta 0 / 1; S&H escalones del ruido en cada vuelta; S&G los sigue con glide |
+| PITCH ENV, A 60 / D 160 | 0,706 a los 25 ms y cae a 0 en ~0,4 s; A 200: sube de forma gradual |
+| FILTER ENV (S 128) | 0,82 → 0,50 (sustain), 0 después del release |
+| AMP ENV (S 255) | 1,0 mientras dura la nota, 0 después |
+| SUB OSC, nota 69 | 0 / 1 con período de 436 muestras (220 Hz) |
+
+Primer intento de la envolvente de pitch: `(1 − e) · 65536` desborda el rango del DSP (±512) y da 0, y la bandera de
+ataque nunca subía. El segundo, con una bandera continua que baja con `min`, quedaba en equilibrio en 0,997 y no
+decaía. Por eso se usa la forma probada de la ADSR.
 
 ## 4. Presupuesto
 

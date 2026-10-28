@@ -2,7 +2,8 @@
  * recursion s(k+1) = 2 cos s(k) - s(k-1), each faded out before it would alias.
  * OSC1 COLOR = brightness (harmonic k at b^(k-1)), OSC2 COLOR = even / odd balance, OSC1 MIX = level. */
 #include <math.h>
-#include "mp_voice.h"
+#include "include/mp_dsp_a.h"
+#include "include/mp_dsp_b.h"
 
 #define NH 8
 S1_PARAM(amp, S1_OSC1_COLOR, NH) {

@@ -271,6 +271,7 @@ const std::map<std::string, std::string> kIntrinsicOps = {
 
 const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_increment", "s1_dt", "s1_rdt", "s1_param_get",
                                         "s1_export", "s1_import", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env",
+                                        "s1_color",
                                         "s1_range"};
 
 std::string intrinsicBase(const std::string &fn) { return fn.substr(5, fn.find('.', 5) - 5); }   // llvm.<base>.<type>
@@ -372,14 +373,14 @@ struct Ptr {
 
 struct Builder {
     Program &P;
-    Stage &S;
+    Dsp &S;
     const DataLayout &DL;
     std::map<const Value *, Node *> vmap;
     std::map<const Value *, Ptr> pmap;
     std::map<int, Node *> cur;           // state index -> current value
     std::map<std::string, Node *> inputs;
 
-    Builder(Program &p, Stage &s) : P(p), S(s), DL(p.M->getDataLayout()) {}
+    Builder(Program &p, Dsp &s) : P(p), S(s), DL(p.M->getDataLayout()) {}
 
     Node *mk(NK k, const std::string &op, std::vector<Node *> in, Value *v = nullptr) {
         auto n = std::make_unique<Node>();
@@ -549,7 +550,7 @@ struct Builder {
     int stateOf(GlobalVariable *gv, long off, Type *ty, Value *at) {
         for (auto &s : P.states)
             if (s.gv == gv && s.offset == off) {
-                if (s.stage != S.name)
+                if (s.dsp != S.name)
                     fail("E302", "state `" + s.name + "` used by both S1_DSP_A and S1_DSP_B (" + where(at) + ")");
                 return s.index;
             }
@@ -560,7 +561,7 @@ struct Builder {
         s.name = gv->getName().str() + (off ? "+" + std::to_string(off) : "");
         s.isInt = ty->isIntegerTy();
         s.bits = s.isInt ? (int)ty->getIntegerBitWidth() : 0;
-        s.stage = S.name;
+        s.dsp = S.name;
         if (gv->hasInitializer()) {
             if (Constant *c = ConstantFoldLoadFromConst(gv->getInitializer(), ty, APInt(64, off), DL)) {
                 if (auto *ci = dyn_cast<ConstantInt>(c))
@@ -685,7 +686,7 @@ struct Builder {
     }
 
     // memset / memcpy of a constant size (Init() of a struct, `state_ = {}`, a struct copy): one store per word the
-    // stage reads or writes in the range (words nothing accesses need nothing); the word's type is that access's
+    // DSP reads or writes in the range (words nothing accesses need nothing); the word's type is that access's
     struct Access { long off; Type *ty; };
     std::vector<Access> accessesIn(Value *base, long lo, long hi) {
         std::vector<Access> out;
@@ -846,13 +847,28 @@ struct Builder {
             vmap[CI] = n;
             return;
         }
-        if (fn == "s1_env") {                             // the host's envelopes: inputs of stage B only
+        if (fn == "s1_env") {                             // the host's envelopes: inputs of DSP B only
             if (S.name != "B")
                 fail("E117", "s1_env in S1_DSP_A " + where(CI) + ": the host's envelopes run on DSP B");
             long i = constArg(0);
             if (i < 0 || i > 1)
                 fail("E118", "s1_env(" + std::to_string(i) + "): the host has envelopes 0 and 1 " + where(CI));
             std::string name = "env" + std::to_string(i);
+            Node *&n = inputs[name];
+            if (!n) {
+                n = mk(NK::Input, name, {}, CI);
+                n->name = name;
+            }
+            vmap[CI] = n;
+            return;
+        }
+        if (fn == "s1_color") {                           // OSC1 / OSC2 COLOR with its MOD source: DSP A only
+            if (S.name != "A")
+                fail("E119", "s1_color in S1_DSP_B " + where(CI) + ": the host makes the colors on DSP A");
+            long i = constArg(0);
+            if (i < 0 || i > 1)
+                fail("E120", "s1_color(" + std::to_string(i) + "): the panel has colors 0 (OSC1) and 1 (OSC2) " + where(CI));
+            std::string name = "color" + std::to_string(i);
             Node *&n = inputs[name];
             if (!n) {
                 n = mk(NK::Input, name, {}, CI);
@@ -1278,7 +1294,7 @@ int leaves(Node *n, int bits, int depth) {        // terms of the expression as 
 }
 }  // namespace
 
-void affineSimplify(Stage &S) {
+void affineSimplify(Dsp &S) {
     std::vector<std::unique_ptr<Node>> made;
     auto mk = [&](const std::string &op, std::vector<Node *> in, const Node *like) {
         auto n = std::make_unique<Node>();
@@ -1405,7 +1421,7 @@ void affineSimplify(Stage &S) {
         S.nodes[i]->id = (int)i;
 }
 
-void markLive(Program &P, Stage &S) {
+void markLive(Program &P, Dsp &S) {
     // from the output and the exports; a state word's new value only when its old value is read by something live
     // (a word written and never read, like Braids' strike_ in a shape that never strikes, costs nothing)
     std::vector<Node *> stack;
@@ -1446,7 +1462,7 @@ void markLive(Program &P, Stage &S) {
 }
 
 // integer interpretation: unsigned when an operation reads or makes it as unsigned (to a fixed point)
-void signedness(Program &P, Stage &S) {
+void signedness(Program &P, Dsp &S) {
     static const std::set<std::string> readsU = {"lshr", "zext", "uitofp", "udiv", "urem", "umin", "umax",
                                                  "icmp.ugt", "icmp.uge", "icmp.ult", "icmp.ule"};
     static const std::set<std::string> makesU = {"lshr", "zext", "fptoui", "udiv", "urem", "umin", "umax"};
@@ -1570,7 +1586,7 @@ static std::string sourcesOf(Program &P, Node *N) {
 
 // islands: for every bad node, the single values that cut all its paths to the sources (dominators of the
 // dependency DAG), highest first; members = the nodes that depend on the root only
-void islands(Program &P, Stage &S) {
+void islands(Program &P, Dsp &S) {
     std::map<Node *, Node *> idom;
     std::map<Node *, int> depth;
     Node *VR = nullptr;                                  // virtual root
@@ -1645,7 +1661,7 @@ void islands(Program &P, Stage &S) {
             }
             if (!pure.count(N))
                 continue;
-            // outputs: members used outside the island (or stage outputs)
+            // outputs: members used outside the island (or DSP outputs)
             for (Node *x : members) {
                 bool outside = x == S.ret;
                 for (auto &kv : S.exports)
@@ -1694,7 +1710,7 @@ void islands(Program &P, Stage &S) {
 
 // values computed only for one arm of a select (speculated by clang): the cone of each arm whose every user is
 // inside the cone (or is the select, through that arm)
-void speculation(Stage &S) {
+void speculation(Dsp &S) {
     for (auto it = S.nodes.rbegin(); it != S.nodes.rend(); ++it) {
         Node *sel = it->get();
         if (!sel->live || sel->op != "select" || !sel->v || !isa<SelectInst>(sel->v))
@@ -1745,7 +1761,7 @@ void speculation(Stage &S) {
 // Plaits' per-block coefficients from a knob). Run after islands(), so the island ids stay those of the profile.
 void deriveKnobColumns(Program &P) {
     assignProfIds(P);
-    for (Stage *S : {&P.A, &P.B}) {
+    for (Dsp *S : {&P.A, &P.B}) {
         if (!S->fn)
             continue;
         std::map<Node *, std::string> dep;      // "" constants only, a table name, "*" anything else
@@ -1818,14 +1834,14 @@ void deriveKnobColumns(Program &P) {
                 np->live = false;
             markLive(P, *S);
             if (debugLevel() >= 1)
-                fprintf(stderr, "s1cc: debug: stage %s: %d knob-derived columns\n", S->name.c_str(), made);
+                fprintf(stderr, "s1cc: debug: DSP %s: %d knob-derived columns\n", S->name.c_str(), made);
         }
     }
 }
 
 }  // namespace
 
-void relive(Program &P, Stage &S) {
+void relive(Program &P, Dsp &S) {
     for (auto &np : S.nodes)
         np->live = false;
     markLive(P, S);
@@ -1834,7 +1850,7 @@ void relive(Program &P, Stage &S) {
 void assignProfIds(Program &P) {
     int id = 0;
     std::map<Value *, int> ids;
-    for (Stage *S : {&P.A, &P.B}) {
+    for (Dsp *S : {&P.A, &P.B}) {
         if (!S->fn)
             continue;
         for (auto &n : S->nodes) {
@@ -1859,7 +1875,7 @@ void build(Program &P, Module &M) {
         fail("E008", "no S1_DSP_A (s1_dsp_a) in the module");
     if (P.B.fn && P.B.fn->isDeclaration())
         P.B.fn = nullptr;
-    for (Stage *S : {&P.A, &P.B}) {
+    for (Dsp *S : {&P.A, &P.B}) {
         if (!S->fn)
             continue;
         Builder b(P, *S);
@@ -1887,11 +1903,11 @@ void build(Program &P, Module &M) {
         markLive(P, *S);
     }
     for (int k = 0; k < 4; k++)
-        for (Stage *S : {&P.A, &P.B})
+        for (Dsp *S : {&P.A, &P.B})
             if (S->fn)
                 signedness(P, *S);
     int id = 0;
-    for (Stage *S : {&P.A, &P.B}) {
+    for (Dsp *S : {&P.A, &P.B}) {
         if (!S->fn)
             continue;
         speculation(*S);
@@ -1957,11 +1973,11 @@ std::string diagnose(Module &M, const std::string &remarksText) {
                         w.push_back(at);
                 }
         }
-        std::string stage = std::string(voice) == "s1_dsp_a" ? "S1_DSP_A" : "S1_DSP_B";
+        std::string entry = std::string(voice) == "s1_dsp_a" ? "S1_DSP_A" : "S1_DSP_B";
         if (bad.empty())
-            o << stage << " (" << voice << "): every call inlined, every instruction supported\n";
+            o << entry << " (" << voice << "): every call inlined, every instruction supported\n";
         else
-            o << stage << " (" << voice << "): " << bad.size() << " C function(s) s1cc cannot compile\n";
+            o << entry << " (" << voice << "): " << bad.size() << " C function(s) s1cc cannot compile\n";
         for (auto &f : bad) {
             o << "  " << f.first << "\n";
             for (auto &r : f.second) {

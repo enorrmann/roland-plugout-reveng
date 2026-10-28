@@ -69,6 +69,15 @@ float s1_rdt(void) { return 1.0f / s1_dt(); }
 float s1_gate(void) { return g_gate; }
 float s1_trig(void) { return g_trig; }
 float s1_env(int i) { (void)i; return g_gate; }     /* the host's envelopes: the gate stands in (check too) */
+static float g_color[2] = {128 / 255.0f, 128 / 255.0f};
+static int color_sweep;                             /* profiling: the colors ramp 0..1 / 1..0 over each run */
+static int color_arg(const char *name, int v) {     /* color0=K / color1=K: the knob s1_color gives */
+    if (strcmp(name, "color0") && strcmp(name, "color1"))
+        return 0;
+    g_color[name[5] - '0'] = v / 255.0f;
+    return 1;
+}
+float s1_color(int i) { return g_color[i & 1]; }   /* COLOR: the knob (color0= / color1=); profiling sweeps 0..1 */
 float s1_param_get(const s1_param_desc *d, int i) {
     params_init();
     for (int k = 0; k < np; k++)
@@ -183,6 +192,10 @@ static void run(double note, long n, long off, FILE *out) {
     g_trig = 1.0f - g_trig;
     for (long t = 0; t < n; t++) {
         g_gate = t < off ? 1.0f : 0.0f;
+        if (color_sweep) {
+            g_color[0] = (float)t / (float)(n > 1 ? n - 1 : 1);
+            g_color[1] = 1.0f - g_color[0];
+        }
         state_track();
         float a = s1_dsp_a(), b = a;
         if (s1_dsp_b)
@@ -227,7 +240,7 @@ int main(int argc, char **argv) {
             if (sscanf(argv[a], "off=%ld", &off) == 1)
                 continue;
             if (sscanf(argv[a], "%127[^=]=%d", name, &v) == 2) {
-                int found = 0;
+                int found = color_arg(name, v);
                 for (int k = 0; k < np; k++)
                     if (!strcmp(pd[k]->name, name)) { knob[k] = v; found = 1; }
                 if (!found) { fprintf(stderr, "no S1_PARAM %s\n", name); return 2; }
@@ -249,7 +262,7 @@ int main(int argc, char **argv) {
         for (int a = 5; a < argc; a++) {
             char name[128];
             int v;
-            if (sscanf(argv[a], "%127[^=]=%d", name, &v) == 2)
+            if (sscanf(argv[a], "%127[^=]=%d", name, &v) == 2 && !color_arg(name, v))
                 for (int k = 0; k < np; k++)
                     if (!strcmp(pd[k]->name, name)) knob[k] = v;
         }
@@ -315,6 +328,7 @@ int main(int argc, char **argv) {
         static const int notes[] = {0, 12, 24, 36, 48, 57, 60, 69, 72, 84, 96, 108, 120, 127};
         for (int k = 0; k < 4096; k++) { st_lo[k] = 1e300; st_hi[k] = -1e300; }
         st_track = 1;
+        color_sweep = 1;
         int nn = (int)(sizeof notes / sizeof notes[0]);
         long n = 2400;
         for (int p = 0; p < np || p == 0; p++) {
