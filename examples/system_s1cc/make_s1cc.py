@@ -389,19 +389,22 @@ def penv_b(v, hb):
 
 def colors_b(v):
     """COLOR MOD of voice v on DSP B, after its envelopes: color i = weights (C054 + 6 i ..) x (1, lf, pitch env,
-    filter env, amp env, sub) -> bank 5 COLB (s1_color(i) on DSP A, one sample late); the sub square from DSP A"""
+    filter env, amp env, sub) -> bank 5 COLB (s1_color(i) on DSP A, one sample late); the sub square from DSP A.
+    Both colors in one pass (a = color 0, c = color 1): each source is loaded once for the two (the loads, not the
+    multiplies, set its length: two bank-6 loads and one bank-5 access per instruction)"""
     a, b, c, d = 'r0', 'r1', 'r2', 'r3'
     P = lambda k: f'c0{k:02x}'  # noqa: E731
     hb = {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
     e = block('B', v)
-    L = []
-    for i in COLOR_USED:
-        k = B6_COL[i]
-        L += [f'; voice {v}: color {i} = w0 + w1 lf + w2 pe + w3 fe + w4 ae + w5 sub (c)', f'ld {c}, [{P(k)}]']
-        for w_, src in ((1, LFB[v]), (2, hb['pe']), (3, e + 6), (4, e), (5, SUBB[v])):
-            L += [f'ld {b}, [{src:04x}]', f'ld {d}, [{P(k + w_)}]', f'mov {d}, {d}', f'mad {c}, {b}, {d}']
-        L += [f'st {c}, [{COLB[i][v]:04x}]']
-    del a
+    acc = dict(zip(COLOR_USED, (a, c)))
+    L = [f'; voice {v}: colors ' + ', '.join(f'{i} ({acc[i]})' for i in COLOR_USED) +
+         ' = w0 + w1 lf + w2 pe + w3 fe + w4 ae + w5 sub']
+    L += [f'ld {acc[i]}, [{P(B6_COL[i])}]' for i in COLOR_USED]
+    for w_, src in ((1, LFB[v]), (2, hb['pe']), (3, e + 6), (4, e), (5, SUBB[v])):
+        L += [f'ld {b}, [{src:04x}]']
+        for i in COLOR_USED:
+            L += [f'ld {d}, [{P(B6_COL[i] + w_)}]', f'mov {d}, {d}', f'mad {acc[i]}, {b}, {d}']
+    L += [f'st {acc[i]}, [{COLB[i][v]:04x}]' for i in COLOR_USED]
     return L
 
 

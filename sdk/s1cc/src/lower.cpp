@@ -489,9 +489,11 @@ struct Lowerer {
         double c = std::round((v.lo + v.hi) / 2);
         double half = std::max(std::fabs(v.lo - c), std::fabs(v.hi - c));
         int extra = half <= 8 ? 0 : (int)std::ceil(std::log2(half / 8));
-        if (opt.native && v.hi - v.lo <= 20) {
-            // the SFU's exp split (Kernel::exp2split): 2^t, t = V - c in [-12, 8] (the result below 512, its LSB
-            // 2^-32 at most 2^-20 of it), 8 ops, 3e-5 relative
+        if (opt.native && extra > 0 && v.hi - v.lo <= 20) {
+            // wider than +-8 octaves: the SFU's exp split (Kernel::exp2split), 2^t with t = V - c in [-12, 8] (the
+            // result below 512, its LSB 2^-32 at most 2^-20 of it), 10 ops, 6e-8 relative; the Taylor form needs
+            // 10 + extra ops there and every squaring doubles its error. Narrower: the Taylor form is shorter or
+            // as short and more exact (its error falls as t^5)
             c = std::max(c, std::ceil(v.hi) - 8);
             KVal *t = materialize(x, 1, -c);
             LV r;

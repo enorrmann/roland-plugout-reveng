@@ -162,8 +162,11 @@ KVal *Kernel::ymac(KVal *acc, KVal *x, KOperand y) { return op("ymacd {d}, {0}, 
 KVal *Kernel::min(KVal *x, KOperand y) { return op("min {d}, {0}, {1}", {KOperand::of(x), y}); }
 KVal *Kernel::max(KVal *x, KOperand y) { return op("max {d}, {0}, {1}", {KOperand::of(x), y}); }
 namespace {
-// e^f on [0, 1): least squares of the relative error, degree 4 (3.3e-5; the old Taylor + squarings: ~7e-4)
-const double kExpPoly[5] = {1.00003245, 0.9988846, 0.50850402, 0.14302561, 0.06774672};
+// e^f on [0, 1): least squares of the relative error, degree 6 (5.7e-8)
+const double kExpPoly[7] = {1.00000005659, 0.999996450303, 0.500051973938, 0.166360755989, 0.0425387636987,
+                            0.00706573356093, 0.00226793999827};
+// the shift field of shl / shr / shrn: 4 bits written as a register operand (bit 3 = its negation sign)
+std::string shiftField(int k) { return k >= 8 ? "-r" + std::to_string(k - 8) : "r" + std::to_string(k); }
 }
 
 KVal *Kernel::multi(const std::string &fmt, KVal *arg, bool pairD, bool clobber, bool second) {
@@ -201,8 +204,8 @@ KVal *Kernel::exp2split(KVal *t, double shift) {
     if (shift != 0)
         z = add(z, KOperand::im(shift * std::log(2.0)));
     auto ef = expsplit(z);
-    KVal *p = mov(KOperand::im(kExpPoly[4]));
-    for (int k = 3; k >= 0; k--)
+    KVal *p = mov(KOperand::im(kExpPoly[6]));
+    for (int k = 5; k >= 0; k--)
         p = ymac(p, ef.second, KOperand::im(kExpPoly[k]));
     return mul(p, KOperand::of(ef.first));
 }
@@ -214,18 +217,18 @@ KVal *Kernel::sign(KVal *x) { return op("sign {d}, {0}", {KOperand::of(x)}); }
 KVal *Kernel::shift(KVal *x, int k) {
     // shl / shr: 2^k with |k| <= 15; shrn: 2^-(16 + j), j <= 15
     while (k > 15) {
-        x = op("shl {d}, {0}, r15", {KOperand::of(x)});
+        x = op("shl {d}, {0}, " + shiftField(15), {KOperand::of(x)});
         k -= 15;
     }
     if (k > 0)
-        return op("shl {d}, {0}, r" + std::to_string(k), {KOperand::of(x)});
+        return op("shl {d}, {0}, " + shiftField(k), {KOperand::of(x)});
     if (k == 0)
         return x;
     if (k >= -15)
-        return op("shr {d}, {0}, r" + std::to_string(-k), {KOperand::of(x)});
+        return op("shr {d}, {0}, " + shiftField(-k), {KOperand::of(x)});
     if (k >= -31)
-        return op("shrn {d}, {0}, r" + std::to_string(-k - 16), {KOperand::of(x)});
-    return shift(op("shrn {d}, {0}, r15", {KOperand::of(x)}), k + 31);
+        return op("shrn {d}, {0}, " + shiftField(-k - 16), {KOperand::of(x)});
+    return shift(op("shrn {d}, {0}, " + shiftField(15), {KOperand::of(x)}), k + 31);
 }
 
 KVal *Kernel::mac2(KVal *a, KVal *b, KVal *c, KVal *d, KVal *e) {
