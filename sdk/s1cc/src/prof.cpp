@@ -140,7 +140,7 @@ void instrument(Program &P) {
     }
     // islands: one native function per candidate
     std::vector<Constant *> rows;
-    StructType *rowTy = StructType::get(C, {i32, i32, PointerType::getUnqual(C)});
+    StructType *rowTy = StructType::get(C, {i32, i32, PointerType::getUnqual(C), i32});   // + root is an integer
     for (Stage *S : {&P.A, &P.B}) {
         if (!S->fn)
             continue;
@@ -195,7 +195,8 @@ void instrument(Program &P) {
                            : b.CreateFPExt(out, d);
             b.CreateRet(r);
             rows.push_back(ConstantStruct::get(rowTy, {ConstantInt::get(i32, isl.id),
-                                                       ConstantInt::get(i32, isl.root->prof), F}));
+                                                       ConstantInt::get(i32, isl.root->prof), F,
+                                                       ConstantInt::get(i32, isl.root->isInt ? 1 : 0)}));
         }
     }
     ArrayType *at = ArrayType::get(rowTy, rows.size());

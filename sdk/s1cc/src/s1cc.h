@@ -71,6 +71,8 @@ struct Node {
     Node *specSel = nullptr;
     bool specArmTrue = false;
     bool specFrontier = false;   // its operands are not speculated with it: the lowering clamps here
+    int demand = 0;              // only the low `demand` bits are used (LLVM DemandedBits; 0 = all): the lowering may
+                                 // keep the value modulo 2^demand, its smallest representative (§7.2)
 };
 
 struct StateVar {
@@ -110,9 +112,16 @@ struct Program {
     Stage A, B;                  // B.fn == nullptr: no S1_DSP_B
     std::map<std::string, llvm::GlobalVariable *> params;   // name -> descriptor
     std::map<std::string, int> paramCount;
+    // knob-derived columns (§4.6): `prof sweep` values, record id -> knob table -> value at knob 0..255; build() turns
+    // every value that depends on one knob only into a table of its own (derived: name -> 256 values, base: its knob)
+    std::map<int, std::map<std::string, std::vector<double>>> sweep;
+    std::map<std::string, std::vector<double>> derived;
+    std::map<std::string, std::string> derivedBase;
 };
+void assignProfIds(Program &P);   // graph.cpp: the record ids `s1cc prof` gives (and lower reads)
 
 void build(Program &P, llvm::Module &M);    // graph.cpp
+void relive(Program &P, Stage &S);          // graph.cpp: live nodes and stored state words again, from the outputs
 
 // ---- profile (written by runtime/s1rt.c) ----------------------------------------------------------------------
 struct Range {
@@ -135,8 +144,9 @@ struct Profile {
 
 // ---- fitting ----------------------------------------------------------------------------------------------------
 struct Fit {
-    std::string model;           // "poly" / "exp2"
-    std::vector<double> c;       // coefficients in t (power basis, c[0] constant)
+    std::string model;           // "poly" / "exp2" / "hinge"
+    std::vector<double> c;       // coefficients in t (power basis, c[0] constant); hinge: c0 + c1 t
+    std::vector<double> knots, w;   // hinge: + sum w_j max(0, t - knots_j) (a linear spline: folders, zigzags)
     double ta = 1, tb = 0;       // t = ta r + tb (r = the root's register value)
     double lo = -1e300, hi = 1e300;   // output clamp (saturation plateaus), in output units
     bool clampLo = false, clampHi = false;
@@ -147,7 +157,8 @@ struct Fit {
     std::string metric = "span"; // "span": |error| / span; "log2": |log2(fit / y)| (octaves), for y > 0 over > 3 octaves
     int cost = 0;                // ops
 };
-Fit fitIsland(const std::vector<std::pair<double, double>> &xy, double tolSpan, double tolLog, int maxDeg);   // x, y in V units
+Fit fitIsland(const std::vector<std::pair<double, double>> &xy, double tolSpan, double tolLog, int maxDeg,
+              int maxKnots = 32);   // x, y in V units
 
 // ---- kernel (register allocation, one-unit lines) ------------------------------------------------------------
 struct KVal;
@@ -170,6 +181,7 @@ struct KOp {
     std::vector<KOperand> args;
     KVal *acc = nullptr;
     std::string addr;            // ld / st: address text (may hold placeholders)
+    std::string tag;             // the C line that made it (report: cost by C line)
 };
 
 class Kernel {
@@ -195,7 +207,9 @@ public:
     std::vector<std::string> lines();
     int units() const;
     int spills() const { return spills_; }
-    size_t opCount() const { return ops_.size(); }   // ops emitted so far (unused ones are dropped by lines())
+    size_t opCount() const { return ops_.size(); }
+    std::string tag;                                   // set by the lowering: the C line of the ops that follow
+    std::map<std::string, int> liveByTag;              // after lines(): ops kept per tag   // ops emitted so far (unused ones are dropped by lines())
 private:
     KVal *val(const std::string &name = "");
     KVal *op(const std::string &fmt, std::vector<KOperand> args, KVal *acc = nullptr);
@@ -211,7 +225,9 @@ std::string fmtImm(double x);
 struct LowerOptions {
     std::vector<int> regs = {0, 1, 2, 3, 4, 7};
     double fitTol = 3e-3;        // span metric
-    double fitTolLog = 0.005;    // log2 metric (octaves; 0.005 = 6 cents)
+    int maxKnots = 32;           // hinge fits: at most this many knots (2 ops each)
+    double fitTolLog = 0.0005;   // log2 metric (octaves; 0.0005 = 0.6 cent: increments are pitches)
+    bool foldBranches = true;    // a compare with one value in every profiling scenario is that constant (W909)
     bool exactInit = true;       // state words with a non-zero start: first-sample flag + one mad each
     bool trace = false;          // debugging: every lowered value also stored to {D:<record id>} (s1cc check --trace)
     int maxDeg = 11;
@@ -226,6 +242,7 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
 void instrument(Program &P);    // prof.cpp: modifies P.M
 
 // ---- loops (loops.cpp) ----------------------------------------------------------------------------------------------
+int devirtualize(llvm::Module &M);   // devirt.cpp: indirect calls with known targets -> direct; returns how many
 int instrumentTrips(llvm::Module &M);                                               // returns the number of loops
 void unrollBounded(llvm::Module &M, const std::map<int, int> &trips, std::string &report);
 

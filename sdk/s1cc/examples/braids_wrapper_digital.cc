@@ -6,25 +6,28 @@
 #include <stdint.h>
 #include "s1dsp.h"
 #define private public                 // RenderSawSwarm is private in Braids: the wrapper calls it directly
-#include "braids/digital_oscillator.h"
+//#include "braids/digital_oscillator.h"
+#include "braids/analog_oscillator.h"
+//#include "braids/macro_oscillator.h"
 #undef private
 
 // the knobs as Braids sees them: parameter 0..32767 (TIMBRE = OSC1 COLOR, COLOR = OSC2 COLOR)
 S1_PARAM(timbre, S1_OSC1_COLOR, 1) { out[0] = knob * 32767 / 255; }
 S1_PARAM(color, S1_OSC2_COLOR, 1) { out[0] = knob * 32767 / 255; }
 
-static braids::DigitalOscillator osc;
+static braids::AnalogOscillator osc;
 
 S1_INIT {
   osc.Init();
-  osc.set_shape(braids::OSC_SHAPE_TOY);
+  osc.set_shape(braids::OSC_SHAPE_SQUARE);
 }
 
+
 S1_DSP_A {
-  static const uint8_t sync = 0;
   int16_t out;
   osc.pitch_ = static_cast<int16_t>(s1_pitch() * 1536.0f + 1536.0f);     // our octaves -> MIDI note << 7
-  osc.set_parameters(static_cast<int16_t>(s1_param(timbre, 0)), static_cast<int16_t>(s1_param(color, 0)));
-  osc.RenderToy(&sync, &out, 1);
+  //osc.set_parameters(static_cast<int16_t>(s1_param(timbre, 0)), static_cast<int16_t>(s1_param(color, 0)));
+  osc.set_parameter(static_cast<int16_t>(s1_param(timbre, 0)));
+  osc.RenderSquare(0, &out, 0,1 );
   return out / 32768.0f;
 }

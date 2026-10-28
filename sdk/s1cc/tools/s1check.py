@@ -88,7 +88,7 @@ def run_kernel(outdir, note, n, knobs, proven=True):
     for dsp in progs:
         i = PARAM0
         for p in k.params:
-            for j, v in enumerate(k.param_values(p['name'], knobs.get(p['name'], 128), tables)):
+            for j, v in enumerate(k.param_values(p['name'], knobs.get(p['name'].split('~')[0], 128), tables)):
                 sl.d[dsp].params[0xC000 + i + j] = f32(v)
             i += p['count']
     b5 = sl.d[0].bank5
@@ -143,25 +143,32 @@ def native_dump(outdir, note, n, knobs):
     return vals
 
 
-def trace_report(outdir, note, n, knobs, info):
-    """the first lowered value (program order) whose DSP value leaves the native one"""
+def trace_report(outdir, note, n, knobs, info, tol_rel=1e-3, count=12):
+    """the lowered values whose DSP value leaves the native one: the first sample of each, earliest first (program
+    order breaks ties), so a fitted table slightly off does not hide the operation that really breaks"""
     tr, traces = info['trace']
     nat = native_dump(outdir, note, n, knobs)
-    for dsp, _, rid, scale, where in tr:
+    found = []
+    for order, (dsp, _, rid, scale, where) in enumerate(tr):
         got = traces[rid]
         ref = nat.get(rid, {})
         for t in range(n):
             if t not in ref:
                 continue
             s, u = ref[t]
-            tol = 1e-3 * max(1.0, abs(s)) + 1e-6 * scale
+            tol = tol_rel * max(1.0, abs(s)) + 1e-6 * scale
             if 'cmp' in where:                    # booleans: only a flipped decision counts
                 tol = 0.5
             if min(abs(got[t] - s), abs(got[t] - u)) > tol:
-                print(f'first difference: sample {t}, {"AB"[dsp]} record {rid} {where}: DSP {got[t]:.9g}, '
-                      f'native {s:.9g}')
-                return
-    print('trace: every traced value agrees with the native run')
+                found.append((t, order, dsp, rid, where, got[t], s))
+                break
+    if not found:
+        print('trace: every traced value agrees with the native run')
+        return
+    for t, _, dsp, rid, where, g, s in sorted(found)[:count]:
+        print(f'difference: sample {t}, {"AB"[dsp]} record {rid} {where}: DSP {g:.9g}, native {s:.9g}')
+    if len(found) > count:
+        print(f'... {len(found) - count} more records differ')
 
 
 def snr(p, r):
@@ -186,6 +193,10 @@ def main(argv=None):
     ap.add_argument('--show', action='store_true', help='print the scheduled programs')
     ap.add_argument('--trace', action='store_true', help='the kernel must be built with --trace (s1cc build --trace):'
                     ' report the first C operation whose value differs')
+    ap.add_argument('--trace-tol', type=float, default=1e-3, help='--trace: relative tolerance (fitted tables are'
+                    ' within --tol / --tollog of the C, not 1e-3)')
+    ap.add_argument('--trace-n', type=int, default=2400, help='--trace: samples compared (from the first)')
+    ap.add_argument('--trace-count', type=int, default=12, help='--trace: how many differing records to list')
     ap.add_argument('knobs', nargs='*', help='name=knob (0..255; default 128)')
     a = ap.parse_intermixed_args(argv)
     knobs = {kv.split('=')[0]: int(kv.split('=')[1]) for kv in a.knobs}
@@ -194,7 +205,7 @@ def main(argv=None):
     if a.trace:
         if 'trace' not in info:
             raise SystemExit('the kernel has no trace words: rebuild with s1cc build ... --trace')
-        trace_report(a.outdir, a.note, min(a.n, 200), knobs, info)
+        trace_report(a.outdir, a.note, min(a.n, a.trace_n), knobs, info, a.trace_tol, a.trace_count)
     w = min(960, a.n)
     for st, p, r in (('A', pa, ra), ('B', pb, rb)):
         if p is None:

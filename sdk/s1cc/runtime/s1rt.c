@@ -23,6 +23,12 @@ typedef struct s1_param_desc {
 } s1_param_desc;
 
 extern const s1_param_desc __start_s1_params[] __attribute__((weak));
+extern const int s1_note_range[2] __attribute__((weak));     /* S1_NOTE_RANGE: the notes profiled */
+static int note_in(int n) {
+    if (!s1_note_range)
+        return n;
+    return n < s1_note_range[0] ? s1_note_range[0] : n > s1_note_range[1] ? s1_note_range[1] : n;
+}
 extern const s1_param_desc __stop_s1_params[] __attribute__((weak));
 float s1_dsp_a(void);
 float s1_dsp_b(float x) __attribute__((weak));
@@ -31,7 +37,7 @@ void __s1p_dspstart(void) __attribute__((weak));
 void s1_init(void) __attribute__((weak));
 void __s1p_state(double *out) __attribute__((weak));
 extern const int __s1p_nstate __attribute__((weak));
-typedef struct { int id, root; double (*fn)(double); } isl_row;
+typedef struct { int id, root; double (*fn)(double); int isint; } isl_row;   /* isint: sample integers only */
 extern const isl_row __s1p_isl_tab[] __attribute__((weak));
 extern const int __s1p_isl_n __attribute__((weak));
 
@@ -83,9 +89,16 @@ static unsigned char seen[MAXR], sov[MAXR], uov[MAXR];
 static int maxid = -1;
 void __s1p_h(int id, double v);
 static FILE *dumpf;                    /* dump mode: "id signed unsigned" per value, "n" per sample */
+static double *swv;                    /* sweep mode: the first value of every record in this knob position */
+static unsigned char *swseen;
 void __s1p_v(int id, double s, double u) {
     if (id < 0 || id >= MAXR)
         return;
+    if (swv) {
+        if (!swseen[id]) { swv[id] = s; swseen[id] = 1; }
+        if (id > maxid) maxid = id;
+        return;
+    }
     if (dumpf)
         fprintf(dumpf, "%d %.17g %.17g\n", id, s, u);
     if (s == u)                            /* floats (and non-negative ints): the octave histogram */
@@ -184,7 +197,7 @@ static int rnd(int n) { rng = rng * 1664525u + 1013904223u; return (int)((rng >>
 
 int main(int argc, char **argv) {
     if (argc < 3) {
-        fprintf(stderr, "usage: %s tables FILE | ref OUT NOTE N [name=knob...] [off=T] | prof OUT\n", argv[0]);
+        fprintf(stderr, "usage: %s tables FILE | ref OUT NOTE N [name=knob...] [off=T] | prof OUT | sweep OUT\n", argv[0]);
         return 2;
     }
     params_init();
@@ -252,6 +265,48 @@ int main(int argc, char **argv) {
         fclose(dumpf);
         return 0;
     }
+    if (!strcmp(argv[1], "sweep")) {
+        /* PROG sweep OUT: knob-derived columns (docs/S1CC.md §4.6). Every knob over 0..255, the others at 128, a few
+           samples of 3 notes each; per knob and record "w KNOB ID v0 .. v255" (signed view), when the record was seen
+           at every position and changes with the knob. s1cc lower keeps those of values that depend on that knob only */
+        static const int notes[] = {57, 0, 127};
+        swv = calloc(MAXR, sizeof(double));
+        swseen = calloc(MAXR, 1);
+        double *all = NULL;
+        unsigned char *full = NULL;
+        int amax = -1;                 /* records seen at knob 0: only those can be seen at every position */
+        FILE *f = fopen(argv[2], "w");
+        for (int p = 0; p < np; p++) {
+            for (int v = 0; v < 256; v++) {
+                for (int k = 0; k < np; k++) knob[k] = 128;
+                knob[p] = v;
+                memset(swseen, 0, MAXR);
+                for (int i = 0; i < 3; i++) { reset(); run(note_in(notes[i]), i ? 1 : 4, 1L << 60, 0); }
+                if (!all) {
+                    amax = maxid;
+                    all = calloc((size_t)(amax + 1) * 256, sizeof(double));
+                    full = malloc((size_t)amax + 1);
+                    memset(full, 1, (size_t)amax + 1);
+                }
+                for (int id = 0; id <= amax; id++) {
+                    if (!swseen[id]) full[id] = 0;
+                    else if (full[id]) all[(size_t)id * 256 + v] = swv[id];
+                }
+            }
+            for (int id = 0; all && id <= amax; id++) {
+                if (!full[id]) continue;
+                int varies = 0;
+                for (int v = 1; v < 256; v++) varies |= all[(size_t)id * 256 + v] != all[(size_t)id * 256];
+                if (!varies) continue;
+                fprintf(f, "w %s %d", pd[p]->name, id);
+                for (int v = 0; v < 256; v++) fprintf(f, " %.17g", all[(size_t)id * 256 + v]);
+                fprintf(f, "\n");
+            }
+            free(all); free(full); all = NULL; full = NULL;
+        }
+        fclose(f);
+        return 0;
+    }
     if (!strcmp(argv[1], "prof")) {
         /* scenarios: every knob over its range (the others at 128), then random knob sets; notes 0..127;
            a gate that closes half way (envelopes, releases) */
@@ -264,18 +319,18 @@ int main(int argc, char **argv) {
             for (int v = 0; v < 256; v += np ? 17 : 256) {
                 for (int k = 0; k < np; k++) knob[k] = 128;
                 if (np) knob[p] = v == 255 ? 255 : v;
-                for (int i = 0; i < nn; i++) { reset(); run(notes[i], n, n / 2, 0); }
+                for (int i = 0; i < nn; i++) { reset(); run(note_in(notes[i]), n, n / 2, 0); }
             }
             if (!np) break;
         }
         for (int r = 0; r < 24; r++) {
             for (int k = 0; k < np; k++) knob[k] = rnd(4) == 0 ? (rnd(2) ? 255 : 0) : rnd(256);
-            for (int i = 0; i < nn; i++) { reset(); run(notes[i] + rnd(100) / 100.0, n, n / 2, 0); }
+            for (int i = 0; i < nn; i++) { reset(); run(note_in(notes[i]) + (note_in(notes[i]) < (s1_note_range ? s1_note_range[1] : 127) ? rnd(100) / 100.0 : 0), n, n / 2, 0); }
         }
         for (int k = 0; k < np; k++) knob[k] = 255;
-        for (int i = 0; i < nn; i++) { reset(); run(notes[i], n, n / 2, 0); }
+        for (int i = 0; i < nn; i++) { reset(); run(note_in(notes[i]), n, n / 2, 0); }
         for (int k = 0; k < np; k++) knob[k] = 0;
-        for (int i = 0; i < nn; i++) { reset(); run(notes[i], n, n / 2, 0); }
+        for (int i = 0; i < nn; i++) { reset(); run(note_in(notes[i]), n, n / 2, 0); }
         FILE *f = fopen(argv[2], "w");
         if (__s1p_state && &__s1p_nstate) {           /* the initial state (after s1_init) */
             static double st[4096];
@@ -319,7 +374,7 @@ int main(int argc, char **argv) {
             fprintf(f, "i %d %d\n", row->id, m);
             for (int j = 0; j < m; j++) {
                 double x = lo + (hi - lo) * j / (m - 1);
-                if (floor(lo) == lo && floor(hi) == hi)
+                if (row->isint)
                     x = floor(x);
                 fprintf(f, "%.17g %.17g\n", x, row->fn(x));
             }

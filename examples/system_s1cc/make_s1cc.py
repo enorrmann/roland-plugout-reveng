@@ -362,7 +362,7 @@ def params(knobs):
             for j, x in enumerate(env_params(i, knobs.get(f'env{i}', H_ENV_DEFAULT[i]))):
                 pb[0xC000 + H6_ENV[i] + j] = f32(x)
     for name, (cnt, ab, bb) in layout().items():
-        vals = KDEF.param_values(name, knobs.get(name, 128), KTAB)
+        vals = KDEF.param_values(name, knobs.get(name.split('~')[0], 128), KTAB)   # name~id: derived from that knob
         for i in range(cnt):
             if ab is not None:
                 pa[0xC000 + ab + i] = f32(vals[i])

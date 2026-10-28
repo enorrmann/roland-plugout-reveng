@@ -58,19 +58,23 @@ typedef struct s1_param_desc {
     void (*fn)(int knob, float *out);
 } s1_param_desc;
 
-S1_EXTERN float s1_pitch(void);
-S1_EXTERN float s1_increment(void);
-S1_EXTERN float s1_gate(void);
-S1_EXTERN float s1_trig(void);
-S1_EXTERN float s1_param_get(const s1_param_desc *param, int i);
+/* S1_IN: reads the voice's inputs, writes no memory (a store before the call reaches a load after it: wrappers that
+ * set a mode right before rendering fold, docs/S1CC.md §3.2). S1_FN: a function of its arguments only. */
+#define S1_IN __attribute__((pure, nothrow))
+#define S1_FN __attribute__((const, nothrow))
+S1_EXTERN S1_IN float s1_pitch(void);
+S1_EXTERN S1_IN float s1_increment(void);
+S1_EXTERN S1_IN float s1_gate(void);
+S1_EXTERN S1_IN float s1_trig(void);
+S1_EXTERN S1_IN float s1_param_get(const s1_param_desc *param, int i);
 S1_EXTERN void s1_export(int i, float v);
-S1_EXTERN float s1_import(int i);
-S1_EXTERN float s1_wrap(float x);
-S1_EXTERN float s1_clamp(float x);
-S1_EXTERN float s1_tri(float x);
-S1_EXTERN float s1_exp2(float x);
-S1_EXTERN float s1_range(float x, float lo, float hi);
-S1_EXTERN float s1_env(int i);
+S1_EXTERN S1_IN float s1_import(int i);
+S1_EXTERN S1_FN float s1_wrap(float x);
+S1_EXTERN S1_FN float s1_clamp(float x);
+S1_EXTERN S1_FN float s1_tri(float x);
+S1_EXTERN S1_FN float s1_exp2(float x);
+S1_EXTERN S1_FN float s1_range(float x, float lo, float hi);
+S1_EXTERN S1_IN float s1_env(int i);
 
 #define s1_param(name, i) s1_param_get(&s1_param_desc_##name, (i))
 
@@ -79,6 +83,11 @@ S1_EXTERN float s1_env(int i);
     __attribute__((used, section("s1_params"))) const s1_param_desc s1_param_desc_##name =                   \
         { #name, panel_id, count, s1_param_fn_##name };                                                      \
     static void s1_param_fn_##name(int knob, float *out)
+
+/* S1_NOTE_RANGE(lo, hi): the MIDI notes the voice is played at (default 0..127). The profiling runs only those
+ * notes, so what only happens beyond them (Braids' CSAW: both edges in one sample above ~note 115) is not compiled */
+#define S1_NOTE_RANGE(lo, hi) \
+    S1_EXTERN __attribute__((used)) const int s1_note_range[2] = { (lo), (hi) }
 
 #define S1_DSP_A S1_EXTERN float s1_dsp_a(void)
 #define S1_INIT S1_EXTERN void s1_init(void)

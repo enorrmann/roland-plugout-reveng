@@ -31,12 +31,25 @@ KVal *Kernel::val(const std::string &name) {
 }
 
 KVal *Kernel::op(const std::string &fmt, std::vector<KOperand> args, KVal *acc) {
+    // the same op on the same values again (two C expressions that lower alike): its first result (values are
+    // single-assignment, ops have no side effect; loads and stores are not ops)
+    for (auto it = ops_.rbegin(); it != ops_.rend(); ++it) {
+        if (it->kind != "op" || it->fmt != fmt || it->acc != acc || it->args.size() != args.size())
+            continue;
+        bool same = true;
+        for (size_t i = 0; i < args.size() && same; i++)
+            same = args[i].v == it->args[i].v && args[i].neg == it->args[i].neg &&
+                   (args[i].v || args[i].imm == it->args[i].imm);
+        if (same)
+            return it->d;
+    }
     KOp o;
     o.kind = "op";
     o.fmt = fmt;
     o.d = val();
     o.args = std::move(args);
     o.acc = acc;
+    o.tag = tag;
     ops_.push_back(o);
     return o.d;
 }
@@ -46,6 +59,7 @@ KVal *Kernel::load(const std::string &addr, const std::string &name) {
     o.kind = "ld";
     o.d = val(name);
     o.addr = addr;
+    o.tag = tag;
     ops_.push_back(o);
     return o.d;
 }
@@ -55,6 +69,7 @@ void Kernel::store(KVal *v, const std::string &addr) {
     o.kind = "st";
     o.args = {KOperand::of(v)};
     o.addr = addr;
+    o.tag = tag;
     ops_.push_back(o);
 }
 
@@ -62,6 +77,7 @@ void Kernel::comment(const std::string &text) {
     KOp o;
     o.kind = "comment";
     o.fmt = "; " + text;
+    o.tag = tag;
     ops_.push_back(o);
 }
 
@@ -115,8 +131,14 @@ KVal *Kernel::mul(KVal *x, KOperand y) {
 KVal *Kernel::add(KVal *x, KOperand y) {
     if (!y.v && !std::isfinite(y.imm))
         fail("E702", "kernel: a non-finite constant");
-    if (!y.v && std::fabs(y.imm) >= 512)
-        fail("E701", "kernel: constant " + std::to_string(y.imm) + " outside the DSP range (+-512)");
+    // a constant beyond the immediate range: in steps (x and x + c are registers, so every step between is too)
+    while (!y.v && std::fabs(y.imm) >= 512) {
+        double step = y.imm > 0 ? 511.0 : -511.0;
+        x = op("addxy {d}, {0}, {1}", {KOperand::of(x), KOperand::im(step)});
+        y.imm -= step;
+        if (std::fabs(y.imm) > 1e6)
+            fail("E701", "kernel: constant " + std::to_string(y.imm) + " outside the DSP range (+-512)");
+    }
     return op("addxy {d}, {0}, {1}", {KOperand::of(x), y});
 }
 KVal *Kernel::sub(KVal *x, KOperand y) {
@@ -141,6 +163,7 @@ std::pair<KVal *, KVal *> Kernel::recipseed(KVal *y) {
     o.d = val("2^-e");
     o.d2 = val("seed");
     o.args = {KOperand::of(y)};
+    o.tag = tag;
     ops_.push_back(o);
     return {o.d, o.d2};
 }
@@ -202,6 +225,21 @@ std::vector<std::string> Kernel::lines() {
         }
         ops_.swap(keep);
     }
+    liveByTag.clear();
+    for (auto &o : ops_)
+        if (o.kind != "comment")
+            liveByTag[o.tag]++;
+    if (getenv("S1CC_OPS"))               // debugging: every kept op with the C line that made it
+        for (auto &o : ops_)
+        {
+            std::string a;
+            for (auto &x : o.args)
+                a += x.v ? (x.neg ? " -v" : " v") + std::to_string(x.v->n) : " #" + std::to_string(x.imm);
+            if (o.acc)
+                a += " acc v" + std::to_string(o.acc->n);
+            fprintf(stderr, "op %-6s %-22s v%-4d <-%-34s | %s\n", o.kind.c_str(), o.fmt.substr(0, o.fmt.find(' ')).c_str(),
+                    o.d ? o.d->n : -1, a.c_str(), o.tag.c_str());
+        }
     std::vector<KOp> ops;
     {
         std::map<int, int> last;

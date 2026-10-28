@@ -20,6 +20,9 @@
 #include "llvm/IR/Value.h"
 
 #include "s1cc.h"
+#include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Support/KnownBits.h"
 
 namespace s1 {
 
@@ -153,7 +156,8 @@ struct Lowerer {
             fprintf(stderr, "materialize: s %g o %g V [%g, %g] -> st %g ot %g (a %g b %g)\n", x.s, x.o, x.V.lo,
                     x.V.hi, st, ot, a, b);
         KVal *r = x.r;
-        bool hasA = std::fabs(a - 1) > 1e-15, hasB = std::fabs(b) > 1e-15 * std::max(1.0, std::fabs(ot));
+        // an offset below 2^-26 of the register's scale is representation noise (a phase offset of 2^-29): no add
+        bool hasA = std::fabs(a - 1) > 1e-15, hasB = std::fabs(b) > std::ldexp(1.0, -26) * std::max(1.0, std::fabs(ot));
         if (hasA && hasB && std::fabs(b / a) < std::fabs(b))
             return K->mul(K->add(r, KOperand::im(b / a)), KOperand::im(a));
         if (hasA)
@@ -205,6 +209,16 @@ struct Lowerer {
             b.o -= a.k / b.s;
             b.V = res ? *res : sum;
             return b;
+        }
+        if (a.r == b.r) {        // one register: (r - oa) sa + (r - ob) sb = (r - o) (sa + sb), no op (x + 1 - x)
+            double s2 = a.s + b.s, k = a.o * a.s + b.o * b.s;
+            if (s2 == 0)
+                return cst(-k);
+            LV r = a;
+            r.s = s2;
+            r.o = k / s2;
+            r.V = res ? *res : sum;
+            return normalize(r);
         }
         if (preferS != 0 && (a.s == preferS || b.s == preferS)) {
             if (b.s == preferS)
@@ -317,7 +331,11 @@ struct Lowerer {
         // the stage gains reaches what separates the two outcomes (integers: |X - theta| >= 0.5, so 2; floats:
         // 2^24 / range: a step 2^-24 of the range wide, three stages)
         double m = std::max(std::fabs(xr.lo - theta), std::fabs(xr.hi - theta));
-        double need = isInt ? 2 : std::ldexp(1.0, 24) / m;     // floats: a step 2^-24 of the range (float32)
+        // integers: exact (2) up to a range of 2^19; wider (a 32-bit phase against a pulse width), a step 2^-16 of
+        // the range: two clamps (exact there would take two more, for a band 2^-32 of a cycle wide)
+        double need = isInt ? std::min(2.0, std::max(std::ldexp(1.0, 16) / m, 0.0)) : std::ldexp(1.0, 24) / m;
+        if (isInt && need < 2 && m < std::ldexp(1.0, 19))
+            need = 2;
         double k1 = std::min(need, LIM / m);
         KVal *t = K->clamp(materialize(X, 1 / k1, -k1 * theta));
         for (double got = k1; got < need; ) {                     // after a clamp |t| <= 1: gains up to 256
@@ -386,7 +404,9 @@ struct Lowerer {
         // both forms are emitted; the one with fewer ops is kept, the other's ops are unused and dropped (lines())
         size_t n0 = K->opCount();
         LV e = scale(d, c.s);                              // s_c d
-        LV f = c.o != 0 ? addLV(b, scale(e, -c.o)) : b;     // b - o_c s_c d
+        // b - o_c s_c d = (1 + k) b - k a, k = o_c s_c: from a and b (a negated condition, k = -1: a itself)
+        double kk = c.o * c.s;
+        LV f = kk == 0 ? b : kk == -1 ? a : addLV(scale(b, 1 + kk), scale(a, -kk));
         double S = std::fabs(e.s);
         KVal *er = materialize(e, S, 0), *fr = materialize(f, S, 0);
         LV r;
@@ -466,7 +486,19 @@ struct Lowerer {
     }
 
     // 1 / V: an exponential -> exp2 of the negated exponent; otherwise a fitted seed and Newton steps
+    // 1/y once per divisor: two divisions by the same value (Braids' BLEP times, / (phase_increment >> 16) on
+    // both edges) share it
+    std::map<std::pair<const Node *, KVal *>, LV> recipCache;
     LV recip(LV y, const Node *yn = nullptr) {
+        if (!yn || y.isConst())
+            return recip1(y, yn);
+        auto key = std::make_pair(yn, y.r);
+        auto it = recipCache.find(key);
+        if (it != recipCache.end())
+            return it->second;
+        return recipCache[key] = recip1(y, yn);
+    }
+    LV recip1(LV y, const Node *yn) {
         if (y.isConst())
             return cst(1 / y.k);
         Range v = rangeOf(y);
@@ -628,12 +660,11 @@ struct Lowerer {
                 for (auto &isl : S.islands) {
                     if (isl.root != R || !isl.cloneable)
                         continue;
-                    auto it = prof.island.find(isl.id);
-                    if (it == prof.island.end()) { ok = false; break; }
-                    Fit f = fitIsland(it->second, opt.fitTol, opt.fitTolLog, opt.maxDeg);
+                    if (!prof.island.count(isl.id)) { ok = false; break; }
+                    Fit f = fitIsland(islandSamples(isl), opt.fitTol, opt.fitTolLog, opt.maxDeg, opt.maxKnots);
                     fits[&isl] = f;
                     rep << "  candidate island " << isl.id << " (root " << where(R->v) << "): " << f.model
-                        << " degree " << f.c.size() - 1 << ", error " << f.err << " " << f.metric << " (max " << f.errMax << "), "
+                        << (f.model == "hinge" ? " knots " : " degree ") << (f.model == "hinge" ? f.knots.size() : f.c.size() - 1) << ", error " << f.err << " " << f.metric << " (max " << f.errMax << "), "
                         << f.cost << " ops\n";
                     worst = std::max(worst, f.err);
                 }
@@ -680,12 +711,65 @@ struct Lowerer {
         }
     }
 
+    // an island's samples, the output in the narrower integer view: the profiling clone converts it as the graph
+    // reads it (unsigned when a later lshr reads it), and a small negative value is then near 2^bits, a jump no fit
+    // follows; the lowering reads it in whatever view its users want (inV)
+    std::map<int, std::vector<std::pair<double, double>>> islandXY;
+    const std::vector<std::pair<double, double>> &islandSamples(const Island &isl) {
+        auto it = islandXY.find(isl.id);
+        if (it != islandXY.end())
+            return it->second;
+        std::vector<std::pair<double, double>> xy = prof.island.at(isl.id);
+        for (auto &p : xy) {                              // booleans: 0 / 1 here (the clone converts i1 signed: -1)
+            if (isl.out->isInt && isl.out->bits == 1)
+                p.second = p.second != 0;
+            if (isl.root->isInt && isl.root->bits == 1)
+                p.first = p.first != 0;
+        }
+        if (isl.root->isInt && isl.root->demand > 1) {    // the root is kept modulo 2^demand (lowerNode): so are x
+            double M = std::ldexp(1.0, isl.root->demand);
+            for (auto &p : xy) {
+                double m = std::fmod(p.first, M);
+                if (m < -M / 2) m += M;
+                if (m >= M / 2) m -= M;
+                p.first = m;
+            }
+            std::sort(xy.begin(), xy.end());
+        }
+        if (isl.out->isInt && isl.out->bits > 1 && isl.out->bits <= 32) {
+            double M = std::ldexp(1.0, isl.out->bits);
+            double ulo = 1e300, uhi = -1e300, slo = 1e300, shi = -1e300;
+            for (auto &p : xy) {
+                double u = p.second < 0 ? p.second + M : p.second, sv = p.second >= M / 2 ? p.second - M : p.second;
+                ulo = std::min(ulo, u), uhi = std::max(uhi, u), slo = std::min(slo, sv), shi = std::max(shi, sv);
+            }
+            bool toSigned = shi - slo < uhi - ulo;
+            for (auto &p : xy)
+                p.second = toSigned ? (p.second >= M / 2 ? p.second - M : p.second) : (p.second < 0 ? p.second + M : p.second);
+        }
+        return islandXY[isl.id] = xy;
+    }
+
     LV emitIsland(const Island &isl, const LV &root) {
         const Fit &f = fits.at(&isl);
         rep << "  island " << isl.id << " " << where(isl.out->v) << ": root " << where(isl.root->v) << ", "
-            << f.model << " degree " << f.c.size() - 1 << (f.clampLo || f.clampHi ? ", saturated" : "")
+            << f.model << (f.model == "hinge" ? " knots " : " degree ") << (f.model == "hinge" ? f.knots.size() : f.c.size() - 1) << (f.clampLo || f.clampHi ? ", saturated" : "")
             << ", error " << f.err << " (" << f.metric << ", max " << f.errMax << "), " << f.cost << " ops\n";
-        return emitFit(f, prof.island.at(isl.id), root);
+        // the samples are in the view the profiling run chose for the root (signed when its range is not narrower);
+        // the root's value here may be in the other one (a uint32 phase): convert it, or the fit leaves its domain
+        const auto &xy = islandSamples(isl);
+        LV r = root;
+        if (isl.root->isInt && isl.root->bits > 1 && !root.isConst() && !xy.empty()) {
+            double M = std::ldexp(1.0, isl.root->demand > 1 ? isl.root->demand : isl.root->bits), lo = 1e300, hi = -1e300;
+            for (auto &p : xy)
+                lo = std::min(lo, p.first), hi = std::max(hi, p.first);
+            Range v = rangeOf(root);
+            if (lo < 0 && v.hi >= M / 2)
+                r = modLV(root, M, true);
+            else if (hi >= M / 2 && v.lo < 0)
+                r = modLV(root, M, false);
+        }
+        return emitFit(f, xy, r);
     }
 
     LV emitFit(const Fit &f, const std::vector<std::pair<double, double>> &samples, const LV &root) {
@@ -711,7 +795,17 @@ struct Lowerer {
             return h;
         };
         LV r;
-        if (f.model == "poly") {
+        if (f.model == "hinge") {                          // c0 + c1 t + sum w_j max(t, k_j) - w_j k_j: max, mad
+            double sy = p2ceil(std::max(std::fabs(out.lo), std::fabs(out.hi)));
+            double c0 = f.c[0];
+            for (size_t j = 0; j < f.knots.size(); j++)
+                c0 -= f.w[j] * f.knots[j];
+            KVal *acc = K->add(K->mul(t, KOperand::im(f.c[1] / sy)), KOperand::im(c0 / sy));
+            for (size_t j = 0; j < f.knots.size(); j++)
+                acc = K->mad(acc, K->max(t, KOperand::im(f.knots[j])), KOperand::im(f.w[j] / sy));
+            r.r = acc;
+            r.s = sy;
+        } else if (f.model == "poly") {
             double sy = p2ceil(std::max(std::fabs(out.lo), std::fabs(out.hi)));
             if (odd) {
                 std::vector<double> oc;
@@ -883,7 +977,84 @@ struct Lowerer {
 
     std::map<Node *, LV> val;
 
+    std::vector<std::pair<Node *, LV>> viewGuard;      // operands re-read in another view by the node being lowered
+
+    // a computed integer range that leaves the range of the node's view (bits <= 32): the value needs a wrap
+    bool outOfView(const Range &v, const Node *n) const {
+        if (!n->isInt || n->bits <= 1 || n->bits > 32 || !v.seen())
+            return false;
+        double M = std::ldexp(1.0, n->bits);
+        return unsignedView(n) ? (v.lo < -0.5 || v.hi >= M) : (v.lo < -M / 2 - 0.5 || v.hi >= M / 2);
+    }
+
+    // operand o read in the view wantUnsigned: does its value (computed range) leave that view's range?
+    bool needsView(const Node *o, bool wantUnsigned, int bits) const {
+        auto it = val.find(const_cast<Node *>(o));
+        if (!o->isInt || o->bits <= 1 || it == val.end() || it->second.isConst())
+            return false;
+        double M = std::ldexp(1.0, std::min(bits, o->bits));
+        Range r = rangeOf(it->second);
+        return wantUnsigned ? r.lo < -0.5 : r.hi >= M / 2;
+    }
+    // x (the value of o) in the view wantUnsigned, modulo 2^bits. A wrap works at scale M/2: for 32 bits the DSP's
+    // 29-bit mantissa keeps steps of 8 there (a negative int32 read unsigned is near 2^32: those steps are inherent).
+    // (Tried: x -+ M by a compare, keeping x's scale: -M is no immediate at a narrow scale, E701.)
+    LV toView(const LV &x, const Node *o, bool wantUnsigned, int bits) {
+        return modLV(x, std::ldexp(1.0, std::min(bits, o->bits)), !wantUnsigned);
+    }
+
+    LV floorLV(LV x) { return addLV(x, neg(modLV(x, 1, false))); }
+    // toward zero, for a value whose profiled range is r: floor when >= 0, ceil when <= 0; across 0, floor plus 1
+    // for a negative value with a fraction (2 compares more)
+    LV truncLV(LV x, const Range &r) {
+        if (r.lo >= 0)
+            return floorLV(x);
+        if (r.hi <= 0)
+            return neg(floorLV(neg(x)));
+        LV fr = modLV(x, 1, false);
+        LV f = addLV(x, neg(fr));
+        LV fix = mulLV(positive(neg(x), false, true), positive(fr, false, true), nullptr);
+        return addLV(f, fix);
+    }
+
     LV lowerNode(Stage &S, Node *n) {
+        {   // the tag of the ops this node makes: its C line (a synthetic node: the line of an operand)
+            const Node *src = n;
+            for (int d = 0; d < 3 && !src->v && !src->in.empty(); d++) {
+                const Node *nx = src->in.back();
+                for (const Node *i : src->in)
+                    if (i->v) { nx = i; break; }
+                src = nx;
+            }
+            std::string w = src->v ? where(src->v) : "(" + n->op + ")";
+            size_t c = w.find(", inlined");
+            if (c != std::string::npos) w = w.substr(0, c);
+            size_t sl = w.rfind('/');
+            if (sl != std::string::npos) w = w.substr(sl + 1);
+            K->tag = n->v ? w : "(" + n->op + ") " + w;
+        }
+        LV r = lowerNode1(S, n);
+        for (auto it = viewGuard.rbegin(); it != viewGuard.rend(); ++it)
+            val[it->first] = it->second;
+        viewGuard.clear();
+        // only the low `demand` bits are used: a value outside the signed range of those bits is kept modulo
+        // 2^demand (LLVM's narrowed forms, products that overflow in C but whose low bits are what is read)
+        // Only where a user overflows in C (that product is right modulo 2^bits only, which the DSP cannot keep
+        // for a huge operand): elsewhere the users read the value as the integer it is (a trunc then shl).
+        bool userWraps = false;
+        for (Node *u : n->users)
+            userWraps = userWraps || (u->kind == NK::Op && (u->op == "mul" || u->op == "shl" || u->op == "add" ||
+                                                             u->op == "sub") && wrapped(u));
+        if (n->isInt && n->demand > 1 && n->kind == NK::Op && !r.isConst() && n->prof >= 0 && userWraps) {
+            double M = std::ldexp(1.0, n->demand);
+            Range v = rawRange(n);                     // the C values (not the loose computed range)
+            if (v.seen() && (v.lo < -M / 2 || v.hi >= M / 2))
+                r = modLV(r, M, true);
+        }
+        return r;
+    }
+
+    LV lowerNode1(Stage &S, Node *n) {
         auto in = [&](int i) { return val.at(n->in[i]); };
         Range rec = recRange(n);
         const Range *res = rec.seen() ? &rec : nullptr;
@@ -976,6 +1147,33 @@ struct Lowerer {
         bool allConst = true;
         for (Node *i : n->in)
             allConst = allConst && val.at(i).isConst();
+        // operand i as the operation reads it (ashr / sitofp / icmp.slt: signed; lshr / uitofp / icmp.ult: unsigned):
+        // a value lowered in the other view, out of this one's range, is reduced modulo 2^bits (the identity when
+        // it is in range, so a loose range only costs the wrap)
+        auto inV = [&](int i, bool wantSigned) -> LV {
+            LV x = in(i);
+            const Node *o = n->in[i];
+            if (!o->isInt || o->bits <= 1 || o->bits > 32 || x.isConst())
+                return x;
+            if (needsView(o, !wantSigned, o->bits))
+                return toView(x, o, !wantSigned, o->bits);
+            return x;
+        };
+        static const std::set<std::string> readsSigned = {"ashr", "sext", "sitofp", "sdiv", "srem", "smin", "smax",
+            "icmp.slt", "icmp.sle", "icmp.sgt", "icmp.sge"};
+        static const std::set<std::string> readsUnsigned = {"lshr", "zext", "uitofp", "udiv", "urem", "umin", "umax",
+            "icmp.ult", "icmp.ule", "icmp.ugt", "icmp.uge"};
+        if (!allConst && (readsSigned.count(op) || readsUnsigned.count(op))) {
+            bool sg = readsSigned.count(op) > 0;
+            size_t nv = (op == "ashr" || op == "lshr" || op == "sdiv" || op == "udiv" || op == "srem" || op == "urem") ? 1 : n->in.size();
+            for (size_t i = 0; i < nv; i++) {
+                LV x = inV((int)i, sg);
+                if (x.r != val.at(n->in[i]).r) {   // this operation reads the operand in its view; others keep theirs
+                    viewGuard.push_back({n->in[i], val.at(n->in[i])});
+                    val[n->in[i]] = x;
+                }
+            }
+        }
         if (op == "add" || op == "fadd" || op == "sub" || op == "fsub") {
             bool sub = op == "sub" || op == "fsub";
             Range pre;
@@ -984,6 +1182,16 @@ struct Lowerer {
                 return cst(a.k + b.k);
             bool w = wrapped(n);
             double M = std::ldexp(1.0, n->bits);
+            // an operand in the other integer view, outside this one's range (`a + ~(b - a)`: the add does not wrap
+            // as signed, its operand is a huge unsigned): the sum is right modulo 2^bits only
+            if (n->isInt && !w)
+                for (int i = 0; i < 2; i++) {
+                    Node *o = n->in[i];
+                    if (!o->isInt || val.at(o).isConst() || o->bits != n->bits || !needsView(o, unsignedView(n), n->bits))
+                        continue;
+                    LV c = toView(val.at(o), o, unsignedView(n), n->bits);
+                    if (i == 0) a = c; else b = sub ? neg(c) : c;
+                }
             LV r = addLV(a, b, w ? nullptr : res, w ? M / 2 : 0);      // a wrap wants s = M / 2: no rescale
             if (w)
                 return modLV(r, M, !unsignedView(n));
@@ -992,6 +1200,14 @@ struct Lowerer {
         if (op == "mul" || op == "fmul") {
             if (allConst)
                 return cst(in(0).k * in(1).k);
+            if (n->isInt && !wrapped(n)) {             // operands in the other view: the product, modulo 2^bits
+                LV a = in(0), b = in(1);
+                bool cv = false;
+                if (needsView(n->in[0], unsignedView(n), n->bits)) a = toView(a, n->in[0], unsignedView(n), n->bits), cv = true;
+                if (needsView(n->in[1], unsignedView(n), n->bits)) b = toView(b, n->in[1], unsignedView(n), n->bits), cv = true;
+                if (cv)
+                    return mulLV(a, b, res);
+            }
             if (wrapped(n))
                 warnings.push_back({"W901", "the original overflows at " + where(n->v) +
                                    " (integer product); the port computes it without wrapping"});
@@ -1003,21 +1219,45 @@ struct Lowerer {
         }
         if (op == "fneg")
             return neg(in(0));
+        // a variable shift: x * 2^(+-n) (`phase_increment >>= num_shifts`); the DSP computes in reals, no floor (§8)
+        if ((op == "shl" || op == "lshr" || op == "ashr") && !val.at(n->in[1]).isConst()) {
+            LV e = exp2LV(op == "shl" ? in(1) : neg(in(1)));
+            LV r = mulLV(in(0), e, wrapped(n) ? nullptr : res);
+            if (op == "shl" && wrapped(n))
+                return modLV(r, std::ldexp(1.0, n->bits), !unsignedView(n));
+            return r;
+        }
         if (op == "shl") {
-            LV r = scale(in(0), std::ldexp(1.0, (int)constIn(1)));
+            LV x0 = in(0);
+            if (!wrapped(n) && needsView(n->in[0], unsignedView(n), n->bits))   // an operand in the other view
+                x0 = toView(x0, n->in[0], unsignedView(n), n->bits);           // (a negative int16 << 1, read unsigned)
+            LV r = scale(x0, std::ldexp(1.0, (int)constIn(1)));
             if (wrapped(n))
                 return modLV(r, std::ldexp(1.0, n->bits), !unsignedView(n));
             return withRange(r);
         }
-        if (op == "lshr" || op == "ashr")
-            return withRange(scale(in(0), std::ldexp(1.0, -(int)constIn(1))));
+        if (op == "lshr" || op == "ashr") {
+            int k = (int)constIn(1);
+            LV r = scale(in(0), std::ldexp(1.0, -k));
+            return withRange(r);
+        }
         if (op == "fdiv") {
             if (val.at(n->in[1]).isConst())
                 return withRange(scale(in(0), 1 / constIn(1)));
             return mulLV(in(0), recip(in(1), n->in[1]), res);
         }
-        if (op == "udiv" || op == "sdiv")
-            return withRange(scale(in(0), 1 / constIn(1)));
+        if (op == "udiv" || op == "sdiv") {           // the DSP computes in reals: no floor (≤ 1 LSB, §8)
+            if (val.at(n->in[1]).isConst()) {
+                LV q = scale(in(0), 1 / constIn(1));
+                // a small integer quotient (a count of octaves from a `while (x < 0) { x += 1536; n++; }` that LLVM
+                // made a division): 1 LSB is everything there, so it is floored (toward 0 for sdiv: ceil if <= 0)
+                Range qr = rec.seen() ? rec : rangeOf(q);       // the profile: a loose computed range hides it
+                if (qr.hi - qr.lo <= 4096 && qr.hi - qr.lo >= 1)
+                    return withRange(op == "sdiv" ? truncLV(q, qr) : floorLV(q));
+                return withRange(q);
+            }
+            return mulLV(in(0), recip(in(1), n->in[1]), res);
+        }
         if (op.rfind("call.", 0) == 0) {
             std::string fn = op.substr(5);
             if (fn == "pow") {
@@ -1053,10 +1293,37 @@ struct Lowerer {
                 return unsignedView(n) ? addLV(r, cst(std::ldexp(1.0, n->bits))) : r;
             }
             if (op == "xor") {
-                double b = (double)m;
-                if (xr.lo < 0 || xr.hi >= 2 * b)
-                    fail("E602", "xor with a bit outside the value's range " + where(n->v));
-                return modLV(addLV(x, cst(b)), 2 * b, false);
+                // per run of contiguous bits k..j of the constant: x ^ c = x + c - 2 (x mod 2^(j+1)) + 2 (x mod 2^k)
+                // (floor modulo: right for negative x too, as two's complement); a run up to the top bit wraps
+                LV r = x;
+                double M = std::ldexp(1.0, n->bits);
+                for (int k = 0; k < n->bits;) {
+                    if (!((m >> k) & 1)) { k++; continue; }
+                    int j = k;
+                    while (j + 1 < n->bits && ((m >> (j + 1)) & 1))
+                        j++;
+                    double hi = std::ldexp(1.0, j + 1), lo = std::ldexp(1.0, k), c = hi - lo;
+                    Range rr = rangeOf(r);
+                    LV mh = (rr.lo >= 0 && rr.hi < hi) ? r : modLV(r, hi, false);
+                    LV t = addLV(addLV(r, cst(c)), scale(mh, -2));
+                    if (k > 0)
+                        t = addLV(t, scale(modLV(r, lo, false), 2));
+                    Range tr;
+                    tr.add(rr.lo - hi);
+                    tr.add(rr.hi + hi);
+                    t.V = tr;
+                    if (j == n->bits - 1)
+                        t = modLV(t, M, !unsignedView(n));
+                    else if (rr.lo >= 0 && rr.hi < hi) {
+                        Range e;
+                        e.add(0);
+                        e.add(hi - 1);
+                        t.V = e;
+                    }
+                    r = t;
+                    k = j + 1;
+                }
+                return withRange(r);
             }
             if (op == "and") {
                 int k = __builtin_ctzl(m), top = 64 - __builtin_clzl(m);
@@ -1081,6 +1348,8 @@ struct Lowerer {
                     return cst(std::trunc(x.k));
                 return x;
             }
+            if ((op == "fptosi" || op == "fptoui") && rec.seen() && rec.hi - rec.lo <= 4096)
+                return withRange(truncLV(x, rec));     // MAKE_INTEGRAL_FRACTIONAL: the integer part is everything
             return withRange(x);
         }
         if (op == "trunc") {
@@ -1132,10 +1401,40 @@ struct Lowerer {
             LV w;
             if (wrapSelect(n, w))
                 return w;
-            return withRange(select(in(0), in(1), in(2)));
+            LV a = in(1), b = in(2);
+            if (n->isInt && n->bits > 1 && n->bits <= 32) {   // both arms in the select's own view
+                double M = std::ldexp(1.0, n->bits);
+                (void)M;
+                if (needsView(n->in[1], unsignedView(n), n->bits))
+                    a = toView(a, n->in[1], unsignedView(n), n->bits);
+                if (needsView(n->in[2], unsignedView(n), n->bits))
+                    b = toView(b, n->in[2], unsignedView(n), n->bits);
+            }
+            size_t k0 = K->opCount();
+            LV r = withRange(select(in(0), a, b));
+            if (getenv("S1DBGSEL"))
+                fprintf(stderr, "SEL n%d ops=%zu c(s=%g o=%g bool=%d) a(%s s=%g o=%g k=%d) b(%s s=%g o=%g k=%d) -> s=%g o=%g\n",
+                        n->id, K->opCount() - k0, in(0).s, in(0).o, in(0).isBool, n->in[1]->op.c_str(), a.s, a.o,
+                        a.isConst(), n->in[2]->op.c_str(), b.s, b.o, b.isConst(), r.s, r.o);
+            return r;
         }
-        if (op == "band")
-            return mulLV(in(0), in(1), nullptr);
+        if (op == "band") {
+            // two booleans in registers with the same false level o and the same orientation (true above o, or
+            // both below): AND is their min (max), one op; the product would first make both 0 / 1. The true level
+            // of the result is the nearer of the two
+            LV a = in(0), b = in(1);
+            if (!a.isConst() && !b.isConst() && a.r && b.r && a.o == b.o && (a.s > 0) == (b.s > 0)) {
+                LV r = a;
+                r.r = a.s > 0 ? K->min(a.r, KOperand::of(b.r)) : K->max(a.r, KOperand::of(b.r));
+                r.s = a.s > 0 ? std::max(a.s, b.s) : std::min(a.s, b.s);
+                r.V = Range();
+                r.V.add(0);
+                r.V.add(1);
+                r.isBool = true;
+                return r;
+            }
+            return mulLV(a, b, nullptr);
+        }
         if (op == "bor")
             return addLV(in(0), in(1));
         if (op == "bnot")
@@ -1210,6 +1509,7 @@ struct Lowerer {
         Kernel k(opt.regs);
         K = &k;
         val.clear();
+        recipCache.clear();
         firstFlag = nullptr;
         chooseIslands(S);
         std::set<std::string> inputsUsed;
@@ -1296,6 +1596,16 @@ struct Lowerer {
         std::vector<std::string> lines = k.lines();
         report += "stage " + S.name + ": " + std::to_string(k.units()) + " units" +
                   (k.spills() ? ", " + std::to_string(k.spills()) + " scratch words (spills)" : "") + "\n";
+        {   // ops kept per C line (before scheduling: an instruction holds 1-3 of them; s1cc build --debug for
+            // file:line)
+            std::vector<std::pair<int, std::string>> byCost;
+            for (auto &kv : k.liveByTag)
+                byCost.push_back({kv.second, kv.first.empty() ? "(kernel: stores, inputs)" : kv.first});
+            std::sort(byCost.rbegin(), byCost.rend());
+            rep << "  cost of stage " << S.name << " by C line (ops):\n";
+            for (auto &c : byCost)
+                rep << "    " << c.first << "  " << c.second << "\n";
+        }
         std::ostringstream o;
         o << ".stage " << S.name << " " << k.units() << "\n";
         if (k.spills())
@@ -1320,16 +1630,50 @@ struct Lowerer {
 
 std::string lower(Program &P, const Profile &prof, const std::map<std::string, std::vector<double>> &tables,
                   const LowerOptions &opt, std::string &report) {
-    Lowerer L(P, prof, tables, opt);
+    std::map<std::string, std::vector<double>> all = tables;      // + the knob-derived columns (§4.6)
+    for (auto &kv : P.derived)
+        all[kv.first] = kv.second;
+    Lowerer L(P, prof, all, opt);
     for (auto &kv : P.paramCount) {
-        auto it = tables.find(kv.first);
-        if (it == tables.end())
+        auto it = all.find(kv.first);
+        if (it == all.end())
             fail("E006", "no table for S1_PARAM `" + kv.first + "` (tables file)");
         double m = 0;
         for (double v : it->second)
             m = std::max(m, std::fabs(v));
         L.paramScale[kv.first] = p2ceil(m);
     }
+    // a compare that gave the same answer in every profiling scenario (a mode change that S1_INIT already made, a
+    // clamp no note reaches) is that answer: a constant node, and liveness again, so the side it never takes and
+    // the state words only that side kept cost nothing. The profile sweeps every knob and notes 0..127; W909 lists
+    // them, --no-fold-branches keeps them
+    if (opt.foldBranches)
+        for (Stage *S : {&P.A, &P.B}) {
+            if (!S->fn)
+                continue;
+            std::vector<Node *> folded;
+            for (auto &np : S->nodes) {
+                Node *n = np.get();
+                if (!n->live || n->kind != NK::Op || n->prof < 0 ||
+                    (n->op.rfind("icmp.", 0) != 0 && n->op.rfind("fcmp.", 0) != 0))
+                    continue;
+                auto it = prof.sr.find(n->prof);
+                if (it == prof.sr.end() || !it->second.seen() || it->second.lo != it->second.hi)
+                    continue;
+                L.rep << "  folded compare (always " << (it->second.lo != 0) << "): " << where(n->v) << "\n";
+                n->kind = NK::Const;
+                n->c = it->second.lo != 0;
+                n->in.clear();
+                n->bad = false;
+                folded.push_back(n);
+            }
+            if (folded.empty())
+                continue;
+            relive(P, *S);
+            L.warnings.push_back({"W909", "stage " + S->name + ": " + std::to_string(folded.size()) + " compares gave "
+                                  "one answer in every profiling scenario and are that constant (--no-fold-branches "
+                                  "keeps them); the first at " + where(folded.front()->v)});
+        }
     L.chooseStateReps();
     if (P.B.fn)
         for (auto &np : P.B.nodes)

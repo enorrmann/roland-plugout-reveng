@@ -1,5 +1,6 @@
 // The voice functions of the LLVM module as dataflow graphs (s1cc.h, docs/S1CC.md §4).
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -9,6 +10,11 @@
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/Demangle/Demangle.h"
 #include "llvm/Analysis/ConstantFolding.h"
+#include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Analysis/DemandedBits.h"
+#include "llvm/Analysis/AssumptionCache.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/Support/KnownBits.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -320,6 +326,10 @@ Problem callProblem(const CallInst *CI, const std::map<std::string, std::string>
         std::string base = intrinsicBase(fn);
         if (ignoredIntrinsic(II, base) || kIntrinsicOps.count(base) || CI->getType()->isFloatingPointTy())
             return {};
+        if ((base == "memset" || base == "memcpy" || base == "memmove") && isa<ConstantInt>(CI->getArgOperand(2)))
+            return {};                                   // constant size: one store per word (Builder::memop)
+        if (base == "memset" || base == "memcpy" || base == "memmove")
+            return {};                                   // variable size / address into a small variable: compares
         return {"E108", "intrinsic " + fn + " is not supported"};
     }
     Problem p = notInlined(F, remarks);
@@ -349,11 +359,15 @@ Problem instProblem(const Instruction &I, const std::map<std::string, std::strin
     return {"E201", "instruction `" + op + "` is not supported"};
 }
 
+static const int kSmallArray = 16;   // computed indices into arrays up to this many elements: compares and selects
+
 struct Ptr {
     GlobalVariable *gv = nullptr;
     long off = 0;
     Node *var = nullptr;     // computed part (a "gep" node), nullptr: constant offset
     AllocaInst *local = nullptr;   // a local variable of the sample (alloca): forwarded, never in the ring
+    Node *idx = nullptr;     // a small computed address: off + cand[k] when idx == key[k] (an index into a small
+    std::vector<long> cand, key;   // array, or a phi of pointers into one variable)
 };
 
 struct Builder {
@@ -409,8 +423,9 @@ struct Builder {
     }
 
     Node *constOf(Constant *C) {
-        if (auto *ci = dyn_cast<ConstantInt>(C))
-            return cst((double)ci->getSExtValue(), true, (int)ci->getBitWidth());
+        if (auto *ci = dyn_cast<ConstantInt>(C))          // booleans are 0 / 1 in the lowering (true is -1 signed)
+            return cst(ci->getBitWidth() == 1 ? (double)ci->getZExtValue() : (double)ci->getSExtValue(), true,
+                       (int)ci->getBitWidth());
         if (auto *cf = dyn_cast<ConstantFP>(C))
             return cst(cf->getValueAPF().convertToDouble());
         if (isa<UndefValue>(C) || isa<ConstantPointerNull>(C) || C->isNullValue())
@@ -447,7 +462,66 @@ struct Builder {
         if (auto *gep = dyn_cast<GEPOperator>(v)) {
             Ptr base = ptrOf(gep->getPointerOperand());
             APInt off(64, 0);
-            if (!base.var && gep->accumulateConstantOffset(DL, off)) {
+            if (base.idx && gep->accumulateConstantOffset(DL, off)) {   // a constant step from a small computed index
+                Ptr p = base;
+                p.off += off.getSExtValue();
+                pmap[v] = p;
+                return p;
+            }
+            // one computed index into a small array of the state or of the sample (Plaits' `&registration[shift]`,
+            // Braids' partials from first_partial): every element, chosen by compares (load / store below)
+            if (!base.var && !base.idx && (base.local || base.gv)) {
+                MapVector<Value *, APInt> vars;
+                APInt coff(64, 0);
+                if (gep->collectOffset(DL, 64, vars, coff) && vars.size() == 1) {
+                    long stride = vars.front().second.getSExtValue();
+                    long start = base.off + coff.getSExtValue();
+                    // the variable is a phi / select of constants: those are the only addresses
+                    std::vector<long> consts;
+                    std::function<bool(Value *)> collect = [&](Value *x) {
+                        if (auto *ci = dyn_cast<ConstantInt>(x)) { consts.push_back(ci->getSExtValue()); return true; }
+                        if (auto *ph = dyn_cast<PHINode>(x)) {
+                            for (Value *in : ph->incoming_values()) if (!collect(in)) return false;
+                            return true;
+                        }
+                        if (auto *sl = dyn_cast<SelectInst>(x))
+                            return collect(sl->getTrueValue()) && collect(sl->getFalseValue());
+                        if (auto *ce = dyn_cast<CastInst>(x))
+                            return collect(ce->getOperand(0));
+                        return false;
+                    };
+                    if (collect(vars.front().first) && consts.size() <= (size_t)kSmallArray) {
+                        std::sort(consts.begin(), consts.end());
+                        consts.erase(std::unique(consts.begin(), consts.end()), consts.end());
+                        Ptr p = base;
+                        p.off = start;
+                        p.idx = get(vars.front().first);
+                        for (long c : consts)
+                            p.cand.push_back(c * stride), p.key.push_back(c);
+                        pmap[v] = p;
+                        return p;
+                    }
+                    long size = (long)DL.getTypeAllocSize(base.local ? base.local->getAllocatedType()
+                                                                     : base.gv->getValueType());
+                    long count = stride > 0 ? (size - start) / stride : 0;
+                    // an array type indexed by the variable: its length (Braids' partial_phase[11] in a big object)
+                    Type *t = gep->getSourceElementType();
+                    unsigned nidx = gep->getNumIndices();
+                    if (auto *at = dyn_cast<ArrayType>(t))
+                        if (nidx == 2 && isa<ConstantInt>(*gep->idx_begin()) && !isa<Constant>(*(gep->idx_begin() + 1)))
+                            count = std::min<long>(count, (long)at->getNumElements());
+                    if (count >= 1 && count <= kSmallArray) {
+                        Ptr p = base;
+                        p.off = start;
+                        p.idx = get(vars.front().first);
+                        for (long k = 0; k < count; k++)
+                            p.cand.push_back(k * stride), p.key.push_back(k);
+                        pmap[v] = p;
+                        return p;
+                    }
+                }
+            }
+            if (!base.var && !base.idx && gep->accumulateConstantOffset(DL, off)) {
                 Ptr p = base;
                 p.off += off.getSExtValue();
                 pmap[v] = p;
@@ -516,8 +590,26 @@ struct Builder {
 
     std::map<std::pair<AllocaInst *, long>, Node *> locals;   // local variable -> current value
 
+    Node *eqIdx(Node *idx, int k) {
+        Node *c = mk(NK::Op, "icmp.eq", {idx, cst(k, true, idx->bits)});
+        c->isInt = true;
+        c->bits = 1;
+        return c;
+    }
     void load(LoadInst *L) {
         Ptr p = ptrOf(L->getPointerOperand());
+        if (p.idx) {                      // a small computed address: the word whose key the index is
+            Node *v = nullptr;
+            for (size_t k = 0; k < p.cand.size(); k++) {
+                Ptr q = p;
+                q.idx = nullptr;
+                q.off = p.off + p.cand[k];
+                Node *e = getWord(q, L->getType(), L);
+                v = v ? sel(eqIdx(p.idx, (int)p.key[k]), e, v, e) : e;
+            }
+            vmap[L] = v;
+            return;
+        }
         if (p.local) {
             auto it = locals.find({p.local, p.off});
             vmap[L] = it != locals.end() ? it->second : cst(0, L->getType()->isIntegerTy(),
@@ -551,6 +643,17 @@ struct Builder {
 
     void store(StoreInst *St, Node *pred) {
         Ptr p = ptrOf(St->getPointerOperand());
+        if (p.idx) {                      // every element, written where the index is its own
+            Node *v = get(St->getValueOperand());
+            for (size_t k = 0; k < p.cand.size(); k++) {
+                Ptr q = p;
+                q.idx = nullptr;
+                q.off = p.off + p.cand[k];
+                Node *e = eqIdx(p.idx, (int)p.key[k]);
+                putWord(q, St->getValueOperand()->getType(), v, pred ? band(pred, e) : e, St);
+            }
+            return;
+        }
         if (p.local) {
             Node *v = get(St->getValueOperand());
             auto it = locals.find({p.local, p.off});
@@ -579,6 +682,146 @@ struct Builder {
         P.params[name] = gv;
         P.paramCount[name] = (int)count;
         return name;
+    }
+
+    // memset / memcpy of a constant size (Init() of a struct, `state_ = {}`, a struct copy): one store per word the
+    // stage reads or writes in the range (words nothing accesses need nothing); the word's type is that access's
+    struct Access { long off; Type *ty; };
+    std::vector<Access> accessesIn(Value *base, long lo, long hi) {
+        std::vector<Access> out;
+        std::set<long> seen;
+        for (BasicBlock &bb : *S.fn)
+            for (Instruction &I : bb) {
+                Value *ptr = nullptr;
+                Type *ty = nullptr;
+                if (auto *L = dyn_cast<LoadInst>(&I)) ptr = L->getPointerOperand(), ty = L->getType();
+                else if (auto *St = dyn_cast<StoreInst>(&I)) ptr = St->getPointerOperand(), ty = St->getValueOperand()->getType();
+                if (!ptr || !(ty->isIntegerTy() || ty->isFloatingPointTy()))
+                    continue;
+                APInt off(64, 0);
+                Value *b = ptr->stripAndAccumulateConstantOffsets(DL, off, true);
+                long o = off.getSExtValue();
+                if (b == base && o >= lo && o + (long)DL.getTypeStoreSize(ty) <= hi && seen.insert(o).second)
+                    out.push_back({o, ty});
+            }
+        return out;
+    }
+    Ptr constPtr(Value *v, Value *at) {
+        Ptr p = ptrOf(v);
+        if (p.var || (!p.gv && !p.local))
+            fail("E310", "memset / memcpy of something that is not a variable with a constant offset " + where(at));
+        return p;
+    }
+    void putWord(const Ptr &p, Type *ty, Node *v, Node *pred, Value *at) {
+        if (p.local) {
+            auto it = locals.find({p.local, p.off});
+            locals[{p.local, p.off}] = pred && it != locals.end() ? sel(pred, v, it->second, v) : v;
+            return;
+        }
+        if (p.gv->isConstant())
+            fail("E309", "store to something that is not a state word " + where(at));
+        int idx = stateOf(p.gv, p.off, ty, at);
+        Node *old = stateValue(idx, at);
+        cur[idx] = pred ? sel(pred, v, old, v) : v;
+    }
+    Node *getWord(const Ptr &p, Type *ty, Value *at) {
+        bool isInt = ty->isIntegerTy();
+        int bits = isInt ? (int)ty->getIntegerBitWidth() : 0;
+        if (p.local) {
+            auto it = locals.find({p.local, p.off});
+            return it != locals.end() ? it->second : cst(0, isInt, bits);
+        }
+        if (p.gv->isConstant() && p.gv->hasInitializer()) {
+            Constant *c = ConstantFoldLoadFromConst(p.gv->getInitializer(), ty, APInt(64, p.off), DL);
+            if (!c)
+                fail("E308", "cannot fold the table read " + where(at));
+            return constOf(c);
+        }
+        return stateValue(stateOf(p.gv, p.off, ty, at), at);
+    }
+    void memop(CallInst *CI, const std::string &base, Node *pred) {
+        long size = cast<ConstantInt>(CI->getArgOperand(2))->getSExtValue();
+        Ptr d = constPtr(CI->getArgOperand(0), CI);
+        Value *dbase = d.local ? (Value *)d.local : (Value *)d.gv;
+        std::vector<Access> words = accessesIn(dbase, d.off, d.off + size);
+        if (base == "memset") {
+            auto *cv = dyn_cast<ConstantInt>(CI->getArgOperand(1));
+            if (!cv)
+                fail("E310", "memset with a variable byte " + where(CI));
+            uint8_t byte = (uint8_t)cv->getZExtValue();
+            for (auto &w : words) {
+                unsigned nb = (unsigned)DL.getTypeStoreSize(w.ty);
+                APInt bitsv(nb * 8, 0);
+                for (unsigned k = 0; k < nb; k++)
+                    bitsv |= APInt(nb * 8, byte) << (8 * k);
+                Node *v;
+                if (w.ty->isIntegerTy())
+                    v = cst((double)bitsv.trunc(w.ty->getIntegerBitWidth()).getSExtValue(), true,
+                            (int)w.ty->getIntegerBitWidth());
+                else
+                    v = cst(w.ty->isFloatTy() ? (double)APFloat(APFloat::IEEEsingle(), bitsv).convertToFloat()
+                                              : APFloat(APFloat::IEEEdouble(), bitsv).convertToDouble());
+                Ptr p = d;
+                p.off = w.off;
+                putWord(p, w.ty, v, pred, CI);
+            }
+            return;
+        }
+        Ptr src = constPtr(CI->getArgOperand(1), CI);
+        std::vector<std::pair<Ptr, Node *>> vals;           // read everything first (memmove)
+        for (auto &w : words) {
+            Ptr sp = src, dp = d;
+            sp.off += w.off - d.off;
+            dp.off = w.off;
+            vals.push_back({dp, getWord(sp, w.ty, CI)});
+        }
+        for (size_t k = 0; k < words.size(); k++)
+            putWord(vals[k].first, words[k].ty, vals[k].second, pred, CI);
+    }
+
+    // memcpy with a variable size and / or a small computed destination (Plaits' StringSynthOscillator:
+    // std::copy(&unshifted[0], &unshifted[7 - shift], &registration[shift])): for every destination word and every
+    // candidate address, the source word at the same distance, when the size reaches it
+    void memcpyVar(CallInst *CI, Node *pred) {
+        Ptr d = ptrOf(CI->getArgOperand(0));
+        Ptr src = constPtr(CI->getArgOperand(1), CI);
+        if (d.var || (!d.gv && !d.local))
+            fail("E310", "memcpy into something that is not a variable " + where(CI));
+        Value *dbase = d.local ? (Value *)d.local : (Value *)d.gv;
+        long objSize = (long)DL.getTypeAllocSize(d.local ? d.local->getAllocatedType() : d.gv->getValueType());
+        std::vector<Access> words = accessesIn(dbase, 0, objSize);
+        if (words.size() > (size_t)kSmallArray)
+            fail("E310", "memcpy with a variable size or address: only into a small variable " + where(CI));
+        auto *csize = dyn_cast<ConstantInt>(CI->getArgOperand(2));
+        Node *size = csize ? nullptr : get(CI->getArgOperand(2));
+        std::vector<long> cand = d.idx ? d.cand : std::vector<long>{0}, key = d.idx ? d.key : std::vector<long>{0};
+        std::vector<std::tuple<Ptr, Type *, Node *, Node *>> puts;    // read everything first (memmove)
+        for (size_t k = 0; k < cand.size(); k++) {
+            long start = d.off + cand[k];
+            Node *at = d.idx ? eqIdx(d.idx, (int)key[k]) : nullptr;
+            for (auto &w : words) {
+                long rel = w.off - start;
+                if (rel < 0 || (csize && rel >= csize->getSExtValue()))
+                    continue;
+                Node *c = at;
+                if (size) {
+                    Node *in = mk(NK::Op, "icmp.sgt", {size, cst((double)rel, true, size->bits)});
+                    in->isInt = true;
+                    in->bits = 1;
+                    c = band(c, in);
+                }
+                Ptr sp = src;
+                sp.off += rel;
+                Ptr dp = d;
+                dp.idx = nullptr;
+                dp.off = w.off;
+                puts.push_back({dp, w.ty, getWord(sp, w.ty, CI), c});
+            }
+        }
+        for (auto &t : puts) {
+            Node *c = std::get<3>(t);
+            putWord(std::get<0>(t), std::get<1>(t), std::get<2>(t), c ? (pred ? band(pred, c) : c) : pred, CI);
+        }
     }
 
     void call(CallInst *CI, Node *pred) {
@@ -668,6 +911,34 @@ struct Builder {
             std::string base = intrinsicBase(fn);
             if (ignoredIntrinsic(II, base))
                 return;
+            if ((base == "memset" || base == "memcpy" || base == "memmove") && isa<ConstantInt>(CI->getArgOperand(2))) {
+                memop(CI, base, pred);
+                return;
+            }
+            if (base == "memcpy" || base == "memmove") {   // std::copy(src, src + n, &dst[shift]): per word
+                memcpyVar(CI, pred);
+                return;
+            }
+            if (base == "memset") {               // std::fill(&a[0], &a[n], 0): each word below the size
+                Ptr d = constPtr(CI->getArgOperand(0), CI);
+                auto *cv = dyn_cast<ConstantInt>(CI->getArgOperand(1));
+                Value *dbase = d.local ? (Value *)d.local : (Value *)d.gv;
+                long size = (long)DL.getTypeAllocSize(d.local ? d.local->getAllocatedType() : d.gv->getValueType()) - d.off;
+                std::vector<Access> words = accessesIn(dbase, d.off, d.off + size);
+                if (!cv || !cv->isZero() || words.size() > (size_t)kSmallArray)
+                    fail("E310", "memset with a variable size: only zeroing a small variable " + where(CI));
+                Node *n = get(CI->getArgOperand(2));
+                for (auto &w : words) {
+                    Node *c = mk(NK::Op, "icmp.sgt", {n, cst((double)(w.off - d.off), true, n->bits)});
+                    c->isInt = true;
+                    c->bits = 1;
+                    Ptr q = d;
+                    q.off = w.off;
+                    Node *z = w.ty->isIntegerTy() ? cst(0, true, (int)w.ty->getIntegerBitWidth()) : cst(0);
+                    putWord(q, w.ty, z, pred ? band(pred, c) : c, CI);
+                }
+                return;
+            }
             auto it = kIntrinsicOps.find(base);
             if (it != kIntrinsicOps.end()) {
                 std::vector<Node *> in;
@@ -705,13 +976,45 @@ struct Builder {
     static bool isPow2(long x) { return x > 0 && (x & (x - 1)) == 0; }
     static bool contiguous(unsigned long m) { return m && ((m >> __builtin_ctzl(m)) & ((m >> __builtin_ctzl(m)) + 1)) == 0; }
 
+    // x ^ (c ? K : 0) with every possible bit of x inside K (Braids' triangle `(p << 1) ^ (p & 0x8000 ? 0xffff : 0)`):
+    // x ^ K = K - x, so the xor is c ? K - x : x, exact and without an island
+    bool xorMask(BinaryOperator *B) {
+        for (int i = 0; i < 2; i++) {
+            auto *Sl = dyn_cast<SelectInst>(B->getOperand(1 - i));
+            if (!Sl)
+                continue;
+            auto *ct = dyn_cast<ConstantInt>(Sl->getTrueValue()), *cf = dyn_cast<ConstantInt>(Sl->getFalseValue());
+            if (!ct || !cf || (!ct->isZero() && !cf->isZero()))
+                continue;
+            APInt K = ct->isZero() ? cf->getValue() : ct->getValue();
+            Value *x = B->getOperand(i);
+            KnownBits kb = computeKnownBits(x, DL);
+            if ((~kb.Zero & ~K) != 0)                  // a bit of x could fall outside K
+                continue;
+            Node *xn = get(x), *c = get(Sl->getCondition());
+            Node *k = cst((double)K.getZExtValue(), true, xn->bits);
+            Node *d = mk(NK::Op, "sub", {k, xn});
+            d->isInt = true;
+            d->bits = xn->bits;
+            Node *n = ct->isZero() ? mk(NK::Op, "select", {c, xn, d}, B) : mk(NK::Op, "select", {c, d, xn}, B);
+            vmap[B] = n;
+            return true;
+        }
+        return false;
+    }
+
     void binop(BinaryOperator *B) {
         std::string op = B->getOpcodeName();
+        if (op == "xor" && !isa<ConstantInt>(B->getOperand(0)) && !isa<ConstantInt>(B->getOperand(1)) &&
+            B->getType()->getIntegerBitWidth() > 1 && xorMask(B))
+            return;
         Node *a = get(B->getOperand(0)), *b = get(B->getOperand(1));
         Node *n = mk(NK::Op, op, {a, b}, B);
         auto *cb = dyn_cast<ConstantInt>(B->getOperand(1));
         auto *ca = dyn_cast<ConstantInt>(B->getOperand(0));
-        if (op == "udiv" || op == "sdiv" || op == "urem" || op == "srem")
+        if (op == "udiv" || op == "sdiv")
+            n->bad = false;                                  // x * 1/y like fdiv, without the floor (lower.cpp recip)
+        else if (op == "urem" || op == "srem")
             n->bad = !(cb && isPow2(cb->getSExtValue()));
         else if (op == "frem")
             n->bad = true;                                   // fdiv by a variable: x * 1/y (lower.cpp recip)
@@ -722,7 +1025,7 @@ struct Builder {
             else if (op == "and")
                 n->bad = n->bits > 1 && !contiguous(c->getZExtValue() & ((n->bits >= 64) ? ~0UL : ((1UL << n->bits) - 1)));
             else if (op == "xor")
-                n->bad = n->bits > 1 && !(c->isMinusOne() || isPow2(c->getSExtValue()));
+                n->bad = false;                      // any constant: runs of bits (lower.cpp)
             else
                 n->bad = n->bits > 1;
         }
@@ -770,7 +1073,36 @@ struct Builder {
             }
             pred[bb] = p;
             for (Instruction &I : *bb) {
-                if (auto *phi = dyn_cast<PHINode>(&I)) {
+                if (auto *phi = dyn_cast<PHINode>(&I); phi && phi->getType()->isPointerTy()) {
+                    // pointers into one variable at constant offsets (SROA's `&registration[shift]`): a small
+                    // computed address whose key is the byte offset, chosen like any phi
+                    Node *off = nullptr;
+                    Ptr base;
+                    for (int k = (int)phi->getNumIncomingValues() - 1; k >= 0; k--) {
+                        Ptr q = ptrOf(phi->getIncomingValue(k));
+                        if (q.var || q.idx || (!q.gv && !q.local) || (k != (int)phi->getNumIncomingValues() - 1 &&
+                                                                       (q.gv != base.gv || q.local != base.local)))
+                            fail("E306", "unsupported pointer " + where(phi) + " (a phi of pointers into different "
+                                 "variables, or with computed offsets)");
+                        base = q;
+                        BasicBlock *ib = phi->getIncomingBlock(k);
+                        Node *e = edgeOf(ib, bb);
+                        if (!e)
+                            e = pred[ib];
+                        Node *c = cst((double)q.off, true, 64);
+                        off = !off ? c : sel(e ? e : nullptr, c, off, c);
+                    }
+                    Ptr p = base;
+                    p.off = 0;
+                    p.idx = off;
+                    std::set<long> seen;
+                    for (unsigned k = 0; k < phi->getNumIncomingValues(); k++) {
+                        long o = ptrOf(phi->getIncomingValue(k)).off;
+                        if (seen.insert(o).second)
+                            p.cand.push_back(o), p.key.push_back(o);
+                    }
+                    pmap[phi] = p;
+                } else if (auto *phi = dyn_cast<PHINode>(&I)) {
                     Node *v = nullptr;
                     for (int k = (int)phi->getNumIncomingValues() - 1; k >= 0; k--) {
                         BasicBlock *ib = phi->getIncomingBlock(k);
@@ -877,24 +1209,222 @@ bool isConstExpr(const Node *n) {
     return r;
 }
 
+// ---- affine simplification of integer sums (docs/S1CC.md §4.8) ----
+// Braids' BEGIN_INTERPOLATE_PHASE_INCREMENT with size 1 is prev + (prev < cur ? cur - prev : ~(prev - cur)), that is
+// cur or cur - 1; LLVM leaves it, and the lowering would compute it with wraps modulo 2^32. A sum whose terms cancel
+// (through one select, whose arms are taken apart) is rebuilt from what is left: modulo 2^bits it is the same value.
+namespace {
+struct Aff {
+    std::map<Node *, double> t;
+    double c = 0;
+    void add(const Aff &o, double k) {
+        for (auto &kv : o.t)
+            if ((t[kv.first] += k * kv.second) == 0)
+                t.erase(kv.first);
+        c += k * o.c;
+    }
+};
+
+// the affine form of n over its leaves; sel: the one select met (its arm is chosen by arm, -1 = none allowed yet)
+bool affOf(Node *n, int bits, Aff &out, Node *&sel, int arm, int depth) {
+    if (n->kind == NK::Const && n->isInt) {
+        out.c = n->c;
+        return true;
+    }
+    if (depth < 8 && n->kind == NK::Op && n->isInt && n->bits == bits) {
+        auto sub = [&](Node *x, double k) {
+            Aff a;
+            if (!affOf(x, bits, a, sel, arm, depth + 1))
+                return false;
+            out.add(a, k);
+            return true;
+        };
+        if (n->op == "add")
+            return sub(n->in[0], 1) && sub(n->in[1], 1);
+        if (n->op == "sub")
+            return sub(n->in[0], 1) && sub(n->in[1], -1);
+        if (n->op == "xor" && n->in[1]->kind == NK::Const && n->in[1]->c == -1) {
+            out.c -= 1;
+            return sub(n->in[0], -1);
+        }
+        if ((n->op == "mul" && n->in[1]->kind == NK::Const) || (n->op == "shl" && n->in[1]->kind == NK::Const))
+            return sub(n->in[0], n->op == "mul" ? n->in[1]->c : std::ldexp(1.0, (int)n->in[1]->c));
+        if (n->op == "select" && arm >= 0 && (!sel || sel == n)) {
+            sel = n;
+            return sub(n->in[arm ? 1 : 2], 1);
+        }
+    }
+    out.t[n] = 1;
+    return true;
+}
+
+int leaves(Node *n, int bits, int depth) {        // terms of the expression as written
+    if (depth < 8 && n->kind == NK::Op && n->isInt && n->bits == bits &&
+        (n->op == "add" || n->op == "sub" || n->op == "select" ||
+         (n->op == "xor" && n->in[1]->kind == NK::Const && n->in[1]->c == -1)))
+        return leaves(n->in[0], bits, depth + 1) + (n->in.size() > 1 ? leaves(n->in.back(), bits, depth + 1) : 0) +
+               (n->op == "select" ? leaves(n->in[1], bits, depth + 1) : 0);
+    return n->kind == NK::Const ? 0 : 1;
+}
+}  // namespace
+
+void affineSimplify(Stage &S) {
+    std::vector<std::unique_ptr<Node>> made;
+    auto mk = [&](const std::string &op, std::vector<Node *> in, const Node *like) {
+        auto n = std::make_unique<Node>();
+        n->kind = NK::Op;
+        n->op = op;
+        n->in = std::move(in);
+        n->isInt = true;
+        n->bits = like->bits;
+        made.push_back(std::move(n));
+        return made.back().get();
+    };
+    auto cstN = [&](double c, const Node *like) {
+        auto n = std::make_unique<Node>();
+        n->kind = NK::Const;
+        n->op = "const";
+        n->c = c;
+        n->isInt = true;
+        n->bits = like->bits;
+        made.push_back(std::move(n));
+        return made.back().get();
+    };
+    auto build = [&](const Aff &a, const Node *like) -> Node * {   // sum of k * leaf + c (k = +-1 only)
+        Node *r = nullptr;
+        for (auto &kv : a.t) {
+            if (kv.second != 1 && kv.second != -1)
+                return nullptr;
+            r = !r ? (kv.second == 1 ? kv.first : mk("sub", {cstN(0, like), kv.first}, like))
+                   : mk(kv.second == 1 ? "add" : "sub", {r, kv.first}, like);
+        }
+        if (!r)
+            return cstN(a.c, like);
+        return a.c != 0 ? mk("add", {r, cstN(a.c, like)}, like) : r;
+    };
+    for (auto &np : S.nodes) {
+        Node *n = np.get();
+        if (n->kind != NK::Op || !n->isInt || n->bits <= 1 || (n->op != "add" && n->op != "sub"))
+            continue;
+        int before = leaves(n, n->bits, 0);
+        Node *sel = nullptr;
+        Aff plain;
+        if (!affOf(n, n->bits, plain, sel, -1, 0))
+            continue;
+        if ((int)plain.t.size() < before - 1 && plain.t.size() <= 2) {
+            if (Node *r = build(plain, n)) {
+                n->op = "add";
+                n->in = {r, cstN(0, n)};
+                continue;
+            }
+        }
+        // through one select: both arms
+        Aff a, b;
+        Node *sa = nullptr, *sb = nullptr;
+        if (!affOf(n, n->bits, a, sa, 1, 0) || !sa || !affOf(n, n->bits, b, sb, 0, 0) || sb != sa)
+            continue;
+        if (a.t.size() + b.t.size() + 2 < (size_t)before && a.t.size() <= 2 && b.t.size() <= 2) {
+            Node *ra = build(a, n), *rb = build(b, n);
+            if (ra && rb) {
+                n->op = "select";
+                n->in = {sa->in[0], ra, rb};
+            }
+        }
+    }
+    // c ? x + y : x  ->  x + (c ? y : 0): the lowering makes c ? y : 0 one product of c, and the add a mad, where the
+    // select of two sums would subtract them first (the phis of Braids' BLEP branches: this_sample += ...)
+    for (auto &np : S.nodes) {
+        Node *n = np.get();
+        if (n->kind != NK::Op || n->op != "select" || n->in.size() != 3)
+            continue;
+        for (int arm = 1; arm <= 2; arm++) {
+            Node *a = n->in[arm], *b = n->in[3 - arm];
+            if (a->kind != NK::Op || a->in.size() != 2 || a->users.size() > 1)
+                continue;
+            bool add = a->op == "add" || a->op == "fadd", sub = a->op == "sub" || a->op == "fsub";
+            if (!add && !sub)
+                continue;
+            int xi = a->in[0] == b ? 0 : (add && a->in[1] == b ? 1 : -1);
+            if (xi < 0)
+                continue;
+            Node *y = a->in[1 - xi];
+            Node *zero = n->isInt ? cstN(0, n) : nullptr;
+            if (!zero) {
+                auto z = std::make_unique<Node>();
+                z->kind = NK::Const;
+                z->op = "const";
+                made.push_back(std::move(z));
+                zero = made.back().get();
+            }
+            Node *sy = mk("select", arm == 1 ? std::vector<Node *>{n->in[0], y, zero}
+                                             : std::vector<Node *>{n->in[0], zero, y}, n);
+            sy->isInt = n->isInt;
+            sy->bits = n->bits;
+            n->op = a->op;
+            n->in = {b, sy};
+            break;
+        }
+    }
+    if (made.empty())
+        return;
+    // the new nodes before their users: a topological order again, the old order kept where it allows
+    std::vector<std::unique_ptr<Node>> all;
+    for (auto &np : S.nodes)
+        all.push_back(std::move(np));
+    for (auto &np : made)
+        all.push_back(std::move(np));
+    std::map<Node *, std::unique_ptr<Node> *> own;
+    for (auto &np : all)
+        own[np.get()] = &np;
+    std::set<Node *> done;
+    S.nodes.clear();
+    std::function<void(Node *)> place = [&](Node *x) {
+        if (done.count(x))
+            return;
+        done.insert(x);
+        for (Node *i : x->in)
+            place(i);
+        S.nodes.push_back(std::move(*own[x]));
+    };
+    for (auto &np : all)
+        if (np)
+            place(np.get());
+    for (size_t i = 0; i < S.nodes.size(); i++)
+        S.nodes[i]->id = (int)i;
+}
+
 void markLive(Program &P, Stage &S) {
+    // from the output and the exports; a state word's new value only when its old value is read by something live
+    // (a word written and never read, like Braids' strike_ in a shape that never strikes, costs nothing)
     std::vector<Node *> stack;
     if (S.ret)
         stack.push_back(S.ret);
     for (auto &kv : S.exports)
         stack.push_back(kv.second);
-    for (int s : S.states)
-        if (P.states[s].final)
-            stack.push_back(P.states[s].final);
-    while (!stack.empty()) {
-        Node *n = stack.back();
-        stack.pop_back();
-        if (n->live)
-            continue;
-        n->live = true;
-        for (Node *i : n->in)
-            stack.push_back(i);
+    std::set<int> rooted;
+    for (bool more = true; more;) {
+        while (!stack.empty()) {
+            Node *n = stack.back();
+            stack.pop_back();
+            if (n->live)
+                continue;
+            n->live = true;
+            for (Node *i : n->in)
+                stack.push_back(i);
+        }
+        more = false;
+        for (auto &np : S.nodes)
+            if (np->live && np->kind == NK::State && !rooted.count(np->state)) {
+                rooted.insert(np->state);
+                if (P.states[np->state].final) {
+                    stack.push_back(P.states[np->state].final);
+                    more = true;
+                }
+            }
     }
+    for (int s : S.states)                     // the rest: not stored (lower.cpp stores live finals only)
+        if (!rooted.count(s))
+            P.states[s].final = nullptr;
     for (auto &n : S.nodes)
         n->users.clear();
     for (auto &n : S.nodes)
@@ -1132,6 +1662,14 @@ void islands(Program &P, Stage &S) {
                     }
                 if (!R->v)
                     isl.cloneable = false;
+                // a state word's new value inside the island would never be stored (covered nodes are not emitted):
+                // a root past it is the one to use (Plaits' sine: phase += f, wrap, table; root = the wrapped phase)
+                bool holdsFinal = false;
+                for (Node *y : isl.members)
+                    for (int st : S.states)
+                        holdsFinal |= P.states[st].final == y;
+                if (holdsFinal)
+                    continue;
                 S.islands.push_back(isl);
             }
         }
@@ -1185,7 +1723,115 @@ void speculation(Stage &S) {
     }
 }
 
+// knob-derived columns (docs/S1CC.md §4.6): a value computed from one S1_PARAM table only (and constants) is a
+// function of that knob, known exactly at its 256 positions (`prof sweep`). The heavy ones that feed the rest of the
+// voice become tables of their own, written by the ARM with the knob: no DSP work, no fit (Braids' `intervals[p >> 9]`,
+// Plaits' per-block coefficients from a knob). Run after islands(), so the island ids stay those of the profile.
+void deriveKnobColumns(Program &P) {
+    assignProfIds(P);
+    for (Stage *S : {&P.A, &P.B}) {
+        if (!S->fn)
+            continue;
+        std::map<Node *, std::string> dep;      // "" constants only, a table name, "*" anything else
+        std::map<Node *, int> ops;              // operations (bad ones count 4) in the knob-only cone, capped
+        for (auto &np : S->nodes) {
+            Node *n = np.get();
+            std::string d;
+            int c = 0;
+            if (n->kind == NK::Param)
+                d = n->name;
+            else if (n->kind != NK::Const && n->kind != NK::Op)
+                d = "*";
+            else
+                for (Node *i : n->in) {
+                    const std::string &di = dep[i];
+                    if (di.empty())
+                        continue;
+                    d = d.empty() ? di : (d == di ? d : "*");
+                    c += ops[i];
+                }
+            if (n->kind == NK::Op)
+                c += n->bad ? 4 : 1;
+            dep[n] = d;
+            ops[n] = std::min(c, 1000);
+        }
+        std::set<Node *> roots;
+        if (S->ret)
+            roots.insert(S->ret);
+        for (auto &kv : S->exports)
+            roots.insert(kv.second);
+        for (int s : S->states)
+            if (P.states[s].final)
+                roots.insert(P.states[s].final);
+        int made = 0;
+        for (auto &np : S->nodes) {
+            Node *n = np.get();
+            const std::string &d = dep[n];
+            if (!n->live || n->kind != NK::Op || d.empty() || d == "*" || ops[n] < 2 || n->prof < 0)
+                continue;
+            bool frontier = roots.count(n) > 0;
+            for (Node *u : n->users)
+                frontier = frontier || dep[u] != d;
+            auto sw = P.sweep.find(n->prof);
+            if (!frontier || sw == P.sweep.end() || !sw->second.count(d))
+                continue;
+            std::vector<double> v = sw->second.at(d);
+            for (double &x : v) {
+                if (n->isInt && n->bits == 1)
+                    x = x != 0;                                  // booleans: 0 / 1 (the profile's signed view: -1)
+                else if (n->isInt && n->isUnsigned && x < 0)
+                    x += std::ldexp(1.0, n->bits);
+            }
+            std::string name = d + "~" + std::to_string(n->prof);
+            P.derived[name] = v;
+            P.derivedBase[name] = d;
+            P.params[name] = P.params.at(d);
+            P.paramCount[name] = 1;
+            n->kind = NK::Param;
+            n->op = "param";
+            n->name = name;
+            n->c = 0;
+            n->in.clear();
+            n->bad = false;
+            n->specSel = nullptr;
+            n->specFrontier = false;
+            made++;
+        }
+        if (made) {
+            for (auto &np : S->nodes)
+                np->live = false;
+            markLive(P, *S);
+            if (debugLevel() >= 1)
+                fprintf(stderr, "s1cc: debug: stage %s: %d knob-derived columns\n", S->name.c_str(), made);
+        }
+    }
+}
+
 }  // namespace
+
+void relive(Program &P, Stage &S) {
+    for (auto &np : S.nodes)
+        np->live = false;
+    markLive(P, S);
+}
+
+void assignProfIds(Program &P) {
+    int id = 0;
+    std::map<Value *, int> ids;
+    for (Stage *S : {&P.A, &P.B}) {
+        if (!S->fn)
+            continue;
+        for (auto &n : S->nodes) {
+            if (!n->v || n->kind == NK::Const)
+                continue;
+            Type *t = n->v->getType();
+            if (!t->isIntegerTy() && !t->isFloatingPointTy())
+                continue;
+            auto it = ids.find(n->v);
+            n->prof = it != ids.end() ? it->second : (ids[n->v] = id++);
+        }
+    }
+}
 
 void build(Program &P, Module &M) {
     P.M = &M;
@@ -1206,6 +1852,22 @@ void build(Program &P, Module &M) {
             fprintf(stderr, "graph %s: %zu nodes\n", S->name.c_str(), S->nodes.size());
         if (!S->ret)
             fail("E009", S->fn->getName().str() + " returns nothing");
+        affineSimplify(*S);
+        {   // demanded bits: LLVM narrows `(int16_t)(t + 32768)` to `sext(t) ^ 0x7fff8000` when only the low bits
+            // matter; the lowering computes in reals and needs the small representative (Node::demand)
+            DominatorTree DT(*S->fn);
+            AssumptionCache AC(*S->fn);
+            DemandedBits DB(*S->fn, AC, DT);
+            for (auto &np : S->nodes) {
+                auto *I = np->v ? dyn_cast<Instruction>(np->v) : nullptr;
+                if (!I || !I->getType()->isIntegerTy() || I->getType()->getIntegerBitWidth() <= 1 ||
+                    I->getType()->getIntegerBitWidth() > 64)
+                    continue;
+                unsigned k = DB.getDemandedBits(I).getActiveBits();
+                if (k > 0 && k < I->getType()->getIntegerBitWidth())
+                    np->demand = (int)k;
+            }
+        }
         markLive(P, *S);
     }
     for (int k = 0; k < 4; k++)
@@ -1221,6 +1883,8 @@ void build(Program &P, Module &M) {
         for (auto &isl : S->islands)
             isl.id = id++;
     }
+    if (!P.sweep.empty())
+        deriveKnobColumns(P);
 }
 
 std::string diagnose(Module &M, const std::string &remarksText) {

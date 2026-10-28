@@ -3,6 +3,8 @@
 // (99.5th percentile of |error| / output span; the maximum is reported too):
 //   poly   P(t), degree 1..maxDeg (odd P when the domain and the function are symmetric)
 //   exp2   sign 2^Q(t), Q of degree 1..4 (exponential curves: increments, cutoffs)
+//   hinge  c0 + c1 t + sum_j w_j max(0, t - k_j), uniform knots: a linear spline for what no polynomial follows
+//          (Braids' wavefolder tables ws_tri_fold / ws_sine_fold); 2 ops per knot (max, mad), tried last
 // with the output limited to the plateaus the samples show at either end (saturation: CLIP, table ends).
 // Least squares in the Chebyshev basis, converted to powers of t.
 #include <algorithm>
@@ -91,7 +93,7 @@ double horner(const std::vector<double> &c, double t) {
 
 }  // namespace
 
-Fit fitIsland(const std::vector<std::pair<double, double>> &xy, double tolSpan, double tolLog, int maxDeg) {
+Fit fitIsland(const std::vector<std::pair<double, double>> &xy, double tolSpan, double tolLog, int maxDeg, int maxKnots) {
     Fit best;
     best.err = 1e300;
     double tol = tolSpan;
@@ -163,7 +165,11 @@ Fit fitIsland(const std::vector<std::pair<double, double>> &xy, double tolSpan, 
             double tt = ta * p.first + tb, v;
             if (f.model == "poly")
                 v = horner(f.c, tt);
-            else
+            else if (f.model == "hinge") {
+                v = f.c[0] + f.c[1] * tt;
+                for (size_t j = 0; j < f.knots.size(); j++)
+                    v += f.w[j] * std::max(0.0, tt - f.knots[j]);
+            } else
                 v = f.sign * std::exp2(horner(f.c, tt));
             if (f.clampLo)
                 v = std::max(v, f.lo);
@@ -229,6 +235,70 @@ Fit fitIsland(const std::vector<std::pair<double, double>> &xy, double tolSpan, 
             f.c = lsq(t, ly, d, all);
             f.cost = tcost + ccost + (d + 1) + 10;
             consider(f);
+        }
+    }
+    // a linear spline (hinges at uniform knots), when nothing above meets the tolerance: least squares on
+    // {1, t, max(0, t - k_j)}, the fewest knots that meet it (or the best one tried)
+    if (best.err > tol) {
+        // knot candidates: the kinks of the samples (largest |second difference|, a linear table interpolated
+        // between its entries has its kinks at the entries), else uniform
+        std::vector<std::pair<double, double>> kinks;            // (|d2|, t)
+        for (size_t i = 1; i + 1 < t.size(); i++) {
+            double h0 = t[i] - t[i - 1], h1 = t[i + 1] - t[i];
+            if (h0 <= 0 || h1 <= 0)
+                continue;
+            double d2 = (y[i + 1] - y[i]) / h1 - (y[i] - y[i - 1]) / h0;
+            kinks.push_back({std::fabs(d2), t[i]});
+        }
+        std::sort(kinks.rbegin(), kinks.rend());
+        for (int S0 : {4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128}) {
+          if (best.err <= tol || S0 > maxKnots)
+              break;
+          for (int adaptive = 0; adaptive < 2; adaptive++) {
+            int S = S0;
+            std::vector<double> knots;
+            if (!adaptive) {
+                for (int j = 1; j < S; j++)
+                    knots.push_back(-1 + 2.0 * j / S);
+            } else {
+                double gap = 0.25 / S;                      // no two knots closer than this
+                for (auto &k : kinks) {
+                    if ((int)knots.size() >= S - 1 || k.first <= 0)
+                        break;
+                    bool near = false;
+                    for (double q : knots)
+                        near = near || std::fabs(q - k.second) < gap;
+                    if (!near)
+                        knots.push_back(k.second);
+                }
+                std::sort(knots.begin(), knots.end());
+                S = (int)knots.size() + 1;
+            }
+            int m = S + 1;
+            std::vector<std::vector<double>> A(m, std::vector<double>(m, 0));
+            std::vector<double> b(m, 0), phi(m);
+            for (size_t i = 0; i < t.size(); i++) {
+                phi[0] = 1;
+                phi[1] = t[i];
+                for (int j = 0; j < S - 1; j++)
+                    phi[2 + j] = std::max(0.0, t[i] - knots[j]);
+                for (int a = 0; a < m; a++) {
+                    b[a] += phi[a] * y[i];
+                    for (int c = 0; c < m; c++)
+                        A[a][c] += phi[a] * phi[c];
+                }
+            }
+            std::vector<double> x = solve(A, b);
+            Fit f;
+            f.model = "hinge";
+            f.c = {x[0], x[1]};
+            f.knots = knots;
+            f.w.assign(x.begin() + 2, x.end());
+            f.cost = tcost + ccost + 2 + 2 * (S - 1);
+            consider(f);
+            if (best.err <= tol)
+                break;
+          }
         }
     }
     return best;

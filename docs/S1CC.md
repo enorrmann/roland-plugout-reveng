@@ -37,7 +37,7 @@ sdk/s1cc/s1cc check sdk/s1cc/build/braids_saw_swarm_s1 --note 45 ratio=200 hp_h=
 
 `build --check` corre `check` al terminar (nota 57, perillas en 128), para ver las instrucciones y el SNR sin un
 segundo comando. `build` admite además `--tol X` (tolerancia de los ajustes, métrica de rango, por defecto 3·10⁻³),
-`--tollog X` (métrica en octavas, por defecto 0,005), `--maxdeg N` (grado máximo de un polinomio, 11) y
+`--tollog X` (métrica en octavas, por defecto 0,0005 = 0,6 cent: los incrementos son alturas), `--maxdeg N` (grado máximo de un polinomio, 11) y
 `--regs LISTA` (los registros que puede usar el kernel, §1.1).
 
 ### 1.1 Registros (`--regs`)
@@ -596,6 +596,7 @@ El estado son las variables de archivo no `const`. Las tablas son las `const`. N
 | `E307` | `'t' has no definition in the module` | tabla `extern const` sin su archivo (p. ej. `resources.cc` de Braids) | agregar la fuente de la tabla |
 | `E308` | `cannot fold the table read` | lectura de tabla con desplazamiento constante que LLVM no puede plegar (tabla sin inicializador visible) | lo mismo: la definición con sus valores tiene que estar en el build |
 | `E309` | `store to something that is not a state word` | escritura a una tabla `const` o a memoria calculada | escribir sólo en variables de estado |
+| `E310` | `memset / memcpy of something that is not a variable with a constant offset` / `memset with a variable byte` / `... with a variable size: only ... a small variable` | `memset` / `memcpy` cuyo destino no es una variable, con byte variable, o de tamaño variable sobre más de 16 palabras | tamaño constante, o una variable chica (≤ 16 palabras, §4.6) |
 
 #### 9.2.5 Bucles (`loops.cpp`)
 
@@ -642,7 +643,6 @@ preferencia:
 | código | mensaje | causa | solución |
 |---|---|---|---|
 | `E601` | `OP: operand N must be a constant` | desplazamiento (`<<`, `>>`) por una cantidad variable; división o resto entero por una variable que no quedó en una isla | desplazar por constante; para `x << n` variable, `x * s1_exp2(n)` en float |
-| `E602` | `xor with a bit outside the value's range` | `x ^ c` con `x` negativo o mayor que `2c` | asegurar el rango (máscara antes) o reescribir |
 | `E603` | `'or' with a constant is not supported outside a tabulated function` | `x \| c` con `x` de varias fuentes | `x + c` si los bits no se pisan; si no, que dependa de un valor (isla) |
 | `E604` | `compare 'P' not supported` | predicado de comparación raro (`ord`, `uno`: chequeos de NaN) | quitar los chequeos de NaN: el DSP no tiene NaN |
 | `E605` | `operation 'OP' not supported` | operación del IR sin bajada en `lower.cpp` (enteros de más de 64 bits, operaciones de bits raras) | reescribirla con operaciones de §7.2 |

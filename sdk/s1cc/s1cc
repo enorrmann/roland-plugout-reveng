@@ -36,8 +36,8 @@ build)
             -I) incs="$incs -I$2"; shift ;;
             -I*) incs="$incs $1" ;;
             -o) out=$2; shift ;;
-            --tol|--tollog|--maxdeg|--regs) lower_opts="$lower_opts $1 $2"; shift ;;
-            --trace|--no-exact-init) lower_opts="$lower_opts $1" ;;
+            --tol|--tollog|--maxdeg|--maxknots|--regs) lower_opts="$lower_opts $1 $2"; shift ;;
+            --trace|--no-exact-init|--no-fold-branches) lower_opts="$lower_opts $1" ;;
             --check) check=1 ;;
             --no-auto) auto=0 ;;
             --debug) [ "$debug" -ge 1 ] 2>/dev/null || debug=1 ;;
@@ -67,7 +67,7 @@ build)
     if [ "$auto" = 1 ]; then
         # the sources next to the headers the program includes (saw.h -> saw.c, braids/resources.h -> resources.cc),
         # then those of the new sources, until nothing new; clang -MM lists the headers it really opens
-        seen=
+        seen=; autos=
         for s in $srcs; do seen="$seen $(readlink -f "$s")"; done
         todo=$srcs
         while [ -n "$todo" ]; do
@@ -83,7 +83,7 @@ build)
                         c=${hp%.*}.$ext
                         [ -f "$c" ] || continue
                         case " $seen " in *" $c "*) continue ;; esac
-                        seen="$seen $c"; srcs="$srcs $c"; next="$next $c"
+                        seen="$seen $c"; srcs="$srcs $c"; next="$next $c"; autos="$autos $c"
                         echo "source: $c (for $(basename "$h"); --no-auto to leave it out)"
                     done
                 done
@@ -96,8 +96,16 @@ build)
     for s in $srcs; do
         i=$((i + 1))
         case $s in *.c) cc=$CLANG; std= ;; *) cc=$CLANGXX; std="-std=c++17 -fno-exceptions -fno-rtti" ;; esac
-        $cc -O2 -S -emit-llvm -w -fno-math-errno -mllvm -inline-threshold=100000 -mllvm -jump-threading-threshold=0 -fno-vectorize -fno-slp-vectorize $dbgflags $std -I"$HERE/include" $incs \
-            "$s" -o "$out/src$i.ll" || fail E010 "clang could not compile $s"
+        # an automatic source that does not compile on the PC (firmware: settings.cc needs the STM32 headers) is left
+        # out: if the voice needs something from it, the link says so (E011)
+        case " $autos " in *" $s "*) errs=/dev/null ;; *) errs=/dev/stderr ;; esac
+        if ! $cc -O2 -S -emit-llvm -w -fno-math-errno -mllvm -inline-threshold=100000 -mllvm -jump-threading-threshold=0 -fno-vectorize -fno-slp-vectorize -falign-functions=16 $dbgflags $std -I"$HERE/include" $incs \
+            "$s" -o "$out/src$i.ll" 2>$errs; then
+            case " $autos " in
+                *" $s "*) echo "source: $s left out (it does not compile on the PC)"; continue ;;
+                *) fail E010 "clang could not compile $s" ;;
+            esac
+        fi
         lls="$lls $out/src$i.ll"
         if [ "$debug" != 0 ]; then         # the same at -O0: every instruction at its C line (srcmap.ll)
             $cc -O0 -Xclang -disable-O0-optnone -S -emit-llvm -w -g $std -I"$HERE/include" $incs "$s" -o "$out/src$i.O0.ll"
@@ -112,14 +120,22 @@ build)
     # across sources (a wrapper calling a library's render function): inline everything into the voice functions
     if [ "$debug" != 0 ]; then
         # the inliner's reasons for every call it kept, then what s1cc cannot compile (before any later error)
-        "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
+        "$LLVM_BIN/opt" -S -passes='internalize,default<O2>' -internalize-public-api-list=s1_dsp_a,s1_dsp_b,s1_init,s1_note_range -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
             -pass-remarks-missed=inline "$out/linked0.ll" -o "$out/linked.ll" 2> "$out/inline.txt" ||
             { cat "$out/inline.txt" >&2; exit 1; }
         "$HERE/build/s1cc" diag "$out/linked.ll" --remarks "$out/inline.txt" > "$out/diag.txt"
         sed 's/^/s1cc: debug: /' "$out/diag.txt" >&2
     else
-        "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
+        "$LLVM_BIN/opt" -S -passes='internalize,default<O2>' -internalize-public-api-list=s1_dsp_a,s1_dsp_b,s1_init,s1_note_range -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
             "$out/linked0.ll" -o "$out/linked.ll"
+    fi
+    # indirect calls whose targets are known (a member-function table at a mode a branch chose): direct calls,
+    # then O2 again to inline them (docs/S1CC.md §4.7)
+    ndv=$("$HERE/build/s1cc" devirt "$out/linked.ll" -o "$out/devirt.ll")
+    if [ "$ndv" -gt 0 ]; then
+        echo "devirt: $ndv indirect call(s) made direct"
+        "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
+            "$out/devirt.ll" -o "$out/linked.ll"
     fi
     # loops with a data-dependent trip count: profile the counts, peel to the maximum (docs/S1CC.md §4.5)
     nloops=$("$HERE/build/s1cc" trips "$out/linked.ll" -o "$out/trips.ll")
@@ -136,7 +152,8 @@ build)
     $CLANG -O1 -w "$out/prof.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/prof" || fail E011 "link failed"
     "$out/ref" tables "$out/tables.txt"
     "$out/prof" prof "$out/profile.txt"
-    "$HERE/build/s1cc" lower "$out/voice.ll" --profile "$out/profile.txt" --tables "$out/tables.txt" \
+    "$out/prof" sweep "$out/sweep.txt"         # every knob over 0..255: the knob-derived columns (docs/S1CC.md §4.6)
+    "$HERE/build/s1cc" lower "$out/voice.ll" --profile "$out/profile.txt" --tables "$out/tables.txt" --sweep "$out/sweep.txt" \
         -o "$out/voice.s1k" --report "$out/report.txt" $lower_opts
     "$HERE/build/s1cc" init "$out/voice.ll" --kernel "$out/voice.s1k" --into "$out/linked.ll" -o "$out/refdsp.ll"
     $CLANG -O1 -w "$out/refdsp.ll" "$HERE/runtime/s1rt.c" -lm -o "$out/refdsp"

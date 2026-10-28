@@ -1,6 +1,8 @@
 // s1cc command line (docs/S1CC.md §9). Normally run by the driver sdk/s1cc/s1cc, not by hand:
 //   s1cc prof  IN.ll -o OUT.ll                         profiling module (link with runtime/s1rt.c)
-//   s1cc lower IN.ll --profile P --tables T -o K.s1k [--report R] [--regs 0,1,2,3,4,7] [--tol 3e-3] [--tollog 0.005] [--maxdeg 11]
+//   s1cc lower IN.ll --profile P --tables T -o K.s1k [--report R] [--regs 0,1,2,3,4,7] [--tol 3e-3] [--tollog 0.0005] [--maxdeg 11]
+//   s1cc devirt IN.ll -o OUT.ll                         indirect calls with a finite set of known targets -> direct
+//                                                      calls (devirt.cpp); prints how many
 //   s1cc init  IN.ll --kernel K.s1k [--into ORIG.ll] -o OUT.ll   reference module (ORIG, default IN) with
 //                                                      __s1p_dspstart(): the state words set to what the DSP starts
 //                                                      from (ring = 0 -> V = -o s; S1_INIT's values for the .init words)
@@ -67,7 +69,8 @@ static void usage() {
 int main(int argc, char **argv) {
     if (argc < 3)
         usage();
-    std::string cmd = argv[1], in = argv[2], out, profile, tables, report, kernelPath, tripsPath, intoPath, remarksPath;
+    std::string cmd = argv[1], in = argv[2], out, profile, tables, report, kernelPath, tripsPath, intoPath, remarksPath,
+        sweepPath;
     s1::LowerOptions opt;
     for (int i = 3; i < argc; i++) {
         std::string a = argv[i];
@@ -75,6 +78,7 @@ int main(int argc, char **argv) {
         if (a == "-o") out = next();
         else if (a == "--profile") profile = next();
         else if (a == "--tables") tables = next();
+        else if (a == "--sweep") sweepPath = next();
         else if (a == "--report") report = next();
         else if (a == "--kernel") kernelPath = next();
         else if (a == "--trips") tripsPath = next();
@@ -83,8 +87,10 @@ int main(int argc, char **argv) {
         else if (a == "--tol") opt.fitTol = std::stod(next());
         else if (a == "--tollog") opt.fitTolLog = std::stod(next());
         else if (a == "--no-exact-init") opt.exactInit = false;
+        else if (a == "--no-fold-branches") opt.foldBranches = false;
         else if (a == "--trace") opt.trace = true;
         else if (a == "--maxdeg") opt.maxDeg = std::stoi(next());
+        else if (a == "--maxknots") opt.maxKnots = std::stoi(next());
         else if (a == "--regs") {
             opt.regs.clear();
             std::stringstream ss(next());
@@ -102,6 +108,12 @@ int main(int argc, char **argv) {
             s1::fail("E003", "cannot write " + path);
         M->print(os, nullptr);
     };
+    if (cmd == "devirt") {
+        int n = s1::devirtualize(*M);
+        writeIR(out);
+        printf("%d\n", n);
+        return 0;
+    }
     if (cmd == "trips") {
         int n = s1::instrumentTrips(*M);
         writeIR(out);
@@ -140,6 +152,19 @@ int main(int argc, char **argv) {
         return 0;
     }
     s1::Program P;
+    if (!sweepPath.empty()) {          // `prof sweep`: "w TABLE ID v0 .. v255" (knob-derived columns, §4.6)
+        std::ifstream f(sweepPath);
+        if (!f)
+            s1::fail("E005", "cannot read the knob sweep " + sweepPath);
+        std::string tag, name;
+        int id;
+        while (f >> tag >> name >> id) {
+            auto &v = P.sweep[id][name];
+            v.resize(256);
+            for (double &x : v)
+                f >> x;
+        }
+    }
     s1::build(P, *M);
     if (cmd == "graph") {
         for (s1::Stage *S : {&P.A, &P.B}) {
@@ -259,6 +284,31 @@ int main(int argc, char **argv) {
         auto tab = readTables(tables);
         std::string rep;
         std::string k = s1::lower(P, prof, tab, opt, rep);
+        {                                  // the tables file: the knobs' own tables, then the derived ones (§4.6)
+            std::ifstream f(tables);
+            std::ostringstream keep;
+            std::string line;
+            bool skip = false;
+            while (std::getline(f, line)) {
+                if (line.rfind("p ", 0) == 0)
+                    skip = line.find('~') != std::string::npos;
+                if (!skip)
+                    keep << line << "\n";
+            }
+            f.close();
+            std::ofstream o(tables);
+            o << keep.str();
+            for (auto &kv : P.derived) {
+                auto *cs = cast<ConstantStruct>(P.params.at(kv.first)->getInitializer());
+                long panel = cast<ConstantInt>(cs->getOperand(1))->getSExtValue();
+                o << "p " << kv.first << " " << panel << " 1\n";
+                char buf[64];
+                for (double x : kv.second) {
+                    snprintf(buf, sizeof buf, "%.9g \n", x);
+                    o << buf;
+                }
+            }
+        }
         std::ofstream(out) << k;
         if (!report.empty())
             std::ofstream(report) << rep;

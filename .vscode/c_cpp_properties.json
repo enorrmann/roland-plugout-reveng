@@ -4,7 +4,7 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/home/emilio/git/eurorackSAS"
+                "/home/emilio/git/eurorack"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/clang",

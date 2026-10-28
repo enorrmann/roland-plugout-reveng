@@ -28,7 +28,7 @@ HAVE = shutil.which('clang') and os.path.exists('/usr/lib/llvm-19/bin/llvm-link'
 # example, extra build args, [(note, knobs, min SNR A, min SNR B)], max instructions A / B
 CASES = [
     ('braids_saw_swarm.cc', BRAIDS, [(57, {}, 50, 40), (45, {'ratio': 200, 'hp_offset': 85}, 50, 35),
-                                     (81, {'ratio': 255, 'hp_offset': 100}, 50, 40)], (52, 50)),
+                                     (81, {'ratio': 255, 'hp_offset': 100}, 50, 40)], (52, 52)),   # B: --tollog 0.0005
     ('braids_saw_swarm_s1.cc', BRAIDS, [(57, {}, 50, 40), (45, {'ratio': 200, 'hp_h': 85}, 50, 35),
                                         (81, {'ratio': 255, 'hp_h': 100}, 50, 40)], (52, 30)),
     ('va_saw_svf.c', [], [(45, {}, 60, 50), (69, {'cutoff': 200, 'damping': 200}, 60, 45),
