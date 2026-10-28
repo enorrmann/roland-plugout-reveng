@@ -8,8 +8,9 @@
  *                     panel id -> DSP A parameters C070.. and / or DSP B C060..
  *                     HOST_ENVS (the kernel uses s1_env): AMP / FILTER A, D, S, R -> the host envelopes' DSP B
  *                     parameters (C040.., C044..; make_s1cc.py tables, defaults until a fader moves)
- *                     CMOD (the kernel uses s1_color): LFO SHAPE / RATE, PITCH ENV A / D, OSC1 / OSC2 COLOR and
- *                     COLOR MOD -> DSP A parameters C040.. (make_s1cc.py cmod_voice)
+ *                     HOST_LFO (the kernel reads the pitch, s1_lfo_filter / s1_lfo_amp or s1_color): LFO SHAPE /
+ *                     RATE / DELAY TIME / TO PITCH / TO FILTER / TO AMP, PITCH ENV A / D, OSC1 / OSC2 COLOR and COLOR
+ *                     MOD -> DSP A parameters C040.. (make_s1cc.py hlfo_voice)
  *   refresh (vt+0x24) voices from the current values, knob tables from the last values received
  */
 #include <stdint.h>
@@ -110,58 +111,66 @@ static void henv_set(int id, int value) { (void)id; (void)value; }
 static void henv_all(void) {}
 #endif
 
-/* ---- COLOR MOD (CMOD: the kernel uses s1_color): panel -> DSP A parameters of make_s1cc.py cmod_voice ---------- */
+/* ---- the host's LFO and COLOR MOD (HOST_LFO): panel -> DSP A parameters of make_s1cc.py hlfo_voice ------------- */
 
-#if CMOD
-enum { C_LFO_SHAPE, C_LFO_RATE, C_PENV_A, C_PENV_D, C_COLOR0, C_COLOR1, C_MOD0, C_MOD1, C_N };
-static const uint16_t cmod_panel[C_N] = { P_LFO_SHAPE, P_LFO_RATE, P_PENV_A, P_PENV_D, P_COLOR0, P_COLOR1,
-                                          P_COLOR_MOD0, P_COLOR_MOD1 };
-static uint8_t cmod_knob[C_N];
+#if HOST_LFO
+enum { C_LFO_SHAPE, C_LFO_RATE, C_LFO_DELAY, C_LFO_PITCH, C_LFO_FILTER, C_LFO_AMP, C_PENV_A, C_PENV_D,
+       C_COLOR0, C_COLOR1, C_MOD0, C_MOD1, C_N };
+static uint8_t hlfo_knob[C_N];
 
-static void cmod_color(int i)          /* weights (manual, LFO, pitch env, filter env, amp env, sub): knob x source */
+static void hlfo_color(int i)          /* weights (manual, LFO, pitch env, filter env, amp env, sub): knob x source */
 {
-    int k = cmod_knob[C_COLOR0 + i], src = cmod_knob[C_MOD0 + i] > 5 ? 5 : cmod_knob[C_MOD0 + i];
-    for (int j = 0; j < 6; j++) {      /* the sub square is -1..1: knob x (0.5 + 0.5 square) */
-        uint32_t w = src == 5 ? (j == 0 || j == 5 ? half_bits[k] : F_ZERO) : j == src ? level_bits[k] : F_ZERO;
+    int k = hlfo_knob[C_COLOR0 + i], src = hlfo_knob[C_MOD0 + i] > 5 ? 5 : hlfo_knob[C_MOD0 + i];
+    for (int j = 0; j < 6; j++) {      /* the LFO and the sub are -1..1: knob x (0.5 + 0.5 x) */
+        uint32_t w = src == 1 || src == 5 ? (j == 0 || j == src ? half_bits[k] : F_ZERO)
+                                          : j == src ? level_bits[k] : F_ZERO;
         b6(0, (i ? A6_COL1 : A6_COL0) + j, w);
     }
 }
 
-static void cmod_apply(int c)
+static void hlfo_apply(int c)
 {
+    int k = hlfo_knob[c];
     switch (c) {
     case C_LFO_SHAPE:
         for (int j = 0; j < 6; j++)
-            b6(0, A6_LWAVE + j, j == (cmod_knob[c] > 5 ? 5 : cmod_knob[c]) ? F_HALF : F_ZERO);
+            b6(0, A6_LWAVE + j, j == (k > 5 ? 5 : k) ? F_ONE : F_ZERO);
         break;
     case C_LFO_RATE:
-        b6(0, A6_LRATE, lfo_rate_bits[cmod_knob[c]]);
-        b6(0, A6_LSG, lfo_sg_bits[cmod_knob[c]]);
+        b6(0, A6_LRATE, lfo_rate_bits[k]);
+        b6(0, A6_LSG, lfo_sg_bits[k]);
         break;
-    case C_PENV_A: b6(0, A6_PENV + 1, attack_bits[cmod_knob[c]]); break;
-    case C_PENV_D: b6(0, A6_PENV, decay_bits[cmod_knob[c]]); break;
-    case C_COLOR0: case C_MOD0: cmod_color(0); break;
-    default: cmod_color(1); break;
+    case C_LFO_DELAY: b6(0, A6_LDELAY, lfo_delay_bits[k]); break;
+    case C_LFO_PITCH: b6(0, A6_LPITCH, lfo_pitch_bits[k]); break;
+    case C_LFO_FILTER: b6(0, A6_LFILT, lfo_filt_bits[k]); break;
+    case C_LFO_AMP:
+        b6(0, A6_LAMP, lfo_amp_bits[k]);
+        b6(0, A6_LAMPABS, lfo_ampabs_bits[k]);
+        break;
+    case C_PENV_A: b6(0, A6_PENV + 1, attack_bits[k]); break;
+    case C_PENV_D: b6(0, A6_PENV, decay_bits[k]); break;
+    case C_COLOR0: case C_MOD0: hlfo_color(0); break;
+    default: hlfo_color(1); break;
     }
 }
 
-static void cmod_set(int id, int value)
+static void hlfo_set(int id, int value)
 {
     for (int c = 0; c < C_N; c++)
-        if (cmod_panel[c] == id) {
-            cmod_knob[c] = (uint8_t)(value < 0 ? 0 : value > 255 ? 255 : value);
-            cmod_apply(c);
+        if (hlfo_panel[c] == id) {
+            hlfo_knob[c] = (uint8_t)(value < 0 ? 0 : value > 255 ? 255 : value);
+            hlfo_apply(c);
         }
 }
 
-static void cmod_all(void)
+static void hlfo_all(void)
 {
     for (int c = 0; c < C_N; c++)
-        cmod_apply(c);
+        hlfo_apply(c);
 }
 #else
-static void cmod_set(int id, int value) { (void)id; (void)value; }
-static void cmod_all(void) {}
+static void hlfo_set(int id, int value) { (void)id; (void)value; }
+static void hlfo_all(void) {}
 #endif
 
 /* ---- engine object ------------------------------------------------------------------------------ */
@@ -193,7 +202,7 @@ static void voice_gate(engine_t *e, int v, int vel)
         b5(B5_TRIG + v, e->trig[v] ? F_ONE : F_ZERO);
         kparam_all();                                  /* again at every note on, in case a load lost them */
         henv_all();
-        cmod_all();
+        hlfo_all();
     }
     e->on[v] = on;
     b5(B5_GATE + v, on ? F_ONE : F_ZERO);
@@ -212,9 +221,9 @@ static void e_init(engine_t *e)                                  /* vt+0x00 */
     for (int k = 0; k < 8; k++)
         henv_knob[k] = henv_default[k];
 #endif
-#if CMOD
+#if HOST_LFO
     for (int c = 0; c < C_N; c++)
-        cmod_knob[c] = cmod_default[c];
+        hlfo_knob[c] = hlfo_default[c];
 #endif
 }
 
@@ -228,7 +237,7 @@ static void e_load(engine_t *e)                                  /* vt+0x08 */
         b5(B5_TRIG + v, e->trig[v] ? F_ONE : F_ZERO);
     kparam_all();
     henv_all();
-    cmod_all();
+    hlfo_all();
 }
 
 static void e_refresh(engine_t *e, int all)                      /* vt+0x24 */
@@ -242,7 +251,7 @@ static void e_refresh(engine_t *e, int all)                      /* vt+0x24 */
     }
     kparam_all();
     henv_all();
-    cmod_all();
+    hlfo_all();
 }
 
 static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
@@ -258,7 +267,7 @@ static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
     }
     kparam_set(id, value);
     henv_set(id, value);                       /* a fader may drive both (a kernel table and a host envelope) */
-    cmod_set(id, value);                       /* COLOR: a kernel table too, if the kernel has one on it */
+    hlfo_set(id, value);                       /* COLOR: a kernel table too, if the kernel has one on it */
 }
 
 static const void *const engine_vt[22] = {

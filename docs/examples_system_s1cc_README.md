@@ -25,7 +25,7 @@ python3 tools/plugout_tool.py install plugins/SYSTEM-S1CC --slot 1 --force --no-
 |---|---|
 | `KERNEL=dir` | obligatoria: la carpeta de salida de `s1cc build` |
 | `VOICES=n` | 1…8 voces (8 por defecto). Menos voces dejan más instrucciones a cada una |
-| `BUDGET=n` | instrucciones por muestra permitidas en cada DSP del esclavo: 708 por defecto, el máximo probado en el equipo; con 826 se colgó ([examples_system_1_synth_README.md](examples_system_1_synth_README.md) §4). Por encima, el build se detiene |
+| `BUDGET_A=n`, `BUDGET_B=n` | instrucciones por muestra permitidas en el DSP A / DSP B del esclavo: 693 / 708 por defecto, lo que corrió en el equipo. En el DSP A, 702 se colgó (2026-10-28) y 826 también ([examples_system_1_synth_README.md](examples_system_1_synth_README.md) §4). Por encima, el build se detiene. `BUDGET=n` pone los dos. Hasta el 2026-10-28 era un único `BUDGET` de 708 para los dos DSP: un error, porque 708 sólo estaba probado en el B |
 | `NAME=…` | nombre del PLUG-OUT (`SYSTEM-S1CC`) |
 | `MODEL_ID`, `PARAMLOG=1` | como en MUTABLE-SYSTEM |
 | `ENV_TMIN=s`, `ENV_TMAX=s` | tiempos de las envolventes del anfitrión con el fader en 0 y en 255 (por defecto 0,001 y 10 s, exponencial entre medio, como C-S1SY). Solo si el kernel usa `s1_env` |
@@ -40,7 +40,8 @@ No hay opciones para cada función: `make_s1cc.py` lee el kernel (`voice.s1k`) y
 | `S1_DSP_B` | su código en el DSP B, por voz; sin él, el DSP B solo mezcla |
 | `s1_env(0)` y / o `s1_env(1)` | una ADSR en ensamblador por cada envolvente que lee, en el DSP B, y la copia de puerta y disparo en el DSP A (§3.1); en `engine.c`, las perillas AMP / FILTER A, D, S, R |
 | `s1_export(i, …)` | la palabra del banco 5 de la ranura `i` de cada voz (§2) |
-| `s1_color(0)` y / o `s1_color(1)` | en el DSP A, LFO, envolvente de pitch y sub oscilador por voz y la mezcla de cada color; en el DSP B, las dos ADSR del anfitrión; en `engine.c`, LFO SHAPE / RATE, PITCH ENV A / D, COLOR y COLOR MOD (§3.2) |
+| el tono (`s1_pitch`, `s1_increment`, `s1_dt`, `s1_rdt`), `s1_lfo_filter()`, `s1_lfo_amp()` | el LFO del anfitrión por voz en el DSP A y lo que modula; en `engine.c`, LFO SHAPE / RATE / DELAY TIME / TO PITCH / TO FILTER / TO AMP (§3.3). `LFO_PITCH=0`: sin LFO → pitch |
+| `s1_color(0)` y / o `s1_color(1)` | además, envolvente de pitch y sub oscilador por voz y la mezcla de cada color; en el DSP B, las dos ADSR del anfitrión; en `engine.c`, PITCH ENV A / D, COLOR y COLOR MOD (§3.2) |
 | `S1_PARAM` | las tablas, escritas por el ARM en el `panel_id` de cada una |
 | estado, derrames, primera muestra | el bloque de banco 0 de cada voz, del tamaño justo |
 
@@ -102,7 +103,7 @@ Lo que en MUTABLE-SYSTEM ponía el anfitrión, aquí lo pone el C:
 |---|---|---|
 | puerta / VCA | ADSR del anfitrión | **el kernel**: `s1_gate()` o una envolvente propia. Sin eso la voz suena siempre (`--sim` lo avisa) |
 | filtro | paso bajo del anfitrión, después de `S1_DSP_B` | solo el del kernel, si lo tiene |
-| LFO, RANGE | en el tono de `s1_pitch()` | no hay |
+| LFO, RANGE | en el tono de `s1_pitch()` | el LFO del anfitrión, por voz (§3.3): en el tono de `s1_pitch()` / `s1_dt()` / `s1_rdt()`, y `s1_lfo_filter()` / `s1_lfo_amp()` para el filtro y el VCA del kernel; RANGE no hay |
 | nivel | OSC1 MIX | el kernel (una tabla `S1_PARAM`) |
 | controles del panel | OSC1 / OSC2 COLOR libres | todos libres para `S1_PARAM`, salvo VOLUME, DELAY y REVERB, que son del OS / maestro; OSC1 / OSC2 COLOR con su COLOR MOD también como `s1_color` (§3.2) |
 
@@ -155,23 +156,19 @@ ganancia, una relación con `s1_exp2`…); lo que no es un `s1_color` sigue en t
 | COLOR MOD | fuente | dónde |
 |---|---|---|
 | 0 MANUAL | la perilla | — |
-| 1 LFO | LFO de la voz, 0,5 + 0,5 · lfo; LFO SHAPE (`0x160`: seno, triángulo, sierra, cuadrada, S&G, S&H) y LFO RATE (`0x162`, 0,05…40 Hz) | DSP A |
+| 1 LFO | el LFO del anfitrión de la voz con su DELAY TIME (§3.3), 0,5 + 0,5 · lfo | DSP A |
 | 2 PITCH ENV | AD de la voz: PITCH ENV ATTACK / DECAY (`0x17B` / `0x17C`, 1 ms…10 s) | DSP A |
 | 3 FILTER ENV | la ADSR 1 del anfitrión (§3.1) | DSP B → `A178+v` → DSP A |
 | 4 AMP ENV | la ADSR 0 del anfitrión (§3.1) | DSP B → `A170+v` → DSP A |
 | 5 SUB OSC | cuadrada una octava abajo de la nota, 0 / 1 | DSP A |
 
 Si el kernel llama a `s1_color`, `make_s1cc.py` agrega:
-* **DSP A, una vez por muestra:** la fuente de ruido de los S&H (`step_noise` de MUTABLE-SYSTEM paso 11).
-* **DSP A, por voz, antes del kernel** (`cmod_voice`):
-  * LFO: `step_lfo_voice` de MUTABLE-SYSTEM paso 11 (probado en el equipo), sin el fade ni las salidas a tono,
-    filtro y amplitud. Fase reiniciada en cada comienzo de nota, S&H y S&G propios, las 6 formas pesadas por
-    `C042`–`C047`.
+* **DSP A, por voz, antes del kernel** (`hlfo_voice`), además del LFO de §3.3:
   * Envolvente de pitch: las cuentas de la ADSR del anfitrión (`adsr()`, probada) con la puerta en 1 y sustain 0.
     El latch (1 cuando el nivel pasó 0,999) se borra con cada disparo; ataque = 1 − latch; el nivel va hacia
     1,25 · ataque con tasa ataque · kA + latch · kD.
   * Sub oscilador: fase −1…1 + `s1_dt()` por muestra, cuadrada por `ph_clamp`.
-  * Color i = Σ pesos (`C050 + 8 i`…) × (1, u, pitch env, filter env, amp env, sub), a una palabra del bloque de la
+  * Color i = Σ pesos (`C050 + 8 i`…) × (1, lf, pitch env, filter env, amp env, sub), a una palabra del bloque de la
     voz que el kernel lee como `s1_color(i)`.
 * **DSP B:** las dos ADSR del anfitrión aunque el kernel no lea `s1_env`, y su nivel a `A170+v` / `A178+v`. El DSP A
   lo lee una muestra después.
@@ -180,18 +177,13 @@ Si el kernel llama a `s1_color`, `make_s1cc.py` agrega:
 
 | parámetro del DSP A | valor |
 |---|---|
-| `C040` | paso de fase del LFO (−1…1 por muestra) |
-| `C041` | coeficiente del S&G, min(1, 4 · paso) |
-| `C042`–`C047` | forma del LFO: 0,5 en la elegida, 0 en las demás |
 | `C048` / `C049` | tasas de decay / ataque de la envolvente de pitch (tablas `decay_bits` / `attack_bits`) |
-| `C050 + 8 i` … `+5` | pesos del color i: manual, LFO, pitch env, filter env, amp env, sub. Con SUB OSC: manual = sub = perilla / 2 |
+| `C050 + 8 i` … `+5` | pesos del color i: manual, LFO, pitch env, filter env, amp env, sub. Con LFO o SUB OSC (−1…1): manual = ese peso = perilla / 2 |
 
-Por defecto, hasta que se mueve un control: LFO triángulo con RATE 128, PITCH ENV A 0 / D 128, colores en 128 con
-MOD = MANUAL.
+Por defecto, hasta que se mueve un control: PITCH ENV A 0 / D 128, colores en 128 con MOD = MANUAL (el LFO: §3.3).
 
-**Costo.** Unas 43 instrucciones por voz en el DSP A, ya empaquetadas: 8 voces de `mp_csaw` dan 703 (antes 368),
-y el DSP B queda igual. Por eso sólo lo agregan los kernels que llaman a `s1_color`, y un kernel con más de ~45
-instrucciones por voz en A necesita menos voces.
+**Costo.** Con el LFO de §3.3, unas 66 instrucciones por voz en el DSP A, ya empaquetadas: `mp_csaw` entra con 6
+voces (669; con 8, 889). Sin el LFO del anfitrión (antes de §3.3) eran ~43: 8 voces daban 703.
 
 **Verificación.** En el emulador, la palabra de color de la voz 0 con cada fuente (perilla en 255, 0,6 s, la puerta
 baja a la mitad):
@@ -199,7 +191,7 @@ baja a la mitad):
 | fuente | resultado |
 |---|---|
 | MANUAL | 1,000 constante |
-| LFO, las 6 formas | seno, triángulo y sierra recorren 0…1; la cuadrada salta 0 / 1; S&H escalones del ruido en cada vuelta; S&G los sigue con glide |
+| LFO, las 6 formas (antes de §3.3: sin fade, pesos 0,5) | seno, triángulo y sierra recorren 0…1; la cuadrada salta 0 / 1; S&H escalones del ruido en cada vuelta; S&G los sigue con glide |
 | PITCH ENV, A 60 / D 160 | 0,706 a los 25 ms y cae a 0 en ~0,4 s; A 200: sube de forma gradual |
 | FILTER ENV (S 128) | 0,82 → 0,50 (sustain), 0 después del release |
 | AMP ENV (S 255) | 1,0 mientras dura la nota, 0 después |
@@ -208,6 +200,48 @@ baja a la mitad):
 Primer intento de la envolvente de pitch: `(1 − e) · 65536` desborda el rango del DSP (±512) y da 0, y la bandera de
 ataque nunca subía. El segundo, con una bandera continua que baja con `min`, quedaba en equilibrio en 0,997 y no
 decaía. Por eso se usa la forma probada de la ADSR.
+
+### 3.3 El LFO del anfitrión (`s1_lfo_filter`, `s1_lfo_amp`, el tono) [sim, 2026-10-28; sin probar en el equipo]
+
+Un LFO por voz en el DSP A, antes del kernel (`hlfo_voice`), con los controles LFO del panel. Es `step_lfo_voice` de
+MUTABLE-SYSTEM paso 11 (probado en el equipo), con el fade y sus tres destinos:
+
+| control | panel | qué hace |
+|---|---|---|
+| LFO SHAPE | `0x160` | seno, triángulo, sierra, cuadrada, S&G, S&H (pesos `C042`–`C047`: 1 en la elegida) |
+| LFO RATE | `0x162` | 0,05…40 Hz; la fase vuelve a 0 en cada comienzo de nota; S&H toma el ruido global en cada vuelta, S&G lo sigue (constante = período / 8) |
+| DELAY TIME | `0x161` | fade f: 0 → 1 desde la puerta en 0…5 s; lf = f · lfo |
+| LFO TO PITCH | `0x163` | bipolar (128 = 0), y = b·\|b\| octavas (±1): el anfitrión escribe pitch + y, `dt` · 2^y y `rdt` · 2^−y en palabras del bloque de la voz, y el kernel las lee como `s1_pitch()` / `s1_increment()`, `s1_dt()`, `s1_rdt()` |
+| LFO TO FILTER | `0x164` | bipolar, ±4 octavas: `s1_lfo_filter()` = F · lf, para sumar al corte |
+| LFO TO AMP | `0x165` | bipolar, M = ±0,5: `s1_lfo_amp()` = 1 + f · (M · lf − \|M\|), una ganancia 0…1 (trémolo hacia abajo desde el nivel lleno; M < 0, el LFO invertido) |
+
+Las curvas son las de MUTABLE-SYSTEM. Por defecto: triángulo, RATE 128 (1,4 Hz), DELAY 0 y los tres destinos en 128,
+es decir sin modulación.
+
+* **Dónde.** El filtro y el VCA son del kernel, así que el anfitrión sólo da los términos: `s1_lfo_filter()` y
+  `s1_lfo_amp()` se leen en los dos DSP (el compilador pasa a B por `INB` lo que B lee). `mp_dsp_b.h` de
+  mutable_ported los usa. Un kernel que no los lee no los paga.
+* **2^y.** Taylor de e^(y·ln2/2) hasta el cuarto grado, al cuadrado: 0,6 cents de error a 0,7 octavas. `dt · rdt`
+  queda en 1,0000.
+* **Parámetros del DSP A.** `C040` paso de fase, `C041` coeficiente del S&G, `C042`–`C047` formas, `C04A` paso del
+  fade, `C04B` octavas a pitch, `C04C` octavas al filtro, `C04D` / `C04E` M y \|M\|. Palabras de banco 0 después de
+  los bloques de voz: el ruido del S&H y su contador de Weyl (`step_noise`).
+* **Cuándo.** Si el kernel lee el tono (casi todos), `s1_lfo_filter`, `s1_lfo_amp` o `s1_color`. `LFO_PITCH=0`
+  deja el tono como lo escribe el ARM (ahorra ~18 instrucciones por voz).
+* **Costo.** ~46 instrucciones por voz en el DSP A con pitch, filtro y amp (`mp_saw`: 155 → 521 con 8 voces); el
+  DSP B, +4 por voz en `mp_dsp_b.h`. Los kernels de más de ~42 instrucciones por voz en A necesitan menos voces
+  (tabla en [examples_mutable_ported_README.md](examples_mutable_ported_README.md) §4).
+
+**Verificación** (emulador, `mp_saw`, palabras que el anfitrión le da al kernel en la voz 0):
+
+| controles | resultado |
+|---|---|
+| todo en 128 | pitch, `dt`, `rdt` sin cambio; filtro 0; amp 1 |
+| TO PITCH 255, triángulo 2,55 Hz | pitch ±1 octava; `dt` × 0,5…2, `rdt` el inverso (`dt · rdt` = 1,0000…1,00005) |
+| TO PITCH 0, cuadrada | −1 / +1 octava, en escalón |
+| TO FILTER 255, TO AMP 255 | filtro ±4,0 octavas; amp 0,03…0,99 |
+| TO AMP 0 | amp con el LFO invertido |
+| DELAY TIME 200, TO PITCH 200 | fade en rampa de 3,1 s; la profundidad crece con él |
 
 ## 4. Presupuesto
 
@@ -238,6 +272,38 @@ copias de puerta y disparo, si en el equipo llegan en la misma muestra, una más
 corren a la vez ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) §8). Mapa de la zona
 del banco 5 que escriben los DSP: `A151+v` `x`, `A160+v` / `A168+v` copias de puerta y disparo, `A188`–`A19F` ranuras
 de export 0…2, `A1A0`–`A1B7` entradas para B, `A1B8`–`A1FF` ranuras 3…11.
+
+### 4.1 Probar en el equipo grupos de ops que no están en la lista (`--forms`, `TRY_FORMS`)
+
+El planificador sólo pone juntas en una instrucción las ops cuyo grupo está en `asm/proven_forms.txt`: los que
+corrieron en el equipo (regla R8 de `asm/s1rules.py`). Los demás quedan en instrucciones separadas, y
+`check_optimized` los avisa como `fusable`. Para sumar un grupo a la lista hay que probarlo en el equipo:
+
+```sh
+KERNEL=sdk/s1cc/build/mp_csaw VOICES=6 python3 examples/system_s1cc/make_s1cc.py --forms       # 1. candidatos
+KERNEL=sdk/s1cc/build/mp_csaw VOICES=6 NAME=MP-CSAW-TRY TRY_FORMS='addxy:imm + mul:imm; mad:imm + mul:reg' \
+    sh examples/system_s1cc/build.sh                                                           # 2. armar (o TRY_FORMS=all)
+python3 tools/plugout_tool.py install plugins/MP-CSAW-TRY --slot 1 --force --no-patches -y      # 3. instalar y tocar
+python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by MP-CSAW-TRY  # 4. si funcionó
+```
+
+1. `--forms` lista, por programa del esclavo, los grupos fuera de la lista que el planificador usaría si pudiera,
+   cuántas instrucciones ahorra cada uno solo y cuántas veces aparece con todos permitidos.
+2. `TRY_FORMS` arma con esos grupos además de los probados. El resto de las reglas (R2–R7) se sigue verificando.
+   `examples/system_s1cc/build/try_forms.txt` lista los grupos que el armado usó, y el build lo recuerda al final.
+3. Prueba en el equipo: que no se cuelgue y que suene igual que el armado sin `TRY_FORMS` (notas, acordes, las
+   perillas). La prueba exacta es una captura USB contra `make_s1cc.py --sim`.
+4. `tools/proven_forms.py promote` agrega los grupos nuevos a la lista con la fecha y el PLUG-OUT que los corrió.
+   Desde ahí todos los armados los usan. `tools/proven_forms.py list` muestra la lista.
+
+Ejemplo (`mp_csaw`, 6 voces, con el LFO del anfitrión y COLOR MOD): DSP A 669 → 603 y DSP B 462 → 427 con
+`TRY_FORMS=all` (14 grupos nuevos, 106 instrucciones). Los dos que más ahorran solos son `addxy:imm + mul:imm`
+(12, DSP A) y `mad:imm + mul:reg` (18, DSP B). En el emulador, el armado con `all` da la misma envolvente y
+silencio sin notas.
+
+**[medido] 2026-10-28.** `MP-CSAW-TRY` (ese armado) corrió en el equipo y sonó igual que `MP-CSAW`: notas, acordes,
+COLOR MOD, LFO y envolventes. Los 14 grupos se promovieron a `asm/proven_forms.txt` (29 → 43), y desde ahí todos los
+armados los usan.
 
 ## 5. Verificación [sim, 2026-10-27]
 

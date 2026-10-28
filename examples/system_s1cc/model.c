@@ -31,7 +31,7 @@ static void p_set(int g, int id, int v) { ((set_fn)SVC(0x04))(g, id, v); }
 static void p_flush(int g) { ((flush_fn)SVC(0x08))(g); }
 static void p_touch(int g, int id) { ((touch_fn)SVC(0x0C))(g, id); }
 
-enum { G_PART = 1, G_VOICE = 2, G_PATCH = 4 };
+enum { G_PART = 1, G_VOICE = 2, G_PANEL = 3, G_PATCH = 4 };
 enum { ID_NOTE = 0x110, ID_VEL = 0x120, ID_BEND = 0x130, ID_MOD = 0x131, ID_EXPR = 0x134,
        ID_PART_80 = 0x80, ID_PART_81 = 0x81 };
 
@@ -286,11 +286,26 @@ static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x
     if (id == ID_VOLUME)
         set_volume(value);
 }
+/* the panel's current values for the engine: the OS sends a control to the slave's engine (vt+0x30) only when it
+   moves, so on entering the PLUG-OUT the kernel's tables, envelopes and LFO kept their defaults (CUTOFF and
+   RESONANCE at 128 whatever the knobs said, 2026-10-28). touch + flush makes the OS send them all again with their
+   values. The synth's controls 0x160..0x18F are patch words (patch id 0x160 + k) of group 3, as 0x18A..0x190
+   (system-1/FX_CHAIN.md §1) [inferred: group 3 for 0x160..0x189] */
+enum { ID_PANEL0 = 0x160, ID_PANEL1 = 0x18F };
+
+static void resend_panel(void)
+{
+    for (int id = ID_PANEL0; id <= ID_PANEL1; id++)
+        p_touch(G_PANEL, id);
+    p_flush(G_PANEL);
+}
+
 static void m_load(struct model *m)                           /* vt+0x08 */
 {
     (void)m;
     ((s1_queue_fn)SVC(0x34))(set_master_b);
     set_volume(volume);
+    resend_panel();
 }
 
 static const void *const model_vt[13] = {

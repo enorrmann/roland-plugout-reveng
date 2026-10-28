@@ -271,7 +271,7 @@ const std::map<std::string, std::string> kIntrinsicOps = {
 
 const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_increment", "s1_dt", "s1_rdt", "s1_param_get",
                                         "s1_export", "s1_import", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env",
-                                        "s1_color",
+                                        "s1_color", "s1_lfo_filter", "s1_lfo_amp",
                                         "s1_range"};
 
 std::string intrinsicBase(const std::string &fn) { return fn.substr(5, fn.find('.', 5) - 5); }   // llvm.<base>.<type>
@@ -838,7 +838,7 @@ struct Builder {
             return c->getSExtValue();
         };
         if (fn == "s1_pitch" || fn == "s1_gate" || fn == "s1_trig" || fn == "s1_increment" || fn == "s1_dt" ||
-            fn == "s1_rdt") {
+            fn == "s1_rdt" || fn == "s1_lfo_filter" || fn == "s1_lfo_amp") {
             Node *&n = inputs[fn];
             if (!n) {
                 n = mk(fn == "s1_increment" ? NK::Increment : NK::Input, fn, {}, CI);

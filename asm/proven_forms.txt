@@ -29,3 +29,18 @@ mul:reg + ph_clamp:reg
 mul:reg + subxy:reg
 subxy:imm + subxy:reg
 subxy:reg + subxy:reg
+# proven 2026-10-28 by MP-CSAW-TRY (TRY_FORMS build run on the device)
+add:imm + mad:reg
+addxy:imm + mad:reg
+addxy:imm + mul:imm
+addxy:reg + mad:imm
+addxy:reg + mad:reg
+addxy:reg + mov:reg
+addxy:reg + mul:reg
+mad:imm + mov:imm
+mad:imm + mul:reg
+max:reg + mov:reg
+mov:imm + mul:imm
+mov:reg + mul:imm
+mov:reg + mul:reg
+mul:imm + ymacd:imm

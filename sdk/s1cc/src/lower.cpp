@@ -1190,6 +1190,10 @@ struct Lowerer {
                 x.s = 16384;
             if (n->name == "color0" || n->name == "color1")   // 0..1 whatever the profile saw (the host modulates it)
                 x.V = Range{0, 1};
+            if (n->name == "lfo_filter")              // the host's LFO -> filter: -4 .. +4 octaves
+                x.V = Range{-4, 4};
+            if (n->name == "lfo_amp")                 // the host's LFO -> amp: a gain 0 .. 1
+                x.V = Range{0, 1};
             return x;
         }
         case NK::Increment: {

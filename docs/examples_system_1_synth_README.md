@@ -168,8 +168,11 @@ paso 13 + `FOLD` = A 585 / B 471. Cada build lo imprime (`s1m0 … instructions`
 | paso 6 | 682 | funciona |
 | paso 7 | 826 | cuelga al seleccionar el PLUG-OUT |
 | paso 6 + 144 `mov r4, r4` | 826 | cuelga |
+| C-S1SY9 (paso 9) | 693 | funciona |
+| SYSTEM-S1CC `MP-CSAW`, 6 voces | 669 y 603 | funcionan (2026-10-28) |
+| SYSTEM-S1CC `MP-CSAW`, 7 voces | 702 | **cuelga** al tocar (2026-10-28; mismo programa que el de 6 voces con una voz más) |
 
-El límite del SYSTEM-1 está **entre 682 y 826** instrucciones por muestra en el DSP A del esclavo, más bajo que las
+El límite del SYSTEM-1 está **entre 693 y 702** instrucciones por muestra en el DSP A del esclavo (antes: entre 682 y 826), más bajo que las
 925–945 medidas en el SYSTEM-8 (`docs/DSP_HARDWARE.md` §1). No se buscó el valor exacto: cada intento por encima
 cuelga el equipo y hay que apagarlo y encenderlo. Para diseñar se toma **682 como máximo probado**.
 

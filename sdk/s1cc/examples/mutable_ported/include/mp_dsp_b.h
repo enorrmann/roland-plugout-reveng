@@ -2,7 +2,8 @@
  * defines S1_DSP_A (with mp_dsp_a.h, and its own S1_PARAM knobs on OSC1 / OSC2 COLOR, ...) and includes this file
  * to get:
  *   x (from DSP A) -> filter (MP_FILTER, default the SVF low pass) -> x the AMP envelope (s1_env(0)) -> out
- * The cutoff moves with the FILTER envelope (s1_env(1)) times FILTER ENV AMOUNT and with the key (KEY TRACK).
+ * The cutoff moves with the FILTER envelope (s1_env(1)) times FILTER ENV AMOUNT, with the key (KEY TRACK) and with
+ * the host LFO (s1_lfo_filter, LFO TO FILTER); the AMP envelope is multiplied by the LFO's tremolo (s1_lfo_amp).
  * Both envelopes are SYSTEM-S1CC's ADSRs in assembly on DSP B (docs/examples_system_s1cc_README.md §3.1).
  *   FILTER CUTOFF 20 Hz .. 17 kHz, RESONANCE, ENV AMOUNT -8 .. +8 octaves (128 = 0), KEY TRACK 0 .. 1 (pitch).
  * MP_FILTER: MP_SVF_LP (default), MP_SVF_BP, MP_SVF_HP, MP_LADDER, MP_LPG (the AMP envelope drives the gate),
@@ -41,20 +42,22 @@ static struct mp_ladder mp_b_ladder;
 #endif
 
 S1_DSP_B {
+  float amp = s1_env(0) * s1_lfo_amp();        /* AMP envelope x the host LFO's tremolo (LFO TO AMP) */
 #if MP_FILTER == MP_NONE
-  return x * s1_env(0);
+  return x * amp;
 #else
-  /* cutoff: the knob, + envelope x amount octaves, + key track x (pitch - A4) octaves, at most w = 1 (~15 kHz) */
-  float oct = s1_env(1) * s1_param(envamt, 0) + s1_param(keytrack, 0) * (s1_pitch() - 4.75f);
-  float w = fminf(s1_param(cutoff, 0) * s1_exp2(s1_range(oct, -10.0f, 10.0f)), 1.0f);
+  /* cutoff: the knob, + envelope x amount octaves, + key track x (pitch - A4) octaves, + the host LFO (LFO TO
+     FILTER), at most w = 1 (~15 kHz) */
+  float oct = s1_env(1) * s1_param(envamt, 0) + s1_param(keytrack, 0) * (s1_pitch() - 4.75f) + s1_lfo_filter();
+  float w = fminf(s1_param(cutoff, 0) * s1_exp2(s1_range(oct, -14.0f, 14.0f)), 1.0f);
 #if MP_FILTER == MP_LADDER
-  return mp_ladder_process(&mp_b_ladder, x, w, s1_param(reso, 0)) * s1_env(0);
+  return mp_ladder_process(&mp_b_ladder, x, w, s1_param(reso, 0)) * amp;
 #elif MP_FILTER == MP_LPG
-  return mp_lpg_process((struct mp_lpg *)&mp_b_svf, x, s1_env(0), w, s1_param(reso, 0));
+  return mp_lpg_process((struct mp_lpg *)&mp_b_svf, x, amp, w, s1_param(reso, 0));
 #else
   struct mp_svf_out o = mp_svf_process(&mp_b_svf, x, w, s1_param(reso, 0));
   float y = MP_FILTER == MP_SVF_BP ? o.bp : MP_FILTER == MP_SVF_HP ? o.hp : o.lp;
-  return y * s1_env(0);
+  return y * amp;
 #endif
 #endif
 }

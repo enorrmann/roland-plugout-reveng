@@ -118,6 +118,15 @@ python3 tools/check_optimized.py --strict FILE...   # código de salida 1 si hay
 Avisos: `manual-wrap`, `filler`, `transfer-only` y `fusable`. Están explicados en
 [MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md) §2.
 
+Muchos `fusable` del SYSTEM-1 son grupos de ops que no están en `asm/proven_forms.txt` (regla R8). Para probarlos en
+el equipo y sumarlos a la lista: `make_s1cc.py --forms`, `TRY_FORMS=...` y `tools/proven_forms.py promote`
+([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §4.1).
+
+```sh
+python3 tools/proven_forms.py list                                         # los grupos probados
+python3 tools/proven_forms.py promote BUILD/try_forms.txt --by PLUGOUT     # agregar los que corrieron en el equipo
+```
+
 ## 5. Equipo
 
 | herramienta | uso |

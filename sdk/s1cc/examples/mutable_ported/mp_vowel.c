@@ -38,5 +38,5 @@ S1_DSP_B {
   float y = kA[0] * mp_svf_process(&f1, x, s1_param(vowel, 0) * sh, q).bp;
   y += kA[1] * mp_svf_process(&f2, x, s1_param(vowel, 1) * sh, q).bp;
   y += kA[2] * mp_svf_process(&f3, x, s1_param(vowel, 2) * sh, q).bp;
-  return y * s1_env(0);
+  return y * s1_env(0) * s1_lfo_amp();          /* AMP envelope x the host LFO (LFO TO AMP) */
 }

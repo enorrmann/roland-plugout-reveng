@@ -43,6 +43,11 @@
  *                         knob; LFO, PITCH ENV, FILTER ENV, AMP ENV, SUB OSC = knob x source (0..1). SYSTEM-S1CC makes
  *                         the sources in assembly when a kernel uses s1_color (docs/examples_system_s1cc_README.md §3.2).
  *                         The native reference and `check` give the knob: color0=K / color1=K (default 128)
+ *   s1_lfo_filter()       the host's LFO -> FILTER (LFO TO FILTER x fade x lfo), octaves -4 .. +4: add it to the cutoff
+ *   s1_lfo_amp()          the host's LFO -> AMP (LFO TO AMP), a gain 0 .. 1: multiply the voice by it. Both on DSP A
+ *                         and DSP B; the native reference and `check` give 0 and 1. The host's LFO -> PITCH needs no
+ *                         call: s1_pitch, s1_increment, s1_dt and s1_rdt already carry it
+ *                         (docs/examples_system_s1cc_README.md §3.3)
  *   s1_range(x, lo, hi)   x, declaring its range: lo and hi go to s1cc as constants, and the profile must reach
  *                         the call (a branch that always takes the same way leaves it unseen: docs/S1CC.md §3.2)
  */
@@ -84,6 +89,8 @@ S1_EXTERN S1_FN float s1_exp2(float x);
 S1_EXTERN S1_FN float s1_range(float x, float lo, float hi);
 S1_EXTERN S1_IN float s1_env(int i);
 S1_EXTERN S1_IN float s1_color(int i);
+S1_EXTERN S1_IN float s1_lfo_filter(void);
+S1_EXTERN S1_IN float s1_lfo_amp(void);
 
 #define s1_param(name, i) s1_param_get(&s1_param_desc_##name, (i))
 

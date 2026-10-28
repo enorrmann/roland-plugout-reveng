@@ -118,6 +118,15 @@ python3 tools/check_optimized.py --strict FILE...   # código de salida 1 si hay
 Avisos: `manual-wrap`, `filler`, `transfer-only` y `fusable`. Están explicados en
 [MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md) §2.
 
+Muchos `fusable` del SYSTEM-1 son grupos de ops que no están en `asm/proven_forms.txt` (regla R8). Para probarlos en
+el equipo y sumarlos a la lista: `make_s1cc.py --forms`, `TRY_FORMS=...` y `tools/proven_forms.py promote`
+([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §4.1).
+
+```sh
+python3 tools/proven_forms.py list                                         # los grupos probados
+python3 tools/proven_forms.py promote BUILD/try_forms.txt --by PLUGOUT     # agregar los que corrieron en el equipo
+```
+
 ## 5. Equipo
 
 | herramienta | uso |
@@ -538,6 +547,27 @@ docs/PROTOCOL.md for the reverse-engineered details.
 | `--slot` | slot written into the start message | `1` |
 | `--flags` |  | `0` |
 | `--device-id` |  |  |
+
+### `tools/proven_forms.py`
+
+```
+The op groups that may share one DSP instruction on the SYSTEM-1 (asm/proven_forms.txt, rule R8 of asm/s1rules.py):
+list them, and add the ones a TRY_FORMS build tested on the device.
+
+    python3 tools/proven_forms.py list
+    python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by MP-CSAW-TRY
+    python3 tools/proven_forms.py promote 'mad:reg + mul:imm; add:imm + mov:i32' --by MP-CSAW-TRY
+
+Workflow (docs/examples_system_s1cc_README.md §4.1):
+  1. KERNEL=dir python3 examples/system_s1cc/make_s1cc.py --forms
+       the groups not on the list that would shorten the slave programs, and how many instructions each saves
+  2. KERNEL=dir NAME=X-TRY TRY_FORMS='GROUP; GROUP' sh examples/system_s1cc/build.sh   (or TRY_FORMS=all)
+       the PLUG-OUT with those groups; build/try_forms.txt lists the ones it used
+  3. install it, select it, play (notes, chords, the knobs): no hang, the same sound as the proven build (a USB
+     capture against make_s1cc.py --sim is the exact test)
+  4. promote: the groups go into asm/proven_forms.txt with the date and the PLUG-OUT that ran them
+Only promote after the device ran the build: a group the device does not execute as the emulator does can hang it.
+```
 
 ### `tools/read_param.py`
 
@@ -3404,6 +3434,11 @@ Options (environment variables):
   BUDGET=n      instructions per sample a slave DSP may have (default 708, the most tried on the device; 826 hung it)
   NAME=...      plug-out name shown on the device and plugins/ folder (default SYSTEM-S1CC); max 16 characters
   MODEL_ID=0x.. (default 0x0010), PARAMLOG=1 (model.c sends the parameters to the PC)
+  TRY_FORMS=... op groups to test on the device before they go into asm/proven_forms.txt: 'all' or
+                'mad:reg + mul:imm; ...' (the candidates: KERNEL=... python3 examples/system_s1cc/make_s1cc.py --forms);
+                the build writes the ones it used to examples/system_s1cc/build/try_forms.txt; once the PLUG-OUT works
+                on the device: python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by NAME
+  LFO_PITCH=0   the host LFO does not modulate the pitch / s1_dt / s1_rdt words (saves ~18 instructions per voice)
 
 Examples:
   sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c
@@ -3439,4 +3474,4 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                                       reference (sdk/s1cc refdsp), and the silence without notes
 ```
 
-Environment: `BUDGET` (default '708'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `OUTDIR` (default HERE), `SIM_N` (default '9600'), `VOICES` (default '8')
+Environment: `BUDGET` (default '708'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_PITCH` (default '1'), `OUTDIR` (default HERE), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')

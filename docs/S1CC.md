@@ -137,6 +137,7 @@ Intrínsecos:
 | `S1_NOTE_RANGE(lo, hi)` | (declaración, a nivel de archivo) las notas MIDI a las que se toca la voz; el perfilado sólo usa esas (por defecto 0…127). Lo que sólo pasa fuera del rango (los dos bordes de un pulso en una muestra, un límite de altura) no se compila (W908 / W909) |
 | `s1_env(i)` | solo en `S1_DSP_B`: la envolvente `i` del anfitrión, 0…1 (SYSTEM-S1CC: 0 = AMP, 1 = FILTER; [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.1). En la referencia nativa y en `check`, la puerta |
 | `s1_color(i)` | solo en `S1_DSP_A`: OSC1 (0) / OSC2 (1) COLOR, 0…1, con su fuente COLOR MOD (manual = la perilla; LFO, PITCH ENV, FILTER ENV, AMP ENV, SUB OSC = perilla × fuente; SYSTEM-S1CC las arma en ensamblador, [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.2). Rango declarado 0…1 sea cual sea el perfil (el perfilado lo barre 0…1 en cada nota). En la referencia nativa y en `check`, la perilla: `color0=K` / `color1=K` (128 por defecto) |
+| `s1_lfo_filter()`, `s1_lfo_amp()` | el LFO del anfitrión por voz: octavas a sumar al corte (LFO TO FILTER, ±4) y una ganancia 0…1 para el VCA (LFO TO AMP). En los dos DSP (B los recibe por `INB`). En la referencia nativa y en `check`, 0 y 1; el perfilado los barre en su rango. El LFO → pitch no necesita llamada: SYSTEM-S1CC modula las palabras de `s1_pitch` / `s1_increment` / `s1_dt` / `s1_rdt` ([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.3) |
 
 ### 3.1 Cuándo corre cada parte
 

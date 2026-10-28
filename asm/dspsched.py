@@ -164,6 +164,42 @@ def op_signature(op_texts):
     return tuple(sorted(out))
 
 
+def signatures(scheduled):
+    """Counter of the op groups (op_signature) that share an instruction in scheduled lines (texts joined by ' | ')"""
+    import collections
+    out = collections.Counter()
+    for line in scheduled:
+        if not line.strip() or line.startswith(';'):
+            continue
+        ops = [u.strip() for u in line.split('|') if u.strip().split()[0] not in ('ld', 'st')]
+        if len(ops) > 1:
+            out[op_signature(ops)] += 1
+    return out
+
+
+def form_text(sig):
+    """an op signature as asm/proven_forms.txt writes it: 'mad:reg + mul:imm'"""
+    return ' + '.join(sig)
+
+
+def parse_forms(text):
+    """'mad:reg + mul:imm; add:imm + mov:i32' -> set of signatures"""
+    return {tuple(sorted(x.strip() for x in f.split('+'))) for f in text.split(';') if f.strip()}
+
+
+def candidate_forms(lines, proven):
+    """op groups the device has not run that would shorten this program: [(signature, instructions saved alone,
+    times used when every encodable group is allowed)], the proven-only length and the every-group length"""
+    base = schedule(lines, proven)
+    free = schedule(lines, None)
+    used = {s: c for s, c in signatures(free).items() if s not in proven}
+    out = []
+    for sig, c in used.items():
+        out.append((sig, len(base) - len(schedule(lines, proven | {sig})), c))
+    Ins.allowed = proven
+    return sorted(out, key=lambda x: (-x[1], -x[2])), len(base), len(free)
+
+
 def load_proven(path=None):
     """op groups proven on the device (asm/proven_forms.txt: one signature per line, ops joined by ' + ')"""
     path = path or os.path.join(HERE, 'proven_forms.txt')

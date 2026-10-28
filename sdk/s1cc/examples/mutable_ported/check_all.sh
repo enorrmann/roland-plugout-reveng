@@ -1,6 +1,7 @@
 #!/bin/sh
 # check_all.sh [kernel.c ...]: every mutable_ported kernel (default: mp_*.c here) built by s1cc and checked against its
-# native reference, then SYSTEM-S1CC's programs made with VOICES (default 8) to see the per-sample budget (708).
+# native reference, then SYSTEM-S1CC's programs made with VOICES (default 8) to see the per-sample budget (DSP A 693,
+# DSP B 708: make_s1cc.py BUDGET_A / BUDGET_B).
 # One line per kernel: A / B instructions per voice, SNR of A and B (10 ms, note 57, knobs at 128), and the slave
 # programs' totals. Work files in ${OUT:-/tmp/mutable_ported}.
 HERE=$(cd "$(dirname "$0")" && pwd)

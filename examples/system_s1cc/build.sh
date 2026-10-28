@@ -19,9 +19,15 @@ controls (docs/examples_system_s1cc_README.md §3.2); every other control does n
 Options (environment variables):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
   VOICES=n      1..8 voices (default 8); fewer voices leave more instructions for each
-  BUDGET=n      instructions per sample a slave DSP may have (default 708, the most tried on the device; 826 hung it)
+  BUDGET_A=n, BUDGET_B=n  instructions per sample of the slave's DSP A / DSP B (default 693 / 708: what ran on the
+                device; DSP A 702 hung it); BUDGET=n sets both
   NAME=...      plug-out name shown on the device and plugins/ folder (default SYSTEM-S1CC); max 16 characters
   MODEL_ID=0x.. (default 0x0010), PARAMLOG=1 (model.c sends the parameters to the PC)
+  TRY_FORMS=... op groups to test on the device before they go into asm/proven_forms.txt: 'all' or
+                'mad:reg + mul:imm; ...' (the candidates: KERNEL=... python3 examples/system_s1cc/make_s1cc.py --forms);
+                the build writes the ones it used to examples/system_s1cc/build/try_forms.txt; once the PLUG-OUT works
+                on the device: python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by NAME
+  LFO_PITCH=0   the host LFO does not modulate the pitch / s1_dt / s1_rdt words (saves ~18 instructions per voice)
 
 Examples:
   sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c
