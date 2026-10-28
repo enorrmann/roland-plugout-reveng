@@ -124,7 +124,7 @@ static void hlfo_color(int i)          /* weights (manual, LFO, pitch env, filte
     for (int j = 0; j < 6; j++) {      /* the LFO and the sub are -1..1: knob x (0.5 + 0.5 x) */
         uint32_t w = src == 1 || src == 5 ? (j == 0 || j == src ? half_bits[k] : F_ZERO)
                                           : j == src ? level_bits[k] : F_ZERO;
-        b6(0, (i ? A6_COL1 : A6_COL0) + j, w);
+        b6(1, (i ? B6_COL1 : B6_COL0) + j, w);
     }
 }
 
@@ -150,8 +150,8 @@ static void hlfo_apply(int c)
         break;
     case C_PENV_AMT: b6(0, A6_PAMT, penv_amt_bits[k]); break;   /* PITCH ENV AMOUNT -> pitch (octaves) */
     case C_RANGE1: b6(0, A6_RANGE1, range_bits[k > 5 ? 5 : k]); break;   /* OSC1 RANGE 64'..2' -> -3..+2 octaves */
-    case C_PENV_A: b6(0, A6_PENV + 1, attack_bits[k]); break;
-    case C_PENV_D: b6(0, A6_PENV, decay_bits[k]); break;
+    case C_PENV_A: b6(1, B6_PENV + 1, attack_bits[k]); break;
+    case C_PENV_D: b6(1, B6_PENV, decay_bits[k]); break;
     case C_COLOR0: case C_MOD0: hlfo_color(0); break;
     case C_COLOR1: case C_MOD1: hlfo_color(1); break;
     case C_SUB: b6(0, A6_SUBMIX, half_bits[k]); break;           /* the host mixer: SUB and NOISE levels 0 .. 0.5 */

@@ -132,6 +132,38 @@ static inline double quant_ref(double v)
 
 static inline double pymod_ref(double x, double m);
 
+/* RAW encoding rounded toward -inf: the B unit's shifts and the log2 split of a negative Y (dspisa.quant_floor,
+ * measured 2026-10-28 with re/dspnative.py) */
+static inline double quant_floor(double v)
+{
+    double q = quant_ref(v);
+    if (v >= 0 || q == v || fabs(v) >= 512.0) return q;
+    double m = fabs(v);
+    if (m < 0.125) { double r = -ceil(m * 4294967296.0) * (1.0 / 4294967296.0); if (fabs(r) < 0.125) return r; }
+    if (m < 2.0) { double r = -ceil(m * 268435456.0) * (1.0 / 268435456.0); if (fabs(r) < 2.0) return r; }
+    if (m < 32.0) { double r = -ceil(m * 16777216.0) * (1.0 / 16777216.0); if (fabs(r) < 32.0) return r; }
+    return -ceil(m * 1048576.0) * (1.0 / 1048576.0);
+}
+
+/* e^n of the SFU's exp split, read from the device (dspisa.EXP_ROM): RAW words for n = -19 .. 6 */
+static const uint32_t EXP_ROM[26] = {
+    0x00000018, 0x00000041, 0x000000b2, 0x000001e3, 0x00000522, 0x00000df3, 0x000025ec, 0x00006715,
+    0x00011835, 0x0002f9af, 0x00081679, 0x0015fc21, 0x003bc2d7, 0x00a27290, 0x01b993fe, 0x04b0556e,
+    0x0cbed866, 0x222a5554, 0x25e2d58d, 0x30000000, 0x42b7e151, 0x4763992e, 0x5415e5bf, 0x63699205,
+    0x69469c4c, 0x7936dc56 };
+#define RAW_MAX (536870911.0 / 1048576.0)
+
+static inline double exp_rom(double n)
+{
+    int i = (int)n + 19;
+    if (i < 0) return 0.0;
+    if (i >= 26) return RAW_MAX;
+    uint32_t w = EXP_ROM[i];
+    int s = (w >> 29) & 3;
+    double v = (double)(w & 0x1FFFFFFF) / ldexp(1.0, 32 - 4 * s);
+    return w >> 31 ? -v : v;
+}
+
 /* Python float %. Fast paths for m > 0 and -m <= x < 2m (ph_wrap / ph_tri of a phase: nearly every call), with the
  * bits of the fmod path: fmod(x, m) = x for |x| < m and = x - m (exact, Sterbenz) for m <= x < 2m; a negative x
  * gets + m rounded as below, a zero result is +0. test_core.py test_pymod compares the two paths. */
@@ -302,8 +334,9 @@ INL void sfu(int w, const double *regs, double *out)
         if (Y) {
             int e;
             double m = frexp(fabs(Y), &e);
-            out[d] = copysign(ldexp(1.0, -e), Y);
+            out[d] = e > -9 ? copysign(ldexp(1.0, -e), Y) : 0.0;   /* 2^-e >= 512 gives 0 */
             out[(d + 1) & 7] = recip_seed(m);
+            out[y & 7] = m;                                        /* and |Y|'s mantissa */
         }
     } else if (mode == 1 && !(y & 8)) {
         if (Y) {
@@ -322,16 +355,16 @@ INL void sfu(int w, const double *regs, double *out)
             out[y & 7] = Y / ldexp(1.0, (int)e);
         } else if (Y < 0) {
             out[d] = 9.0;
-            out[y & 7] = Y / 512;
+            out[y & 7] = quant_floor(Y / 512);
         }
     } else if (mode == 1) {
         double fl = floor(Y);
-        out[d] = exp(fl);
+        out[d] = exp_rom(fl);
         out[y & 7] = Y - fl;
     } else if (mode == 2) {
         out[d] = Y ? copysign(1.0, Y) : 0.0;
     } else if (y & 8) {
-        out[d] = Y < 0 ? -1.0 : 0.0;
+        out[d] = floor(Y);                                         /* floor (was read as -(Y < 0)) */
     } else {
         out[d] = ceil(Y);
     }
@@ -391,7 +424,7 @@ INL void b_op(int w, double immY, Dsp *dsp, const double *regs, double *out, Res
     if (k0 == 1 && k1 == 0xC) {
         if (mode) {
             int sh = mode == 1 ? y : mode == 2 ? -y : -16 - y;
-            out[d & 7] = X * ldexp(1.0, sh);
+            out[d & 7] = quant_floor(pymod(X * ldexp(1.0, sh) + 512, 1024) - 512);   /* two's complement */
         } else {
             int e = -31;
             double m = 0.0;

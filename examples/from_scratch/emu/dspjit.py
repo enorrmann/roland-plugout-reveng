@@ -62,7 +62,7 @@ def writes(o):
             if b76:
                 return set()
             if mode == 0:
-                return {s, y & 7, (s + 1) & 7} if y & 8 else {s, (s + 1) & 7}
+                return {s, y & 7, (s + 1) & 7}        # recipseed too writes rY (m; re/dspnative.py 2026-10-28)
             if mode == 1 and not y & 8:
                 return {y & 7, (s + 1) & 7, 7}
             if mode in (1, 2) and not (mode == 2 and y & 8):

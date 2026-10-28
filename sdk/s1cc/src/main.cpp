@@ -89,6 +89,7 @@ int main(int argc, char **argv) {
         else if (a == "--no-exact-init") opt.exactInit = false;
         else if (a == "--no-fold-branches") opt.foldBranches = false;
         else if (a == "--no-recipseed") opt.recipseed = false;
+        else if (a == "--no-native") opt.native = false;
         else if (a == "--trace") opt.trace = true;
         else if (a == "--maxdeg") opt.maxDeg = std::stoi(next());
         else if (a == "--maxknots") opt.maxKnots = std::stoi(next());

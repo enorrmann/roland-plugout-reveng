@@ -70,8 +70,8 @@ LFO_PITCH = os.environ.get('LFO_PITCH', '1') == '1'
 PITCH_MOD = [n for n in ('pitch', 'dt', 'rdt') if LFO_PITCH and f'IN:{n}' in A_READS]
 LFO_F, LFO_A = 'IN:lfo_filter' in A_READS, 'IN:lfo_amp' in A_READS
 HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A)
-# the LFO runs on DSP B (room there; DSP A is for the oscillators): its lf goes to DSP A through bank 5 (LFB), one
-# sample later; the pitch envelope (COLOR MOD source and PITCH ENV AMOUNT -> pitch) stays on DSP A
+# the LFO and the pitch envelope (COLOR MOD source and PITCH ENV AMOUNT -> pitch) run on DSP B (room there; DSP A is
+# for the oscillators): lf and pe go to DSP A through bank 5 (LFB, PEB), one sample later
 PENV = bool(PITCH_MOD or CMOD)
 # the host's mixer on DSP A, after the kernel: voice = kernel + SUB x a square one octave down + NOISE x the LFO's
 # noise, before DSP B's filter (SUB 0x176, NOISE 0x177; 0 until the knobs move). MIX=0 leaves it out
@@ -176,14 +176,14 @@ H_ENV_DEFAULT = ((255, 0, 128, 60), (0, 0, 128, 60))
 GB = [0xA160 + v for v in range(NV)]
 TB = [0xA168 + v for v in range(NV)]
 H_ENV_WORDS = 6 if HOST_ENVS else 0             # per voice on DSP B: (level, latch, last trigger) x 2
-# COLOR MOD (CMOD). DSP B -> DSP A: the envelope levels, A170+v (AMP, env 0) / A178+v (FILTER, env 1), free words of
-# bank 5. DSP A parameters of the host's LFO and COLOR MOD (engine.c): C040 LFO rate (phase -1..1 per sample), C041
-# S&G coefficient, C042..C047 LFO shape weights (sine, triangle, saw, square, S&G, S&H; 1 for the chosen one), C048 /
-# C049 pitch envelope decay / attack rates, C04A LFO fade step (DELAY TIME), C04B -> pitch (octaves), C04C -> filter
-# (octaves), C04D / C04E -> amp M / |M|, C050 + 8 i: color i's weights (manual, LFO, pitch env, filter env, amp env,
-# sub; LFO and sub are -1..1: with them selected manual = that weight = knob / 2)
-ENVX = ([0xA170 + v for v in range(NV)], [0xA178 + v for v in range(NV)])
-A6_PENV, A6_COL = 0x48, (0x50, 0x58)
+# pitch envelope and COLOR MOD (CMOD) on DSP B (DSP A's time is for the oscillators): DSP B parameters C052 / C053
+# pitch envelope decay / attack rates, C054 + 6 i: color i's weights (manual, LFO, pitch env, filter env, amp env,
+# sub; LFO and sub are -1..1: with them selected manual = that weight = knob / 2). Bank 5, free words: the pitch
+# envelope B -> A (PEB, for -> pitch), the sub square A -> B (SUBB), the colors B -> A (COLB), one sample late each
+B6_PENV, B6_COL = 0x52, (0x54, 0x5A)
+PEB = [0xA128 + v for v in range(NV)]
+SUBB = [0xA130 + v for v in range(NV)]
+COLB = ([0xA138 + v for v in range(NV)], [0xA140 + v for v in range(NV)])
 # LFO SHAPE -> C042..C045 (alpha, beta, K, w): lfo = t (alpha + beta t^2) + ph_clamp(K p) + w g, t the triangle of
 # the phase p, g the sample & glide value (C041 = its coefficient k; k = 1 is the sample & hold)
 LFO_SHAPES = [(1.5, -0.5, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0), (0.0, 0.0, 256.0, 0.0),
@@ -205,18 +205,17 @@ SG_K = 4.0                                      # sample & glide: k = min(1, SG_
 
 
 def host_a_words():
-    """the host's words per voice on DSP A, before the kernel's (ring words): last trigger, the pitch envelope
-    (level, latch), the modulated pitch / dt / rdt (written and read in the same sample), the sub's phase and its
-    square, the colors, the kernel's output for the mixer"""
-    w = (['pt', 'pe', 'pf'] if PENV else []) + [n + 'm' for n in PITCH_MOD if f'IN:{n}' in A_SELF]
-    w += ['sp', 'swb'] if CMOD or HOST_MIX else []
-    return w + [f'color{i}' for i in COLOR_USED] + (['xo'] if HOST_MIX else [])
+    """the host's words per voice on DSP A, before the kernel's (ring words): the modulated pitch / dt / rdt (written
+    and read in the same sample), the sub's phase and its square, the kernel's output for the mixer"""
+    w = [n + 'm' for n in PITCH_MOD if f'IN:{n}' in A_SELF]
+    w += ['sp'] if CMOD or HOST_MIX else []
+    return w + (['xo'] if HOST_MIX else [])
 
 
 def host_b_words():
     """the host LFO's words per voice on DSP B, after its envelopes': last trigger, phase, S&H, S&G, fade; -> amp
-    and -> filter for the kernel (same sample)"""
-    return ['bpt', 'lph', 'lsh', 'lsg', 'fade', 'lfa', 'lff'] if HOST_LFO else []
+    and -> filter for the kernel (same sample); the note start and the pitch envelope (level, latch)"""
+    return ['bpt', 'lph', 'lsh', 'lsg', 'fade', 'lfa', 'lff'] + (['bd', 'pe', 'pf'] if PENV else []) if HOST_LFO else []
 
 
 H_A_WORDS = len(host_a_words())
@@ -275,7 +274,7 @@ def addresses(dsp, v):
         k = H_ENV_WORDS + H_B_WORDS
     if dsp == 'A' and HOST_LFO:                   # the host's words: LFO, modulated inputs, COLOR MOD
         h = {n: base + 2 * j for j, n in enumerate(host_a_words())}
-        addr.update({f'IN:{n}': h[n] for n in [f'color{i}' for i in COLOR_USED]})
+        addr.update({f'IN:color{i}': COLB[i][v] for i in COLOR_USED})
         addr.update({f'IN:{n}': h[n + 'm'] for n in PITCH_MOD if n + 'm' in h})
         if 'xo' in h:                           # the kernel's output, for the host's mixer
             addr['OUT'] = h['xo']
@@ -337,7 +336,7 @@ def hlfo_voice_b(v):
     P = lambda k: f'c0{k:02x}'  # noqa: E731
     return [f'; voice {v}: host LFO (DSP B), b = d = 1 at a note start',
             f'ld {a}, [{TB[v]:04x}]', f'ld {b}, [{hb["bpt"] + 1:04x}]', f'mov {a}, {a}', f'st {a}, [{hb["bpt"]:04x}]',
-            f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}',
+            f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}', *([f'st {b}, [{hb["bd"]:04x}]'] if PENV else []),
             f'; voice {v}: LFO phase a, 0 at a note start; c = 2 at a wrap',
             f'ld {a}, [{hb["lph"] + 1:04x}]', f'ld {c}, [{P(B6_LRATE)}]', f'mov {a}, {a}', f'mad {a}, {a}, -{b}',
             f'addxy {c}, {a}, {c}', f'ph_wrap {a}, r3, {c}', f'st {a}, [{hb["lph"]:04x}]', f'subxy {c}, {a}, {c}',
@@ -360,23 +359,63 @@ def hlfo_voice_b(v):
             f'; voice {v}: -> amp 1 + f (M lf - |M|), -> filter F lf (for the kernel)',
             f'ld {b}, [{P(B6_LAMP)}]', f'ld {c}, [{P(B6_LAMPABS)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}',
             f'mad {b}, {a}, -{c}', f'add {b}, #1.0', f'st {b}, [{hb["lfa"]:04x}]',
-            f'ld {b}, [{P(B6_LFILT)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}', f'st {b}, [{hb["lff"]:04x}]']
+            f'ld {b}, [{P(B6_LFILT)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}', f'st {b}, [{hb["lff"]:04x}]'] + \
+        (penv_b(v, hb) if PENV else [])
+
+
+def penv_b(v, hb):
+    """pitch envelope AD of voice v on DSP B, after the LFO (the host ADSR's math, adsr(), proven on the device, with
+    the gate at 1 and sustain 0: latch cleared at a note start, attack flag clamp(256 (1 - latch)), level toward 1.25
+    attack at rate kD + attack (kA - kD)) -> word pe (COLOR MOD) and bank 5 PEB+v (-> pitch on DSP A)"""
+    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
+    P = lambda k: f'c0{k:02x}'  # noqa: E731
+    return [f'; voice {v}: pitch envelope a: the ADSR\'s latch form with gate 1, sustain 0',
+            f'ld {b}, [{hb["bd"]:04x}]', f'ld {a}, [{hb["pe"] + 1:04x}]', f'ld {c}, [{hb["pf"] + 1:04x}]',
+            f'mov {c}, {c}', f'mad {c}, {c}, -{b}',                               # latch *= 1 - d
+            # latch = 1 once the level passed 0.999: 256 (256 (e - 0.999)) in two clamped steps (one product would
+            # pass the DSP's +-512)
+            f'addxy {b}, {a}, #-0.999', f'mul {b}, {b}, #256.0', f'ph_clamp {b}, r3, -{b}', f'mul {b}, {b}, #256.0',
+            f'ph_clamp {b}, r3, -{b}', f'max {c}, {c}, {b}', f'st {c}, [{hb["pf"]:04x}]',
+            # attack flag c = clamp(256 (1 - latch)): 1 until the latch is full. With the attack 1 - latch itself a
+            # latch caught half way in the 0.999 band (slow attacks) left the target 1.25 (1 - latch) under the
+            # level and the envelope stuck there (2026-10-28, on the device: it stayed at a value, never fell to 0)
+            f'subxy {c}, {c}, #1.0', f'mul {c}, {c}, #256.0', f'ph_clamp {c}, r3, -{c}',
+            f'ld {b}, [{P(B6_PENV)}]', f'ld {d}, [{P(B6_PENV + 1)}]', f'mov {d}, {d}',
+            f'subxy {d}, {b}, {d}', f'mad {b}, {c}, {d}',                        # rate = kD + attack (kA - kD)
+            f'mul {c}, {c}, #1.25',                                              # target 1.25 attack
+            f'subxy {c}, {a}, {c}', f'mad {a}, {c}, {b}', f'min {a}, {a}, #1.0', f'st {a}, [{hb["pe"]:04x}]',
+            *([f'st {a}, [{PEB[v]:04x}]'] if PITCH_MOD else [])]
+
+
+def colors_b(v):
+    """COLOR MOD of voice v on DSP B, after its envelopes: color i = weights (C054 + 6 i ..) x (1, lf, pitch env,
+    filter env, amp env, sub) -> bank 5 COLB (s1_color(i) on DSP A, one sample late); the sub square from DSP A"""
+    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
+    P = lambda k: f'c0{k:02x}'  # noqa: E731
+    hb = {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
+    e = block('B', v)
+    L = []
+    for i in COLOR_USED:
+        k = B6_COL[i]
+        L += [f'; voice {v}: color {i} = w0 + w1 lf + w2 pe + w3 fe + w4 ae + w5 sub (c)', f'ld {c}, [{P(k)}]']
+        for w_, src in ((1, LFB[v]), (2, hb['pe']), (3, e + 6), (4, e), (5, SUBB[v])):
+            L += [f'ld {b}, [{src:04x}]', f'ld {d}, [{P(k + w_)}]', f'mov {d}, {d}', f'mad {c}, {b}, {d}']
+        L += [f'st {c}, [{COLB[i][v]:04x}]']
+    del a
+    return L
 
 
 def hlfo_voice(v):
     """the host's DSP A part of voice v, before the kernel; four registers (pairs: r4..r7 for the odd voice), longer
     lived values in same-sample words of the voice block:
-    * gate and trigger copies for DSP B (its envelopes and LFO), from their loads; note start d (trigger changed)
-    * pitch envelope AD (the host ADSR's math, adsr(), proven on the device, with the gate at 1 and sustain 0: latch
-      cleared at a note start, attack = 1 - latch, level toward 1.25 attack at rate kA + latch (kD - kA))
-    * -> pitch: y = P lf + E pe + R octaves (LFO TO PITCH, PITCH ENV AMOUNT, OSC1 RANGE 64'..2' = -3..+2; lf from
-      DSP B, one sample late); pitch + y,
+    * gate and trigger copies for DSP B (its envelopes, LFO and pitch envelope), from their loads
+    * -> pitch: y = P lf + E pe + R octaves (LFO TO PITCH, PITCH ENV AMOUNT, OSC1 RANGE 64'..2' = -3..+2; lf and pe
+      from DSP B, one sample late); pitch + y,
       dt 2^y = (e^(y ln2 / 8))^8 (Taylor to the 4th power, three squarings: ~2 cents at 6 octaves), rdt 2^-y (to the
       3rd: it only sets a polyBLEP's width) -> the words the kernel reads as s1_pitch / s1_increment,
       s1_dt, s1_rdt; DSP B's pitch straight to its word (HOSTB)
-    * sub oscillator (square one octave down): COLOR MOD source, SUB of the mixer
-    * COLOR MOD (if the kernel reads s1_color): color i = weights (C050 + 8 i ..) x (1, lf, pitch env, filter env,
-      amp env, sub), the envelopes from DSP B (A170+v / A178+v)"""
+    * sub oscillator (square one octave down) -> bank 5 SUBB+v: COLOR MOD source (DSP B), SUB of the mixer
+    The colors (s1_color) come from DSP B (colors_b), the kernel reads them in bank 5 (COLB)"""
     h = {n: block('A', v) + 2 * j for j, n in enumerate(host_a_words())}
     a, b, c, d = 'r0', 'r1', 'r2', 'r3'
     P = lambda k: f'c0{k:02x}'  # noqa: E731
@@ -386,31 +425,14 @@ def hlfo_voice(v):
         if name in HOSTB:
             out.append(f'st {reg}, [{INB0 + 8 * KDEF.inputs_b.index(name) + v:04x}]')
         return out
-    L = [f'; voice {v}: host (DSP A): gate / trigger copies for DSP B, b = d = 1 at a note start',
-         f'ld {a}, [{TRIG[v]:04x}]', f'ld {c}, [{GATE[v]:04x}]',
-         *([f'ld {b}, [{h["pt"] + 1:04x}]'] if PENV else []), f'mov {a}, {a}',
-         *([f'st {a}, [{TB[v]:04x}]', f'st {c}, [{GB[v]:04x}]'] if GT_B else []),
-         *([f'st {a}, [{h["pt"]:04x}]', f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}'] if PENV else [])]
-    if PENV:
-        L += [f'; voice {v}: pitch envelope a: the ADSR\'s latch form with gate 1, sustain 0',
-              f'ld {a}, [{h["pe"] + 1:04x}]', f'ld {c}, [{h["pf"] + 1:04x}]', f'mov {c}, {c}',
-              f'mad {c}, {c}, -{b}',                                             # latch *= 1 - d
-              # latch = 1 once the level passed 0.999: 256 (256 (e - 0.999)) in two clamped steps (one product would
-              # pass the DSP's +-512)
-              f'addxy {b}, {a}, #-0.999', f'mul {b}, {b}, #256.0', f'ph_clamp {b}, r3, -{b}', f'mul {b}, {b}, #256.0',
-              f'ph_clamp {b}, r3, -{b}', f'max {c}, {c}, {b}', f'st {c}, [{h["pf"]:04x}]',
-              # attack flag c = clamp(256 (1 - latch)): 1 until the latch is full. With the attack 1 - latch itself a
-              # latch caught half way in the 0.999 band (slow attacks) left the target 1.25 (1 - latch) under the
-              # level and the envelope stuck there (2026-10-28, on the device: it stayed at a value, never fell to 0)
-              f'subxy {c}, {c}, #1.0', f'mul {c}, {c}, #256.0', f'ph_clamp {c}, r3, -{c}',
-              f'ld {b}, [{P(A6_PENV)}]', f'ld {d}, [{P(A6_PENV + 1)}]', f'mov {d}, {d}',
-              f'subxy {d}, {b}, {d}', f'mad {b}, {c}, {d}',                      # rate = kD + attack (kA - kD)
-              f'mul {c}, {c}, #1.25',                                            # target 1.25 attack
-              f'subxy {c}, {a}, {c}', f'mad {a}, {c}, {b}', f'min {a}, {a}, #1.0', f'st {a}, [{h["pe"]:04x}]']
+    L = [f'; voice {v}: host (DSP A): gate / trigger copies for DSP B']
+    if GT_B:
+        L += [f'ld {a}, [{TRIG[v]:04x}]', f'ld {c}, [{GATE[v]:04x}]', f'mov {a}, {a}',
+              f'st {a}, [{TB[v]:04x}]', f'st {c}, [{GB[v]:04x}]']
     if PITCH_MOD:
         L += [f'; voice {v}: -> pitch b = y = P lf + E pe + OSC1 RANGE octaves', f'ld {b}, [{LFB[v]:04x}]',
-              f'ld {c}, [{P(A6_LPITCH)}]', f'mov {c}, {c}', f'mul {b}, {b}, {c}', f'ld {c}, [{P(A6_PAMT)}]',
-              f'mov {c}, {c}', f'mad {b}, {a}, {c}', f'ld {c}, [{P(A6_RANGE1)}]', f'mov {c}, {c}', f'addxy {b}, {b}, {c}']
+              f'ld {c}, [{P(A6_LPITCH)}]', f'ld {a}, [{PEB[v]:04x}]', f'mov {c}, {c}', f'mul {b}, {b}, {c}',
+              f'ld {c}, [{P(A6_PAMT)}]', f'mov {c}, {c}', f'mad {b}, {a}, {c}', f'ld {c}, [{P(A6_RANGE1)}]', f'mov {c}, {c}', f'addxy {b}, {b}, {c}']
         if 'pitch' in PITCH_MOD:
             L += [f'ld {c}, [{PITCH[v]:04x}]', f'mov {c}, {c}', f'addxy {c}, {c}, {b}'] + put(c, 'pitchm', 'pitch')
         # 2^y = (e^(y ln2 / 8))^8: Taylor of e^z on |z| <= 0.52 (y up to +-6 octaves: RANGE, PITCH ENV, LFO), then
@@ -428,13 +450,7 @@ def hlfo_voice(v):
         L += [f'; voice {v}: sub oscillator: a square one octave down (COLOR MOD source, SUB of the mixer)',
               f'ld {b}, [{h["sp"] + 1:04x}]', f'ld {c}, [{DT[v]:04x}]', f'mov {c}, {c}',
               f'addxy {c}, {b}, {c}', f'ph_wrap {b}, r3, {c}', f'st {b}, [{h["sp"]:04x}]', f'mul {b}, {b}, #256.0',
-              f'ph_clamp {b}, r3, -{b}', f'st {b}, [{h["swb"]:04x}]']
-    for i in COLOR_USED:
-        k = A6_COL[i]
-        L += [f'; voice {v}: color {i} = w0 + w1 lf + w2 pe + w3 fe + w4 ae + w5 sub (c)', f'ld {c}, [{P(k)}]']
-        for w_, src in ((1, LFB[v]), (2, h['pe']), (3, ENVX[1][v]), (4, ENVX[0][v]), (5, h['swb'])):
-            L += [f'ld {b}, [{src:04x}]', f'ld {d}, [{P(k + w_)}]', f'mov {d}, {d}', f'mad {c}, {b}, {d}']
-        L += [f'st {c}, [{h[f"color{i}"]:04x}]']
+              f'ph_clamp {b}, r3, -{b}', f'st {b}, [{SUBB[v]:04x}]']
     return L
 
 
@@ -443,7 +459,7 @@ def voice_a(v):
     L = [f'; voice {v}'] + (hlfo_voice(v) if HOST_LFO else []) + KDEF.place('A', addresses('A', v))
     if HOST_MIX:                                # kernel (its output word xo) + SUB x sub + NOISE x noise -> x of DSP B
         h = {n: block('A', v) + 2 * j for j, n in enumerate(host_a_words())}
-        L += [f'; voice {v}: mixer', f'ld r0, [{h["xo"]:04x}]', f'ld r1, [{h["swb"]:04x}]',
+        L += [f'; voice {v}: mixer', f'ld r0, [{h["xo"]:04x}]', f'ld r1, [{SUBB[v]:04x}]',
               f'ld r2, [c0{A6_SUBMIX:02x}]', 'mov r2, r2', 'mad r0, r1, r2',
               f'ld r1, [{lfo_block("A")["nz"]:04x}]', f'ld r2, [c0{A6_NOISEMIX:02x}]', 'mov r2, r2', 'mad r0, r1, r2',
               f'st r0, [{XV[v]:04x}]']
@@ -531,8 +547,8 @@ def voice_b(v):
         for i in HOST_ENV_USED:
             e = b + 6 * i
             L += [f'; voice {v}: host envelope {i}'] + adsr(e, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
-            if CMOD:                                # its level for COLOR MOD on DSP A
-                L += [f'st r0, [{ENVX[i][v]:04x}]']
+    if CMOD:
+        L += colors_b(v)
     if HAS_B:
         L += KDEF.place('B', addresses('B', v))
     return L
@@ -655,20 +671,20 @@ def hlfo_params(knobs):
     """the parameters of the host's LFO (DSP B), pitch envelope, COLOR MOD and mixer (DSP A) as engine.c writes
     them -> (DSP A's, DSP B's); knobs: HLFO's names"""
     k = dict(HLFO_DEFAULT, **{n: x for n, x in knobs.items() if n in HLFO_DEFAULT})
-    pa = {0xC000 + A6_PENV: f32(decay_rate(k['penv_d'])), 0xC000 + A6_PENV + 1: f32(attack_rate(k['penv_a'])),
-          0xC000 + A6_LPITCH: f32(lfo_pitch(k['lfo_pitch'])), 0xC000 + A6_PAMT: f32(penv_amt(k['penv_amt'])),
+    pa = {0xC000 + A6_LPITCH: f32(lfo_pitch(k['lfo_pitch'])), 0xC000 + A6_PAMT: f32(penv_amt(k['penv_amt'])),
           0xC000 + A6_RANGE1: float(min(max(k['range1'], 0), 5) - 3),
           0xC000 + A6_SUBMIX: f32(k['sub_mix'] / 510.0), 0xC000 + A6_NOISEMIX: f32(k['noise_mix'] / 510.0)}
     pb = {0xC000 + B6_LRATE: f32(lfo_rate(k['lfo_rate'])), 0xC000 + B6_LSG: f32(lfo_sg(k['lfo_rate'])),
           0xC000 + B6_LDELAY: f32(lfo_delay(k['lfo_delay'])), 0xC000 + B6_LFILT: f32(lfo_filt(k['lfo_filter'])),
-          0xC000 + B6_LAMP: f32(lfo_amp(k['lfo_amp'])), 0xC000 + B6_LAMPABS: f32(abs(lfo_amp(k['lfo_amp'])))}
+          0xC000 + B6_LAMP: f32(lfo_amp(k['lfo_amp'])), 0xC000 + B6_LAMPABS: f32(abs(lfo_amp(k['lfo_amp']))),
+          0xC000 + B6_PENV: f32(decay_rate(k['penv_d'])), 0xC000 + B6_PENV + 1: f32(attack_rate(k['penv_a']))}
     for j, x in enumerate(LFO_SHAPES[min(max(k['lfo_shape'], 0), 5)]):
         pb[0xC000 + B6_LWAVE + j] = x
     if k['lfo_shape'] == 5:                         # sample & hold: the glide follows at once
         pb[0xC000 + B6_LSG] = 1.0
     for i in (0, 1):
         for j, x in enumerate(color_weights(k[f'color{i}'], k[f'mod{i}'])):
-            pa[0xC000 + A6_COL[i] + j] = f32(x)
+            pb[0xC000 + B6_COL[i] + j] = f32(x)
     return pa, pb
 
 
@@ -857,12 +873,12 @@ def header(progs):
         out.append(table('level_bits', [v / 255.0 for v in range(256)]))
     out.append(f'#define HOST_LFO {int(HOST_LFO)}')
     if HOST_LFO:
-        out.append(f'/* the host: LFO (DSP B parameters B6_*), pitch envelope, COLOR MOD, mixer (DSP A, A6_*); controls\n'
+        out.append(f'/* the host: LFO (DSP B parameters B6_*), pitch envelope, COLOR MOD (DSP B, B6_*), mixer (DSP A, A6_*); controls\n'
                    f'   (panel id, default); tables */\n'
                    f'#define B6_LRATE 0x{B6_LRATE:02x}\n#define B6_LSG 0x{B6_LSG:02x}\n#define B6_LWAVE 0x{B6_LWAVE:02x}\n'
                    f'#define B6_LDELAY 0x{B6_LDELAY:02x}\n#define B6_LFILT 0x{B6_LFILT:02x}\n#define B6_LAMP 0x{B6_LAMP:02x}\n'
                    f'#define B6_LAMPABS 0x{B6_LAMPABS:02x}\n'
-                   f'#define A6_PENV 0x{A6_PENV:02x}\n#define A6_COL0 0x{A6_COL[0]:02x}\n#define A6_COL1 0x{A6_COL[1]:02x}\n'
+                   f'#define B6_PENV 0x{B6_PENV:02x}\n#define B6_COL0 0x{B6_COL[0]:02x}\n#define B6_COL1 0x{B6_COL[1]:02x}\n'
                    f'#define A6_LPITCH 0x{A6_LPITCH:02x}\n#define A6_PAMT 0x{A6_PAMT:02x}\n#define A6_RANGE1 0x{A6_RANGE1:02x}\n'
                    f'#define A6_SUBMIX 0x{A6_SUBMIX:02x}\n#define A6_NOISEMIX 0x{A6_NOISEMIX:02x}')
         out.append(f'static const uint16_t hlfo_panel[{len(HLFO)}] = {{ ' + ', '.join(f'0x{p:03x}' for _, p, _ in HLFO) + ' };')

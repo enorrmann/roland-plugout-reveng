@@ -1,10 +1,10 @@
-s1m0    425 instructions, 2123 halfwords
-s1a2    212 instructions, 1056 halfwords
-s1m1    463 instructions, 2556 halfwords
+s1m0    614 instructions, 2950 halfwords
+s1m1    401 instructions, 2194 halfwords
+s1b2    287 instructions, 1632 halfwords
 s1mm1     7 instructions, 44 halfwords
 s1c0      2 instructions, 7 halfwords
 s1c1      2 instructions, 7 halfwords
-kernel per voice: A 160 lines, 18 words; B 80 lines, 20 words
-A -> B x: one sample late (voices 0,1,2,3); - (voices 4,5)
-A -> B input pitch: same sample (voices 0,1,2,3); - (voices 4,5)
-A -> B gate / trigger copies: same sample (voices 0,1); one sample late (voices 2,3); - (voices 4,5)
+kernel per voice: A 160 lines, 12 words; B 80 lines, 23 words
+A -> B x: same sample (voices 0,2); one sample late (voices 1,3); - (voices 4,5,6)
+A -> B input pitch: same sample (voices 0,1,2,3); - (voices 4,5,6)
+A -> B gate / trigger copies: same sample (voices 0,1,2); one sample late (voices 3); - (voices 4,5,6)

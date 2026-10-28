@@ -1,4 +1,4 @@
-# s1c1, own SYSTEM-1 program (make_s1cc.py KERNEL=/home/emilio/git/roland-plugout-reveng/sdk/s1cc/build/mp_csaw2 VOICES=6)
+# s1c1, own SYSTEM-1 program (make_s1cc.py KERNEL=sdk/s1cc/build/mp_csaw2 VOICES=8)
 0000
 0c03
 0fe0

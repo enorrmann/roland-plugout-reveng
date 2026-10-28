@@ -99,9 +99,18 @@ struct LV {
     bool isBool = false;
     KVal *e2arg = nullptr;       // r = e2mul 2^e2arg (an exponential: its reciprocal is exp2(-e2arg))
     double e2mul = 1;
-    int e2extra = 0;
+    int e2extra = 0;             // -1: made by the exp split (e2lo .. e2hi = the range of e2arg)
+    double e2lo = 0, e2hi = 0;
     bool isConst() const { return !r; }
 };
+
+Range mulRange(const Range &a, const Range &b) {
+    Range r;
+    for (double x : {a.lo, a.hi})
+        for (double y : {b.lo, b.hi})
+            r.add(x * y);
+    return r;
+}
 
 double p2ceil(double x) { return x <= 0 ? 1 : std::ldexp(1.0, (int)std::ceil(std::log2(x))); }
 
@@ -480,6 +489,23 @@ struct Lowerer {
         double c = std::round((v.lo + v.hi) / 2);
         double half = std::max(std::fabs(v.lo - c), std::fabs(v.hi - c));
         int extra = half <= 8 ? 0 : (int)std::ceil(std::log2(half / 8));
+        if (opt.native && v.hi - v.lo <= 20) {
+            // the SFU's exp split (Kernel::exp2split): 2^t, t = V - c in [-12, 8] (the result below 512, its LSB
+            // 2^-32 at most 2^-20 of it), 8 ops, 3e-5 relative
+            c = std::max(c, std::ceil(v.hi) - 8);
+            KVal *t = materialize(x, 1, -c);
+            LV r;
+            r.r = K->exp2split(t, 0);
+            r.s = std::exp2(c);
+            r.o = 0;
+            r.V.add(std::exp2(v.lo));
+            r.V.add(std::exp2(v.hi));
+            r.e2arg = t;
+            r.e2lo = v.lo - c;
+            r.e2hi = v.hi - c;
+            r.e2extra = -1;                                 // made by exp2split
+            return normalize(r);
+        }
         KVal *t = materialize(x, 1, -c);
         LV r;
         r.r = K->exp2(t, extra);
@@ -490,6 +516,34 @@ struct Lowerer {
         r.e2arg = t;
         r.e2extra = extra;
         return normalize(r);
+    }
+
+    // log2 V, V > 0 (s1_log2): the SFU's log2 split, V = m 2^e with m in [0.75, 1.5), then e + log2(m) by a
+    // degree-6 polynomial in m - 1 (5e-6 octaves), 9 ops
+    LV log2LV(LV x, Node *n) {
+        if (x.isConst())
+            return cst(std::log2(x.k));
+        Range v = rangeOf(x);
+        if (!v.seen() || v.lo <= 0)
+            fail("E607", "s1_log2: the argument must stay above 0 (profiled range [" + std::to_string(v.lo) + ", " +
+                 std::to_string(v.hi) + "]) " + where(n->v));
+        static const double c[7] = {-8.931374607e-07, 1.442674845, -0.7211161604, 0.4819793633, -0.3704863202,
+                                    0.2876499657, -0.1395019864};
+        // y = V 2^-k inside the DSP range (log2 split needs y > 0, below 512): k from the top of the range
+        int k = (int)std::ceil(std::log2(v.hi / 256));
+        KVal *y = materialize(x, std::ldexp(1.0, k), 0);
+        auto em = K->log2split(y);
+        KVal *u = K->add(em.second, KOperand::im(-1.0));
+        KVal *p = K->mov(KOperand::im(c[6]));
+        for (int i = 5; i >= 0; i--)
+            p = K->ymac(p, u, KOperand::im(c[i]));
+        LV r;
+        r.r = K->add(p, KOperand::of(em.first));
+        r.s = 1;
+        r.o = -k;                                           // V = r + k
+        r.V.add(std::log2(v.lo));
+        r.V.add(std::log2(v.hi));
+        return r;
     }
 
     // 1 / V: an exponential -> exp2 of the negated exponent; otherwise a fitted seed and Newton steps
@@ -561,6 +615,14 @@ struct Lowerer {
         LV r;
         r.V.add(1 / v.lo);
         r.V.add(1 / v.hi);
+        if (y.e2arg && y.o == 0 && y.e2extra < 0) {        // 2^-t by the exp split, -t shifted below 8
+            double sh = std::min(0.0, 8 - (-y.e2lo));
+            KVal *nt = K->mul(y.e2arg, KOperand::im(-1));
+            r.r = K->exp2split(nt, sh);
+            r.s = 1 / (y.s * y.e2mul * std::exp2(sh));
+            r.e2arg = nullptr;
+            return normalize(r);
+        }
         if (y.e2arg && y.o == 0) {
             KVal *nt = K->mul(y.e2arg, KOperand::im(-1));
             r.r = K->exp2(nt, y.e2extra);
@@ -569,8 +631,8 @@ struct Lowerer {
             r.e2extra = y.e2extra;
             return normalize(r);
         }
-        // the SFU seed (Roland's recipseed): |y'| = m 2^e -> N = sign 2^-e, F ~ 1/m (1 %); m = y' N; two Newton
-        // steps F <- F (2 - m F) (1e-4, then 1e-8); 1/y' = F N. y' = y / 2^k keeps N and 1/y' inside +-256
+        // the SFU seed and three newton steps (Kernel::recip, Roland's division; measured exact on the SYSTEM-8
+        // master 2026-10-28). y' = y / 2^k keeps |y'| >= 2^-9 (the seed's 2^-e < 512) and 1/y' inside +-256
         double alo = std::min(std::fabs(v.lo), std::fabs(v.hi)), ahi = std::max(std::fabs(v.lo), std::fabs(v.hi));
         if (v.lo < 0 && v.hi > 0)
             alo = std::min(alo, std::ldexp(1.0, -30));
@@ -582,18 +644,8 @@ struct Lowerer {
         KVal *yy = materialize(y, pk, 0);                   // y' = y / pk
         if (!opt.recipseed)
             return recipNorm(y, alo, ahi, v.hi >= -v.lo);
-        if (!warnedSeed) {
-            warnings.push_back({"W910", "a division by a variable uses recipseed (the SFU seed), proven on the SYSTEM-8 "
-                                "but not on the SYSTEM-1; the first at " + (yn ? where(yn->v) : std::string("?")) +
-                                ". On the SYSTEM-1 keep divisions out of the voice (S1_PARAM tables, s1_exp2)"});
-            warnedSeed = true;
-        }
-        auto nf = K->recipseed(yy);
-        KVal *m = K->mul(yy, KOperand::of(nf.first));
-        KVal *F = nf.second;
-        for (int it = 0; it < 2; it++)
-            F = K->mul(F, KOperand::of(K->twoMinus(K->mul(m, KOperand::of(F)))));
-        r.r = K->mul(F, KOperand::of(nf.first));
+        (void)warnedSeed;
+        r.r = K->recip(yy);                                 // recipseed + 3 newton (Kernel::recip)
         r.s = 1 / pk;
         r.o = 0;
         return r;
@@ -1581,12 +1633,66 @@ struct Lowerer {
             return minmax(in(0), in(1), false);
         if (op == "abs" || op == "fabs")
             return absLV(in(0));
-        if (op == "floor") {
+        if (op == "floor" || op == "s1_floor" || op == "s1_ceil") {
             LV x = in(0);
+            Range v = rangeOf(x);
+            bool up = op == "s1_ceil";
+            if (x.isConst())
+                return cst(up ? std::ceil(x.k) : std::floor(x.k));
+            if (opt.native && v.seen() && v.lo > -511 && v.hi < 511) {   // the SFU floor / ceil: one op
+                LV r;
+                r.r = up ? K->ceil(materialize(x, 1, 0)) : K->floor(materialize(x, 1, 0));
+                r.V.add(up ? std::ceil(v.lo) : std::floor(v.lo));
+                r.V.add(up ? std::ceil(v.hi) : std::floor(v.hi));
+                return r;
+            }
+            if (up)
+                return neg(addLV(neg(x), neg(modLV(neg(x), 1, false)), res));
             return addLV(x, neg(modLV(x, 1, false)), res);
         }
+        if (op == "s1_sign") {
+            LV x = in(0);
+            if (x.isConst())
+                return cst(x.k > 0 ? 1 : x.k < 0 ? -1 : 0);
+            LV r;
+            r.r = K->sign(materialize(x, 1, 0));
+            r.V.add(-1);
+            r.V.add(1);
+            return r;
+        }
+        if (op == "s1_recip")
+            return recip(in(0), n->in[0]);
+        if (op == "s1_ldexp") {                      // x 2^k, k a constant: free in the scale (V = (r - o) s)
+            if (!in(1).isConst())
+                fail("E606", "s1_ldexp: the exponent must be a constant " + where(n->v));
+            return scale(in(0), std::ldexp(1.0, (int)in(1).k));
+        }
+        if (op == "s1_sum3")
+            return addLV(addLV(in(0), in(1)), in(2));
+        if (op == "s1_mac2") {                       // a b + c d + e: one MAC when all are registers at scale 1
+            LV a = in(0), b = in(1), c = in(2), d = in(3), e = in(4);
+            if (!opt.native || a.isConst() || b.isConst() || c.isConst() || d.isConst())
+                return addLV(addLV(mulLV(a, b, nullptr), mulLV(c, d, nullptr)), e);
+            Range ab = mulRange(rangeOf(a), rangeOf(b)), cd = mulRange(rangeOf(c), rangeOf(d)), ev = rangeOf(e);
+            LV r;
+            KVal *ra = materialize(a, 1, 0), *rb = materialize(b, 1, 0), *rc = materialize(c, 1, 0),
+                 *rd = materialize(d, 1, 0);
+            KVal *re = e.isConst() && e.k == 0 ? nullptr : materialize(e, 1, 0);
+            r.r = K->mac2(ra, rb, rc, rd, re);
+            r.V.add(ab.lo + cd.lo + (ev.seen() ? ev.lo : 0));
+            r.V.add(ab.hi + cd.hi + (ev.seen() ? ev.hi : 0));
+            if (std::max(std::fabs(r.V.lo), std::fabs(r.V.hi)) >= 512)
+                warnings.push_back({"W911", "s1_mac2 at " + where(n->v) + ": the result can pass +-512 (it wraps)"});
+            return r;
+        }
+        if (op == "s1_exp")
+            return exp2LV(scale(in(0), 1 / std::log(2.0)));
+        if (op == "s1_log2")
+            return log2LV(in(0), n);
         if (op == "s1_wrap" || op == "s1_clamp" || op == "s1_tri")
             return unitOp(op, in(0));
+        if (op == "s1_abs")
+            return absLV(in(0));
         if (op == "s1_exp2")
             return exp2LV(in(0));
         if (op == "s1_range") {

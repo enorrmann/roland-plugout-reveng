@@ -56,12 +56,12 @@ CONFIRMED_B = [
     (0xD150, "min", "spec 6.3: d150 = min(r5, imm 1.0)"),
     (0xD550, "max", "spec 6.3: d550 = max(r5, 0)"),
     (0xCF06, "recipseed", "spec 6.4: reciprocal seed"),
-    (0x9F0D, "recipseed", "spec 6.4: the reciprocal-seed form with Y bit 3"),
-    (0xCF16, "expsplit", "spec 6.4: cf16 is the sqrt split, mode bits select it"),
+    (0x9F0D, "atanhsplit", "spec 6.4: the reciprocal-seed mode with Y bit 3 = atanh split (re/dspnative.py 2026-10-28)"),
+    (0xCF16, "sqrtsplit", "spec 6.4: cf16 is the sqrt split (mode 1, Y bit 3 = 0)"),
     (0x8F19, "expsplit", "spec 6.4: exp split"),
     (0x8F29, "sign", "spec 6.4: sign"),
-    (0x8F39, "negmask", "spec 6.4: negative mask"),
-    (0xCF36, "negmask", "spec 6.4: cf36 = ceiling (mode 3)"),
+    (0x8F39, "floor", "floor (measured 2026-10-28, re/dspnative.py; was read as a negative mask)"),
+    (0xCF36, "ceil", "spec 6.4: cf36 = ceiling (mode 3, Y bit 3 = 0)"),
 ]
 
 CONFIRMED_MARKERS = [

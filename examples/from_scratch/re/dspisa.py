@@ -245,6 +245,45 @@ RSQRT_Q = [252, 245, 238, 232, 226, 221, 216, 211, 207, 203, 199, 195, 192, 188,
            134, 133, 131, 130, 129, 128]
 
 
+def quant_floor(v):
+    """RAW encoding rounded toward -inf (two's complement): the B unit's shifts and the log2 split of a negative Y
+    (measured 2026-10-28, re/dspnative.py: 1 LSB below quant() for negative results that lose bits)"""
+    m = abs(v)
+    for s in range(4):
+        sc = 2 ** (32 - 4 * s)
+        M = math.floor(m * sc) if v >= 0 else math.ceil(m * sc)
+        if M < 2 ** 29:
+            return math.copysign(M / sc, v)
+    return v
+
+
+def quant_near(v):
+    """RAW encoding rounded to nearest (positive v): the SFU's e^n ROM"""
+    for s in range(4):
+        sc = 2 ** (32 - 4 * s)
+        M = math.floor(v * sc + 0.5)
+        if M < 2 ** 29:
+            return M / sc
+    return v
+
+
+RAW_MAX = (2 ** 29 - 1) / 2 ** 20
+
+# e^n of the SFU's exp split, read from the device (2026-10-28, master DSP3, re/dspnative.py): RAW words for
+# n = -19 .. 6; below -19 it gives 0, above 6 the largest RAW value. Not e^n rounded either way (up to 6e-3 off
+# at n = -18, 1e-8 near 0): a ROM of its own
+EXP_ROM_N0 = -19
+EXP_ROM = [0x00000018, 0x00000041, 0x000000b2, 0x000001e3, 0x00000522, 0x00000df3, 0x000025ec, 0x00006715,
+           0x00011835, 0x0002f9af, 0x00081679, 0x0015fc21, 0x003bc2d7, 0x00a27290, 0x01b993fe, 0x04b0556e,
+           0x0cbed866, 0x222a5554, 0x25e2d58d, 0x30000000, 0x42b7e151, 0x4763992e, 0x5415e5bf, 0x63699205,
+           0x69469c4c, 0x7936dc56]
+
+
+def exp_rom(n):
+    i = int(n) - EXP_ROM_N0
+    return 0.0 if i < 0 else RAW_MAX if i >= len(EXP_ROM) else raw_value(EXP_ROM[i])                # the largest RAW value (s = 3)
+
+
 def recip_seed(m):
     """m in [0.5, 1): 64-entry ROM indexed by the 6 bits after the leading 1"""
     k = min(63, int((m - 0.5) * 128))
@@ -272,9 +311,11 @@ def sfu(w, regs, imm, out):
     if mode == 0 and not y & 8:                     # reciprocal seed: r(d) = sign * 2^-e, r(d+1) ~ 1/m (|Y| = 2^e m)
         if Y:
             m, e = math.frexp(abs(Y))
-            out[d] = math.copysign(2.0 ** -e, Y)
+            # 2^-e >= 512 (|Y| < 2^-9) gives 0 (measured 2026-10-28)
+            out[d] = math.copysign(2.0 ** -e, Y) if e > -9 else 0.0
             out[(d + 1) & 7] = recip_seed(m)         # ROM seed (exact)
-        return f'r{d}, r{d + 1} = recip_seed(r{y & 7})'
+            out[y & 7] = m                           # and |Y|'s mantissa (measured 2026-10-28, re/dspnative.py)
+        return f'r{d}, r{d + 1}, r{y & 7} = recip_seed(r{y & 7})  (sign 2^-e, ~1/m, m)'
     if mode == 1 and not y & 8:                     # sqrt split: |Y| = m 4^-k, m in [1, 4) (DSP_ISA_SPEC.md §6.4)
         if Y:
             m, k = abs(Y), 0
@@ -287,19 +328,19 @@ def sfu(w, regs, imm, out):
             e = math.floor(math.log2(Y / 0.75))
             out[d], out[y & 7] = float(e), Y / 2.0 ** e
         elif Y < 0:
-            out[d], out[y & 7] = 9.0, Y / 512
+            out[d], out[y & 7] = 9.0, quant_floor(Y / 512)
         return f'r{d}, r{y & 7} = log2_split(r{y & 7})  (e, m)'
     if mode == 1:                                   # exp split: r(d) = e^floor(Y), Y = frac(Y)
         fl = math.floor(Y)
-        out[d] = math.exp(fl)
+        out[d] = exp_rom(fl)
         out[y & 7] = Y - fl
         return f'r{d} = e^floor(r{y & 7}); r{y & 7} = frac(r{y & 7})'
     if mode == 2 and y & 8:
         out[d] = math.copysign(1.0, Y) if Y else 0.0
         return f'r{d} = sign(r{y & 7})'
-    if mode == 3 and y & 8:
-        out[d] = -1.0 if Y < 0 else 0.0
-        return f'r{d} = -(r{y & 7} < 0)'
+    if mode == 3 and y & 8:                         # floor (measured 2026-10-28, re/dspnative.py: 14.998 -> 14,
+        out[d] = float(math.floor(Y))               # -6.45 -> -7; earlier read as -(Y < 0) from |Y| < 1 only)
+        return f'r{d} = floor(r{y & 7})'
     if mode == 3 and not y & 8:
         out[d] = float(math.ceil(Y))
         return f'r{d} = ceil(r{y & 7})'
@@ -371,7 +412,9 @@ def b_op(w, regs, imm, out):
         return f'r{d & 7} = {name}  (bits, mod 512)'
     if k == (1, 0xC) and mode:           # 2026-10-17: mode 1: X*2^Y, mode 2: X*2^-Y, mode 3: X*2^-(16+Y)
         sh = {1: y, 2: -y, 3: -16 - y}[mode]
-        out[d & 7] = X * 2.0 ** sh
+        # two's complement: the result wraps into [-512, 512) and rounds toward -inf (measured 2026-10-28,
+        # re/dspnative.py: 2.65 * 2^8 = 679 -> -345)
+        out[d & 7] = quant_floor((X * 2.0 ** sh + 512) % 1024 - 512)
         return f'r{d & 7} = r{x} * 2^{sh}'
     if k == (1, 0xC):                    # frexp: X = m 2^e, m in [0.5, 1): r(d) = m, rY = e (0 -> 0, -31) [2026-10-16]
         import math

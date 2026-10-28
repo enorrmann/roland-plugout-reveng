@@ -44,6 +44,36 @@ FILLER = re.compile(r'^mov r(\d), r\1$')
 REG = re.compile(r'\br(\d)\b')
 OPS = {'mul', 'mad', 'addxy', 'subxy', 'add', 'min', 'max', 'mov', 'ph_wrap', 'ph_tri', 'ph_clamp', 'ymacd'}
 READS_DEST = {'mad', 'ymacd', 'add'}
+
+
+def _native(mn, r):
+    """the native ops (DSP_HARDWARE.md §5, measured exact on the SYSTEM-8 master with re/dspnative.py 2026-10-28):
+    r = the operand registers in text order -> (registers written, registers read), or None for an unknown op.
+    Several write more than their D: recipseed / atanhsplit r(D), r(D+1) and rY; newton r(D), r(D+1), rY"""
+    d = r[0]
+    if mn in ('shl', 'shr', 'shrn'):                     # shl rD, rX, rK: K is the 4-bit shift, not a register
+        return {d}, {r[1]}
+    if mn in ('floor', 'ceil', 'sign'):
+        return {d}, {r[1]}
+    if mn in ('expsplit', 'log2split'):                  # rD and rY
+        return {d, r[1]}, {r[1]}
+    if mn in ('recipseed', 'atanhsplit'):                # rD, r(D+1), rY
+        return {d, (d + 1) & 7, r[1]}, {r[1]}
+    if mn == 'frexp':                                    # frexp rD, rX, rY: rD <- m, rY <- e
+        return {d, r[2]}, {r[1]}
+    if mn == 'newton':                                   # rD <- rD r(D+1); r(D+1) <- 2 - r(D+1) rY; rY <- r(D+1) rY
+        return {d, (d + 1) & 7, r[1]}, {d, (d + 1) & 7, r[1]}
+    if mn == 'add3':                                     # rD <- rD + rX + Y
+        return {d}, set(r)
+    if mn == 'sum8':                                     # rD <- rX + rY + rR
+        return {d}, set(r[1:])
+    if mn in ('mac_p1w', 'mac_p1p2w', 'mac_p1p2', 'mac_p1p2wp2'):   # rD <- (+-) rX rY + rC rZ (+ rW)
+        return {d}, set(r[1:])
+    return None
+
+
+NATIVE = {'shl', 'shr', 'shrn', 'floor', 'ceil', 'sign', 'expsplit', 'log2split', 'recipseed', 'atanhsplit', 'frexp',
+          'newton', 'add3', 'sum8', 'mac_p1w', 'mac_p1p2w', 'mac_p1p2', 'mac_p1p2wp2'}
 MAX_OPS, MAX_XFER = 3, 3
 
 _TABLE = []
@@ -65,7 +95,7 @@ def mem_key(addr):
 
 
 class Unit:
-    __slots__ = ('i', 'text', 'kind', 'reg', 'addr', 'dest', 'reads', 'barrier')
+    __slots__ = ('i', 'text', 'kind', 'reg', 'addr', 'dest', 'dests', 'reads', 'barrier')
 
     def __init__(self, i, text):
         self.i, self.text = i, text
@@ -75,16 +105,22 @@ class Unit:
         if m:
             self.kind, self.reg, self.addr = m.group(1), int(m.group(2)), int(m.group(3), 16)
             self.dest = self.reg if self.kind == 'ld' else None
+            self.dests = {self.dest} if self.kind == 'ld' else set()
             self.reads = set() if self.kind == 'ld' else {self.reg}
             return
         self.kind = 'op'
         mn = text.split()[0]
         regs = [int(r) for r in REG.findall(text)]
+        if mn in NATIVE and regs and '|' not in text:
+            self.dests, self.reads = _native(mn, regs)
+            self.dest = regs[0]
+            return
         if mn not in OPS or not regs or '|' in text:
             self.barrier = True
-            self.dest, self.reads = None, set(range(8))
+            self.dest, self.dests, self.reads = None, set(), set(range(8))
             return
         self.dest = regs[0]
+        self.dests = {self.dest}
         if mn in ('ph_wrap', 'ph_tri', 'ph_clamp'):      # `ph_wrap rD, r3, rY`: that r3 is part of the opcode
             regs = regs[:1] + regs[2:]
         self.reads = set(regs[1:]) | ({regs[0]} if mn in READS_DEST else set())
@@ -123,9 +159,9 @@ def dependencies(units):
             need(barrier, 1)
         for r in u.reads:
             need(last_write.get(r), 1)
-        if u.dest is not None:
-            need(last_write.get(u.dest), 1)
-            for i in reads_since.get(u.dest, ()):
+        for w in u.dests:
+            need(last_write.get(w), 1)
+            for i in reads_since.get(w, ()):
                 need(i, 0)
         if u.addr is not None:
             k = mem_key(u.addr)
@@ -139,9 +175,9 @@ def dependencies(units):
         preds[j] = list(dep.items())
         for r in u.reads:
             reads_since.setdefault(r, []).append(j)
-        if u.dest is not None:
-            last_write[u.dest] = j
-            reads_since[u.dest] = []
+        for w in u.dests:
+            last_write[w] = j
+            reads_since[w] = []
         if u.barrier:
             barrier = j
             for r in range(8):

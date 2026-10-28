@@ -356,7 +356,12 @@ def _render_alu(table, form, v, fields, stream):
         ytxt = ("#" + imm_text(table, bits, stream.take(at, bits))
                 + "@%d:%d" % (fields["Y"], bits))
     else:
-        ytxt = _reg_text(fields.get("Y", 0))
+        yspec = v.fields.get("Y")
+        if isinstance(yspec, dict) and yspec.get("or"):
+            # a fixed bit 3 selects the variant (SFU forms, spec 6.4): not a negation
+            ytxt = "r%d" % (fields.get("Y", 0) & ~yspec["or"] & 7)
+        else:
+            ytxt = _reg_text(fields.get("Y", 0))
     args = []
     shows = v.shows if v.shows is not None else form.operand_names
     for name in shows:

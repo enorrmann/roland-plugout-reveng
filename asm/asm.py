@@ -577,6 +577,11 @@ class Assembler:
                 raise AsmError(lineno, getattr(e, "msg", None) or str(e))
             raise AsmError(lineno, "no class in the table holds these units "
                                    "(%s)" % "".join(letters))
+        if (len(choices) > 1 and n_mac
+                and len({self.table.classes[c].layout for c, _ in choices}) == 1):
+            # MAC classes with the same layout (0x040 / 0x098: MN): the lowest, 0x040, is the one measured exact
+            # on the SYSTEM-8 master (re/dspexact.py mac2, re/dspnative.py 2026-10-28)
+            choices = choices[:1]
         if len(choices) > 1:
             raise AsmError(lineno, "ambiguous: classes %s all hold these units; "
                                    "name one with `.class` or in the trailing "

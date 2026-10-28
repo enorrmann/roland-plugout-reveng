@@ -50,6 +50,19 @@
  *                         (docs/examples_system_s1cc_README.md §3.3)
  *   s1_range(x, lo, hi)   x, declaring its range: lo and hi go to s1cc as constants, and the profile must reach
  *                         the call (a branch that always takes the same way leaves it unseen: docs/S1CC.md §3.2)
+ *
+ * Native ops: one call = the DSP's own op (DSP_HARDWARE.md §5, measured exact on the SYSTEM-8 master with
+ * re/dspnative.py; docs/S1CC.md §4.5 has the table, costs and limits). s1cc also uses them on its own where they are
+ * shorter (exp2, exp, divisions, floor, multiplies by big powers of two); these calls ask for them explicitly:
+ *   s1_floor(x), s1_ceil(x)   SFU floor / ceil, 1 op (|x| < 511)
+ *   s1_sign(x)            SFU sign: -1, 0, +1, 1 op
+ *   s1_abs(x)             |x|, 1 op (unit B)
+ *   s1_recip(x)           1/x: recipseed + 3 newton, 4 ops, 1e-8 (also what `a / x` compiles to)
+ *   s1_exp(x), s1_exp2(x) e^x, 2^x: expsplit + degree 4, 8 ops, 3e-5 (result below 512)
+ *   s1_log2(x)            log2 x, x > 0: log2split + degree 6, 9 ops, 5e-6
+ *   s1_ldexp(x, k)        x 2^k, k a constant: free (a scale), or one shl / shr when materialized
+ *   s1_sum3(a, b, c)      a + b + c: sum8, 1 op
+ *   s1_mac2(a, b, c, d, e)  a b + c d + e (e may be 0): one MAC op (two products), all registers
  */
 #ifndef S1DSP_H_
 #define S1DSP_H_
@@ -87,6 +100,16 @@ S1_EXTERN S1_FN float s1_clamp(float x);
 S1_EXTERN S1_FN float s1_tri(float x);
 S1_EXTERN S1_FN float s1_exp2(float x);
 S1_EXTERN S1_FN float s1_range(float x, float lo, float hi);
+S1_EXTERN S1_FN float s1_floor(float x);
+S1_EXTERN S1_FN float s1_ceil(float x);
+S1_EXTERN S1_FN float s1_sign(float x);
+S1_EXTERN S1_FN float s1_abs(float x);
+S1_EXTERN S1_FN float s1_recip(float x);
+S1_EXTERN S1_FN float s1_exp(float x);
+S1_EXTERN S1_FN float s1_log2(float x);
+S1_EXTERN S1_FN float s1_ldexp(float x, int k);
+S1_EXTERN S1_FN float s1_sum3(float a, float b, float c);
+S1_EXTERN S1_FN float s1_mac2(float a, float b, float c, float d, float e);
 S1_EXTERN S1_IN float s1_env(int i);
 S1_EXTERN S1_IN float s1_color(int i);
 S1_EXTERN S1_IN float s1_lfo_filter(void);

@@ -110,9 +110,14 @@ KVal *Kernel::mul(KVal *x, KOperand y) {
                     return mul(it->args[0].v, KOperand::im(it->args[1].imm * a));
                 break;
             }
-        while (std::fabs(a) > 256) {
-            x = op("mul {d}, {0}, {1}", {KOperand::of(x), KOperand::im(256.0)});
-            a /= 256;
+        if (std::fabs(a) > 256) {                // the power of two by shl (one op on unit B, any size up to 2^15)
+            int e;
+            std::frexp(std::fabs(a), &e);
+            int k = e - 1;                          // |a| = 2^k b, b in [1, 2)
+            if (std::fabs(a) == std::ldexp(1.0, k) && a > 0)
+                return shift(x, k);
+            x = shift(x, k);
+            a = std::ldexp(a, -k);
         }
         if (!goodImm(a)) {
             int e;
@@ -156,16 +161,83 @@ KVal *Kernel::mad(KVal *acc, KVal *x, KOperand y) {
 KVal *Kernel::ymac(KVal *acc, KVal *x, KOperand y) { return op("ymacd {d}, {0}, {1}", {KOperand::of(x), y}, acc); }
 KVal *Kernel::min(KVal *x, KOperand y) { return op("min {d}, {0}, {1}", {KOperand::of(x), y}); }
 KVal *Kernel::max(KVal *x, KOperand y) { return op("max {d}, {0}, {1}", {KOperand::of(x), y}); }
-std::pair<KVal *, KVal *> Kernel::recipseed(KVal *y) {
+namespace {
+// e^f on [0, 1): least squares of the relative error, degree 4 (3.3e-5; the old Taylor + squarings: ~7e-4)
+const double kExpPoly[5] = {1.00003245, 0.9988846, 0.50850402, 0.14302561, 0.06774672};
+}
+
+KVal *Kernel::multi(const std::string &fmt, KVal *arg, bool pairD, bool clobber, bool second) {
     KOp o;
-    o.kind = "pair";
-    o.fmt = "recipseed {d}, {0}";
-    o.d = val("2^-e");
-    o.d2 = val("seed");
-    o.args = {KOperand::of(y)};
+    o.kind = "multi";
+    o.fmt = fmt;
+    o.d = val();
+    o.d2 = second ? val() : nullptr;
+    o.args = {KOperand::of(arg)};
+    o.pairD = pairD;
+    o.clobber = clobber;
     o.tag = tag;
     ops_.push_back(o);
-    return {o.d, o.d2};
+    return o.d;
+}
+
+KVal *Kernel::recip(KVal *y) {
+    // Goldschmidt with the SFU seed (Roland's division): recipseed leaves N = sign 2^-e in r(D), F ~ 1/m (ROM, 1 %)
+    // in r(D+1) and m in rY; each newton: q *= f, f = 2 - f m, m *= f. Three steps: q = N F f1 f2 (1e-8)
+    return multi("recipseed {d}, {0}\nnewton {d}, {0}\nnewton {d}, {0}\nnewton {d}, {0}", y, true, true, false);
+}
+
+std::pair<KVal *, KVal *> Kernel::expsplit(KVal *z) {
+    KVal *d = multi("expsplit {d}, {0}", z, false, true, true);
+    return {d, ops_.back().d2};
+}
+
+std::pair<KVal *, KVal *> Kernel::log2split(KVal *y) {
+    KVal *d = multi("log2split {d}, {0}", y, false, true, true);
+    return {d, ops_.back().d2};
+}
+
+KVal *Kernel::exp2split(KVal *t, double shift) {
+    KVal *z = mul(t, KOperand::im(std::log(2.0)));
+    if (shift != 0)
+        z = add(z, KOperand::im(shift * std::log(2.0)));
+    auto ef = expsplit(z);
+    KVal *p = mov(KOperand::im(kExpPoly[4]));
+    for (int k = 3; k >= 0; k--)
+        p = ymac(p, ef.second, KOperand::im(kExpPoly[k]));
+    return mul(p, KOperand::of(ef.first));
+}
+
+KVal *Kernel::floor(KVal *x) { return op("floor {d}, {0}", {KOperand::of(x)}); }
+KVal *Kernel::ceil(KVal *x) { return op("ceil {d}, {0}", {KOperand::of(x)}); }
+KVal *Kernel::sign(KVal *x) { return op("sign {d}, {0}", {KOperand::of(x)}); }
+
+KVal *Kernel::shift(KVal *x, int k) {
+    // shl / shr: 2^k with |k| <= 15; shrn: 2^-(16 + j), j <= 15
+    while (k > 15) {
+        x = op("shl {d}, {0}, r15", {KOperand::of(x)});
+        k -= 15;
+    }
+    if (k > 0)
+        return op("shl {d}, {0}, r" + std::to_string(k), {KOperand::of(x)});
+    if (k == 0)
+        return x;
+    if (k >= -15)
+        return op("shr {d}, {0}, r" + std::to_string(-k), {KOperand::of(x)});
+    if (k >= -31)
+        return op("shrn {d}, {0}, r" + std::to_string(-k - 16), {KOperand::of(x)});
+    return shift(op("shrn {d}, {0}, r15", {KOperand::of(x)}), k + 31);
+}
+
+KVal *Kernel::mac2(KVal *a, KVal *b, KVal *c, KVal *d, KVal *e) {
+    // MAC unit, register coefficient: rD <- rX rY + rC rZ (+ rW); text order D, X, Y, Z, C, W
+    if (e)
+        return op("mac_p1p2 {d}, {0}, {1}, {3}, {2}, {4}",
+                  {KOperand::of(a), KOperand::of(b), KOperand::of(c), KOperand::of(d), KOperand::of(e)});
+    return op("mac_p1w {d}, {0}, {1}, {3}, {2}", {KOperand::of(a), KOperand::of(b), KOperand::of(c), KOperand::of(d)});
+}
+
+KVal *Kernel::sum3(KVal *a, KVal *b, KVal *c) {
+    return op("sum8 {d}, {0}, {1}, {2}", {KOperand::of(a), KOperand::of(b), KOperand::of(c)});
 }
 
 KVal *Kernel::twoMinus(KVal *x) { return op("subxy {d}, {0}, #2.0", {KOperand::of(x)}); }
@@ -217,7 +289,7 @@ std::vector<std::string> Kernel::lines() {
         std::vector<KOp> keep;
         for (auto &o : ops_) {
             if ((o.kind == "op" && o.d && !used.count(o.d->n)) ||
-                (o.kind == "pair" && !used.count(o.d->n) && !used.count(o.d2->n))) {
+                (o.kind == "multi" && !used.count(o.d->n) && !(o.d2 && used.count(o.d2->n)))) {
                 changed = true;
                 continue;
             }
@@ -248,6 +320,15 @@ std::vector<std::string> Kernel::lines() {
                 last[v->n] = i;
         for (int i = 0; i < (int)ops_.size(); i++) {
             KOp o = ops_[i];
+            if (o.kind == "multi" && o.clobber && last[o.args[0].v->n] > i) {
+                KOp c;
+                c.kind = "op";
+                c.fmt = "mov {d}, {0}";
+                c.d = val("copy");
+                c.args = {o.args[0]};
+                ops.push_back(c);
+                o.args[0] = KOperand::of(c.d);
+            }
             if (o.acc && last[o.acc->n] > i) {
                 KOp c;
                 c.kind = "op";
@@ -366,31 +447,49 @@ std::vector<std::string> Kernel::lines() {
                 home.erase(hm);
             }
         }
-        if (o.kind == "pair") {                      // recipseed: two adjacent registers r, r + 1
-            int got = -1;
-            for (int tries = 0; tries < 16 && got < 0; tries++) {
-                for (int r : freeRegs)
-                    if (std::find(freeRegs.begin(), freeRegs.end(), r + 1) != freeRegs.end()) {
-                        got = r;
-                        break;
-                    }
-                if (got < 0) {                          // spill until a pair is free
-                    int r = takeReg(i, keep, true);
-                    freeRegs.push_back(r);
-                }
+        if (o.kind == "multi") {                     // native op writing more than D (Kernel::multi)
+            int yreg = o.args[0].v->reg;
+            if (o.clobber) {                         // the argument died here (a copy was made otherwise)
+                auto it = std::find(freeRegs.begin(), freeRegs.end(), yreg);
+                if (it == freeRegs.end())
+                    fail("E707", "kernel: the argument of " + o.fmt.substr(0, o.fmt.find(' ')) + " is still live");
+                freeRegs.erase(it);
             }
-            if (got < 0)
-                fail("E706", "kernel: no free register pair for recipseed");
-            freeRegs.erase(std::find(freeRegs.begin(), freeRegs.end(), got));
-            freeRegs.erase(std::find(freeRegs.begin(), freeRegs.end(), got + 1));
+            int got = -1;
+            if (o.pairD) {                           // r(D), r(D+1)
+                for (int tries = 0; tries < 16 && got < 0; tries++) {
+                    for (int r : freeRegs)
+                        if (r < 7 && std::find(freeRegs.begin(), freeRegs.end(), r + 1) != freeRegs.end()) {
+                            got = r;
+                            break;
+                        }
+                    if (got < 0) {                      // spill until a pair is free
+                        int r = takeReg(i, keep, true);
+                        freeRegs.push_back(r);
+                    }
+                }
+                if (got < 0)
+                    fail("E706", "kernel: no free register pair for " + o.fmt.substr(0, o.fmt.find(' ')));
+                freeRegs.erase(std::find(freeRegs.begin(), freeRegs.end(), got));
+                freeRegs.erase(std::find(freeRegs.begin(), freeRegs.end(), got + 1));
+            } else {
+                got = takeReg(i, keep, false);
+            }
             o.d->reg = got;
-            o.d2->reg = got + 1;
+            if (o.d2)
+                o.d2->reg = yreg;
             for (KVal *v : {o.d, o.d2}) {
+                if (!v)
+                    continue;
                 if (nextUse(v->n, i + 1) != 1 << 30)
                     live[v->n] = v;
                 else
                     freeRegs.push_back(v->reg);
             }
+            if (o.pairD)
+                freeRegs.push_back(got + 1);
+            if (o.clobber && !o.d2)
+                freeRegs.push_back(yreg);
             out2.push_back(o);
             continue;
         }
@@ -426,9 +525,20 @@ std::vector<std::string> Kernel::lines() {
             s = "ld r" + std::to_string(o.d->reg) + ", [" + o.addr + "]";
         else if (o.kind == "st")
             s = "st r" + std::to_string(o.args[0].v->reg) + ", [" + o.addr + "]";
-        else if (o.kind == "pair")
-            s = "recipseed r" + std::to_string(o.d->reg) + ", r" + std::to_string(o.args[0].v->reg);
-        else {
+        else if (o.kind == "multi") {
+            s = o.fmt;
+            auto all = [&](const std::string &key, const std::string &val) {
+                for (size_t p; (p = s.find(key)) != std::string::npos;)
+                    s.replace(p, key.size(), val);
+            };
+            all("{d}", "r" + std::to_string(o.d->reg));
+            all("{d1}", "r" + std::to_string(o.d->reg + 1));
+            all("{0}", "r" + std::to_string(o.args[0].v->reg));
+            for (size_t p = 0, q; (q = s.find('\n', p)) != std::string::npos; p = 0) {
+                out.push_back(s.substr(0, q));
+                s = s.substr(q + 1);
+            }
+        } else {
             s = o.fmt;
             auto rep = [&](const std::string &key, const std::string &val) {
                 size_t p = s.find(key);

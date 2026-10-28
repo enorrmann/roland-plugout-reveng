@@ -175,8 +175,12 @@ struct KOperand {
 struct KVal { int n = 0; int reg = -1; std::string name; };
 
 struct KOp {
-    std::string kind;            // "op" / "ld" / "st" / "comment" / "pair" (recipseed: d and d2 = registers r, r+1)
-    KVal *d2 = nullptr;
+    std::string kind;            // "op" / "ld" / "st" / "comment" / "multi" (a native op that writes more than its
+                                 // destination: fmt = its lines, {d} / {d1} = r(D) / r(D+1), {0} = the argument)
+    KVal *d2 = nullptr;          // multi + clobber: the second result, in the argument's register (expsplit: frac)
+    bool pairD = false;          // multi: r(D + 1) is written too (a scratch register next to D)
+    bool clobber = false;        // multi: the argument's register is written (the argument dies here; a copy first
+                                 // when it is read later)
     std::string fmt;             // "mul {d}, {0}, {1}" ...
     KVal *d = nullptr;
     std::vector<KOperand> args;
@@ -203,8 +207,18 @@ public:
     KVal *tri(KVal *x);
     KVal *clamp(KVal *x);
     KVal *exp2(KVal *x, int extraSquarings = 0);
-    std::pair<KVal *, KVal *> recipseed(KVal *y);   // (sign 2^-e, ~1/m) for |y| = m 2^e: the SFU ROM seed (Roland's)
     KVal *twoMinus(KVal *x);                        // 2 - x (subxy d, x, #2.0)
+    // the DSP's native ops (DSP_HARDWARE.md §5, measured exact on the SYSTEM-8 master: re/dspnative.py)
+    KVal *recip(KVal *y);                           // 1/y: recipseed + 3 newton (1e-8; |y| in [2^-9, 512))
+    std::pair<KVal *, KVal *> expsplit(KVal *z);   // (e^floor(z), frac(z)), z in [-19, 7)
+    std::pair<KVal *, KVal *> log2split(KVal *y);  // (e, m) with y = m 2^e, m in [0.75, 1.5), y > 0
+    KVal *exp2split(KVal *t, double shift);         // 2^(t + shift) for t + shift in [-27, 8]: expsplit + degree 4
+    KVal *floor(KVal *x);                           // SFU floor / ceil / sign (+-1, 0)
+    KVal *ceil(KVal *x);
+    KVal *sign(KVal *x);
+    KVal *shift(KVal *x, int k);                    // x 2^k (shl / shr / shrn: unit B, two's complement)
+    KVal *mac2(KVal *a, KVal *b, KVal *c, KVal *d, KVal *e = nullptr);   // a b + c d (+ e): one MAC
+    KVal *sum3(KVal *a, KVal *b, KVal *c);          // a + b + c: sum8
     std::vector<std::string> lines();
     int units() const;
     int spills() const { return spills_; }
@@ -214,6 +228,7 @@ public:
 private:
     KVal *val(const std::string &name = "");
     KVal *op(const std::string &fmt, std::vector<KOperand> args, KVal *acc = nullptr);
+    KVal *multi(const std::string &fmt, KVal *arg, bool pairD, bool clobber, bool second);
     std::vector<int> regs_;
     std::vector<KOp> ops_;
     std::vector<std::unique_ptr<KVal>> vals_;
@@ -231,6 +246,8 @@ struct LowerOptions {
     double fitTolLog = 0.0005;   // log2 metric (octaves; 0.0005 = 0.6 cent: increments are pitches)
     bool recipseed = true;       // 1/y by the SFU seed (proven on the SYSTEM-8 only); false (--no-recipseed): octave
                                  // normalisation with proven ops (experimental: less exact, more ops)
+    bool native = true;          // the DSP's native ops where they are shorter: SFU exp split for exp2, floor / ceil,
+                                 // the MAC for s1_mac2 (--no-native: the older sequences of mul / mad / addxy)
     bool foldBranches = true;    // a compare with one value in every profiling scenario is that constant (W909)
     bool exactInit = true;       // state words with a non-zero start: first-sample flag + one mad each
     bool trace = false;          // debugging: every lowered value also stored to {D:<record id>} (s1cc check --trace)

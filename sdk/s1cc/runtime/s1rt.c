@@ -95,6 +95,18 @@ float s1_clamp(float x) { return x < -1 ? -1 : x > 1 ? 1 : x; }
 float s1_tri(float x) { return 1.0f - 2.0f * fabsf(wrapf(-x - 1.5f)); }
 float s1_exp2(float x) { return exp2f(x); }
 float s1_range(float x, float lo, float hi) { (void)lo; (void)hi; return x; }
+/* native ops (s1dsp.h "Native ops"): the exact function; the DSP's op is measured exact (re/dspnative.py) or, for
+ * s1_recip / s1_exp / s1_exp2 / s1_log2, a seed or split with a polynomial (1e-8 .. 3e-5) */
+float s1_floor(float x) { return floorf(x); }
+float s1_ceil(float x) { return ceilf(x); }
+float s1_sign(float x) { return x > 0 ? 1.0f : x < 0 ? -1.0f : 0.0f; }
+float s1_abs(float x) { return fabsf(x); }
+float s1_recip(float x) { return 1.0f / x; }
+float s1_exp(float x) { return expf(x); }
+float s1_log2(float x) { return log2f(x); }
+float s1_ldexp(float x, int k) { return ldexpf(x, k); }
+float s1_sum3(float a, float b, float c) { return a + b + c; }
+float s1_mac2(float a, float b, float c, float d, float e) { return a * b + c * d + e; }
 
 /* ---- profiling records ---- */
 #define MAXR 65536

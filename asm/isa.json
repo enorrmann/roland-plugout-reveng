@@ -2356,7 +2356,10 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 0
+            "mode": 0,
+            "Y": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": {
@@ -2377,7 +2380,7 @@
             "D",
             "Y"
           ],
-          "result": "rD <- sign*2^-e, r(D+1) <- ~1/m (reciprocal seed)",
+          "result": "rD <- sign*2^-e (0 when 2^-e >= 512), r(D+1) <- ~1/m, rY <- m (|rY| = m 2^e)",
           "evidence": [
             {
               "source": "docs/DSP_ISA_SPEC.md",
@@ -2391,6 +2394,11 @@
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
           ]
         },
@@ -2403,7 +2411,10 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 1
+            "mode": 1,
+            "Y": {
+              "ge": 8
+            }
           },
           "fields": {
             "D": {
@@ -2414,7 +2425,10 @@
             "b11_8": 15,
             "f_family": 0,
             "mode": 1,
-            "Y": "Y",
+            "Y": {
+              "from": "Y",
+              "or": 8
+            },
             "X": {
               "free": true,
               "$doc": "bits 8-6 are not a source register in a nibble-F form"
@@ -2424,7 +2438,7 @@
             "D",
             "Y"
           ],
-          "result": "rD <- e^floor(rY), rY <- frac(rY)",
+          "result": "rD <- e^floor(rY) (device ROM, n = -19..6; 0 below, saturated above), rY <- frac(rY)",
           "evidence": [
             {
               "source": "docs/DSP_ISA_SPEC.md",
@@ -2438,6 +2452,11 @@
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
           ]
         },
@@ -2450,7 +2469,10 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 2
+            "mode": 2,
+            "Y": {
+              "ge": 8
+            }
           },
           "fields": {
             "D": {
@@ -2461,7 +2483,10 @@
             "b11_8": 15,
             "f_family": 0,
             "mode": 2,
-            "Y": "Y",
+            "Y": {
+              "from": "Y",
+              "or": 8
+            },
             "X": {
               "free": true,
               "$doc": "bits 8-6 are not a source register in a nibble-F form"
@@ -2485,11 +2510,16 @@
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
           ]
         },
         {
-          "mnemonic": "negmask",
+          "mnemonic": "floor",
           "status": "measured",
           "when": {
             "D": {
@@ -2497,7 +2527,10 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 3
+            "mode": 3,
+            "Y": {
+              "ge": 8
+            }
           },
           "fields": {
             "D": {
@@ -2508,7 +2541,10 @@
             "b11_8": 15,
             "f_family": 0,
             "mode": 3,
-            "Y": "Y",
+            "Y": {
+              "from": "Y",
+              "or": 8
+            },
             "X": {
               "free": true,
               "$doc": "bits 8-6 are not a source register in a nibble-F form"
@@ -2518,7 +2554,7 @@
             "D",
             "Y"
           ],
-          "result": "rD <- -1 if rY < 0 else 0",
+          "result": "rD <- floor(rY)",
           "evidence": [
             {
               "source": "docs/DSP_ISA_SPEC.md",
@@ -2532,8 +2568,14 @@
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
-          ]
+          ],
+          "$note": "measured 2026-10-28 (re/dspnative.py, master DSP3): floor; read earlier as -(rY < 0) from |rY| < 1 only"
         },
         {
           "mnemonic": "ceil",
@@ -2544,7 +2586,10 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 4
+            "mode": 3,
+            "Y": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": {
@@ -2554,7 +2599,7 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 4,
+            "mode": 3,
             "Y": "Y",
             "X": {
               "free": true,
@@ -2579,6 +2624,11 @@
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
           ]
         },
@@ -2591,7 +2641,10 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 5
+            "mode": 1,
+            "Y": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": {
@@ -2601,7 +2654,7 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 5,
+            "mode": 1,
             "Y": "Y",
             "X": {
               "free": true,
@@ -2626,6 +2679,11 @@
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
           ]
         },
@@ -2638,7 +2696,10 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 6
+            "mode": 2,
+            "Y": {
+              "lt": 8
+            }
           },
           "fields": {
             "D": {
@@ -2648,7 +2709,7 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 6,
+            "mode": 2,
             "Y": "Y",
             "X": {
               "free": true,
@@ -2673,6 +2734,11 @@
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
           ]
         },
@@ -2685,7 +2751,10 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 7
+            "mode": 0,
+            "Y": {
+              "ge": 8
+            }
           },
           "fields": {
             "D": {
@@ -2695,8 +2764,11 @@
             },
             "b11_8": 15,
             "f_family": 0,
-            "mode": 7,
-            "Y": "Y",
+            "mode": 0,
+            "Y": {
+              "from": "Y",
+              "or": 8
+            },
             "X": {
               "free": true,
               "$doc": "bits 8-6 are not a source register in a nibble-F form"
@@ -2720,6 +2792,11 @@
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
           ]
         }
@@ -3617,7 +3694,7 @@
         },
         {
           "mnemonic": "mac_p1w",
-          "status": "inferred",
+          "status": "measured",
           "when": {
             "op1": 4,
             "op2": 0,
@@ -3660,6 +3737,11 @@
               "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28 on the SYSTEM-8 master (test mac_p1w), register coefficient, result usable in the next instruction"
             }
           ],
           "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
@@ -3889,7 +3971,7 @@
         },
         {
           "mnemonic": "mac_p1p2w",
-          "status": "inferred",
+          "status": "measured",
           "when": {
             "op1": 5,
             "op2": 0,
@@ -3932,6 +4014,11 @@
               "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28 on the SYSTEM-8 master (test mac_n1w), register coefficient, result usable in the next instruction"
             }
           ],
           "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
@@ -4164,7 +4251,7 @@
         },
         {
           "mnemonic": "mac_p1p2",
-          "status": "inferred",
+          "status": "measured",
           "when": {
             "op1": 6,
             "op2": 0,
@@ -4207,6 +4294,11 @@
               "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28 on the SYSTEM-8 master (test mac_p1p2 / mac_p1p2h), register coefficient, result usable in the next instruction"
             }
           ],
           "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
@@ -4482,7 +4574,7 @@
         },
         {
           "mnemonic": "mac_p1p2wp2",
-          "status": "inferred",
+          "status": "measured",
           "when": {
             "op1": 7,
             "op2": 0,
@@ -4525,6 +4617,11 @@
               "source": "docs/DSP_ISA_SPEC.md",
               "section": "7",
               "kind": "measured-without-bit-9"
+            },
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-28 on the SYSTEM-8 master (test mac_n1p2), register coefficient, result usable in the next instruction"
             }
           ],
           "evidence_note": "bit 9 is documented and the corpus sets it whenever C is used, but no measured example has it set: inferred"
