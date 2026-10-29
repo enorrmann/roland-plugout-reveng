@@ -1,9 +1,12 @@
 MOD_DSP=auto: pitch envelope and COLOR MOD on DSP A
-s1m0    381 instructions, 1653 halfwords
-s1m1    699 instructions, 2909 halfwords
+s1m0    663 instructions, 2843 halfwords
+s1m1    691 instructions, 3051 halfwords
 s1mm1     7 instructions, 44 halfwords
 s1c0      2 instructions, 7 halfwords
 s1c1      2 instructions, 7 halfwords
-kernel per voice: A 33 lines, 8 words; B 36 lines, 15 words
-A -> B x: same sample (voices 0,1,2,3,4,5,6,7)
-A -> B gate / trigger copies: same sample (voices 0,1,2,3,4,5,6,7)
+kernel per voice: A 86 lines, 16 words; B 56 lines, 16 words
+A -> B x: one sample late (voices 0,1,2,3); race (voices 4,5,6)
+A -> B input pitch: same sample (voices 0,1,2,3,4,5,6)
+A -> B gate / trigger copies: same sample (voices 0,1,2,3,4,5,6)
+note: DSP A has 2 spill words and does not use r5 / r6: SYSTEM-S1CC has no host keeping them, build the kernel with --regs 0,1,2,3,4,5,6,7 (docs/S1CC.md §1.1)
+note: DSP B has 1 spill words and does not use r5 / r6: SYSTEM-S1CC has no host keeping them, build the kernel with --regs 0,1,2,3,4,5,6,7 (docs/S1CC.md §1.1)
