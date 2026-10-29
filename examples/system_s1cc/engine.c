@@ -12,6 +12,7 @@
  *                     RATE / DELAY TIME / TO PITCH / TO FILTER / TO AMP, PITCH ENV A / D, OSC1 / OSC2 COLOR and COLOR
  *                     MOD -> DSP A parameters C040.. (make_s1cc.py hlfo_voice)
  *   refresh (vt+0x24) voices from the current values, knob tables from the last values received
+ *   LUT_N             LFO_LUT / ENV_CURVE: the bank-5 tables (A000 + LUT0_IDX ..) at load and refresh
  */
 #include <stdint.h>
 #include "syninfo.h"
@@ -121,6 +122,15 @@ static uint8_t hlfo_knob[C_N];
 static void hlfo_color(int i)          /* weights (manual, LFO, pitch env, filter env, amp env, sub): knob x source */
 {
     int k = hlfo_knob[C_COLOR0 + i], src = hlfo_knob[C_MOD0 + i] > 5 ? 5 : hlfo_knob[C_MOD0 + i];
+#if CMOD_IDX
+    /* indexed (make_s1cc.py colors_b_idx): w0, w, the source's offset; the LFO and the sub are -1..1 */
+    uint32_t w0 = src == 0 ? level_bits[k] : src == 1 || src == 5 ? half_bits[k] : F_ZERO;
+    uint32_t w = src == 0 ? F_ZERO : src == 1 || src == 5 ? half_bits[k] : level_bits[k];
+    b6(M6_SEL, (i ? M6_COL1 : M6_COL0), w0);
+    b6(M6_SEL, (i ? M6_COL1 : M6_COL0) + 1, w);
+    b6(M6_SEL, (i ? M6_COL1 : M6_COL0) + 2, cmod_off_bits[src]);
+    return;
+#endif
     for (int j = 0; j < 6; j++) {      /* the LFO and the sub are -1..1: knob x (0.5 + 0.5 x) */
         uint32_t w = src == 1 || src == 5 ? (j == 0 || j == src ? half_bits[k] : F_ZERO)
                                           : j == src ? level_bits[k] : F_ZERO;
@@ -257,6 +267,16 @@ static void e_init(engine_t *e)                                  /* vt+0x00 */
 #endif
 }
 
+#if LUT_N
+static void lut_all(void)       /* LFO_LUT / ENV_CURVE: the bank-5 tables the DSP B reads with indexed loads */
+{
+    for (int i = 0; i < LUT_N; i++)
+        b5(LUT0_IDX + i, lut_bits[i]);
+}
+#else
+static void lut_all(void) {}
+#endif
+
 static void e_load(engine_t *e)                                  /* vt+0x08 */
 {
     for (int i = 0; i < 8; i++)
@@ -268,6 +288,7 @@ static void e_load(engine_t *e)                                  /* vt+0x08 */
         ((place_fn)SVC(0x40))(sect_index[i], sect_set[i], set_none, set_none, set_none);
 #endif
     section_on();
+    lut_all();
     for (int v = 0; v < NV; v++)
         b5(B5_TRIG + v, e->trig[v] ? F_ONE : F_ZERO);
     kparam_all();
@@ -287,6 +308,7 @@ static void e_refresh(engine_t *e, int all)                      /* vt+0x24 */
     kparam_all();
     henv_all();
     hlfo_all();
+    lut_all();
     section_on();
 }
 

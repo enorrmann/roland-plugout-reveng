@@ -1704,6 +1704,52 @@
           "evidence_note": "decoded from the spec's stated behaviour; not re-measured by this table"
         },
         {
+          "mnemonic": "divseed",
+          "status": "exact",
+          "when": {
+            "D": {
+              "ge": 8
+            },
+            "b11_8": 14,
+            "e_family": 2,
+            "Y": {
+              "lt": 8
+            }
+          },
+          "fields": {
+            "D": {
+              "from": "D",
+              "add": 8,
+              "$doc": "spec 6.3/6.4: the field is 8 + d for these families"
+            },
+            "b11_8": 14,
+            "e_family": 2,
+            "mode": {
+              "from": "X",
+              "bits": [
+                2,
+                1
+              ]
+            },
+            "Y": "Y"
+          },
+          "result": "r(d) <- rX sign(rY) 2^-e, r(d+1) <- R[m], rY <- m (|rY| = m 2^e, m in [0.5, 1)); X even (r0 r2 r4 r6)",
+          "shows": [
+            "D",
+            "X",
+            "Y"
+          ],
+          "evidence": [
+            {
+              "source": "examples/from_scratch/re/dspnative.py",
+              "kind": "measured",
+              "tag": "exact 2026-10-29 raw_e10_*"
+            }
+          ],
+          "evidence_note": "decoded from the spec's stated behaviour; not re-measured by this table",
+          "$doc": "2026-10-29: the reciprocal seed with a numerator: with 3 newton r(d) = X / Y (4 ops). X = r(2 mode); N 2^-e in two's complement (toward -inf at 2^-32); exact on the SYSTEM-8 master (re/dspnative.py raw_e10_*, ~4300 cases). Y bit 3 (X = Y) not encoded here"
+        },
+        {
           "mnemonic": "bic",
           "status": "fitted",
           "when": {

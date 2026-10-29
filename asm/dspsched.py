@@ -40,6 +40,9 @@ if HERE not in sys.path:
 import asm  # noqa: E402
 
 XFER = re.compile(r'^(ld|st) r(\d), \[([0-9a-f]{4})\]$')
+IDX = re.compile(r'^ldidx r(\d), (\d+)$')            # bank 0 [h6 + Y] (X28Y): after a hset h6 with one instruction between
+IDX5 = re.compile(r'^ldb5(?:h7)? r(\d), (\d+)$')    # bank 5 [h6 / h7 + Y] (XdaY / XdbY): the same, a fixed table
+HSET = re.compile(r'^hset h(\d), r(\d)$')
 FILLER = re.compile(r'^mov r(\d), r\1$')
 REG = re.compile(r'\br(\d)\b')
 OPS = {'mul', 'mad', 'addxy', 'subxy', 'add', 'min', 'max', 'mov', 'ph_wrap', 'ph_tri', 'ph_clamp', 'ymacd'}
@@ -73,6 +76,8 @@ def _native(mn, r):
         return {d}, set(r)
     if mn == 'sum8':                                     # rD <- rX + rY + rR
         return {d}, set(r[1:])
+    if mn == 'mac_p1':                                   # rD <- rX rY + rW (one product)
+        return {d}, set(r[1:])
     if mn in MAC_FORMS:                                  # rD <- (+-) rX rY + c rZ (+ rW), c a register or a #K
         return {d}, set(r[1:])
     if mn == 'sqrtsplit':                                # rY <- m, r(D+1) <- seed, r(D+3) <- sign 2^-k (2026-10-29)
@@ -81,8 +86,17 @@ def _native(mn, r):
 
 
 NATIVE = {'shl', 'shr', 'shrn', 'floor', 'ceil', 'sign', 'expsplit', 'log2split', 'recipseed', 'atanhsplit', 'frexp',
-          'newton', 'add3', 'sum8', 'sqrtsplit'} | MAC_FORMS
+          'newton', 'add3', 'sum8', 'sqrtsplit', 'mac_p1'} | MAC_FORMS
 MAX_OPS, MAX_XFER = 3, 3
+# op families (DSP_HARDWARE.md §5.2-5.4), for the patterns of asm/bad_forms.txt (`family:minmax + family:minmax`)
+B_FAMILY = {**{m: 'macp2' for m in MAC_FORMS},          # the MAC ops with a P2 term
+            **{m: 'minmax' for m in ('min', 'max', 'minn', 'maxn', 'absx', 'absy')},
+            **{m: 'e' for m in ('cmp', 'bic', 'divseed', 'ph_add', 'ph_sub', 'ph_abs', 'ph_clamp', 'ph_wrap', 'ph_tri',
+                                'ph_mod2', 'ph_neg')},
+            **{m: 'shift' for m in ('shl', 'shr', 'shrn', 'frexp')},
+            **{m: 'sfu' for m in ('floor', 'ceil', 'sign', 'recipseed', 'expsplit', 'log2split', 'sqrtsplit',
+                                  'atanhsplit')},
+            **{m: 'abs' for m in ('absadd', 'subabs')}}
 
 _TABLE = []
 _ASSEMBLES = {}
@@ -103,12 +117,20 @@ def mem_key(addr):
 
 
 class Unit:
-    __slots__ = ('i', 'text', 'kind', 'reg', 'addr', 'dest', 'dests', 'reads', 'barrier')
+    __slots__ = ('i', 'text', 'kind', 'reg', 'addr', 'dest', 'dests', 'reads', 'barrier', 'idx', 'hset', 'b5')
 
     def __init__(self, i, text):
         self.i, self.text = i, text
         self.barrier = False
         self.addr = None
+        self.idx = self.hset = self.b5 = False
+        m = IDX.match(text) or IDX5.match(text)
+        if m:                                  # an indexed load (bank 0, or bank 5: b5): no static address
+            self.kind, self.reg, self.idx, self.b5 = 'ld', int(m.group(1)), True, text.startswith('ldb5')
+            self.dest, self.dests, self.reads = self.reg, {self.reg}, set()
+            return
+        if HSET.match(text):                   # a hidden-register load: alone in its instruction (a barrier)
+            self.hset = True
         m = XFER.match(text)
         if m:
             self.kind, self.reg, self.addr = m.group(1), int(m.group(2)), int(m.group(3), 16)
@@ -152,6 +174,7 @@ def dependencies(units):
     reads_since = {}           # reg -> [units] reading it since its last write
     last_store, loads_since = {}, {}
     barrier = None
+    last_hset, any_store, idx_since = None, None, []
     for j, u in enumerate(units):
         dep = {}
 
@@ -179,6 +202,17 @@ def dependencies(units):
                 need(last_store.get(k), 1)
                 for i in loads_since.get(k, ()):
                     need(i, 0)
+        if u.idx:                              # any bank-0 word: after every bank-0 store, two after the hset
+            if not u.b5:                       # (bank 5: a table nobody stores into)
+                need(any_store, 1)
+            need(last_hset, 2)
+        if u.kind == 'st' and u.addr >> 13 == 0:   # a bank-0 store after an indexed load of bank 0
+            for i in idx_since:
+                if not units[i].b5:
+                    need(i, 0)
+        if u.hset:                             # a new h: after the indexed loads that used the old one
+            for i in idx_since:
+                need(i, 1)
         dep.pop(j, None)
         preds[j] = list(dep.items())
         for r in u.reads:
@@ -186,6 +220,12 @@ def dependencies(units):
         for w in u.dests:
             last_write[w] = j
             reads_since[w] = []
+        if u.idx:
+            idx_since.append(j)
+        if u.kind == 'st' and u.addr >> 13 == 0:   # the indexed loads read bank 0 only
+            any_store = j
+        if u.hset:
+            last_hset, idx_since = j, []
         if u.barrier:
             barrier = j
             for r in range(8):
@@ -217,7 +257,7 @@ def signatures(scheduled):
     for line in scheduled:
         if not line.strip() or line.startswith(';'):
             continue
-        ops = [u.strip() for u in line.split('|') if u.strip().split()[0] not in ('ld', 'st')]
+        ops = [u.strip() for u in line.split('|') if u.strip().split()[0] not in ('ld', 'st', 'ldidx', 'ldb5', 'ldb5h7')]
         if len(ops) > 1:
             out[op_signature(ops)] += 1
     return out
@@ -249,6 +289,54 @@ def candidate_forms(lines, proven):
 def load_bad(path=None):
     """op groups that hung the device (asm/bad_forms.txt): never fused, not even when every group is allowed"""
     return load_proven(path or os.path.join(HERE, 'bad_forms.txt'))
+
+
+def load_bad_patterns(path=None):
+    """asm/bad_forms.txt: one group per line, terms joined by ' + '; a term is `mnemonic:kind` (fnmatch wildcards:
+    `mac_*:*`) or `family:NAME` (B_FAMILY). A group of ops is bad when some of its ops match every term"""
+    path = path or os.path.join(HERE, 'bad_forms.txt')
+    out = []
+    if os.path.exists(path):
+        for line in open(path):
+            line = line.split('#')[0].strip()
+            if line:
+                out.append(tuple(t.strip() for t in line.split(' + ')))
+    return out
+
+
+def _term_matches(term, op):
+    import fnmatch
+    mn = op.split(':')[0]
+    if term.startswith('family:'):
+        return B_FAMILY.get(mn) == term[7:]
+    return fnmatch.fnmatchcase(op, term)
+
+
+def _pattern_matches(pattern, sig):
+    """some distinct ops of sig match the pattern's terms, one each"""
+    import itertools
+    if len(pattern) > len(sig):
+        return False
+    return any(all(_term_matches(t, op) for t, op in zip(pattern, ops)) for ops in itertools.permutations(sig, len(pattern)))
+
+
+_BADP = []
+
+
+def is_bad(sig):
+    """a group (op_signature) that asm/bad_forms.txt forbids"""
+    if not _BADP:
+        _BADP.append(load_bad_patterns())
+    return any(_pattern_matches(p, sig) for p in _BADP[0])
+
+
+def evidence_text(sig):
+    """Roland's use of a group (asm/roland_forms.py), or '' without the local corpora"""
+    try:
+        import roland_forms
+        return roland_forms.text(sig)
+    except Exception:                                                   # noqa: BLE001
+        return ''
 
 
 def load_proven(path=None):
@@ -296,7 +384,8 @@ class Ins:
         if self.shapes is None or u.barrier:
             return True
         import collections
-        acc = collections.Counter(f'{x.kind}{_bank_name(x.addr)}' for x in self.xf + ([u] if u.kind != 'op' else []))
+        acc = collections.Counter(f'{x.kind}{("5" if x.b5 else "0") if x.idx else _bank_name(x.addr)}'
+                                  for x in self.xf + ([u] if u.kind != 'op' else []))
         ops = len(self.ops) + (u.kind == 'op')
         return any(ops <= p_ops and not (acc - p_acc) for p_acc, p_ops in self.shapes)
 
@@ -308,18 +397,26 @@ class Ins:
         if u.kind == 'op':
             if len(self.ops) >= MAX_OPS:
                 return False
-            if self.ops:
-                sig = op_signature([x.text for x in self.ops] + [u.text])
-                if self.allowed is not None:
-                    return sig in self.allowed
-                return sig not in _bad()
+            # asm/bad_forms.txt (signatures and patterns: families, wildcards): never, whatever is allowed
+            if self.ops and is_bad(op_signature([x.text for x in self.ops] + [u.text])):
+                return False
+            if self.ops and self.allowed is not None:
+                return op_signature([x.text for x in self.ops] + [u.text]) in self.allowed
             return True
-        if len(self.xf) >= MAX_XFER or any(mem_key(x.addr) == mem_key(u.addr) for x in self.xf):
+        if len(self.xf) >= MAX_XFER:
+            return False
+        if u.b5:                               # an indexed bank-5 load: no other bank-5 access in the instruction
+            return not any(x.b5 or (not x.idx and x.addr >> 13 == 5) for x in self.xf)
+        if u.idx:                              # a bank-0 load: at most 2 per instruction with the literal ones
+            return sum(1 for x in self.xf if x.kind == 'ld' and ((x.idx and not x.b5) or (not x.idx and x.addr >> 13 == 0))) < 2
+        if any(not x.idx and mem_key(x.addr) == mem_key(u.addr) for x in self.xf):
             return False
         bank = u.addr >> 13
-        if self.one_bank5 and bank == 5 and any(x.addr >> 13 == 5 for x in self.xf):
+        if bank == 5 and any(x.b5 for x in self.xf):
             return False
-        same = sum(1 for x in self.xf if x.kind == u.kind and x.addr >> 13 == bank)
+        if self.one_bank5 and bank == 5 and any(not x.idx and x.addr >> 13 == 5 for x in self.xf):
+            return False
+        same = sum(1 for x in self.xf if x.kind == u.kind and ((5 if x.b5 else 0) if x.idx else x.addr >> 13) == bank)
         return same < (2 if bank == 0 else 1)
 
     def add(self, u):
@@ -327,6 +424,26 @@ class Ins:
 
     def remove(self, u):
         (self.ops if u.kind == 'op' else self.xf).remove(u)
+
+
+MAC_ALT = True                                         # mad -> mac_p1 when that lets it share an instruction
+
+
+def mac_alt(u):
+    """`mad rD, rX, Y` as the MAC's `mac_p1 rD, rX, Y, rD` (rD <- rX Y + rD) and `mul rD, rX, Y` as
+    `mac_p1 rD, rX, Y, #0` (the same values; DSP_HARDWARE.md §5.4): the MAC unit beside A / B ops, as Roland's
+    SYSTEM-1 programs do (class MA, a one-product MAC). None for any other unit"""
+    if not MAC_ALT or u.kind != 'op':
+        return None
+    m = re.match(r'^mad r(\d), r(\d), (r\d|#\S+)$', u.text)     # Y a register or an immediate (Roland's S1:
+    if m:                                                         # `mac_p1:imm + mul:reg` x80, asm/roland_forms.py)
+        d, x, y = m.groups()
+        return Unit(u.i, f'mac_p1 r{d}, r{x}, {y}, r{d}')
+    m = re.match(r'^mul r(\d), r(\d), (r\d|#\S+)$', u.text)     # a product: rX Y + #0 (Roland's class MA:
+    if m:                                                         # Y and W immediates, x67)
+        d, x, y = m.groups()
+        return Unit(u.i, f'mac_p1 r{d}, r{x}, {y}, #0.0')
+    return None
 
 
 def schedule(lines, allowed=None):
@@ -360,12 +477,20 @@ def schedule(lines, allowed=None):
             _, j = heapq.heappop(heap)
             u = units[j]
             # a predecessor in this same instruction is only allowed at distance 0
-            if not ins.fits(u) or any(d >= 1 and at[i] == c for i, d in preds[j]):
+            if any(d >= 1 and at[i] == c for i, d in preds[j]):
                 later.append(j)
                 continue
-            ins.add(u)
-            if not assembles(ins.text()):
-                ins.remove(u)
+            placed = False
+            for cand in (u, mac_alt(u)):              # a mad that does not fit as an A op: on the MAC (mac_p1)
+                if cand is None or not ins.fits(cand):
+                    continue
+                ins.add(cand)
+                if assembles(ins.text()):
+                    units[j] = cand
+                    placed = True
+                    break
+                ins.remove(cand)
+            if not placed:
                 later.append(j)
                 continue
             at[j] = c
@@ -378,6 +503,11 @@ def schedule(lines, allowed=None):
                         heapq.heappush(heap, (-height[s_], s_))   # may still join this instruction
                     else:
                         rest.append(s_)
+        if not ins.ops and not ins.xf and not later and rest:   # only waits (a hset's distance 2): one filler
+            out.append('mov r0, r0')
+            ready = rest
+            c += 1
+            continue
         if not ins.ops and not ins.xf:
             raise RuntimeError(f'scheduler stuck at instruction {c}: {[units[j].text for j in later[:4]]}')
         out.append(ins.text())

@@ -1853,6 +1853,7 @@ struct Lowerer {
         K = &k;
         k.fuseMac = opt.native && opt.fuseMac;
         k.fuseAbs = opt.native;
+        k.fuseSum = opt.native;
         val.clear();
         recipCache.clear();
         warnedSeed = false;

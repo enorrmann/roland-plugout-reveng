@@ -89,6 +89,16 @@ Each `send` takes about 12 s for a single frame (table 6.8 s, player 4–5 s).
    DCO1 wave (SAW, SQR, FOLD). That switch writes the DCO1 slot again and replaces the table: keep the
    DCO1 wave on SAW when using `--osc 1` or `both`.
 
+## Indexed reads: the same mechanism on both machines (2026-10-29)
+
+The table is read with the bank-5 indexed transfers (`0da0` etc.: bank 5 at `h6 · 16384 + Y`, h6 / h7 set with
+`hset`), the same family of transfers that SYSTEM-S1CC now uses on the **SYSTEM-1** (bank-0 `X28Y` + `hset`, COLOR MOD
+with 8 voices, MP-CSAW2-8; docs/DSP_HARDWARE.md §7.4). Measured bit-exact on the SYSTEM-8 master the same day
+(`re/dspverify.py --programs`). Room for tables: bank 5 has 1024 words per DSP; on the SYSTEM-8 the free part is
+0x048–0x1FF and 0x306–0x3FF (this table uses 0x048–0x1FD, 438 points); on the SYSTEM-1 slave A and B share one bank 5
+and only about 200 (ARM-written) + 160 (DSP-written) words are left: single-cycle tables of 64–128 points. Long samples
+need the delay memory (EDM, SYSTEM-8 master DSP4 only; docs/DSP_HARDWARE.md §8.4).
+
 ## Keeping it apart from the lab
 
 - Slot 3 is the only PLUG-OUT slot the lab uses, so installing C-WTLIVE replaces the lab plugin there

@@ -557,6 +557,8 @@ S1_DSP_A {
 * `x / y` con y variable → `recipseed` + 3 `newton`;
 * `floorf` → SFU `floor`;
 * `exp2` / `exp` / `pow(c, x)` de rango ancho → `expsplit`;
+* `|a| + b` → `absadd`, `b − |a|` → `subabs` (b registro o inmediato: el `|u| − 2` del polyBLEP), `(a + b) + c` →
+  `sum8` (2026-10-29, probadas en el SYSTEM-1);
 * **fusión en la MAC** (2026-10-29; `--no-fuse-mac` la apaga): `acc + x·y` con `acc` hecho por un `mul`, y la suma
   de dos productos, salen en una op de la MAC en vez de `mul` + `mad` / `mul` + `mul` + `addxy`. Sólo formas medidas:
   Y y C registros, Y registro con K inmediato, Y y K inmediatos (no Y inmediata con C registro). Si el producto

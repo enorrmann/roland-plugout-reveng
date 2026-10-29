@@ -38,9 +38,9 @@ Este documento dice, para cada op, en qué estado está y qué falta. La semánt
 | dos MAC en una instrucción (clase 0x080) | dos MAC de un producto, en paralelo; con P2 no escribe ninguna | sí (2026-10-29) | sí | no | no | no |
 | banderas + condición (`X9bY`, `cond`) | saltear unidades según el resultado de otra | en curso 2026-10-29: instrucciones de Roland con condiciones en el maestro, exactas salvo clases 0x590 / 0x190 (plantilla) | sí | no | no | no |
 | saltos y bucles (`009Y`) | | sí (S8, slaves por audio) | sí | no | no | no |
-| cargas indexadas (`X28Y` banco 0; `da`/`de`, `db`/`df` banco 5; `hset` h4–h7) | dirección = ⌊h·16384⌋ + Y | sí (maestro exacto, slaves por audio) | sí | no | no | no |
+| cargas indexadas (`X28Y` banco 0; `da`/`de`, `db`/`df` banco 5; `hset` h4–h7) | dirección = ⌊h·16384⌋ + Y | sí (maestro exacto 2026-10-29, `dspverify --programs`) | sí | no (s1cc) | **sí**: COLOR MOD (`CMOD_IDX`) | **sí** (`hset` + `X28Y`, MP-CSAW2-8) |
 | línea de retardo (`tapreq`, `f5c`, `f6Y`) | taps del banco 2 | sí (maestro, DSP4 `f7dc`) | sí | no | no | no |
-| rampas de parámetros (`FCE4`, ARM) | el ARM rampa un parámetro del DSP | — | no | no | no | servicio del S1 sin mapear |
+| rampas de parámetros (`FCE4`, ARM) | el ARM rampa un parámetro del DSP | — | no | no | no | **medida 2026-10-29**: lineal, paso cada 1/3 ms, 4–97 ms de 0 a 1 ([examples_system_1_ramp_README.md](examples_system_1_ramp_README.md)) |
 
 ## 3. Plan, en orden de aporte
 
@@ -101,6 +101,23 @@ python3 tools/plugout_tool.py install plugins/NATIVE-CHECK --slot 1 --force --no
 Un solo programa a la vez sobre el equipo (MIDI): no correr dos herramientas juntas.
 
 ## 5. Registro
+
+* **2026-10-29, noche: cargas indexadas en el SYSTEM-1.** `plugins/MP-CSAW2-8` (`CMOD_IDX=1`, `MOD_DSP=B`): COLOR MOD
+  con `hset h6` (una vez por color y muestra, la fila de la fuente elegida que escribe el ARM) y `ldidx r, 2 v` (la
+  fuente de la voz v en una tabla del banco 0, `CMT0` 0x0500, donde las envolventes guardan su nivel): 8 voces
+  (DSP B 707 de 708 instrucciones; antes 7), sonido idéntico bit a bit al de la suma ponderada en el emulador con las
+  6 fuentes, y en el equipo «funciona todo». Primera vez en el S1 (los programas de Roland para el S1 no las usan).
+  `asm/dspsched.py` empaqueta `ldidx` como carga del banco 0 (dos instrucciones después del `hset`, después de los
+  stores del banco 0); `asm/s1rules.py` la cuenta como carga del banco 0. Grupos de ops probados en el S1 el mismo día
+  (bisección MP-CSAW2-T2…T6): `max + ph_clamp`, `min + ph_wrap`, `ph_wrap + subxy`, `mul:reg + subxy:imm`; cuelgan:
+  dos ops B de la misma familia y la MAC con K inmediato junto a otra op (`asm/bad_forms.txt`, patrones; regla R9).
+* **2026-10-29, tarde: probadas en el SYSTEM-1.** `plugins/NATIVE-CHECK` (recompilado) y `plugins/NATIVE-CHECK2`
+  (`sdk/s1cc/examples/native_ops/native_check2.c`) en el slot 1: sierra limpia a volumen pleno en todas las
+  posiciones de OSC1 COLOR, es decir sin error en ninguna op: `recipseed` + `newton`, `log2split`, `expsplit`,
+  `floor`, `ceil`, `sign`, MAC de registros, `sum8`, `shl`, `sqrtsplit` + Newton, MAC con coeficiente inmediato
+  (`mac_p1wc3`) y con Y inmediata (`mac_p1p2c3`), `absadd` con inmediato, la fusión en la MAC (`mac_p1w`). Cada una
+  sola en su instrucción (los grupos que comparten instrucción siguen en `asm/proven_forms.txt`). Visto de paso: sin
+  DSP B en el kernel, el SUB / NOISE del mezclador del anfitrión no pasa por ninguna envolvente (queda sonando).
 
 * **2026-10-29.** La referencia pasó a ser el C (`emu/dspref.py`; `re/dspisa.py` archivado, [EMULATOR.md](EMULATOR.md)
   §1.1). Medido en el maestro del S8 y corregido en la referencia: MAC con coeficiente inmediato (20 formas, regla

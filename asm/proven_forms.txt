@@ -62,3 +62,9 @@ mad:imm + mul:imm
 mul:imm + mul:imm
 subxy:imm + subxy:imm
 ymacd:imm + ymacd:imm
+# proven 2026-10-29 by MP-CSAW2-T3 (TRY_FORMS build run on the device)
+max:reg + ph_clamp:reg
+min:reg + ph_wrap:reg
+ph_wrap:reg + subxy:reg
+# proven 2026-10-29 by MP-CSAW2-T5 (TRY_FORMS build run on the device)
+mul:reg + subxy:imm

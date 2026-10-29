@@ -228,6 +228,7 @@ public:
     std::tuple<KVal *, KVal *, KVal *> sqrtsplit(KVal *y);
     bool fuseMac = false;                           // mad / add of two products -> one MAC op (LowerOptions::fuseMac)
     bool fuseAbs = false;                           // |a| + b -> absadd, b - |a| -> subabs (LowerOptions::native)
+    bool fuseSum = false;                           // (a + b) + c -> sum8 (LowerOptions::native)
     KVal *sum3(KVal *a, KVal *b, KVal *c);          // a + b + c: sum8
     std::vector<std::string> lines();
     int units() const;

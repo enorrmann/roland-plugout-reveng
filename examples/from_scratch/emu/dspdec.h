@@ -284,7 +284,8 @@ int dsp_decode(const uint16_t *ins, int nins, Op *ops, int maxops, int *nops, Co
             if ((w >> 4) & 3) o.imm[0] = take_value(&L, (w >> 4) & 3, w & 15), o.has = 1;
         } else if (k == 'B') {
             o.kind = K_B;
-            if ((w >> 4) & 3 && !(w >> 12 >= 8 && ((w >> 8) & 15) == 0xF))
+            if ((w >> 4) & 3 && !(w >> 12 >= 8 && ((w >> 8) & 15) == 0xF) &&
+                !(w >> 12 >= 8 && ((w >> 8) & 15) == 0xE && ((w >> 6) & 3) == 2))   /* divseed: mode = X, no imm */
                 o.imm[0] = take_value(&L, (w >> 4) & 3, w & 15), o.has = 1;
         } else if (k == 'M') {
             int w2 = L.nlist[nn++];
@@ -357,7 +358,8 @@ int dsp_check(const uint16_t *ins, int nins, int noop_w, char *why, int len)
                 else if (mode == 1) r = "f5Y counter (reads 0 on the master)";
                 else if ((mode == 3 || (mode == 2 && y < 12)) && w != noop_w) r = "unit-B form with no visible effect";
             } else if (d >= 8 && b == 0xF && sub != 0 && w != noop_w) r = "unit-B form with no visible effect";
-            else if (d >= 8 && b == 0xE && sub == 2) r = "unit-B op e, bits 7-6 = 10 (unknown)";
+            else if (d >= 8 && b == 0xE && sub == 2 &&
+                     ((y & 7) == (d & 7) || (y & 7) == ((d + 1) & 7))) r = "divseed with Y on r(d) / r(d+1)";
             else if (d >= 8 && b == 0xF && sub == 0 && mode == 1 && !(y & 8) &&
                      ((y & 7) == ((d - 7) & 7) || (y & 7) == ((d - 5) & 7)))
                 r = "sqrt split with Y on r(d+1) or r(d+3): the writes mix their bits";

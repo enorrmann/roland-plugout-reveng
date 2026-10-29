@@ -175,7 +175,58 @@ H_ENV_PANEL = ((0x189, 0x187, 0x188, 0x18A), (0x184, 0x182, 0x183, 0x185))   # (
 H_ENV_DEFAULT = ((255, 0, 128, 60), (0, 0, 128, 60))
 GB = [0xA160 + v for v in range(NV)]
 TB = [0xA168 + v for v in range(NV)]
-H_ENV_WORDS = 6 if HOST_ENVS else 0             # per voice on DSP B: (level, latch, last trigger) x 2
+# LUT (2026-10-29): fixed tables in bank 5 A080.. (engine.c writes them at load and refresh; the ARM writes A000..A0FF),
+# read by an indexed load (hset h6 + ldb5 at 0 and 1: linear interpolation between two points)
+#   LFO_LUT=1      the host LFO's shapes from tables (sine, triangle, saw, square; N = 16): lfo = w g + a T[phase]
+#   ENV_CURVE=...  one curve for every host envelope (sq, cube, sqrt, smooth, lin; N = 32): level = C(ADSR); the same
+#                  table for all of them, each envelope with its own state
+LFO_LUT = os.environ.get('LFO_LUT', '0') == '1'
+ENV_CURVE = os.environ.get('ENV_CURVE', 'none')
+CURVES = {'lin': lambda x: x, 'sq': lambda x: x * x, 'cube': lambda x: x ** 3, 'sqrt': math.sqrt,
+          'smooth': lambda x: x * x * (3 - 2 * x)}
+if ENV_CURVE != 'none' and ENV_CURVE not in CURVES:
+    raise SystemExit(f'make_s1cc.py: ENV_CURVE={ENV_CURVE}: one of none, {", ".join(CURVES)}')
+CURVE = ENV_CURVE != 'none' and HOST_ENVS
+LUT0, LUT_EN, LUT_LN = 0xA080, 32, 16
+LUT_SHAPES = ('sine', 'tri', 'saw', 'square')
+
+
+def lut_layout():
+    """(values, {table: first word}) of the bank-5 tables: the envelope curve (LUT_EN + 1 points of 0..1), then the
+    LFO shapes (LUT_LN + 1 points of the phase -1..1 each, as hlfo_voice_b's formulas: triangle 1 - 2 |wrap(p - 1.5)|,
+    sine -sin(pi p) (the same peaks), saw p, square clamp(256 p))"""
+    vals, at = [], {}
+    if CURVE:
+        at['env'] = LUT0 + len(vals)
+        vals += [CURVES[ENV_CURVE](i / LUT_EN) for i in range(LUT_EN + 1)]
+    if LFO_LUT:
+        wrap = lambda x: (x + 1) % 2 - 1  # noqa: E731
+        f = {'sine': lambda p: -math.sin(math.pi * p), 'tri': lambda p: 1 - 2 * abs(wrap(p - 1.5)),
+             'saw': lambda p: p, 'square': lambda p: max(-1.0, min(1.0, 256 * p))}
+        for name in LUT_SHAPES:
+            at[name] = LUT0 + len(vals)
+            vals += [f32(f[name](-1 + 2 * i / LUT_LN)) for i in range(LUT_LN + 1)]
+    if len(vals) > 0x80:
+        raise SystemExit(f'make_s1cc.py: LUT {len(vals)} words, room for 128 (A080..A0FF)')
+    return vals, at
+
+
+def lut_h(word):
+    """h6 of a bank-5 word (hset: address = floor(h 16384) + Y)"""
+    return (word & 0x3FF) / 16384
+
+
+def lut_read(x, t, d, base, n, regs):
+    """d = T(x) from the table at base (n intervals, x already in 0..n): fl = floor x, fr = x - fl, h6 = word of fl,
+    two indexed loads, d = T0 + fr (T1 - T0). regs = (x, t): x is overwritten (fr), t is a scratch register; base:
+    an immediate (float) or a register holding h of the first word"""
+    add = f'addxy {t}, {t}, #{base!r}' if isinstance(base, float) else f'addxy {t}, {t}, {base}'
+    return [f'floor {t}, {x}', f'subxy {x}, {t}, {x}', f'mul {t}, {t}, #{2.0 ** -14!r}', add, f'hset h6, {t}',
+            f'ldb5 {d}, 0', f'ldb5 {t}, 1', f'subxy {t}, {d}, {t}', f'mad {d}, {x}, {t}']
+
+
+H_ENV_STRIDE = 8 if CURVE else 6                # addresses of one host envelope: level, latch, last trigger (, curved)
+H_ENV_WORDS = H_ENV_STRIDE if HOST_ENVS else 0  # per voice on DSP B: (level, latch, last trigger (, C(level))) x 2
 # pitch envelope and COLOR MOD (CMOD) on DSP B (DSP A's time is for the oscillators): DSP B parameters C052 / C053
 # pitch envelope decay / attack rates, C054 + 6 i: color i's weights (manual, LFO, pitch env, filter env, amp env,
 # sub; LFO and sub are -1..1: with them selected manual = that weight = knob / 2). Bank 5, free words: the pitch
@@ -190,6 +241,25 @@ MOD_DSP = os.environ.get('MOD_DSP', 'auto')
 if MOD_DSP not in ('A', 'B', 'auto'):
     raise SystemExit('make_s1cc.py: MOD_DSP must be A, B or auto')
 MOD_B = MOD_DSP != 'A'                          # where the pitch envelope and COLOR MOD are now (main() may change it)
+# COLOR MOD on DSP B by an indexed load (CMOD_IDX=1, default since it ran on the SYSTEM-1, MP-CSAW2-8 8 voices
+# 2026-10-29; 0: the weighted sum of the five sources): the ARM writes
+# per color w0, w and the offset of the chosen source in the voice block (/16384); per voice h6 = block + offset,
+# `ldidx` reads the source, color = w0 + w src. The LFO and the sub are copied into the voice block first (bank 0).
+# Indexed transfers: exact on the SYSTEM-8 master (re/dspverify.py --programs, 2026-10-29); none in Roland's
+# SYSTEM-1 programs (docs/NATIVE_OPS.md)
+CMOD_IDX = os.environ.get('CMOD_IDX', '1') == '1'
+CMT0 = 0x0500                                   # DSP B bank 0: the table of COLOR MOD sources (CMOD_IDX), free words
+
+
+def cmt(s, v):
+    """the table word of COLOR MOD source s (1 LFO, 2 pitch env, 3 filter env, 4 amp env, 5 sub) of voice v: one row
+    of 16 words per source, voice v at 2 v (ring words S, S + 1), so `ldidx r, 2 v` reads it with h6 at the row"""
+    return CMT0 + 16 * s + 2 * v
+
+
+def cmod_idx():
+    """COLOR MOD by an indexed load now (MOD_B can change in main())"""
+    return bool(CMOD and MOD_B and CMOD_IDX and HOST_LFO)
 PEB = [0xA128 + v for v in range(NV)]
 SUBB = [0xA130 + v for v in range(NV)]
 COLB = ([0xA138 + v for v in range(NV)], [0xA140 + v for v in range(NV)])
@@ -197,6 +267,9 @@ COLB = ([0xA138 + v for v in range(NV)], [0xA140 + v for v in range(NV)])
 # the phase p, g the sample & glide value (C041 = its coefficient k; k = 1 is the sample & hold)
 LFO_SHAPES = [(1.5, -0.5, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0), (0.0, 0.0, 256.0, 0.0),
               (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0)]       # sine, triangle, saw, square, S&G, S&H
+if LFO_LUT:                                     # (h of the shape's table, amp, -, w): S&G / S&H only w g
+    _AT = {n: LUT0 + k * (LUT_LN + 1) + ((LUT_EN + 1) if CURVE else 0) for k, n in enumerate(LUT_SHAPES)}
+    LFO_SHAPES = [(lut_h(_AT[n]), 1.0, 0.0, 0.0) for n in LUT_SHAPES] + [(lut_h(_AT['sine']), 0.0, 0.0, 1.0)] * 2
 A6_LPITCH, A6_PAMT, A6_RANGE1 = 0x4B, 0x5E, 0x5F   # DSP A: LFO TO PITCH, PITCH ENV AMOUNT, OSC1 RANGE (octaves)
 # DSP B: the LFO (rate, S&G coefficient, shape alpha / beta / K / w, fade step, -> filter, -> amp M / |M|)
 B6_LRATE, B6_LSG, B6_LWAVE, B6_LDELAY, B6_LFILT, B6_LAMP, B6_LAMPABS = 0x48, 0x49, 0x4A, 0x4E, 0x4F, 0x50, 0x51
@@ -225,7 +298,8 @@ def host_a_words():
 def host_b_words():
     """the host LFO's words per voice on DSP B, after its envelopes': last trigger, phase, S&H, S&G, fade; -> amp
     and -> filter for the kernel (same sample); the note start and the pitch envelope (level, latch)"""
-    return ['bpt', 'lph', 'lsh', 'lsg', 'fade', 'lfa', 'lff'] + (['bd', 'pe', 'pf'] if PENV and MOD_B else []) if HOST_LFO else []
+    w = ['bpt', 'lph', 'lsh', 'lsg', 'fade', 'lfa', 'lff'] + (['bd', 'pe', 'pf'] if PENV and MOD_B else []) if HOST_LFO else []
+    return w
 
 
 def set_mod_dsp(on_b):
@@ -284,7 +358,8 @@ def lfo_block(dsp='A'):
 def addresses(dsp, v):
     addr, k, base = {}, 0, block(dsp, v)
     if dsp == 'B' and HOST_ENVS:                  # the host's envelopes first: level, latch, last trigger each
-        addr['IN:env0'], addr['IN:env1'] = base, base + 6
+        addr['IN:env0'], addr['IN:env1'] = (cmt(4, v), cmt(3, v)) if cmod_idx() else \
+            (base + 6, base + 14) if CURVE else (base, base + 6)
         k = H_ENV_WORDS
     if dsp == 'B' and HOST_LFO:                   # then the host LFO's; -> amp / -> filter for the kernel
         hb = {n: base + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
@@ -363,21 +438,36 @@ def hlfo_voice_b(v):
             f'; voice {v}: sample & glide d += k (b - d)',
             f'ld {c}, [{P(B6_LSG)}]', f'ld {d}, [{hb["lsg"] + 1:04x}]', f'mov {d}, {d}',
             f'subxy {b}, {d}, {b}', f'mad {d}, {b}, {c}', f'st {d}, [{hb["lsg"]:04x}]',
+            *(lfo_shape_lut(v, a, b, c, d) if LFO_LUT else [
             f'; voice {v}: lfo d = w g + ph_clamp(K p) + t (alpha + beta t^2)',
             f'ld {b}, [{P(B6_LWAVE + 3)}]', f'mov {b}, {b}', f'mul {d}, {d}, {b}',
             f'ld {b}, [{P(B6_LWAVE + 2)}]', f'mov {b}, {b}', f'mul {c}, {a}, {b}', f'ph_clamp {c}, r3, -{c}',
             f'addxy {d}, {d}, {c}', f'ph_tri {a}, r3, -{a}', f'mul {c}, {a}, {a}',
             f'ld {b}, [{P(B6_LWAVE + 1)}]', f'mov {b}, {b}', f'mul {c}, {c}, {b}',
-            f'ld {b}, [{P(B6_LWAVE)}]', f'mov {b}, {b}', f'addxy {c}, {c}, {b}', f'mad {d}, {a}, {c}',
+            f'ld {b}, [{P(B6_LWAVE)}]', f'mov {b}, {b}', f'addxy {c}, {c}, {b}', f'mad {d}, {a}, {c}']),
             f'; voice {v}: fade a (0 -> 1 from the gate copy, DELAY TIME), d = lf = lfo x fade -> DSP A',
             f'ld {a}, [{hb["fade"] + 1:04x}]', f'ld {b}, [{P(B6_LDELAY)}]', f'ld {c}, [{GB[v]:04x}]', f'mov {c}, {c}',
             f'addxy {a}, {a}, {b}', f'mul {a}, {a}, {c}', f'min {a}, {a}, #1.0', f'st {a}, [{hb["fade"]:04x}]',
-            f'mul {d}, {d}, {a}', f'st {d}, [{LFB[v]:04x}]',
+            f'mul {d}, {d}, {a}', f'st {d}, [{LFB[v]:04x}]'] + ([f'st {d}, [{cmt(1, v):04x}]'] if cmod_idx() else []) + [
             f'; voice {v}: -> amp 1 + f (M lf - |M|), -> filter F lf (for the kernel)',
             f'ld {b}, [{P(B6_LAMP)}]', f'ld {c}, [{P(B6_LAMPABS)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}',
             f'mad {b}, {a}, -{c}', f'add {b}, #1.0', f'st {b}, [{hb["lfa"]:04x}]',
             f'ld {b}, [{P(B6_LFILT)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}', f'st {b}, [{hb["lff"]:04x}]'] + \
         (penv_b(v, hb) if PENV and MOD_B else [])
+
+
+def lfo_shape_lut(v, a, b, c, d):
+    """LFO_LUT: d = w g + amp T[(p + 1) N / 2], the shape's table chosen by the ARM (B6_LWAVE = h of its first word,
+    + 1 = amp, + 3 = w; LFO_SHAPES); a = the phase p (then free), d = the sample & glide value g"""
+    P = lambda k: f'c0{k:02x}'  # noqa: E731
+    half = float(LUT_LN // 2)
+    return [f'; voice {v}: lfo d = w g + amp T[(p + 1) N / 2] (LFO_LUT: the shape table, linear interpolation)',
+            f'ld {b}, [{P(B6_LWAVE + 3)}]', f'mov {b}, {b}', f'mul {d}, {d}, {b}',
+            f'mul {c}, {a}, #{half!r}', f'addxy {c}, {c}, #{half!r}', f'ld {a}, [{P(B6_LWAVE)}]', f'mov {a}, {a}'] + \
+        lut_read(c, b, b, a, LUT_LN, None)[:3] + [f'addxy {b}, {b}, {a}', 'hset h6, ' + b,
+                                                   f'ldb5 {a}, 0', f'ldb5 {b}, 1', f'subxy {b}, {a}, {b}',
+                                                   f'mad {a}, {c}, {b}',
+                                                   f'ld {b}, [{P(B6_LWAVE + 1)}]', f'mov {b}, {b}', f'mad {d}, {a}, {b}']
 
 
 def penv_core(v, a, b, c, d, pe, pf, prm):
@@ -406,7 +496,8 @@ def penv_b(v, hb):
     """the pitch envelope of voice v on DSP B (MOD_DSP=B), after the LFO: penv_core with the note start stored by
     hlfo_voice_b -> word pe (COLOR MOD) and bank 5 PEB+v (-> pitch on DSP A)"""
     a, b, c, d = 'r0', 'r1', 'r2', 'r3'
-    return [f'ld {b}, [{hb["bd"]:04x}]'] + penv_core(v, a, b, c, d, hb['pe'], hb['pf'], f'c0{B6_PENV:02x}') + \
+    pe = cmt(2, v) if cmod_idx() else hb['pe']     # the level in the COLOR MOD table (CMOD_IDX)
+    return [f'ld {b}, [{hb["bd"]:04x}]'] + penv_core(v, a, b, c, d, pe, hb['pf'], f'c0{B6_PENV:02x}') + \
         ([f'st {a}, [{PEB[v]:04x}]'] if PITCH_MOD else [])
 
 
@@ -428,6 +519,23 @@ def colors_b(v):
         for i in COLOR_USED:
             L += [f'ld {d}, [{P(B6_COL[i] + w_)}]', f'mov {d}, {d}', f'mad {acc[i]}, {b}, {d}']
     L += [f'st {acc[i]}, [{COLB[i][v]:04x}]' for i in COLOR_USED]
+    return L
+
+
+def colors_idx_all():
+    """COLOR MOD of every voice by indexed loads (CMOD_IDX), after all the voices: per color i h6 = the chosen source's
+    table row (parameter C054 + 6 i + 2, written by the ARM), w0 and w (C054 + 6 i, + 1); per voice
+    color = w0 + w src[h6 + 2 v] (ldidx + ymacd + st). The sources: the envelopes and the pitch envelope keep their
+    level in the table (cmt), the LFO is stored there too, the sub is copied (voice_b)"""
+    P = lambda k: f'c0{k:02x}'  # noqa: E731
+    L = ['; COLOR MOD by indexed loads: per color h6 = the row of the chosen source, each voice w0 + w src[h6 + 2 v]']
+    for i in COLOR_USED:
+        k = B6_COL[i]
+        L += [f'ld r0, [{P(k + 2)}]', 'mov r0, r0', 'hset h6, r0', f'ld r1, [{P(k)}]', f'ld r2, [{P(k + 1)}]',
+              'mov r2, r2']
+        for v in range(NV):
+            r = f'r{3 + v % 4}'
+            L += [f'ldidx {r}, {2 * v}', f'ymacd {r}, r2, r1', f'st {r}, [{COLB[i][v]:04x}]']
     return L
 
 
@@ -520,6 +628,34 @@ def _upper(lines):
     return [up(x) for x in lines]
 
 
+def _chunks(lines):
+    """lines in interleaving units: a hset with the indexed loads that use it stays whole (h6 / h7 are one per DSP: the
+    other voice's hset may not come in between)"""
+    out, k = [], 0
+    while k < len(lines):
+        if lines[k].startswith('hset'):
+            last = k
+            for j in range(k + 1, len(lines)):
+                if lines[j].startswith('hset'):
+                    break
+                if lines[j].startswith(('ldb5', 'ldidx')):
+                    last = j
+            out.append(lines[k:last + 1])
+            k = last + 1
+        else:
+            out.append(lines[k:k + 1])
+            k += 1
+    return out
+
+
+def _interleave(x, y):
+    """two voices' code (independent registers), unit by unit: the scheduler fuses across them"""
+    cx, cy, L = _chunks(x), _chunks(y), []
+    for i in range(max(len(cx), len(cy))):
+        L += sum(cx[i:i + 1], []) + sum(cy[i:i + 1], [])
+    return L
+
+
 def prog_a_parts():
     """DSP A as (the head: comment and the global part, [the code of each voice pair, or voice]); prog_a() is all of
     it in one program, sources() may put the last pairs in section 2"""
@@ -530,10 +666,7 @@ def prog_a_parts():
     units, v = [], 0
     while v < NV:
         if PAIRS and v + 1 < NV:               # two voices, independent registers: the scheduler fuses across them
-            x, y, L = voice_a(v), _upper(voice_a(v + 1)), []
-            for i in range(max(len(x), len(y))):
-                L += x[i:i + 1] + y[i:i + 1]
-            units.append(L)
+            units.append(_interleave(voice_a(v), _upper(voice_a(v + 1))))
             v += 2
         else:
             units.append(voice_a(v))
@@ -567,14 +700,13 @@ def prog_b_parts():
         v = 0
         while v < NV:
             if PAIRS_B and v + 1 < NV:          # two voices, independent registers (as DSP A, PAIRS=1)
-                x, y, u = voice_b(v), _upper(voice_b(v + 1)), []
-                for i in range(max(len(x), len(y))):
-                    u += x[i:i + 1] + y[i:i + 1]
-                units.append(u)
+                units.append(_interleave(voice_b(v), _upper(voice_b(v + 1))))
                 v += 2
             else:
                 units.append(voice_b(v))
                 v += 1
+        if cmod_idx():                          # COLOR MOD of all voices, by indexed loads
+            units.append(colors_idx_all())
     return L, units
 
 
@@ -584,12 +716,19 @@ def voice_b(v):
     if HOST_ENVS:
         b = block('B', v)
         for i in HOST_ENV_USED:
-            e = b + 6 * i
-            L += [f'; voice {v}: host envelope {i}'] + adsr(e, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
+            e = b + H_ENV_STRIDE * i
+            out = cmt(4 if i == 0 else 3, v) if cmod_idx() else e + 6 if CURVE else e   # what the kernel reads
+            lvl = e if CURVE else out               # the ADSR's level: in the COLOR MOD table (CMOD_IDX) unless curved
+            L += [f'; voice {v}: host envelope {i}'] + adsr(lvl, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
+            if CURVE:                               # level = C(ADSR) from the shared curve table (r0 -> r0)
+                L += [f'; voice {v}: envelope {i} curve {ENV_CURVE} (shared table)', f'mul r1, r0, #{float(LUT_EN)!r}'] + \
+                    lut_read('r1', 'r2', 'r0', lut_h(lut_layout()[1]['env']), LUT_EN, None) + [f'st r0, [{out:04x}]']
             if CMOD and not MOD_B:                  # its level for COLOR MOD on DSP A
                 L += [f'st r0, [{ENVX[i][v]:04x}]']
-    if CMOD and MOD_B:
+    if CMOD and MOD_B and not cmod_idx():
         L += colors_b(v)
+    if cmod_idx():                                  # the sub square into the COLOR MOD table
+        L += [f'ld r1, [{SUBB[v]:04x}]', f'st r1, [{cmt(5, v):04x}]']
     if HAS_B:
         L += KDEF.place('B', addresses('B', v))
     return L
@@ -727,7 +866,13 @@ def hlfo_params(knobs):
     if k['lfo_shape'] == 5:                         # sample & hold: the glide follows at once
         pb[0xC000 + B6_LSG] = 1.0
     for i in (0, 1):
-        for j, x in enumerate(color_weights(k[f'color{i}'], k[f'mod{i}'])):
+        wv = color_weights(k[f'color{i}'], k[f'mod{i}'])
+        if cmod_idx():                              # w0, w, the chosen source's table row (colors_idx_all)
+            src = min(max(k[f'mod{i}'], 0), 5)
+            for j, x in enumerate((wv[0], wv[src] if src else 0.0, cmt(src or 4, 0) / 16384)):
+                pm[0xC000 + B6_COL[i] + j] = f32(x)
+            continue
+        for j, x in enumerate(wv):
             pm[0xC000 + (B6_COL if MOD_B else A6_COL)[i] + j] = f32(x)
     return pa, pb
 
@@ -928,10 +1073,15 @@ def header(progs):
                    f'#define M6_PENV 0x{B6_PENV if MOD_B else A6_PENV:02x}\n'
                    f'#define M6_COL0 0x{(B6_COL if MOD_B else A6_COL)[0]:02x}\n'
                    f'#define M6_COL1 0x{(B6_COL if MOD_B else A6_COL)[1]:02x}\n'
+                   f'#define CMOD_IDX {int(cmod_idx())}  /* COLOR MOD by an indexed load: w0, w, source row */\n'
                    f'#define A6_LPITCH 0x{A6_LPITCH:02x}\n#define A6_PAMT 0x{A6_PAMT:02x}\n#define A6_RANGE1 0x{A6_RANGE1:02x}\n'
                    f'#define A6_SUBMIX 0x{A6_SUBMIX:02x}\n#define A6_NOISEMIX 0x{A6_NOISEMIX:02x}')
         out.append(f'static const uint16_t hlfo_panel[{len(HLFO)}] = {{ ' + ', '.join(f'0x{p:03x}' for _, p, _ in HLFO) + ' };')
         out.append(f'static const uint8_t hlfo_default[{len(HLFO)}] = {{ ' + ', '.join(str(d) for _, _, d in HLFO) + ' };')
+        if cmod_idx():
+            out.append('/* COLOR MOD sources (manual, LFO, pitch env, filter env, amp env, sub): the table row / 16384 '
+                       '(h6 of the indexed loads) */')
+            out.append(table('cmod_off_bits', [cmt(s or 4, 0) / 16384 for s in range(6)]))
         out.append(table('lfo_rate_bits', [lfo_rate(v) for v in range(256)]))
         out.append(table('lfo_sg_bits', [lfo_sg(v) for v in range(256)]))
         out.append(table('penv_amt_bits', [penv_amt(v) for v in range(256)]))
@@ -945,6 +1095,11 @@ def header(progs):
         out.append(table('lfo_amp_bits', [lfo_amp(v) for v in range(256)]))
         out.append(table('lfo_ampabs_bits', [abs(lfo_amp(v)) for v in range(256)]))
         out.append(table('half_bits', [v / 510.0 for v in range(256)]))
+    lut, _ = lut_layout()
+    out.append(f'/* LUT (LFO_LUT / ENV_CURVE): bank-5 tables from A000 + LUT0_IDX, written at load and refresh */\n'
+               f'#define LUT_N {len(lut)}\n#define LUT0_IDX 0x{LUT0 & 0xFF:02x}')
+    if lut:
+        out.append(table('lut_bits', lut))
     rows, bits, off = [], [], 0
     for name, (cnt, ab, bb) in layout().items():
         rows.append((KTAB[name][0], cnt, 0xFF if ab is None else ab, 0xFF if bb is None else bb, off))
@@ -1004,6 +1159,8 @@ def simulate(progs, events, n, knobs=None, gate_lag=0):
     for d, prm in zip(sl.d, params(knobs or {})):
         d.params.update(prm)
     a5 = sl.d[0].bank5
+    for i, x in enumerate(lut_layout()[0]):           # the tables engine.c writes (LUT)
+        a5[(LUT0 & 0x3FF) + i] = f32(x)
     trig = [0.0] * NV
     for v in range(NV):
         a5[PITCH[v] & 0x3FF], a5[GATE[v] & 0x3FF], a5[TRIG[v] & 0x3FF] = f32((69 - 12) / 12.0), 0.0, 0.0
@@ -1133,8 +1290,11 @@ def forms_report():
     for name, lines in (('s1m0', prog_a()), ('s1m1', prog_b())):
         cands, base, free = dspsched.candidate_forms(lines, proven)
         print(f'{name}: {base} instructions with the proven groups, {free} with every encodable group')
+        # Roland's own use first (asm/roland_forms.py): a group it runs on the SYSTEM-1 is the safer test
+        ev = {sig: dspsched.evidence_text(sig) for sig, _, _ in cands}
+        cands.sort(key=lambda c: (' S1 -' in ev[c[0]], -c[1], -c[2]))
         for sig, saved, used in cands:
-            print(f'  {saved:4d} saved alone, used x{used:<4d} {dspsched.form_text(sig)}')
+            print(f'  {saved:4d} saved alone, used x{used:<4d} {dspsched.form_text(sig):40s} {ev[sig]}')
     print("test: TRY_FORMS='GROUP; GROUP' (or TRY_FORMS=all) sh examples/system_s1cc/build.sh with NAME=..., install, "
           'play; if it works: python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by NAME')
 

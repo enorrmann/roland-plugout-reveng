@@ -65,6 +65,8 @@ def writes(o):
                 return {s, y & 7}
             return {s}
         if d >= 8 and b == 0xE:
+            if (w >> 6) & 3 == 2:                     # divseed: r(d), r(d+1), rY
+                return {d & 7, (d + 1) & 7, y & 7}
             return {d & 7} if (w >> 6) & 3 in (1, 3) else set()
         if d >> 3 == 1 and b & 0xE == 0xC and not mode:
             return {d & 7, y & 7}

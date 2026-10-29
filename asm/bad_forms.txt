@@ -1,5 +1,7 @@
-# op groups that hung the SYSTEM-1 when they shared one instruction (asm/dspsched.py never uses them, not even with
-# TRY_FORMS=all). 2026-10-28, SYSTEM-S1CC MP-CSAW 8 voices: MP-CSAW-H2 (these 4 + 8 others) hung, MP-CSAW-G2 (the 8
+# op groups that hung the SYSTEM-1 (or that the DSP does not run) when they share one instruction: asm/dspsched.py never
+# uses them, not even with TRY_FORMS=all, and asm/s1rules.py rejects them (rule R9). A line is a group of terms joined
+# by ' + ': `mnemonic:kind` (fnmatch wildcards: `mac_*:*`) or `family:NAME` (asm/dspsched.py B_FAMILY: minmax, e,
+# shift, sfu, abs, macp2); a group is bad when some of its ops match every term. 2026-10-28, SYSTEM-S1CC MP-CSAW 8 voices: MP-CSAW-H2 (these 4 + 8 others) hung, MP-CSAW-G2 (the 8
 # others) ran: one or more of these 4, all two unit-B ops in one instruction (Roland fuses A+B and A+A+B)
 max:reg + max:reg
 ph_wrap:reg + ph_wrap:reg
@@ -7,3 +9,31 @@ ph_clamp:reg + ph_clamp:reg
 min:reg + min:reg
 # not run on the device, kept out with them: also two unit-B ops (2026-10-28)
 min:imm + min:imm
+# 2026-10-29, SYSTEM-S1CC MP-CSAW2 7 voices: MP-CSAW2-T2 (these 2 + max:reg + ph_clamp:reg, min:reg + ph_wrap:reg,
+# ph_wrap:reg + subxy:reg) hung, MP-CSAW2-T3 (the 3 others) ran: one or both of these, two unit-B ops of the same
+# family in one instruction (min / max: nibbles 0-7; e family: ph_*); B ops of different families ran
+# (max + ph_clamp, min + ph_wrap, min:imm + ph_clamp)
+max:reg + min:reg
+ph_clamp:reg + ph_tri:reg
+
+# the rule these show (2026-10-29): two unit-B ops of the same family; and its untested families, kept out with them
+family:minmax + family:minmax
+family:e + family:e
+family:shift + family:shift
+family:sfu + family:sfu
+family:abs + family:abs
+# two MAC ops with a P2 term: neither writes (SYSTEM-8 master, re/dspnative.py mac2xp2, 2026-10-29)
+family:macp2 + family:macp2
+# 2026-10-29, MP-CSAW2-T6: `mac_p1wc3 r6, r5, r4, #-0.5, r6 | mul r1, r2, #-2.0 | st r2, [062c]` hung the SYSTEM-1
+# (alone, the MAC with an immediate coefficient ran: NATIVE-CHECK2). Roland's SYSTEM-1 programs never put a MAC
+# with an immediate coefficient beside a single A op (their MAC + A: register coefficient or no P2); on the SYSTEM-8
+# the MAN instructions where the MAC and the A op both read immediates are the ones the reference does not explain.
+# Kept out: a MAC with an immediate coefficient sharing an instruction with any op
+mac_*c[123]:* + *:*
+mac_*c[123]r:* + *:*
+# not run on the device: a one-product MAC with an immediate beside another op with an immediate (both read the slot
+# stream; on the SYSTEM-8 the reference does not explain such MAN instructions yet). Roland's S1: mac_p1:imm + mul:reg
+mac_p1:imm + *:imm
+mac_p1:imm + *:i32
+mac_p1:i32 + *:imm
+mac_p1:i32 + *:i32

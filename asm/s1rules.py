@@ -8,6 +8,7 @@ Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, m
     R6  at most 2 loads of banks 5 + 6 + IOMD per instruction (the S1 never has more)  [inferred]
     R7  a slave DSP stores to bank 5 only in A100..A1FF (A000..A0FF is what the ARM writes)
     R8  ops sharing an instruction: only the groups proven on the device (asm/proven_forms.txt)
+    R9  never a group asm/bad_forms.txt forbids (signatures and patterns: `family:minmax + family:minmax`, `mac_*:*`)
 and, as a warning: an instruction shape (accesses per bank, number of ops) that is not part of a shape of a program
 that ran on the device (PROVEN_PROGRAMS: C-S1V8, C-S1SY13).
 
@@ -45,6 +46,10 @@ def shape(line):
         if m in ('ld', 'st'):
             a = _ADDR.search(u)
             acc.append(m + (bank(int(a.group(1), 16)) if a else '?'))
+        elif m == 'ldidx':                     # indexed bank-0 load (X28Y)
+            acc.append('ld0')
+        elif m in ('ldb5', 'ldb5h7'):          # indexed bank-5 load (XdaY / XdbY)
+            acc.append('ld5')
         else:
             ops += 1
     return tuple(sorted(acc)), ops
@@ -52,7 +57,7 @@ def shape(line):
 
 def op_signature(line):
     import dspsched
-    ops = [u for u in units(line) if u.split()[0] not in ('ld', 'st')]
+    ops = [u for u in units(line) if u.split()[0] not in ('ld', 'st', 'ldidx', 'ldb5', 'ldb5h7')]
     return dspsched.op_signature(ops) if len(ops) > 1 else None
 
 
@@ -88,6 +93,10 @@ def check(name, lines, slave=True, proven_ops=None):
         n = collections.Counter()
         for u in units(line):
             m = u.split()[0]
+            if m == 'ldidx':
+                n[('ld', '0')] += 1
+            if m in ('ldb5', 'ldb5h7'):
+                n[('ld', '5')] += 1
             if m in ('ld', 'st'):
                 a = _ADDR.search(u)
                 if a:
@@ -109,6 +118,8 @@ def check(name, lines, slave=True, proven_ops=None):
         sig = op_signature(line)
         if sig is not None and sig not in proven_ops:
             broken.append('R8')
+        if sig is not None and dspsched.is_bad(sig):
+            broken.append('R9')
         errors += [f'{r} instruction {k}: {line}' for r in broken]
         sh = shape(line)
         if not covered(sh):

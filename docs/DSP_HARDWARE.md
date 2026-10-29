@@ -283,6 +283,25 @@ con `0da0` en la ranura DCO2 de los slaves, triángulo y cuadrada exactos por au
 En el banco 0 una tabla fija sólo sobrevive sin ningún store al banco 0 en el DSP (h6 = T + contador de muestras).
 La vista RAW del ARM del banco 0 también es relativa al anillo: el ARM no puede dejar una tabla ahí.
 
+**Medido otra vez 2026-10-29 (maestro DSP3, bit a bit, `re/dspverify.py --programs`):** `hset h6/h7, rX` (modo 0,
+h = rX mod 512) seguido de `da`/`db` (carga y store) y de `X28Y`, exacto; la latencia de carga es la normal (la
+instrucción siguiente ya ve el valor). **SYSTEM-1, 2026-10-29: `hset` + `X28Y` corren en el equipo** (SYSTEM-S1CC
+MP-CSAW2-8, COLOR MOD indexado, 8 voces); los programas de Roland para el S1 no usan transferencias indexadas.
+
+**LUT: dónde y cuánto lugar** (una LUT = `valor = tabla[índice]` con el índice calculado en el DSP: fase, nota,
+perilla):
+
+| memoria | sirve para | lectura | lugar |
+|---|---|---|---|
+| banco 5 | tablas fijas (persisten; el ARM o el DSP las escriben una vez) | `da`/`db` (h6 / h7 + Y), escritura `XdaY` con X ≥ 8 | 1024 palabras por DSP. S8: libres en general 0x048–0x1FF y 0x306–0x3FF (refs del corpus); C-WTLIVE pone ahí 438 puntos. S1: un banco 5 para slave A y B; el ARM escribe A000–A0FF, los slaves guardan sólo en A100–A1FF (`asm/s1rules.py` R7); SYSTEM-S1CC usa 42 + 90 de ellas: quedan ≈ 200 (ARM) + ≈ 160 (DSP) |
+| banco 0 | tablas de la muestra (se escriben y se leen en la misma muestra) | `X28Y` (h6 + Y) | 2048 palabras por DSP, anillo (una tabla fija se corre); SYSTEM-S1CC DSP B: 0x0500–0x05FF libre (COLOR MOD usa 0x0510–0x055F) |
+| EDM | muestras y retardos largos | DMA de toma `Xa9Y` (§8.4) | 983 040 palabras (10 s), sólo el DSP4 del maestro del S8 (ranura `f7dc`) |
+
+Patrón de COLOR MOD (SYSTEM-S1CC, `make_s1cc.py colors_idx_all`): fila de 16 palabras por fuente, la voz v en 2 v
+(Y de 4 bits: hasta 8 voces con palabras de anillo S / S + 1); por muestra y color un `hset h6` con la fila elegida,
+por voz `ldidx` + `ymacd` + `st`. `asm/dspsched.py` empaqueta `ldidx` como carga del banco 0 (dos instrucciones
+después del `hset`, después de los stores del banco 0) y `asm/s1rules.py` la cuenta en la regla R3.
+
 ---
 
 ## 8. Comunicación

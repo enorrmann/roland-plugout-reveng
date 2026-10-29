@@ -127,7 +127,8 @@ static void set_volume(int v)
 }
 ```
 
-`FCE4` (con rampa, `mode << 28 | …`) está identificado en el código pero no mapeado [A].
+`FCE4(sel, id, destino, y, z)` (con rampa): rampa lineal del hardware, un paso cada 1/3 ms, de 4 a 97 ms de 0 a 1
+según `y`; `+8` del bloque = valor actual, `+C` = incremento [M] ([../docs/examples_system_1_ramp_README.md](../docs/examples_system_1_ramp_README.md)).
 
 ### 4.4 IOMD entre chips
 
@@ -281,7 +282,7 @@ Cómo se encontró: bisección en el equipo con builds de diagnóstico de C-S1JX
 | 1 | si el banco 0 es por DSP o por chip; si el banco 1 se comparte de verdad entre A y B |
 | 2 | latencia del banco 5 entre A y B, y del IOMD entre chips |
 | 3 | qué son `6026`–`602D` en el sinte de serie y si llegan al audio en modo PLUG-OUT |
-| 4 | `FCE4` (parámetros con rampa) |
+| 4 | `FCE4`: medido (lineal, 3 kHz); falta la dependencia de la distancia y los modos `z` ≥ 2 |
 | 5 | captura de audio por USB en el SYSTEM-1 (afinación exacta, estéreo); barrido de palabras IOMD como el del SYSTEM-8 |
 
 ---

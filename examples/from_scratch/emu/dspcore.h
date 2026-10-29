@@ -417,7 +417,19 @@ INL void b_op(int w, double immY, Dsp *dsp, const double *regs, double *out, Res
         int sub = (w >> 6) & 3;
         if (sub == 0) { res->set = 1, res->v = D + Y, res->z = D + Y == 0; }
         else if (sub == 1) out[d & 7] = Y;
-        else if (sub == 3) {
+        else if (sub == 2) {                       /* divseed: the reciprocal seed with a numerator (2026-10-29,
+                                                    * re/dspnative.py raw_e10_*): r(d) <- X sign(Y) 2^-e, r(d+1) <-
+                                                    * R[m], rY <- m (|Y| = m 2^e); X = r(2 mode), or rY with Y bit 3 */
+            double R = regs[y & 7], N = (y & 8) ? R : regs[2 * mode];
+            if (R) {
+                int e;
+                double m = frexp(fabs(R), &e);
+                /* N 2^-e in two's complement with 32 fraction bits (toward -inf), as the shifter */
+                out[d & 7] = e > -9 ? floor(N * copysign(ldexp(1.0, 32 - e), R)) * 0x1p-32 : 0.0;
+                out[(d + 1) & 7] = recip_seed(m);
+                out[y & 7] = m;
+            }
+        } else if (sub == 3) {
             double R = regs[y & 7], v = 0;
             int neg = y & 8;
             switch (mode) {

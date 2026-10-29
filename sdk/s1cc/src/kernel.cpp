@@ -37,6 +37,19 @@ const KOp *productOf(const std::vector<KOp> &ops, KVal *v) {
 }
 
 namespace {
+// the operands of a plain register sum `addxy {d}, a, b` (nothing negated), or false
+bool sumOf(const std::vector<KOp> &ops, KVal *v, KVal **a, KVal **b) {
+    for (auto it = ops.rbegin(); it != ops.rend(); ++it)
+        if (it->d == v) {
+            if (it->kind != "op" || it->fmt != "addxy {d}, {0}, {1}" || !it->args[0].v || !it->args[1].v ||
+                it->args[0].neg || it->args[1].neg)
+                return false;
+            *a = it->args[0].v, *b = it->args[1].v;
+            return true;
+        }
+    return false;
+}
+
 // the source of |a| made as `max {d}, a, -a` (absLV), or nullptr
 KVal *absOf(const std::vector<KOp> &ops, KVal *v) {
     for (auto it = ops.rbegin(); it != ops.rend(); ++it)
@@ -170,6 +183,13 @@ KVal *Kernel::add(KVal *x, KOperand y) {
             return op("absadd {d}, {0}, {1}", {KOperand::of(a), y});
         if (KVal *a = absOf(ops_, y.v))
             return op("absadd {d}, {0}, {1}", {KOperand::of(a), KOperand::of(x)});
+    }
+    if (fuseSum && y.v && !y.neg) {                 // (a + b) + c: sum8, one op (proven on the SYSTEM-1 2026-10-29)
+        KVal *a, *b;
+        if (sumOf(ops_, x, &a, &b))
+            return op("sum8 {d}, {0}, {1}, {2}", {KOperand::of(a), KOperand::of(b), y});
+        if (sumOf(ops_, y.v, &a, &b))
+            return op("sum8 {d}, {0}, {1}, {2}", {KOperand::of(a), KOperand::of(b), KOperand::of(x)});
     }
     if (fuseMac && y.v && !y.neg)                   // the sum of two products: one MAC
         if (const KOp *a = productOf(ops_, x))

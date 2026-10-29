@@ -883,6 +883,23 @@ layout's letters. Both tools must agree on how the letters map to body words, or
 a round trip breaks at the first unusual instruction.
 ```
 
+### `asm/roland_forms.py`
+
+```
+Which op groups Roland's own programs put in one instruction (the local corpora: work/corpus_s1 for the SYSTEM-1,
+work/corpus_all for the SYSTEM-8), to weigh a group before it is tried on the device (TRY_FORMS): a group Roland
+runs on the SYSTEM-1 is a much safer test than one it never uses (2026-10-29: the MAC with an immediate coefficient
+beside an A op hung the SYSTEM-1; Roland's SYSTEM-1 code never has it).
+
+    python3 asm/roland_forms.py 'mac_p1:reg + mad:reg' ...    # evidence for groups
+    python3 asm/roland_forms.py --list s1 [N]                 # the most used groups of a corpus
+    import roland_forms; roland_forms.evidence(sig)           # -> {'s1': (exact, similar), 's8': (exact, similar)}
+
+Exact: the same signature (asm/dspsched.py op_signature: mnemonic and operand kind). Similar: the same mnemonics
+whatever the operand kinds. The index is built once from the corpora (asm/disasm.py listing of every instruction)
+and kept in work/roland_forms.json (local: it comes from Roland's code, it is not copied into the repository).
+```
+
 ### `asm/s1rules.py`
 
 ```
@@ -896,6 +913,7 @@ Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, m
     R6  at most 2 loads of banks 5 + 6 + IOMD per instruction (the S1 never has more)  [inferred]
     R7  a slave DSP stores to bank 5 only in A100..A1FF (A000..A0FF is what the ARM writes)
     R8  ops sharing an instruction: only the groups proven on the device (asm/proven_forms.txt)
+    R9  never a group asm/bad_forms.txt forbids (signatures and patterns: `family:minmax + family:minmax`, `mac_*:*`)
 and, as a warning: an instruction shape (accesses per bank, number of ops) that is not part of a shape of a program
 that ran on the device (PROVEN_PROGRAMS: C-S1V8, C-S1SY13).
 
@@ -1403,6 +1421,35 @@ so differences between the four reads (in samples) tell whether the bus is live 
 |---|---|---|
 | `--nops` |  | `[10, 200]` |
 
+### `examples/from_scratch/re/dspcapture.py`
+
+```
+One device session that captures every pending measurement of the DSP's ops, then offline checks against the C
+reference (emu/dspref.py) as often as needed, without the device (docs/NATIVE_OPS.md).
+
+    python3 dspcapture.py run [-o work/captures/NAME] [-n 96]   # SYSTEM-8, lab PEEK in slot 3, PLG3 selected
+    python3 dspcapture.py check [-o work/captures/NAME]          # no device: the reference against the capture
+
+What `run` captures (raw words, JSON lines), one file per part:
+    native.jsonl   re/dspnative.py, every test (-n cases per test, with and without an empty instruction)
+    insns.jsonl    re/dspverify.py on Roland instructions listed in work/cond_insns.txt (conditions, X9bY) and
+                   work/dualmac_p2.txt (two MACs with P2 in classes with transfers) and work/mac_alu_insns.txt (one
+                   MAC beside A / B ops, by class), local lists (Roland's code stays in work/); plus one instance of
+                   every class marked inferred
+    jumps.jsonl    re/dspverify.py --jumps: unconditional, skipped by conditions 4-19 and their negations, a loop
+    programs.jsonl re/dspverify.py --programs: indexed transfers (hset from a register, bank 5 / bank 0), load latency
+Each part is a separate process; a part that fails does not stop the others. Only one MIDI tool at a time.
+```
+
+| option | help | default |
+|---|---|---|
+| `cmd` |  |  |
+| `-o` |  |  |
+| `-n` |  | `96` |
+| `--only` | parts to run (native, insns, jumps, programs) |  |
+| `--tests` | native: only these dspnative tests | `()` |
+| `--lists` | insns: only these instruction lists (no --inferred) |  |
+
 ### `examples/from_scratch/re/dspclass.py`
 
 ```
@@ -1838,7 +1885,8 @@ same S word twice in one sample (a, then a2).
 The DSP's native ops (shifts, SFU, Newton step, 3-operand add, two-product MAC) on the SYSTEM-8 master, exact,
 against the C reference (emu/dspref.py): before s1cc and the SYSTEM-1 host use them (docs/DSP_HARDWARE.md §5).
 
-    python3 dspnative.py [TEST ...] [-n 24] [--list]      (needs the PEEK PLUG-OUT selected, dsppeek.py ping)
+    python3 dspnative.py [TEST ...] [-n 24] [--list] [--save FILE]   (needs the PEEK PLUG-OUT selected, dsppeek.py ping)
+    python3 dspnative.py --check FILE [TEST ...]                      (no device: the reference against saved cases)
 
 Each case loads r0..r7 with RAW operands, runs the op and stores r0..r7 to bank 5 (master DSP3, as dspexact.py), in
 two forms: with an empty instruction between the op and the stores, and with the stores right after it (a result
@@ -1851,6 +1899,8 @@ that is not ready in the next instruction shows up there). Every stored register
 | `-n` |  | `24` |
 | `--list` |  |  |
 | `--sim` | only the emulator (no device): print one case per test |  |
+| `--save` | also write the raw cases (JSON lines) to this file |  |
+| `--check` | no device: compare the reference with the cases saved in this file |  |
 
 ### `examples/from_scratch/re/dspnlfit.py`
 
@@ -2087,6 +2137,24 @@ Measured 2026-10-16 (TAPINC=-20, --base 324): D = 1 -> 16386 samples, D = 0.5 ->
 
 Environment: `TAPDEST` (default '1'), `TAPINC` (default -12), `TAPREQ` (default '0c02'), `TAPTWO`, `TAPWRITE`
 
+### `examples/from_scratch/re/dsptapcheck.py`
+
+```
+The delay line of the C reference (emu/dspcore.h tap / EDM, DSP_HARDWARE.md §8.4) against the device: dsptap.py's
+counter program in master DSP4 slot 0xF7DC (the slot whose bank-2 window the ARM wired to the delay memory) for
+several delays, whole and fractional; the reference runs the same program on dspref.Machine with set_edm() for as many
+samples as the delay needs. Compared: counter - tap1, counter - tap2 (in samples) and the fraction tap3.
+
+    python3 dsptapcheck.py run [--save FILE]     # SYSTEM-8, lab PEEK in slot 3, PLG3 selected
+    python3 dsptapcheck.py check FILE            # no device
+```
+
+| option | help | default |
+|---|---|---|
+| `cmd` |  |  |
+| `file` |  |  |
+| `--save` |  |  |
+
 ### `examples/from_scratch/re/dsptemplates.py`
 
 ```
@@ -2143,13 +2211,20 @@ with the reference on the same state.
 
     python3 dspverify.py "954c 2476 ..." ["..." ...] [-n 3]
     python3 dspverify.py --inferred [-n 3]       # one Roland instance of every class marked 'inferred'
+    python3 dspverify.py --jumps                  # the jump probes (unconditional, 32 conditions, a loop)
+    python3 dspverify.py ... --save FILE          # also keep the raw probes; --check FILE: no device, offline
 ```
 
 | option | help | default |
 |---|---|---|
 | `ins` |  |  |
 | `--inferred` |  |  |
+| `--jumps` | the jump probes (jump_probes) |  |
+| `--programs` | the program probes (program_probes) |  |
+| `--list-file` | instructions, one per line (repeatable) | `[]` |
 | `-n` |  | `3` |
+| `--save` | also write the raw probes (JSON lines) to this file |  |
+| `--check` | no device: compare the reference with the probes saved in this file |  |
 
 ### `examples/from_scratch/re/dspx9b.py`
 
@@ -3511,4 +3586,4 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                                       reference (sdk/s1cc refdsp), and the silence without notes
 ```
 
-Environment: `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `MIX` (default '1'), `MOD_DSP` (default 'auto'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')
+Environment: `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `CMOD_IDX` (default '1'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `MIX` (default '1'), `MOD_DSP` (default 'auto'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')

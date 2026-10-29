@@ -255,6 +255,14 @@ es decir sin modulación.
 | TO AMP 0 | amp con el LFO invertido |
 | DELAY TIME 200, TO PITCH 200 | fade en rampa de 3,1 s; la profundidad crece con él |
 
+**Cargas indexadas (`CMOD_IDX=1`, por defecto) [medido en el equipo 2026-10-29].** Con COLOR MOD en el DSP B, las
+fuentes de cada voz están en una tabla del banco 0 (`CMT0` 0x0500, una fila de 16 palabras por fuente, la voz v en
+2 v): las envolventes y la envolvente de pitch guardan su nivel ahí, el LFO se guarda también, el sub se copia. Por
+muestra y color, `hset h6` con la fila de la fuente elegida (parámetro C054 + 6 i + 2 que escribe el ARM,
+`engine.c hlfo_color`); por voz `ldidx` + `ymacd` (w0 + w · fuente) + `st`. Igual bit a bit a la suma ponderada en
+el emulador con las 6 fuentes. MP-CSAW2, MP-HARMONIC y MP-HIHAT pasan de 7 a 8 voces; MP-CSAW2-8 corre en el
+equipo. `CMOD_IDX=0`: la suma ponderada de antes.
+
 ### 3.4 Dónde corren la envolvente de pitch y COLOR MOD (`MOD_DSP`) [sim, 2026-10-28]
 
 Las dos cosas pueden ir en el DSP A o en el B. Un kernel con un DSP A largo (dos osciladores, MP-CSAW2: 88
@@ -366,6 +374,33 @@ El cuelgue está en los 4 grupos que quedan de H2: `max + max`, `ph_wrap + ph_wr
 `asm/bad_forms.txt` con `min:imm + min:imm` (B+B, no probado): el planificador no los usa nunca, ni con
 `TRY_FORMS=all`. La bisección: partir los grupos sospechosos en mitades, armar cada mitad con `TRY_FORMS`, y separar
 primero por familia (dos inmediatos, dos ops B) para que cada prueba diga algo aunque cuelgue.
+
+**[medido] 2026-10-29.** Bisección con MP-CSAW2 (7 voces):
+
+| armado | grupos nuevos | resultado |
+|---|---|---|
+| `MP-CSAW2-TRY` | 10 | **cuelga** |
+| `MP-CSAW2-T2` | `max + ph_clamp`, `min + ph_wrap`, `max + min`, `ph_clamp + ph_tri`, `ph_wrap + subxy` | **cuelga** |
+| `MP-CSAW2-T3` | `max + ph_clamp`, `min + ph_wrap`, `ph_wrap + subxy` | funciona → promovidos |
+| `MP-CSAW2-T4` | `mac_p1wc3:imm + mul:imm`, `min:imm + shl`, `mad:imm + mov:reg`, `mul:reg + subxy:imm` | **cuelga** |
+| `MP-CSAW2-T5` | `mul:reg + subxy:imm` | funciona → promovido |
+| `MP-CSAW2-T6` | `mac_p1wc3:imm + mul:imm` | **cuelga** |
+
+Las reglas que salen (en `asm/bad_forms.txt`, ahora con **patrones**): dos ops de la unidad B **de la misma familia**
+en una instrucción cuelgan (`family:minmax + family:minmax`, `family:e + family:e`; las familias de las otras se
+dejan afuera por precaución); de familias distintas corren (`max + ph_clamp`, `min + ph_wrap`, `min:imm + ph_clamp`).
+Una MAC con **coeficiente inmediato** junto a otra op cuelga (`mac_*c[123]:* + *:*`). Un término es
+`mnemónico:tipo` (comodines `fnmatch`) o `family:NOMBRE` (`asm/dspsched.py B_FAMILY`); un grupo es malo si algunas
+de sus ops calzan con todos los términos. El planificador nunca los usa (ni con `TRY_FORMS=all`) y
+`asm/s1rules.py` los rechaza (regla **R9**).
+
+**Antes de probar un grupo, mirar si Roland lo usa** (`asm/roland_forms.py`: índice de los grupos de ops que
+comparten instrucción en los programas de Roland, corpus locales del S1 y del S8, guardado en
+`work/roland_forms.json`): `--forms` muestra al lado de cada candidato «Roland S1 ×n / S8 ×n (parecidos ×n)» y los
+ordena con los que Roland corre en el S1 primero. Los tres grupos que colgaron el 2026-10-29 no aparecen en ningún
+programa de Roland. Lo que más usa Roland en el S1 es `mac_p1:imm + mul:reg` (×80): la MAC de un producto junto a
+una op A; el planificador puede pasar un `mad` / `mul` a `mac_p1` cuando eso le deja compartir instrucción
+(`dspsched.mac_alt`; sin probar en el equipo todavía).
 
 ### 4.2 Voces de a pares (`PAIRS`) [medido 2026-10-28]
 
