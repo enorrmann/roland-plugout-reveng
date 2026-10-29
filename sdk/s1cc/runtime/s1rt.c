@@ -107,6 +107,8 @@ float s1_log2(float x) { return log2f(x); }
 float s1_ldexp(float x, int k) { return ldexpf(x, k); }
 float s1_sum3(float a, float b, float c) { return a + b + c; }
 float s1_mac2(float a, float b, float c, float d, float e) { return a * b + c * d + e; }
+float s1_sqrt(float x) { return sqrtf(x); }
+float s1_rsqrt(float x) { return 1.0f / sqrtf(x); }
 
 /* ---- profiling records ---- */
 #define MAXR 65536

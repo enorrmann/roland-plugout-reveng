@@ -8,7 +8,7 @@
 The gate is 0 or 1 with no smoothing: the note starts and stops at once.
 
     python3 make_chain.py          -> dsp2_osc.s/.hex, dsp4_gate.s/.hex
-    python3 make_chain.py --sim    -> run both programs in re/dspisa.py: pitch 440 Hz, gate pulse on DSP4
+    python3 make_chain.py --sim    -> run both programs in the C reference (emu/dspref.py): pitch 440 Hz, gate pulse on DSP4
 """
 import math
 import os
@@ -76,24 +76,22 @@ def words(text):
 def simulate(w_osc, w_gate, pitch, gate, n):
     """one sample = DSP2 program, then DSP4 program; DSP4 reads the saw DSP2 stored in the previous sample"""
     import dspdis
-    import dspisa
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu'))
+    import dspref
     ins_osc = [i for _, i in dspdis.instructions(w_osc)]
     ins_gate = [i for _, i in dspdis.instructions(w_gate)]
-    mem2 = {PITCH: pitch, PHASE + 1: 0.0}
-    mem4 = {GATE: 0.0, MXM_IN: 0.0}
+    m2, m4 = dspref.Machine(), dspref.Machine()
+    mem2, mem4 = m2.mem, m4.mem
+    mem2[PITCH] = pitch
     out = []
     for t in range(n):
         mem4[GATE] = gate(t)
         mem4[MXM_IN] = mem2.get(MXM_OUT, 0.0)                    # MXM latch: last sample's DSP2 store
         mem2[PHASE + 1] = mem2.get(PHASE, 0.0)
-        regs = [0.0] * 8
-        for x in ins_osc:
-            dspisa.JUMP = None
-            regs, mem2, _ = dspisa.run(list(x), regs, mem2)
-        regs = [0.0] * 8
-        for x in ins_gate:
-            dspisa.JUMP = None
-            regs, mem4, _ = dspisa.run(list(x), regs, mem4)
+        m2.regs = [0.0] * 8
+        m2.run_program(ins_osc)
+        m4.regs = [0.0] * 8
+        m4.run_program(ins_gate)
         out.append(mem4.get(OUT, 0.0))
     return out
 

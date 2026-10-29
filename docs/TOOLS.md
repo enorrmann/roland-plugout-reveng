@@ -57,7 +57,7 @@ python3 examples/system_1_synth/make_synth.py --sim-check    # además: núcleo 
 | `RES_MAX` | 3,6 (4,4 con `RESCOMP=1`) | realimentación del filtro con la resonancia al máximo |
 | `GMAX` | 0,7 | tope del coeficiente del filtro |
 | `PAD` | 0 | prueba de presupuesto: n rellenos al final del DSP A |
-| `SIM` | `c` | `py`: `--sim` con la referencia Python (`re/dspisa.py`, minutos) en vez del núcleo C (1 s de audio ≈ 0,4 s) |
+| `SIM` | `c` | `py`: `--sim` con la máquina de memoria plana (`emu/dspref.Machine`, más lenta) en vez del esclavo de `cchain` (1 s de audio ≈ 0,4 s) |
 | `SIM_JOBS` | núcleos de la máquina | simulaciones independientes de `--sim` / `--sim-check` a la vez, una por proceso; 1 = en serie |
 | `DSP_CC` | `clang` si está, si no `cc` | compilador del núcleo C y del código nativo (`gcc`, `clang` o una ruta) |
 | `SIM_N` | 9600 | muestras de la prueba de La 440 de `--sim` |
@@ -69,10 +69,11 @@ python3 examples/system_1_synth/make_synth.py --sim-check    # además: núcleo 
 `--pack-check` hace sólo la comparación 2 (sin la referencia Python). `--sim-check` hace las dos. Dos comparaciones, muestra a muestra. Cada una dice `identical` o el número de muestras distintas, la primera
 muestra distinta y los dos valores:
 
-1. **`sim check`: núcleo C del emulador contra la referencia Python.** Corre `simulate()` (núcleo C,
-   `examples/from_scratch/emu/cchain.py`) y `simulate_py()` (`re/dspisa.py`) con los mismos programas y eventos:
+1. **`sim check`: el esclavo del núcleo C contra la máquina de memoria plana.** Corre `simulate()` (esclavo de
+   `examples/from_scratch/emu/cchain.py`) y `simulate_py()` (`emu/dspref.Machine`, un DSP por programa, anillos movidos
+   a mano) con los mismos programas y eventos: comprueba el modelo de bancos y anillos del esclavo:
    La 440 en la voz 0 en t = 0, Mi en la voz 1 en t = 50, la voz 0 soltada en la mitad. Dura `SIM_CHECK_N`
-   muestras y casi todo el tiempo se va en la referencia Python.
+   muestras.
 2. **`pack check`: programas empaquetados / fusionados contra los mismos sin empaquetar** (`sources(True)` contra
    `sources(False)`), en el núcleo C. 8 notas, la mitad soltadas en la mitad, `SIM_PACK_N` muestras. Valida
    `pack()` y `FUSE`: la optimización no puede cambiar ni un bit.
@@ -138,13 +139,16 @@ python3 tools/proven_forms.py promote BUILD/try_forms.txt --by PLUGOUT     # agr
 | `python3 -m http.server 8000 --bind 127.0.0.1 --directory web` | instalador web en `http://localhost:8000/` (Chrome / Edge); [WEB_INSTALLER.md](WEB_INSTALLER.md) |
 | `node web/test/test-protocol.js [FILE.Dat...]` / `sh web/test/run-page-test.sh` | pruebas del instalador web sin hardware: biblioteca contra `plugout.py`, página completa en Chrome headless |
 | `examples/system_1/paramlog.py -t SEG [--raw] [--file LOG...]` | escucha una build `PARAMLOG=1`: ids de los controles del panel (con el PLUG-OUT seleccionado) |
+| `python3 examples/from_scratch/re/dsplive.py install l00.batch` | SYSTEM-8: instala en el slot 3 el laboratorio con la sonda del maestro (`PEEK`); seleccionar PLG3. `python3 examples/from_scratch/re/dsppeek.py ping` responde `pong 0x1234` cuando está activa |
+| `python3 examples/from_scratch/re/dspnative.py [PRUEBA...] [-n 24] [--list] [--sim]` | SYSTEM-8 con la sonda: ops nativas (`shl`, SFU, `newton`, `add3`, `sum8`, MAC de dos productos) en el DSP3 del maestro, exactas contra la referencia C (`emu/dspref.py`), con y sin instrucción vacía antes de leer; `--sim` sólo el emulador ([S1CC.md](S1CC.md) §7.6) |
+| `KERNEL=sdk/s1cc/build/native_check NAME=NATIVE-CHECK sh examples/system_s1cc/build.sh` | SYSTEM-1: PLUG-OUT que prueba de oído las ops nativas que usa s1cc (sierra limpia = bien; OSC1 COLOR elige la op; [S1CC.md](S1CC.md) §7.6) |
 
 ## 6. Emulador (`examples/from_scratch/emu/`)
 
 | herramienta | uso |
 |---|---|
 | `cchain.Slave(programs, model, native=True, threads=True)` | un BMC: hasta 6 DSP; `step(n)`, `run(n, words)`, `d[n].bank5`, `params`, `iomd`; ver el docstring de `cchain.py` |
-| `python3 examples/from_scratch/emu/test_core.py [nombre...]` | pruebas del núcleo C, bit a bit contra `dspisa` / `chain.py` (todas o las que contienen el nombre) |
+| `python3 examples/from_scratch/emu/test_core.py [nombre...]` | pruebas del núcleo C: corpus contra el archivo dorado local, nativo contra intérprete, hilos, `quant` (todas o las que contienen el nombre; `--update-golden` sólo tras un cambio medido) |
 | `python3 examples/from_scratch/emu/test_chain.py` | pruebas del modelo de la cadena del SYSTEM-8 |
 
 Velocidad y estado: [EMULATOR.md](EMULATOR.md) §3.6.
@@ -727,9 +731,11 @@ Directives, each on the line before the instruction it changes:
     .words 0xNNNN ...    words kept as they are (a truncated tail)
 
 Immediates (spec 4.4): `#v@b:w` is a value read at byte b of the slot array,
-w bits wide. A MAC coefficient `#v` is read in order after Y's immediate, or
-at the byte `@b` when Y is a register. An immediate with no byte is placed by
-the assembler at the first byte where its bits agree with the stream.
+w bits wide. A MAC coefficient `#v@c` is read at byte c (its C field; + 8 in
+the `...r` variants, bit 9 set), Y a register or an immediate (measured
+2026-10-29, docs/DSP_ISA_DISCREPANCIES.md D8). An immediate with no byte is
+placed by the assembler at the first byte where its bits agree with the stream
+(a coefficient: bytes 0-7, written into C).
 
 Confidence policy is enforced **here**, not by the caller: a line whose
 variant is not in `Table.EMIT_DEFAULT` (exact, measured) is rejected unless
@@ -943,15 +949,15 @@ Nothing is copied: the programs are disassembled in memory from the local images
 ### `examples/from_scratch/emu/cchain.py`
 
 ```
-chain.Slave / chain.Bmc2 on the C core (dspcore.c): same constructor, same ARM-side calls, same results.
+The slave emulator on the C core (dspcore.c): Slave (six DSPs) and Bmc2 (two slaves), with the ARM-side calls.
 
     import cchain
     s = cchain.Slave(voices.programs('v4'), chain.Model())
     s.p_bank(0, 0x21, 0.5); s.step(); s.iomd.get(0x6020, 0.0)
     s.run(n, (0x6020,))          # n samples in C, returns {word: [values]} (no per-sample Python call)
 
-The shared library is built with cc the first time (and whenever dspcore.c / dspcore.h is newer). The instruction
-semantics are those of re/dspisa.py, decoded once by dspcomp.py; test_core.py checks them against dspisa/chain.py.
+The shared library is built with cc the first time (and whenever a C source is newer, dspref.py). The instruction
+semantics are the C core's (the reference since 2026-10-29), decoded once by dspdec.h through dspcomp.py.
 
 Slave(..., native=True, threads=True): programs translated to native code (dspjit.py, cached in build/jit/) and the
 independent DSP groups of a sample on their own threads (for run() / step(n) with n >= 64). Both give the same bits
@@ -961,9 +967,11 @@ as the interpreter (native=False, threads=False).
 ### `examples/from_scratch/emu/chain.py`
 
 ```
-Emulator of one BMC slave (six DSPs) and of the two slaves, for the voice chain studies of docs/VOICE_ALLOCATION.md.
+The model of one BMC slave (six DSPs) and of the two slaves, for the voice chain studies of docs/VOICE_ALLOCATION.md:
+Model (the hardware hypotheses), Program (a decoded program), access_violations, helpers. The emulator itself is the
+C core (cchain.py / dspcore.c); the Python Slave of this file was archived 2026-10-29 (archive/chain.py).
 
-Every memory access of re/dspisa.py goes through dspisa.ACCESS, so the banks are modelled here, per DSP:
+The banks, per DSP (dspcore.h rd / wr):
 
     bank 0 (0nnn)  ring of 0x800 words: what is stored at R in sample n is read at R+1 in sample n+1
                    [medido, DSP_HARDWARE.md 7.2]
@@ -995,9 +1003,9 @@ no-Roland-microcode rule applies only to our own plug-outs, docs/log/VOICE_ALLOC
 ```
 Front end of the C core (dspcore.c): every instruction of a chain.Program becomes a list of units and conditions.
 
-The decoding is re/dspisa.py's own (dspisa.Layout: template, slot area, immediate stream, units, jumps); this module
-only replays the immediate reads of the A / B / M units in run()'s order and packs the result into ctypes arrays.
-What depends on run-time values (registers, flags, hidden registers, memory) is left to the C core.
+The decoding is the C decoder's (dspdec.h dsp_decode: template, slot area, immediate stream, units, jumps); this module
+only packs the result into ctypes arrays (and dicts, for dspjit.py). What depends on run-time values (registers,
+flags, hidden registers, memory) is left to the C core.
 ```
 
 ### `examples/from_scratch/emu/dspjit.py`
@@ -1010,7 +1018,7 @@ tests of a local flags word, and the units call the inline functions of dspcore.
 constant words gcc folds them to the few operations each unit really does). The translation adds nothing to the
 semantics; it only drops work whose result is known:
 
-* quant(): dspisa quantises all eight registers after every A/B/M unit. quant is idempotent, so a register needs it
+* quant(): the core quantises all eight registers after every A/B/M unit. quant is idempotent, so a register needs it
   only if it may hold an unquantised value: one written by a unit (superset by unit type), or loaded since the last
   unconditional unit, or anything at a jump target / program start;
 * the result and flags of a unit are kept only when an X9bY of the same instruction reads them.
@@ -1021,6 +1029,25 @@ emu/build/jit/. test_core.py compares the translation with the interpreter and w
 groups(): DSPs that share an IOMD word (one writes a word another reads or writes, static addresses: a transfer of
 mode fe; the indexed modes only reach banks 0 and 5) or bank 1 (Model.shared1) must run on one thread, in model
 order; the other DSPs of a sample are independent (MXM and the pair window are latched).
+```
+
+### `examples/from_scratch/emu/dspref.py`
+
+```
+The DSP reference from Python: a thin ctypes binding of the C core (dspdec.h decoder, dspcore.h / dspcore.c
+semantics). It has no semantics of its own; it replaces re/dspisa.py (archived 2026-10-29, archive/dspisa.py).
+
+    import dspref
+    m = dspref.Machine()                     # one DSP, flat memory (the tools' simulator)
+    m.regs = [0.5, 0.25, 0, 0, 0, 0, 0, 0]
+    m.run([0x0902, 0x2C01])                  # one instruction; m.jump = offset of a jump that ran, else None
+    m.mem[0xA200]                            # memory (a dict-like view: get / items / update / clear)
+    pid = m.add(program)                     # a program (list of instructions), decoded once
+    m.run_program(pid)                       # one pass, jumps followed
+    dspref.layout(ins).t                     # template letters, slots, units, refs (tools that parse code)
+    dspref.quant(v), dspref.raw_value(w)
+
+The shared library is built with cc the first time (and whenever a C source is newer); emu/cchain.py uses the same.
 ```
 
 Environment: `DSP_CC`
@@ -1176,13 +1203,13 @@ stride 0x16. Words that never change are operations.
 Minimal assembler for the established DSP subset (DSP_ISA_SPEC.md) + our own SAW oscillator.
 
     python3 dspasm.py saw dco2 [--fs 48000] [-o prog.txt]   # oscillator for the DCO2 (or dco1) slot
-    python3 dspasm.py sim prog.txt --pitch 4.75 [--n 400]    # run it in dspisa's simulator, print period
+    python3 dspasm.py sim prog.txt --pitch 4.75 [--n 400]    # run it in the C reference (emu/dspref.py), print period
 
 Encoders (each returns one instruction as a list of 16-bit words):
     a(op, d, x, y=None, imm=None)   unit A op (class 0x048); y = register (negative int = negated) or imm (float)
     b(op, d, x, y)                  unit B op (class 0x050), d >= 8 forms (min = op 0, max = op 2), x in r0..r3
     ld(r, addr), st(r, addr)        transfer with one reference (class 0x060)
-Every instruction is checked by decoding it again with dspisa.
+Every instruction is checked by decoding it again with the C decoder (dspref.template).
 ```
 
 | option | help | default |
@@ -1665,27 +1692,10 @@ the output words; the ARM reads the IOMD RAW block. Shows whether IOMD links DSP
 ### `examples/from_scratch/re/dspisa.py`
 
 ```
-DSP instruction set (as measured on the master's DSP4, NOTES.md "Formato de instrucción"): decoder,
-disassembler and simulator.
-
-    python3 dspisa.py dis prog.bin|prog.txt          # disassemble (blob in memory order, or hex words in execution order)
-    python3 dspisa.py sim "0902 3c01" [--regs ...]    # simulate one instruction on r0..r7
-    python3 dspisa.py cov work/corpus                # decoding coverage over a directory of .bin programs
-
-An instruction = header (class << 5 | length) + words. The class is a template (TEMPLATES): one letter per
-body position:
-    A  ALU op (16 bits)          M  MAC first word (w1)        N  MAC second word (w2)
-    T  transfer                  R  reference (slot)           I  immediate bits (rest of the instruction)
-Slots (for transfers XfeY: slot Y/2) are counted from the first position after the transfers: N words
-first, then R words. Operand modes 1/2/3 take 16/24/32 bits from the immediate bit stream: MAC operands in order,
-every A/B op from the start of the stream (two A/B ops with immediates share the same bits, measured 2026-10-16).
+ARCHIVED 2026-10-29 (user decision): the Python DSP reference is no longer used. The reference is the C core
+(examples/from_scratch/emu/dspcore.h + dspcomp; docs/EMULATOR.md). The old code is in archive/dspisa.py, kept only
+to validate the C port against it; do not import it from tools.
 ```
-
-| option | help | default |
-|---|---|---|
-| `cmd` |  |  |
-| `arg` |  |  |
-| `--regs` |  | `0.5,0.25,0.125,-0.375,0.0625,-0.75,0.875,-0.0625` |
 
 ### `examples/from_scratch/re/dspjump.py`
 
@@ -1821,6 +1831,26 @@ Is MXM a mixing bus? (2026-10-17) DSP3 writes a to S 87F0 (word 0x1F0 of MXM5) a
 same word); both read the word back (DSP3 as S, DSP4 as O) and the ARM reads MXM5 word 0x1F0. Also DSP3 writes the
 same S word twice in one sample (a, then a2).
 ```
+
+### `examples/from_scratch/re/dspnative.py`
+
+```
+The DSP's native ops (shifts, SFU, Newton step, 3-operand add, two-product MAC) on the SYSTEM-8 master, exact,
+against the C reference (emu/dspref.py): before s1cc and the SYSTEM-1 host use them (docs/DSP_HARDWARE.md §5).
+
+    python3 dspnative.py [TEST ...] [-n 24] [--list]      (needs the PEEK PLUG-OUT selected, dsppeek.py ping)
+
+Each case loads r0..r7 with RAW operands, runs the op and stores r0..r7 to bank 5 (master DSP3, as dspexact.py), in
+two forms: with an empty instruction between the op and the stores, and with the stores right after it (a result
+that is not ready in the next instruction shows up there). Every stored register is compared with the reference.
+```
+
+| option | help | default |
+|---|---|---|
+| `tests` |  |  |
+| `-n` |  | `24` |
+| `--list` |  |  |
+| `--sim` | only the emulator (no device): print one case per test |  |
 
 ### `examples/from_scratch/re/dspnlfit.py`
 
@@ -2074,7 +2104,7 @@ need); '?' before the transfers (or left over) are C (another unit, not decoded 
 ### `examples/from_scratch/re/dspvalid4.py`
 
 ```
-Validate re/dspisa.py and dsp/sim_main.py on the master's DSP4, live (dspmaster.py / dsppeek.py transport).
+Validate the C reference (emu/dspref.py) and dsp/sim_main.py on the master's DSP4, live (dspmaster.py / dsppeek.py transport).
 
 The test program (dspexp/master/m02_sim_check.txt) is stateless: every value it stores is a function of constants,
 so the stored words do not depend on how many samples have run. It replaces the global-effect slot 0xEFDC of DSP4
@@ -2106,10 +2136,10 @@ Prints, per instruction head, the body positions seen varying, with examples.
 ### `examples/from_scratch/re/dspverify.py`
 
 ```
-Verify instruction semantics (and so the template) on master DSP3 against dspisa's simulation (2026-10-17).
+Verify instruction semantics (and so the template) on master DSP3 against the C reference (emu/dspref.py).
 For each instruction: memory references are moved to 0x700.. and preloaded, r0..r7 get random values, the flags of
 groups 1-5 are set by cmp + X9bY, then the instruction runs; registers and every written reference are compared
-with dspisa.run on the same state.
+with the reference on the same state.
 
     python3 dspverify.py "954c 2476 ..." ["..." ...] [-n 3]
     python3 dspverify.py --inferred [-n 3]       # one Roland instance of every class marked 'inferred'
@@ -2380,7 +2410,7 @@ Host-side diagnostic of what `wt5.py send` actually sends (no hardware needed, e
 
 Four independent checks:
 
-1. SIMULATOR. Builds the programs exactly as wt5.py does and runs them with dspasm.simulate (dspisa) into a memory
+1. SIMULATOR. Builds the programs exactly as wt5.py does and runs them with the C reference (emu/dspref.Machine) into a memory
    preloaded with the same table stored at 0xA000 + BASE: the output must be the expected frame waveform
    (resample to N points, linear interpolation, between frames). This is what NOTES.md calls "simulador exacto".
 2. SHADOW. Replays the program writes dspown.load would send (dspown's EMPTY head, runs against state.json, 32-word
@@ -2499,7 +2529,7 @@ Two-DSP chain for the gate plug-out, all our own asm (asm/asm.py), no Roland cod
 The gate is 0 or 1 with no smoothing: the note starts and stops at once.
 
     python3 make_chain.py          -> dsp2_osc.s/.hex, dsp4_gate.s/.hex
-    python3 make_chain.py --sim    -> run both programs in re/dspisa.py: pitch 440 Hz, gate pulse on DSP4
+    python3 make_chain.py --sim    -> run both programs in the C reference (emu/dspref.py): pitch 440 Hz, gate pulse on DSP4
 ```
 
 ### `examples/from_scratch/dsp/make_iomd_test.py`
@@ -2512,7 +2542,7 @@ Writes three fixed-pitch sawtooths, each sample, to three candidate IOMD words o
 The program is our own asm (asm/asm.py), registered in the DSP5 DCO1 slot (engine.c -DIOMDTEST).
 
     python3 make_iomd_test.py          -> iomd_test.s (source), iomd_test.hex (words, execution order)
-    python3 make_iomd_test.py --sim    -> also runs the words in re/dspisa.py for 300 samples and prints the periods
+    python3 make_iomd_test.py --sim    -> also runs the words in the C reference (emu/dspref.py) for 300 samples and prints the periods
 ```
 
 ### `examples/from_scratch/dsp/make_poly.py`
@@ -2528,7 +2558,7 @@ vibrato, times the envelope. The four voices are summed (scale 1/4) into IOMD 60
     python3 make_poly.py --opt    -> also poly_opt.s / poly_opt.hex: the same voice with ph_wrap (Roland's form)
                                      instead of the manual wraps, scheduled by asm/dspsched.py
                                      (docs/MICROCODE_OPTIMIZATION.md); poly.hex (tested on the device) stays
-    python3 make_poly.py --sim    -> four voices in re/dspisa.py: each gate pulse must give its own pitch
+    python3 make_poly.py --sim    -> four voices in the C reference (emu/dspref.py): each gate pulse must give its own pitch
 ```
 
 ### `examples/from_scratch/dsp/make_saw_hex.py`
@@ -2569,7 +2599,7 @@ saw with pitch from the ARM (bank 5 id 0x21, read [A021]) and gate (bank 5 id 0x
   VCA       output = saw * envelope, stored in IOMD 6020 (the word that reaches the audio output)
 
 python3 make_voice.py          -> voice.s (source) and voice.hex (words, execution order)
-python3 make_voice.py --sim    -> run the words in re/dspisa.py with a gate pulse and print the result
+python3 make_voice.py --sim    -> run the words in the C reference (emu/dspref.py) with a gate pulse and print the result
 ```
 
 Environment: `ALLOUT`, `DRONE`
@@ -2591,7 +2621,8 @@ Method (2026-10-21, docs/log/WAVE_BUS_LOG.md §4l-§4m):
 ### `examples/from_scratch/dsp/sim_main.py`
 
 ```
-Run one Roland main program (engine/build/programs.h, copied from the JX-3P) sample by sample on re/dspisa.py.
+Run one Roland main program (engine/build/programs.h, copied from the JX-3P) sample by sample on the C reference
+(emu/dspref.Machine, with this file's access hook).
 
 Only what is measured is simulated. Anything else stops the run with an error that names the missing piece:
   - the condition-flag context of the DSP (--context; only the measured ones, DSP_HARDWARE.md §6)
@@ -2599,14 +2630,14 @@ Only what is measured is simulated. Anything else stops the run with an error th
   - a bank-0, bank-5 or bank-6 word that was never given (--input); the ARM writes banks 5 and 6
   - reads of banks that depend on other DSPs or on the ARM: 1, 2, 3 (IOMD), 4 (MXM), 7
   - bank-5 words above 0x3FF, bank-0 references above 0x7FF, jumps into the middle of an instruction
-  - undecoded ops, and ops whose effect is not modelled (dspisa prints them as unknown / reads 0 / ...)
+  - undecoded ops, and ops whose effect is not measured (dspref.check)
 Writes to banks 3 and 4 are collected per sample (outputs to the wave bus and the other DSPs), not read back.
 Registers r0-r7 at power-up are not measured: they start at --regs (default 0). --check-init reruns the program
 with other random register values and reports the samples where a recorded word changes.
 
     python3 sim_main.py MAIN0 --context <ctx> --input init.txt --n 1500 --record 0261,025B
 
-Input file: one "t addr value" per line (addr hex, absolute; value = the DSP's RAW value, as dspisa uses it).
+Input file: one "t addr value" per line (addr hex, absolute; value = the DSP's RAW value, as the reference uses it).
   t = 0 is the state before sample 0 (bank 0, 5 and 6 words); t > 0 is written before sample t (banks 5 and 6 only).
 Ring: bank 0 is a 0x800-word ring. Between samples every word moves +1 (mod 0x800): stored at S in sample n, read at
 S+1 in sample n+1 (DSP_HARDWARE.md §7.2). Nothing else is reset between samples: flags, hidden registers, r0-r7 and
@@ -2616,7 +2647,7 @@ memory carry over (measured, DSP_HARDWARE.md §2).
 | option | help | default |
 |---|---|---|
 | `name` |  |  |
-| `--context` | condition-flag context (dspisa.CONTEXT_BITS key) |  |
+| `--context` | condition-flag context (dspref.CONTEXT_BITS key) |  |
 | `--input` | "t addr value" lines (see the docstring) |  |
 | `--n` |  | `1500` |
 | `--regs` | r0..r7 at power-up, comma separated (default 0) |  |
@@ -2972,7 +3003,7 @@ never commit them), arm-none-eabi-gcc/ld/objcopy and Python 3. Run test_s1jx.py 
 ### `examples/system_1_jx/dspreloc.py`
 
 ```
-Memory references of a DSP program and their relocation (same decoder as the emulator: re/dspisa.Layout).
+Memory references of a DSP program and their relocation (same decoder as the emulator: emu/dspref.layout, the C decoder).
 
     import dspreloc as R
     p = R.Prog(words, 'MAIN2')          # words in execution order
@@ -3480,4 +3511,4 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                                       reference (sdk/s1cc refdsp), and the silence without notes
 ```
 
-Environment: `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')
+Environment: `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `MIX` (default '1'), `MOD_DSP` (default 'auto'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')

@@ -1,19 +1,20 @@
 """Minimal assembler for the established DSP subset (DSP_ISA_SPEC.md) + our own SAW oscillator.
 
     python3 dspasm.py saw dco2 [--fs 48000] [-o prog.txt]   # oscillator for the DCO2 (or dco1) slot
-    python3 dspasm.py sim prog.txt --pitch 4.75 [--n 400]    # run it in dspisa's simulator, print period
+    python3 dspasm.py sim prog.txt --pitch 4.75 [--n 400]    # run it in the C reference (emu/dspref.py), print period
 
 Encoders (each returns one instruction as a list of 16-bit words):
     a(op, d, x, y=None, imm=None)   unit A op (class 0x048); y = register (negative int = negated) or imm (float)
     b(op, d, x, y)                  unit B op (class 0x050), d >= 8 forms (min = op 0, max = op 2), x in r0..r3
     ld(r, addr), st(r, addr)        transfer with one reference (class 0x060)
-Every instruction is checked by decoding it again with dspisa.
+Every instruction is checked by decoding it again with the C decoder (dspref.template).
 """
 import argparse, math, os, struct, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import dspisa   # noqa: E402
+sys.path.insert(0, os.path.join(HERE, '..', 'emu'))
+import dspref   # noqa: E402
 
 A_OPS = {'move': (0, 1), 'add3': (1, None), 'mul': (2, None), 'mac': (3, None), 'ymacd': (4, None),
          'ymsubd': (5, None), 'add': (6, None), 'sub': (7, None)}       # name -> (op, forced X sub-code)
@@ -135,7 +136,7 @@ def saw(slot, fs=96000.0, level=1.0):
         P += [st(1, outs[0]), st(1, outs[1])]
     P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
     for ins in P:                                    # every instruction must decode with its template
-        if dspisa.template(ins) is None:
+        if dspref.template(ins) is None:
             raise AssertionError(f'no template for {ins}')
     return P
 
@@ -204,7 +205,7 @@ def fold(slot, fs=96000.0, lfo_hz=0.25, gmin=1.0, gmax=4.5, level=0.9):
         P += [st(0, outs[0]), st(0, outs[1])]
     P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
     for ins in P:
-        if dspisa.template(ins) is None:
+        if dspref.template(ins) is None:
             raise AssertionError(f'no template for {ins}')
     return P
 
@@ -280,7 +281,7 @@ def wavetable(slot, table, fs=96000.0, level=1.0, chunk=64, pad_mid=0, fused=Tru
         P += [st(4, outs[0]), st(4, outs[1])]
     P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
     for ins in P:
-        if dspisa.template(ins) is None:
+        if dspref.template(ins) is None:
             raise AssertionError(f'no template for {ins}')
     return P
 
@@ -299,7 +300,7 @@ def cond_probe(path_conds, weights=(0.5, 0.25, 0.125, 0.0625)):
         P += [ld(0, 0x2200), [0x0001], a('mul', 0, 0, 4), st(0, outs[0]), st(0, outs[1])]
     P += [[0x0A02, 0xFF70], [0x0B02, 0x00F8], [0x0001]]
     for ins in P:
-        if dspisa.template(ins) is None:
+        if dspref.template(ins) is None:
             raise AssertionError(f'no template for {ins}')
     return P
 
@@ -309,34 +310,20 @@ def text(P, comment=''):
 
 
 def simulate(words, pitch, n, slot='dco2'):
-    """run the program n times (one execution per sample) in dspisa; returns the voice A outputs"""
+    """run the program n times (one execution per sample) in the C reference; returns the voice A outputs"""
     ins_list = [ins for _, ins in __import__('dspdis').instructions(words)]
-    mem = {SLOTS[slot]['A'][0]: pitch, SLOTS[slot]['B'][0]: pitch}
+    m = dspref.Machine()
+    mem = m.mem
+    mem[SLOTS[slot]['A'][0]] = mem[SLOTS[slot]['B'][0]] = pitch
     ring = [SLOTS[slot][v][2] for v in 'AB'] + [FOLD_SLOTS.get(slot, {}).get(v, (0, 0, 0, None))[3] for v in 'AB']
-    pos = {}
-    p = 0
-    for i, ins in enumerate(ins_list):
-        pos[p] = i
-        p += len(ins)
-    starts = sorted(pos)
+    pid = m.add(ins_list)
     out = []
     for _ in range(n):
         for st_ in ring:                      # ring memory: what was stored at S is read at S + 1 next sample
-            if st_ is not None and st_ in mem:
-                mem[st_ + 1] = mem[st_]
-        regs = [0.0] * 8
-        i, steps = 0, 0
-        while i < len(ins_list):
-            ins = ins_list[i]
-            steps += 1
-            if steps > 100000:
-                raise RuntimeError('endless loop in the simulation')
-            dspisa.JUMP = None                # every instruction runs (no-ops advance the flag latency)
-            regs, mem, _ = dspisa.run(list(ins), regs, mem)
-            if dspisa.JUMP is not None:       # jumps (2026-10-17): words from the end of the instruction
-                i = pos[starts[i] + len(ins) + dspisa.JUMP]
-            else:
-                i += 1
+            if st_ is not None:
+                mem[st_ + 1] = mem.get(st_)
+        m.regs = [0.0] * 8
+        m.run_program(pid)                    # every instruction runs, jumps followed
         out.append(mem.get(SLOTS[slot]['A'][1][0], 0.0))
     return out
 

@@ -117,8 +117,8 @@ def _emu():
         sys.path.insert(0, p)
     import chain
     import cchain
-    import dspisa
-    return chain, cchain, dspisa
+    import dspref
+    return chain, cchain, dspref
 
 
 def _key(a, b):
@@ -131,11 +131,11 @@ def verify(plain_words, opt_words, states=4, samples=6, seed=1):
     done = set(open(VERIFIED).read().split()) if os.path.exists(VERIFIED) else set()
     if key in done:
         return True
-    chain, cchain, dspisa = _emu()
+    chain, cchain, dspref = _emu()
     r = random.Random(seed)
 
     def val():
-        return dspisa.quant(r.choice([r.uniform(-1, 1), r.uniform(-4, 4), r.uniform(-0.01, 0.01), 0.0, 1.0]))
+        return dspref.quant(r.choice([r.uniform(-1, 1), r.uniform(-4, 4), r.uniform(-0.01, 0.01), 0.0, 1.0]))
     P = [chain.Program(plain_words, 'plain', strict=False), chain.Program(opt_words, 'opt', strict=False)]
     for st in range(states):
         init = {'regs': [val() for _ in range(8)], 'b0': [val() for _ in range(chain.RING)],

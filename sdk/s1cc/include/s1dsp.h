@@ -62,7 +62,9 @@
  *   s1_log2(x)            log2 x, x > 0: log2split + degree 6, 9 ops, 5e-6
  *   s1_ldexp(x, k)        x 2^k, k a constant: free (a scale), or one shl / shr when materialized
  *   s1_sum3(a, b, c)      a + b + c: sum8, 1 op
- *   s1_mac2(a, b, c, d, e)  a b + c d + e (e may be 0): one MAC op (two products), all registers
+ *   s1_mac2(a, b, c, d, e)  a b + c d + e (e may be 0): one MAC op (two products); a constant factor becomes the
+ *                         MAC's immediate coefficient (one register less)
+ *   s1_sqrt(x), s1_rsqrt(x)  sqrt x, 1/sqrt x, x > 0: sqrtsplit + 2 Newton steps, 11 / 13 ops, 2e-7
  */
 #ifndef S1DSP_H_
 #define S1DSP_H_
@@ -110,6 +112,8 @@ S1_EXTERN S1_FN float s1_log2(float x);
 S1_EXTERN S1_FN float s1_ldexp(float x, int k);
 S1_EXTERN S1_FN float s1_sum3(float a, float b, float c);
 S1_EXTERN S1_FN float s1_mac2(float a, float b, float c, float d, float e);
+S1_EXTERN S1_FN float s1_sqrt(float x);
+S1_EXTERN S1_FN float s1_rsqrt(float x);
 S1_EXTERN S1_IN float s1_env(int i);
 S1_EXTERN S1_IN float s1_color(int i);
 S1_EXTERN S1_IN float s1_lfo_filter(void);

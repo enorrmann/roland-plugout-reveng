@@ -68,7 +68,7 @@ B) y cierre `0x7FF2`. **Nunca la cabecera `0x0000`** (§5).
 
 Sólo se reescriben **direcciones literales** (todas las transferencias de estos programas son de modo `fe`) y se
 **parten** algunas instrucciones de sólo transferencias (§4.2). `dspreloc.Prog` usa el decodificador del emulador
-(`dspisa.Layout`) para saber en qué media palabra está cada dirección.
+(`dspref.layout`, el decodificador C) para saber en qué media palabra está cada dirección.
 
 | qué usaba en el SYSTEM-8 | en el SYSTEM-1 |
 |---|---|

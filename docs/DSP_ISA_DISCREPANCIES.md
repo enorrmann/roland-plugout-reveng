@@ -3,7 +3,7 @@
 What is still open, and the device results that closed the others. A closed entry is removed from the open
 list; its result is written into `DSP_ISA_SPEC.md` (or `DSP_ISA.md`). Settled questions are not repeated.
 
-Status 2026-10-20: 4 items open (D4, D6, D8, D10). Everything else below is closed by a device probe or by a
+Status 2026-10-29: 3 items open (D4, D6, D10); D8 closed 2026-10-29. Everything else below is closed by a device probe or by a
 code change with a passing test.
 
 ## Device session 2026-10-20
@@ -87,22 +87,18 @@ Trying the other letter pattern decodes them without a raw fallback, but the imm
 3.7e-09, i.e. noise. So the letter is not the whole story: the immediate or array placement of these instances
 differs. Not resolved.
 
-### D8. Where the coefficient is read after an immediate Y
-The spec 4.4 rule ("C right after Y's immediate") reproduces the spec's 540c instruction exactly on the device
-(probe above, four coefficient values, and the coefficient at slot 4 regardless of the two words in between).
-Plain MAC layouts do not reproduce the rule in what I could test:
-
-- a MAC `mac_p1wc2` with Y = #0.5@2 and a coefficient word at slot 2 (no references, no transfers): the result
-  does not depend on the coefficient word, and the implied coefficient is 1.5 (= the N word read as an
-  immediate);
-- the same with a register W and op1 = 6 (`mac_p1p2c2r`): constant as well;
-- the 540c instruction with its two transfers changed to non-slot modes: unchanged, so the references are not
-  what makes the difference.
-
-I did not find the rule that places the coefficient in those cases. The listing follows spec 4.4 (and reproduces
-the corpus, which is self-consistent), so a plain-layout MAC with an immediate Y and an immediate coefficient
-may be decoded with the wrong coefficient value. Closing needs a systematic sweep of the coefficient's position
-(one marker word per slot, in several layouts), not more single cases.
+### D8. Where the MAC coefficient is read (closed 2026-10-29)
+Rule, measured on the SYSTEM-8 master (re/dspnative.py `mac_*k*`, and class sweeps: a Roland instruction of each
+of 19 MAC classes with transfers as a template, the other units neutralised, marker words in the slot array, C
+swept 0/2/4/6, bit 9 of N clear and set, Y a register and an immediate): **the immediate coefficient is read at byte
+C of the slot array (the N words included), plus 8 when bit 9 of the second word is set**. Y (an immediate) at byte
+Y, W at byte W, as before. The old rule ("right after Y's immediate") matched the spec's 540c instruction only
+because it has C = 0 with bit 9 set (byte 8, which is also where "after Y, over the two references" lands).
+Plain-layout results that looked inexplicable here (the coefficient 1.5 = the N word) were C = 0: the assembler
+left C at 0 when no `@` was given. A byte past the end of the instruction reads what follows it (D10): code must
+not use it. 20 forms (`mac_p1wk*`, `mac_n1wk*`, `mac_p1p2k*`, `mac_n1p2k*`, /2, -Z/-W) exact on 1536 cases each.
+Code: `emu/dspdec.h` `mac_coef_byte`; `asm/asm.py` places the coefficient at a byte 0-7 and writes it into C;
+`asm/disasm.py` reads it there. 50 corpus instructions decode to a different coefficient than before.
 
 ### D10. Reads past the end of an instruction
 Not an ISA question. 20 corpus instructions read past their last word; the hardware reads the next

@@ -1,5 +1,6 @@
-/* C core of the slave emulator (docs/EMULATOR.md): the semantics of re/dspisa.py run() and emu/chain.py Slave.
- * dspcomp.py decodes every instruction once (dspisa.Layout); this file interprets the decoded form, or calls the
+/* C core of the DSP emulator and the reference of the DSP's semantics (docs/EMULATOR.md; the Python model
+ * re/dspisa.py and chain.py Slave were archived 2026-10-29).
+ * dspdec.h decodes every instruction once (dspcomp.py calls it); this file interprets the decoded form, or calls the
  * native translation of a program (dspjit.py) when one is attached. Both use the inline functions of dspcore.h.
  *
  * Inside one sample the DSPs run in groups (sl_set_groups): one thread per group, the DSPs of a group in model
@@ -16,19 +17,9 @@
 
 #include "dspcore.h"
 
-enum { K_A = 1, K_B, K_M, K_J, K_HID, K_X28, K_XB5, K_XFLAG, K_XMEM };
+#include "dspdec.h"
 
-typedef struct Op {     /* one unit of a decoded instruction, in body position order (dspcomp.Op) */
-    int32_t kind, unit; /* unit: 1-based unit number of an A/B/M op (for X9bY), else 0 */
-    int32_t w, w2;      /* op word(s) */
-    int32_t a, b, c, has;
-    double imm[3];      /* A/B: Y; M: Y, C, W; HID: static value */
-} Op;
-
-typedef struct Cond { int32_t cc, neg, op_t, op_f; } Cond;    /* skip op_t (cond true) / op_f (false); -1 = none */
-typedef struct Insn { int32_t op0, nop, cond0, ncond, err; } Insn;
-
-/* ------------------------------------------------------------------ one instruction (dspisa.run) */
+/* ------------------------------------------------------------------ one instruction */
 static int exec_insn(Slave *s, Dsp *d, const Prog *p, int k, int *jump)
 {
     const Insn *in = &p->insn[k];
@@ -86,6 +77,7 @@ static int exec_insn(Slave *s, Dsp *d, const Prog *p, int k, int *jump)
             if (o->a < 8) out[o->a] = rd(s, d, o->b);
             else wr(s, d, o->b, regs[o->a - 8]);
             break;
+        case K_XTAP: tap(s, d, regs[o->a & 7]); break;
         }
         if (o->kind <= K_M) {
             for (int r = 0; r < 8; r++) out[r] = quant(out[r]);
@@ -121,7 +113,7 @@ static int run_prog(Slave *s, Dsp *d, int pid)
         int e = exec_insn(s, d, p, i, &jump);
         if (e) {
             snprintf(d->err, sizeof d->err, "%s at instruction %d of program %d (DSP%d)",
-                     e == -1 ? "newton with r7 (IndexError in dspisa)" : "undecodable instruction", i, pid, d->n);
+                     e == -1 ? "newton with r7 (no register r8)" : "undecodable instruction", i, pid, d->n);
             return -1;
         }
         d->ninstr++;
@@ -193,8 +185,21 @@ static void merge_dp(Slave *s)                /* chain.py dp_next: the last writ
     for (int n = 0; n < NDSP; n++) s->d[n].nhi = 0;
 }
 
+static void edm_write(Slave *s)                /* the DMA: the window word 0x300 of this sample into the EDM */
+{
+    if (!s->edm) return;
+    if (s->flat) {
+        s->edm[s->d[0].t % s->edm_len] = s->flat[0x4300];
+        return;
+    }
+    if (s->edm_dsp < 0) return;
+    Dsp *d = &s->d[s->edm_dsp];
+    s->edm[d->t % s->edm_len] = d->bank2[d->t & 1][0x300];
+}
+
 static void end_sample(Slave *s)
 {
+    edm_write(s);
     if (s->mxm_delay) latch_into(s, -1);
     merge_dp(s);
     for (int n = 0; n < NDSP; n++) {
@@ -276,8 +281,18 @@ Slave *sl_new(int ring1, int mxm_shift, int mxm_delay, int dp_pairs, int dp_dela
     return s;
 }
 
+/* the delay line (Slave.edm): DSP `dsp` has the window, base and latency as measured (324, 2), len EDM words */
+void sl_set_edm(Slave *s, int dsp, double base, int lat, int64_t len)
+{
+    free(s->edm);
+    s->edm = len > 0 ? calloc(len, sizeof *s->edm) : NULL;
+    s->edm_len = len, s->edm_base = base, s->edm_lat = lat, s->edm_dsp = dsp;
+}
+
 void sl_free(Slave *s)
 {
+    free(s->edm);
+    free(s->flat);
     for (int k = 0; k < s->nprogs; k++) {
         free(s->progs[k].insn);
         free(s->progs[k].ops);
@@ -612,4 +627,92 @@ int sl_step(Slave *s, int n, const int *rec_addr, int nrec, double *rec)
     atomic_store(&stop, 1);
     for (int g = 1; g < s->ngroups; g++) pthread_join(th[g], NULL);
     return err;
+}
+
+/* ------------------------------------------------------------------ machine: one DSP, flat memory (tools) */
+/* the simulator the tools use (make_*.py, dspasm.py, dspnative.py, sim_main.py; dspref.Machine): DSP 0 of a Slave
+ * in machine mode. Programs: dsp_machine_add (decoded once), dsp_machine_run; single instructions: dsp_exec1. */
+Slave *dsp_machine_new(void)
+{
+    static const int order[1] = {0};
+    Slave *s = sl_new(0, 0, 0, 0, 0, order, 1, NULL, 0, NULL, 0, NULL, 0);
+    s->flat = calloc(0x10000, sizeof *s->flat);
+    return s;
+}
+
+double *dsp_machine_mem(Slave *s) { return s->flat; }
+
+void dsp_machine_set_access(Slave *s, double (*f)(int, int64_t, double)) { s->access = f; }
+
+/* decode a program (instruction k = words[starts[k] .. starts[k + 1]), the last one to nwords) and add it; jumps
+ * resolved to instruction indexes (-1: no instruction starts there). Returns the program id, or -1. Undecodable
+ * instructions fail only if they run. */
+int dsp_machine_add(Slave *s, const uint16_t *words, int nwords, const int *starts, int ninsn)
+{
+    Insn *insn = calloc(ninsn ? ninsn : 1, sizeof *insn);
+    int cap = 64 * (ninsn ? ninsn : 1);
+    Op *ops = calloc(cap, sizeof *ops);
+    Cond *conds = calloc(cap, sizeof *conds);
+    int32_t *joff = calloc(DMAX, sizeof *joff);
+    int no = 0, nc = 0;
+    for (int k = 0; k < ninsn; k++) {
+        int end = k + 1 < ninsn ? starts[k + 1] : nwords, n = 0, m = 0;
+        int e = dsp_decode(words + starts[k], end - starts[k], ops + no, DMAX, &n, conds + nc, DMAX, &m, joff);
+        insn[k] = (Insn){no, e ? 0 : n, nc, e ? 0 : m, e ? 1 : 0};
+        if (e) continue;
+        for (int i = 0; i < n; i++)
+            if (ops[no + i].kind == K_J) {
+                int tgt = end + joff[i], idx = -1;
+                for (int j = 0; j < ninsn; j++)
+                    if (starts[j] == tgt) { idx = j; break; }
+                ops[no + i].a = idx;
+            }
+        no += n, nc += m;
+    }
+    int pid = sl_add_prog(s, ninsn, insn, no, ops, nc, conds);
+    free(insn), free(ops), free(conds), free(joff);
+    return pid;
+}
+
+/* run program pid once on DSP 0; 0 or -1 (dsp error: sl_error) */
+int dsp_machine_run(Slave *s, int pid)
+{
+    Dsp *d = &s->d[0];
+    d->err[0] = 0;
+    if (run_prog(s, d, pid)) {
+        snprintf(s->err, sizeof s->err, "%s", d->err);
+        return -1;
+    }
+    return 0;
+}
+
+/* one instruction on DSP 0: 0, -1 (newton with r7), -2 (undecodable); *jumped = 1 and *jump_off = the offset in
+ * words from the instruction end when it has a jump that runs */
+int dsp_exec1(Slave *s, const uint16_t *ins, int nins, int *jumped, int *jump_off)
+{
+    Op ops[DMAX];
+    Cond conds[DMAX];
+    int32_t joff[DMAX];
+    int n = 0, m = 0;
+    *jumped = 0;
+    int e = dsp_decode(ins, nins, ops, DMAX, &n, conds, DMAX, &m, joff);
+    if (e) return -2;
+    for (int i = 0; i < n; i++)
+        if (ops[i].kind == K_J) ops[i].a = i;          /* the op index: its offset is joff[i] */
+    Insn in = {0, n, 0, m, 0};
+    Prog p = {1, &in, ops, conds, NULL};
+    int jump = -2;
+    e = exec_insn(s, &s->d[0], &p, 0, &jump);
+    if (e) return e;
+    s->d[0].ninstr++;
+    if (jump >= 0) *jumped = 1, *jump_off = joff[jump];
+    return 0;
+}
+
+/* the end of a sample on the machine: the delay line's DMA (flat[4300] into the EDM), then t + 1 */
+void dsp_machine_end_sample(Slave *s)
+{
+    edm_write(s);
+    s->t++;
+    s->d[0].t = s->t;
 }

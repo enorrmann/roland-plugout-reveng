@@ -5,7 +5,7 @@ Writes three fixed-pitch sawtooths, each sample, to three candidate IOMD words o
 The program is our own asm (asm/asm.py), registered in the DSP5 DCO1 slot (engine.c -DIOMDTEST).
 
     python3 make_iomd_test.py          -> iomd_test.s (source), iomd_test.hex (words, execution order)
-    python3 make_iomd_test.py --sim    -> also runs the words in re/dspisa.py for 300 samples and prints the periods
+    python3 make_iomd_test.py --sim    -> also runs the words in the C reference (emu/dspref.py) for 300 samples and prints the periods
 """
 import math
 import os
@@ -53,19 +53,19 @@ def words(text):
 
 def simulate(w, n=300):
     import dspdis
-    import dspisa
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu'))
+    import dspref
     ins = [i for _, i in dspdis.instructions(w)]
-    mem = {}
+    m = dspref.Machine()
+    mem = m.mem
     ring = [st for st, _, _ in VOICES]
     out = {o: [] for _, o, _ in VOICES}
     for _ in range(n):
         for st in ring:
             if st in mem:
                 mem[st + 1] = mem[st]
-        regs = [0.0] * 8
-        for x in ins:
-            dspisa.JUMP = None
-            regs, mem, _ = dspisa.run(list(x), regs, mem)
+        m.regs = [0.0] * 8
+        m.run_program(ins)
         for _, o, _ in VOICES:
             out[o].append(mem.get(o, 0.0))
     return out

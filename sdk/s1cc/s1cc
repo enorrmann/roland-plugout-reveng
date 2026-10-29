@@ -38,7 +38,7 @@ build)
             -I*) incs="$incs $1" ;;
             -o) out=$2; shift ;;
             --tol|--tollog|--maxdeg|--maxknots|--regs|--regs-a|--regs-b) lower_opts="$lower_opts $1 $2"; shift ;;
-            --trace|--no-exact-init|--no-fold-branches|--no-recipseed) lower_opts="$lower_opts $1" ;;
+            --trace|--no-exact-init|--no-fold-branches|--no-recipseed|--no-fuse-mac) lower_opts="$lower_opts $1" ;;
             --check) check=1 ;;
             --no-auto) auto=0 ;;
             --debug) [ "$debug" -ge 1 ] 2>/dev/null || debug=1 ;;

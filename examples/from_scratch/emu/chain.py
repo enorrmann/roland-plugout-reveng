@@ -1,6 +1,8 @@
-"""Emulator of one BMC slave (six DSPs) and of the two slaves, for the voice chain studies of docs/VOICE_ALLOCATION.md.
+"""The model of one BMC slave (six DSPs) and of the two slaves, for the voice chain studies of docs/VOICE_ALLOCATION.md:
+Model (the hardware hypotheses), Program (a decoded program), access_violations, helpers. The emulator itself is the
+C core (cchain.py / dspcore.c); the Python Slave of this file was archived 2026-10-29 (archive/chain.py).
 
-Every memory access of re/dspisa.py goes through dspisa.ACCESS, so the banks are modelled here, per DSP:
+The banks, per DSP (dspcore.h rd / wr):
 
     bank 0 (0nnn)  ring of 0x800 words: what is stored at R in sample n is read at R+1 in sample n+1
                    [medido, DSP_HARDWARE.md 7.2]
@@ -37,7 +39,7 @@ for p in (os.path.join(ROOT, 'examples', 'from_scratch', 're'), os.path.join(ROO
         sys.path.insert(0, p)
 
 import dspdis  # noqa: E402
-import dspisa  # noqa: E402
+import dspref  # noqa: E402
 
 FS = 96000.0
 RING = 0x800
@@ -52,6 +54,7 @@ class Model:
     mxm_delay: int = 1                 # MXM latency in samples (1 measured on the master)
     shared1: tuple = ()                # E: pairs of DSPs with one bank 1, e.g. ((2, 3),)
     shared5: tuple = ()                # pairs of DSPs with one bank 5 0x000-0x3FF (SYSTEM-1 slave A / B: ((0, 1),))
+    edm: tuple = ()                    # the delay line: (dsp with the window, base 324, latency 2, words 983040)
     own_params: tuple = ()             # DSPs with their own bank 6 (SYSTEM-1: FCEC(sel, ...) per DSP)
     dp_pairs: bool = True              # B: bank 5 0x400-0x7FF shared by the pair
     dp_delay: int = 1                  # B: latency of the pair window (1 = latched like MXM)
@@ -74,7 +77,7 @@ def access_violations(ins_list):
     out = []
     for k, ins in enumerate(ins_list):
         try:
-            L = dspisa.Layout(list(ins))
+            L = dspref.layout(list(ins))
         except ValueError:
             continue
         slot_pos = [i for i, t in enumerate(L.t) if t in 'NS']
@@ -134,183 +137,9 @@ class Program:
         self.start = sorted(self.pos)
 
 
-class Dsp:
-    slave = None                           # set by Slave: d.params resolves the bank 6 this DSP reads
-
-    @property
-    def params(self):
-        return self.own_params if self.n in self.slave.m.own_params else self.slave.params
-
-    def __init__(self, n):
-        self.n = n
-        self.regs = [0.0] * 8
-        self.flags = None                  # dspisa.FLAGS / PENDING / HIDDEN of this DSP
-        self.pending = {}
-        self.hidden = dict(dspisa.HIDDEN)
-        self.bank0 = [0.0] * RING
-        self.bank1 = [0.0] * RING          # replaced by the partner's list when shared
-        self.bank5 = {}                    # 0x000-0x3FF
-        self.own_hi = {}                   # 0x400-0x7FF when dp_pairs is off, and own writes inside the sample
-        self.mxm_in = {}                   # latched inputs for this sample: address -> value (M, O, S zones)
-        self.mxm_out = {}                  # writes of this sample: address (8nnn) -> value
-        self.progs = []                    # [Program], in execution order (main first or slots first)
-        self.reads = set()                 # every address read (for coverage checks)
-
-
-class Slave:
-    """one BMC: six DSPs. programs = {dsp: (main Program, [slot Programs])}"""
-
-    def __init__(self, programs, model=None, index=0):
-        self.m = model or Model()
-        self.index = index
-        self.d = [Dsp(n) for n in range(6)]
-        for a, b in self.m.shared1:
-            self.d[b].bank1 = self.d[a].bank1
-        for a, b in self.m.shared5:
-            self.d[b].bank5 = self.d[a].bank5
-        for n, (main, slots) in programs.items():
-            self.d[n].progs = [main] + list(slots) if self.m.main_first else list(slots) + [main]
-        self.iomd = {}
-        self.params = {}
-        for d in self.d:                             # bank 6 of a DSP in Model.own_params (the others: self.params)
-            d.own_params = {}
-            d.slave = self
-        self.dp = {k: {} for k in range(3)}         # pair window as seen this sample
-        self.dp_next = {k: {} for k in range(3)}    # writes of this sample (dp_delay 1)
-        self.t = 0
-        self.cur = None
-
-    # ---------------- ARM side ----------------
-    def p_bank(self, dsp, ident, value):
-        """OS +0xB0: bank 5 word `ident` of DSP `dsp` (engine.c p_bank)"""
-        self.d[dsp].bank5[ident & 0x3FF] = float(value)
-
-    # ---------------- memory ----------------
-    def _ring(self, a):
-        return (a - self.t) % RING
-
-    def _access(self, op, a, _mem, v=None):
-        d = self.cur
-        bank = a >> 13
-        off = a & 0x1FFF
-        if op == 'r':
-            d.reads.add(a)
-        if bank == 0:
-            i = self._ring(off & 0x7FF)
-            if op == 'r':
-                return d.bank0[i]
-            d.bank0[i] = v
-        elif bank == 1:
-            i = self._ring(off & 0x7FF) if self.m.ring1 else off & 0x7FF
-            if op == 'r':
-                return d.bank1[i]
-            d.bank1[i] = v
-        elif bank == 3:
-            if op == 'r':
-                return self.iomd.get(a, 0.0)
-            self.iomd[a] = v
-        elif bank == 4:
-            if op == 'r':
-                return d.mxm_in.get(a, d.mxm_out.get(a, 0.0) if 0x8400 <= a < 0x8600 else 0.0)
-            d.mxm_out[a] = v
-        elif bank == 5:
-            i = off & 0x7FF
-            if i < 0x400:
-                if op == 'r':
-                    return d.bank5.get(i, 0.0)
-                d.bank5[i] = v
-            elif not self.m.dp_pairs:
-                if op == 'r':
-                    return d.own_hi.get(i, 0.0)
-                d.own_hi[i] = v
-            else:
-                pair = d.n >> 1
-                if op == 'r':
-                    if i in d.own_hi:                       # own write earlier in this sample
-                        return d.own_hi[i]
-                    return self.dp[pair].get(i, 0.0)
-                d.own_hi[i] = v
-                if self.m.dp_delay:
-                    self.dp_next[pair][i] = v
-                else:
-                    self.dp[pair][i] = v
-        elif bank == 6:
-            if op == 'r':
-                return (d.own_params if d.n in self.m.own_params else self.params).get(a, 0.0)
-        else:
-            if op == 'r':
-                return 0.0
-        return None
-
-    # ---------------- MXM latch ----------------
-    def _latch(self):
-        """inputs of the next sample from the writes of this one (delay 1)"""
-        new = {n: {} for n in range(6)}
-        for w in range(6):
-            for a, v in self.d[w].mxm_out.items():
-                z = a & 0x7FF
-                if 0x400 <= z < 0x600:                  # Z -> M (even writer) / O (odd writer) of the next pair
-                    i = (z - 0x400 + self.m.mxm_shift) & 0x1FF
-                    for r in (2 * (w // 2 + 1), 2 * (w // 2 + 1) + 1):
-                        if r < 6:
-                            new[r][0x8000 + (0x200 if w & 1 else 0) + i] = v
-                elif z < 0x400:                          # M / O -> S of the previous pair
-                    r = (w // 2 - 1) * 2 + (1 if z >= 0x200 else 0)
-                    if r >= 0:
-                        new[r][0x8600 + (z & 0x1FF)] = v
-        return new
-
-    # ---------------- one sample ----------------
-    def _run_prog(self, d, p):
-        i, steps = 0, 0
-        while i < len(p.ins):
-            ins = p.ins[i]
-            steps += 1
-            if steps > 100000:
-                raise RuntimeError('endless loop in ' + p.name)
-            dspisa.JUMP = None
-            d.regs, _, _ = dspisa.run(list(ins), d.regs, {})
-            if dspisa.JUMP is not None:
-                i = p.pos[p.start[i] + len(ins) + dspisa.JUMP]
-            else:
-                i += 1
-
-    def step(self):
-        dspisa.ACCESS = self._access
-        if self.m.mxm_delay == 0:
-            for d in self.d:
-                d.mxm_in = {}
-        for n in self.m.order:
-            d = self.d[n]
-            if self.m.mxm_delay == 0:                     # same-sample MXM: what earlier DSPs wrote now
-                d.mxm_in = self._latch()[n]
-            self.cur = d
-            dspisa.FLAGS, dspisa.PENDING = d.flags, d.pending
-            dspisa.HIDDEN.clear()
-            dspisa.HIDDEN.update(d.hidden)
-            for p in d.progs:
-                self._run_prog(d, p)
-            d.flags, d.pending, d.hidden = dspisa.FLAGS, dspisa.PENDING, dict(dspisa.HIDDEN)
-        if self.m.mxm_delay:
-            new = self._latch()
-            for n in range(6):
-                self.d[n].mxm_in = new[n]
-        for n in range(6):
-            self.d[n].mxm_out = {}
-            self.d[n].own_hi = {}
-        if self.m.dp_pairs and self.m.dp_delay:
-            self.dp = self.dp_next
-            self.dp_next = {k: {} for k in range(3)}
-        dspisa.ACCESS = None
-        self.t += 1
-
-
 class Bmc2:
-    """two slaves; Model.link carries IOMD words of slave 1 into slave 0, one sample late (question C)"""
-
-    def __init__(self, programs, model=None):
-        self.m = model or Model()
-        self.s = [Slave(programs, self.m, 0), Slave(programs, self.m, 1)]
+    """two slaves; Model.link carries IOMD words of slave 1 into slave 0, one sample late (question C). The slaves
+    are cchain.Slave (cchain.Bmc2 builds them)"""
 
     def step(self):
         out1 = {a: self.s[1].iomd.get(a, 0.0) for a in self.m.link}

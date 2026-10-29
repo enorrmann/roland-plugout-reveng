@@ -5,6 +5,7 @@
 import os
 import sys
 
+import cchain
 import chain
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -92,7 +93,7 @@ def play(slave, events, n, words=chain.AUDIBLE):
 
 def one_voice(which, lv, model=None, note=69, n=1500, other=57, on=200):
     """voice lv alone (the others hold `other` as pitch, gates off): level and frequency at 6020"""
-    s = chain.Slave(programs(which), model)
+    s = cchain.Slave(programs(which), model)
     eng = Engine(s)
     for k in range(4):
         eng.pitch(k, other)

@@ -1,9 +1,10 @@
-/* Shared by the interpreter (dspcore.c) and the native translations of dspjit.py: the slave state of chain.py and
- * the instruction semantics of re/dspisa.py, as inline functions. A translated program calls the same functions
+/* Shared by the interpreter (dspcore.c) and the native translations of dspjit.py: the slave state and the
+ * instruction semantics (the DSP reference since 2026-10-29), as inline functions. A translated program calls the same functions
  * with constant words, so the two paths cannot disagree on what an instruction does.
  *
- * Every arithmetic step follows dspisa.py literally, including Python's float modulo and min/max argument order.
- * Build with -ffp-contract=off: a fused multiply-add would change the bits (dspisa rounds every product).
+ * Every arithmetic step is exact as measured, with Python's float modulo and min/max argument order (the archived
+ * Python model's, kept bit for bit).
+ * Build with -ffp-contract=off: a fused multiply-add would change the bits (every product is rounded).
  */
 #ifndef DSPCORE_H
 #define DSPCORE_H
@@ -29,6 +30,8 @@ typedef struct Dsp {
     double bank1_own[RING];
     double *bank1;
     double bank5_own[0x400];
+    double bank2[2][0x2000];      /* bank 2: two pages alternating by sample (a store is read back 2 samples later);
+                                   * the delay line's DMA window: [4300] -> EDM, tap results [h5 ..] (DSP_HARDWARE §8.4) */
     double *bank5;                /* bank5_own, or the partner's (Model.shared5: one bank 5 for two DSPs) */
     double *params;               /* bank 6: the slave's, or params_own (Model.own_params: one per DSP) */
     double params_own[0x2000];
@@ -83,12 +86,25 @@ struct Slave {
     int group[NDSP][NDSP];        /* thread groups: DSPs in execution order; group 0 runs on the calling thread */
     int ngroup[NDSP], ngroups;
     char err[256];
+    /* machine mode (dsp_machine_new: one DSP and flat memory, the tools' simulator): every address a word of
+     * flat[0x10000], bank 5 (A000-BFFF) folded to its 1024 words; access(op 'r' / 'w', address, value), when set,
+     * takes every access instead (sim_main.py: refuse unmeasured banks, inputs and outputs) */
+    double *flat;
+    double (*access)(int op, int64_t a, double v);
+    /* the delay line (DSP_HARDWARE.md §8.4, DSP_USOS.md §1; master DSP4 slot f7dc, measured 2026-10-17): the EDM
+     * (edm_len words), written at the end of each sample with bank-2 word 0x300 of DSP edm_dsp (-1: no window);
+     * a tap request with address A reads x[n - edm_lat - floor(k)] and the one before it, k = (A - edm_base) 16384,
+     * and the fraction of k truncated to 1/64. Machine mode: the window is flat[4300], dsp_machine_end_sample */
+    double *edm;
+    int64_t edm_len;
+    double edm_base;
+    int edm_lat, edm_dsp;
 };
 
 typedef struct { int set; double v; int z; } Res;
 
-/* ------------------------------------------------------------------ numbers (dspisa.py) */
-/* dspisa.quant: the smallest s whose floor(m 2^(32-4s)) < 2^29, i.e. m < 2^(4s-3), truncates m to a multiple of
+/* ------------------------------------------------------------------ numbers */
+/* quant: the smallest s whose floor(m 2^(32-4s)) < 2^29, i.e. m < 2^(4s-3), truncates m to a multiple of
  * 2^-(32-4s); m >= 512 (and inf, nan) is kept. s follows from the binary exponent E of m (m in [2^E, 2^(E+1))):
  * s = clamp((E + 7) >> 2, 0, 3). Without branches: the magnitude decides s, and a branch on it is mispredicted
  * most of the time (it was 90 % of the run time). quant(quant(x)) = quant(x). quant_ref is the plain form
@@ -98,7 +114,7 @@ typedef struct { int set; double v; int z; } Res;
  * [2^E, 2^(E+1)) those are the k = 52 - p - E = 20 + 4s - E lowest bits of the IEEE word. k <= 0: nothing to clear;
  * k > 52: m < 2^-p, the result is a zero with the sign of v; k = 63 clears every bit but the sign, which
  * is that zero. |v| >= 512, inf and nan (E >= 9) are kept: k = 0. Same bits as the scale-and-convert form (the
- * integer conversion of m 2^p is its floor); test_core.py test_quant checks it against quant_ref and dspisa. */
+ * integer conversion of m 2^p is its floor); test_core.py test_quant checks it against quant_ref and the definition. */
 /* Every NaN leaves quant as one canonical NaN (+qNaN). The DSP has no NaN (only random test states with inf reach
  * one), but C leaves open which NaN an op with NaN operands returns, and compilers commute operands: the sign
  * of the NaN then depended on the optimisation (it reached `sign` and gave -5 instead of -3 in p0s_003661c, the
@@ -132,20 +148,7 @@ static inline double quant_ref(double v)
 
 static inline double pymod_ref(double x, double m);
 
-/* RAW encoding rounded toward -inf: the B unit's shifts and the log2 split of a negative Y (dspisa.quant_floor,
- * measured 2026-10-28 with re/dspnative.py) */
-static inline double quant_floor(double v)
-{
-    double q = quant_ref(v);
-    if (v >= 0 || q == v || fabs(v) >= 512.0) return q;
-    double m = fabs(v);
-    if (m < 0.125) { double r = -ceil(m * 4294967296.0) * (1.0 / 4294967296.0); if (fabs(r) < 0.125) return r; }
-    if (m < 2.0) { double r = -ceil(m * 268435456.0) * (1.0 / 268435456.0); if (fabs(r) < 2.0) return r; }
-    if (m < 32.0) { double r = -ceil(m * 16777216.0) * (1.0 / 16777216.0); if (fabs(r) < 32.0) return r; }
-    return -ceil(m * 1048576.0) * (1.0 / 1048576.0);
-}
-
-/* e^n of the SFU's exp split, read from the device (dspisa.EXP_ROM): RAW words for n = -19 .. 6 */
+/* e^n of the SFU's exp split, read from the device (EXP_ROM): RAW words for n = -19 .. 6 */
 static const uint32_t EXP_ROM[26] = {
     0x00000018, 0x00000041, 0x000000b2, 0x000001e3, 0x00000522, 0x00000df3, 0x000025ec, 0x00006715,
     0x00011835, 0x0002f9af, 0x00081679, 0x0015fc21, 0x003bc2d7, 0x00a27290, 0x01b993fe, 0x04b0556e,
@@ -197,15 +200,17 @@ INL double recip_seed(double m)
     return floor(4096 / (0.5 + (double)(2 * k + 1) / 256) + 0.5) / 4096;
 }
 
-static const int RSQRT_Q[48] = {252, 245, 238, 232, 226, 221, 216, 211, 207, 203, 199, 195, 192, 188, 185, 182, 179,
-                                177, 174, 172, 169, 167, 165, 163, 161, 159, 157, 155, 153, 152, 150, 148, 147, 145,
-                                144, 142, 141, 140, 138, 137, 136, 135, 134, 133, 131, 130, 129, 128};
+/* the sqrt split's seed ROM: ~1/sqrt(m) for m in [1, 4), 48 bins of 1/16, 9 bits = round(512 / sqrt(bin middle))
+ * (384 raw cases on the master, 2026-10-29; the 8-bit table read before was half of it, one bit short) */
+static const int RSQRT_Q[48] = {504, 490, 476, 464, 452, 442, 432, 422, 414, 406, 398, 391, 384, 377, 371, 365, 359,
+                                354, 349, 344, 339, 334, 330, 326, 322, 318, 314, 311, 307, 304, 300, 297, 294, 291,
+                                288, 285, 283, 280, 277, 275, 272, 270, 268, 266, 263, 261, 259, 257};
 
 INL double rsqrt_seed(double m)
 {
     int k = (int)((m - 1) * 16);
     if (k > 47) k = 47;
-    return RSQRT_Q[k] / 256.0;
+    return RSQRT_Q[k] / 512.0;
 }
 
 INL double pymin(double x, double y) { return y < x ? y : x; }
@@ -214,13 +219,21 @@ INL double pymax(double x, double y) { return y > x ? y : x; }
 /* ------------------------------------------------------------------ memory (chain.py Slave._access) */
 INL int64_t ring(const Dsp *d, int64_t a) { return (a - d->t) & (RING - 1); }   /* d->t = s->t outside sl_step */
 
+INL int64_t flat_key(int64_t a) { return a >= 0xA000 && a < 0xC000 ? (0xA000 | (a & 0x3FF)) : a; }
+
 INL double rd(Slave *s, Dsp *d, int64_t a)
 {
+    if (s->flat) {
+        if (s->access) return s->access('r', a, 0.0);
+        a = flat_key(a);
+        return a >= 0 && a < 0x10000 ? s->flat[a] : 0.0;
+    }
     if (a < 0) return 0.0;
     int64_t bank = a >> 13, off = a & 0x1FFF;
     switch (bank) {
     case 0: return d->bank0[ring(d, off & 0x7FF)];
     case 1: return d->bank1[s->ring1 ? ring(d, off & 0x7FF) : (off & 0x7FF)];
+    case 2: return d->bank2[d->t & 1][off];
     case 3: return s->iomd[off];
     case 4:
         if (d->mxm_in_st[off] == d->in_gen) return d->mxm_in[off];
@@ -246,11 +259,18 @@ INL double rd(Slave *s, Dsp *d, int64_t a)
  * chain.py's dp_next; with dp_delay 0 it is immediate (and the DSPs run on one thread) */
 INL void wr(Slave *s, Dsp *d, int64_t a, double v)
 {
+    if (s->flat) {
+        if (s->access) { s->access('w', a, v); return; }
+        a = flat_key(a);
+        if (a >= 0 && a < 0x10000) s->flat[a] = v;
+        return;
+    }
     if (a < 0) return;
     int64_t bank = a >> 13, off = a & 0x1FFF;
     switch (bank) {
     case 0: d->bank0[ring(d, off & 0x7FF)] = v; break;
     case 1: d->bank1[s->ring1 ? ring(d, off & 0x7FF) : (off & 0x7FF)] = v; break;
+    case 2: d->bank2[d->t & 1][off] = v; break;
     case 3: s->iomd[off] = v; break;
     case 4:
         if (d->mxm_out_st[off] != d->out_gen) {
@@ -275,8 +295,8 @@ INL void wr(Slave *s, Dsp *d, int64_t a, double v)
     }
 }
 
-/* ------------------------------------------------------------------ units (dspisa.py a_op / b_op / sfu / mac) */
-/* each returns nonzero where dspisa raises; immY / immC / immW = the unit's immediates (dspcomp.py) */
+/* ------------------------------------------------------------------ units (a_op / b_op / sfu / mac) */
+/* each returns nonzero where the op cannot run; immY / immC / immW = the unit's immediates (dspdec.h) */
 INL int a_op(int w, double immY, Dsp *dsp, const double *regs, double *out, Res *res)
 {
     int d = w >> 12, op = (w >> 9) & 7, x = (w >> 6) & 7, mode = (w >> 4) & 3, y = w & 15;
@@ -290,7 +310,7 @@ INL int a_op(int w, double immY, Dsp *dsp, const double *regs, double *out, Res 
     if (op == 0) {
         if (x == 1) out[d] = Y;
         else if (x == 2) {
-            if (d == 7) return -1;                 /* dspisa: IndexError */
+            if (d == 7) return -1;                 /* newton with r7: no r8 */
             out[d] = D * regs[d + 1];
             out[d + 1] = 2 - regs[d + 1] * regs[y & 7];
             out[y & 7] = regs[d + 1] * regs[y & 7];
@@ -346,16 +366,19 @@ INL void sfu(int w, const double *regs, double *out)
             while (m < 1) m *= 4, k++;
             out[y & 7] = m;
             out[(d + 1) & 7] = rsqrt_seed(m);
-            out[7] = copysign(ldexp(1.0, -k), Y);
+            out[(d + 3) & 7] = copysign(ldexp(1.0, -k), Y);       /* r(d+3), measured 2026-10-29 (not r7) */
         }
     } else if (mode == 2 && !(y & 8)) {
         if (Y > 0) {
             double e = floor(log2(Y / 0.75));
             out[d] = e;
             out[y & 7] = Y / ldexp(1.0, (int)e);
-        } else if (Y < 0) {
-            out[d] = 9.0;
-            out[y & 7] = quant_floor(Y / 512);
+        } else if (Y < 0) {                    /* Y read in two's complement: e from Y + 512; m = Y / 2^e rounded toward
+                                                * -inf at 2^-32, then truncated by its RAW encoding (120/120 raw cases on
+                                                * the master, 2026-10-29; was e = 9, m = Y / 512: right for |Y| < 115) */
+            double e = floor(log2((Y + 512) / 0.75));
+            out[d] = e;
+            out[y & 7] = floor(Y * ldexp(1.0, 32 - (int)e)) * 0x1p-32;
         }
     } else if (mode == 1) {
         double fl = floor(Y);
@@ -383,6 +406,7 @@ INL void b_op(int w, double immY, Dsp *dsp, const double *regs, double *out, Res
             if (sub == 0) out[d & 7] = regs[yy & 7];
             else if (sub == 2 && yy >= 12) out[d & 7] = pymod(regs[d & 7] + dsp->hidden[yy - 8], 512);
             else if (sub == 1 && yy != 12) out[d & 7] = 0.0;
+            else if (sub == 1) out[d & 7] = fmod((double)dsp->t, 512.0 * 16384) / 16384;   /* f5c: write position */
         }
         return;
     }
@@ -424,7 +448,10 @@ INL void b_op(int w, double immY, Dsp *dsp, const double *regs, double *out, Res
     if (k0 == 1 && k1 == 0xC) {
         if (mode) {
             int sh = mode == 1 ? y : mode == 2 ? -y : -16 - y;
-            out[d & 7] = quant_floor(pymod(X * ldexp(1.0, sh) + 512, 1024) - 512);   /* two's complement */
+            /* two's complement with 32 fraction bits: the shift rounds toward -inf at 2^-32, wraps in [-512, 512);
+             * the result's RAW encoding then truncates toward zero (quant in exec_insn). 672/672 raw cases on the
+             * master, 2026-10-29 (was quant_floor: right only when the result is on the 2^-32 grid) */
+            out[d & 7] = pymod(floor(X * ldexp(1.0, sh + 32)) * 0x1p-32 + 512, 1024) - 512;
         } else {
             int e = -31;
             double m = 0.0;
@@ -451,22 +478,82 @@ INL void b_op(int w, double immY, Dsp *dsp, const double *regs, double *out, Res
     }
 }
 
+/* a RAW-grid value (a multiple of 2^-32 below 2^20) as an integer in units of 2^-32; 0 if it is not one */
+INL int grid32(double v, int64_t *n)
+{
+    double t = v * 4294967296.0;
+    if (!(fabs(v) < 1048576.0) || t != floor(t)) return 0;
+    *n = (int64_t)t;
+    return 1;
+}
+
+/* the MAC exactly (2026-10-29): the hardware sums the exact products and truncates once (§3); in doubles two
+ * 29-bit mantissas make 58 bits and a rounding could cross a grid point (1 LSB in ~1/1000 cases, re/dspnative.py
+ * mac_n1p2 / Roland instructions with a MAC). Operands on the RAW grid -> 128-bit integers in units of 2^-64;
+ * the result truncated toward 0 on its RAW grid. 0: not all operands on the grid (the double path) */
+INL int mac_exact(double X, double Y, double Z, double C, double W, int op1, int half, double *res)
+{
+    int64_t x, y, z, c, w;
+    if (!grid32(X, &x) || !grid32(Y, &y) || !grid32(Z, &z) || !grid32(C, &c) || !grid32(W, &w)) return 0;
+    __int128 p1 = (__int128)x * y, r = op1 & 1 ? -p1 : p1;           /* units of 2^-64 */
+    if (op1 & 2) r += (__int128)w << 32;
+    if (op1 & 4) r += (__int128)z * c;
+    int neg = r < 0;
+    unsigned __int128 m = neg ? -(unsigned __int128)r : (unsigned __int128)r;
+    int sh = half ? 65 : 64;                        /* value = m 2^-sh */
+    for (int s = 0; s < 4; s++) {                   /* the smallest s whose truncated mantissa fits 29 bits */
+        int q = sh - (32 - 4 * s);                  /* drop q bits: units of 2^-(32 - 4 s) */
+        unsigned __int128 M = m >> q;
+        if (M < ((unsigned __int128)1 << 29)) {
+            double v = ldexp((double)(uint64_t)M, -(32 - 4 * s));
+            *res = neg ? -v : v;
+            return 1;
+        }
+    }
+    double v = ldexp((double)m, -sh);               /* |v| >= 512: as the double path (kept, no grid) */
+    *res = neg ? -v : v;
+    return 1;
+}
+
 INL void mac(int w1, int w2, double immY, double immC, double immW, const double *regs, double *out)
 {
     int d = w1 >> 12, op1 = (w1 >> 9) & 7, x = (w1 >> 6) & 7, ym = (w1 >> 4) & 3, y = w1 & 15;
     int z = w2 >> 12, op2 = (w2 >> 9) & 7, c = (w2 >> 6) & 7, wm = (w2 >> 4) & 3, wf = w2 & 15;
-    if (op1 < 2 || op2 == 3) return;
+    if (op1 < 2 || (d >= 8 && op1 < 4)) return;    /* /2 only with a P2 term; op2 = 011 = imm16 at byte C + 8 (2026-10-29) */
     double Y = ym ? immY : regs[y & 7];
     double C = (op2 >> 1) ? immC : regs[c];
     double W = wm ? immW : (wf & 8 ? -regs[wf & 7] : regs[wf & 7]);
     double Z = z & 8 ? -regs[z & 7] : regs[z & 7];
-    double P1 = Y * regs[x], P2 = C * Z;
-    if (op2 == 0 && op1 >= 6) {
-        if (!ym) P1 = regs[x];
-        P2 = Z;
+    double X = regs[x], one = 1.0;
+    const double *f1 = &Y, *f2 = &C;               /* P1 = X f1, P2 = Z f2 */
+    if (op2 == 0 && op1 >= 6) {                     /* sum mode: P1 = X (or X Y with an immediate Y), P2 = Z */
+        if (!ym) f1 = &one;
+        f2 = &one;
     }
-    double r = (op1 & 1 ? -P1 : P1) + (op1 & 2 ? W : 0.0) + (op1 & 4 ? P2 : 0.0);
-    out[d & 7] = d >= 8 ? r / 2 : r;
+    double r;
+    if (!mac_exact(X, *f1, Z, *f2, W, op1, d >= 8, &r)) {
+        double P1 = *f1 * X, P2 = *f2 * Z;
+        r = (op1 & 1 ? -P1 : P1) + (op1 & 2 ? W : 0.0) + (op1 & 4 ? P2 : 0.0);
+        if (d >= 8) r /= 2;
+    }
+    out[d & 7] = r;
+}
+
+/* a delay-line tap request (Xa9Y) with the address A: two neighbouring samples and the fraction to [h5 .. h5 + 2] */
+INL void tap(Slave *s, Dsp *d, double A)
+{
+    double x0 = 0, x1 = 0, fr = 0;
+    if (s->edm) {
+        double k = (A - s->edm_base) * 16384.0, kf = floor(k);
+        fr = floor((k - kf) * 64) / 64;
+        int64_t D = (int64_t)kf + s->edm_lat, m = d->t - D;        /* x[m]: written at the end of sample m */
+        if (kf >= 0 && D < s->edm_len && m >= 0) x0 = s->edm[m % s->edm_len];
+        if (kf >= 0 && D + 1 < s->edm_len && m - 1 >= 0) x1 = s->edm[(m - 1) % s->edm_len];
+    }
+    int64_t dest = (int64_t)(d->hidden[5] * 16384) & 0x1FFF;
+    wr(s, d, 0x4000 + dest, x0);
+    wr(s, d, 0x4000 + ((dest + 1) & 0x1FFF), x1);
+    wr(s, d, 0x4000 + ((dest + 2) & 0x1FFF), fr);
 }
 
 /* flags of a unit result for X9bY: !Z, !N, !V (|v| >= 512), N or Z (bit 0 first) */

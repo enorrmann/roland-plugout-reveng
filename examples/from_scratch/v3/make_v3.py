@@ -101,14 +101,16 @@ def simulate(progs, pitch, gate, n):
     """one sample: DSP0, DSP1, DSP2 (main, DCO2 saw), DSP3 (main, saw), DSP4, DSP5. MXM is one sample late, as on the
     device (docs/DSP_HARDWARE.md 8.2). pitch[v] for voices 0..3, gate[v](t). Returns the IOMD words per sample."""
     import dspdis
-    import dspisa
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu'))
+    import dspref
     code = {}
     for k, text in progs.items():
         w, _ = words(text)
         code[k] = [i for _, i in dspdis.instructions(w)]
     saw_words = saw_dco2_words()
     code_saw = [i for _, i in dspdis.instructions(saw_words)]
-    mem = {k: {} for k in range(6)}
+    M = [dspref.Machine() for _ in range(6)]
+    mem = {k: M[k].mem for k in range(6)}
     prev = {k: {} for k in range(6)}
     iomd = []
     for t in range(n):
@@ -128,12 +130,9 @@ def simulate(progs, pitch, gate, n):
                 for p in (0x0670, 0x0680):
                     m[p + 1] = m.get(p, 0.0)
             for prog in ([code[d], code_saw] if d in (2, 3) else [code[d]]):
-                regs = [0.0] * 8
-                for x in prog:
-                    dspisa.JUMP = None
-                    regs, m, _ = dspisa.run(list(x), regs, m)
-            mem[d] = m
-        prev = {d: dict(mem[d]) for d in range(6)}
+                M[d].regs = [0.0] * 8
+                M[d].run_program(prog)
+        prev = {d: {a: mem[d].get(a) for a in (0x8400, 0x8401, 0x8402, 0x8404, 0x8405)} for d in range(6)}  # MXM out
         iomd.append((mem[4].get(IOMD_A, 0.0), mem[5].get(IOMD_C, 0.0)))
     return iomd
 

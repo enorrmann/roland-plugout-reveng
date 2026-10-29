@@ -1,6 +1,6 @@
 # Emulador de un PLUG-OUT completo: qué hay, qué falta y en qué orden
 
-Estado: 2026-10-23 (velocidad: §3.6.1). Hechos el paso 1 (núcleo del DSP en C) y la velocidad (§3.6: un slave del JX-3P en tiempo real,
+Estado: 2026-10-29 (la referencia es el C: §1, §1.1; velocidad: §3.6.1). Hechos el paso 1 (núcleo del DSP en C) y la velocidad (§3.6: un slave del JX-3P en tiempo real,
 bit a bit igual a `chain.py`); el resto es plan. **Para retomar: §5.** Objetivo: ejecutar un PLUG-OUT de Roland (empezando por el JX-3P) en el PC
 y obtener el mismo audio que el equipo, para estudiar el microcódigo y probar programas propios sin instalarlos.
 
@@ -14,18 +14,36 @@ vale sólo para nuestros plug-outs.
 
 ## 1. Lo que ya existe
 
+**La referencia del DSP es el código C** (decisión del usuario, 2026-10-29): `emu/dspdec.h` (decodificador),
+`emu/dspcore.h` (semántica de cada unidad) y `emu/dspcore.c` (intérprete, esclavo, máquina de un DSP). Desde Python se
+usa sólo a través de `emu/dspref.py` (ctypes, sin semántica propia). El modelo en Python (`re/dspisa.py`, el `Slave`
+de `chain.py`, el frente de `dspcomp.py`) quedó archivado en `archive/` (§1.1); `re/dspisa.py` es un aviso que falla
+al importarlo.
+
 | pieza | qué hace | límite |
 |---|---|---|
-| `examples/from_scratch/emu/chain.py` | seis DSP de un slave (y dos slaves con `Bmc2`): bancos 0/1 en anillo, MXM con cerrojo de 1 muestra, buzón de pareja `A400`…, IOMD, enlace entre slaves. Cada hipótesis es un campo de `Model` | sólo probado con nuestros programas (pequeños); banco 6 = 0; sin banco 2; Python lento |
-| `examples/from_scratch/emu/test_chain.py` | 20 pruebas; el modelo coincide con la medida de C-V4 (`log/VOICE_ALLOCATION_LOG.md` §6.7). Corre sobre el núcleo en C (4,7 s; antes 9 min 36 s); `--py` = `chain.py` | — |
-| `examples/from_scratch/emu/cchain.py` + `dspcore.c` + `dspcomp.py` | **núcleo en C** (paso 1): `cchain.Slave` / `Bmc2` con la interfaz de `chain.py`. `dspcomp.py` decodifica cada instrucción una vez con `dspisa.Layout` (el mismo decodificador que `dspisa.run`, no una copia); `dspcore.c` ejecuta. La `.so` se compila sola en `emu/build/` | misma semántica que `dspisa` (con sus huecos de §3.3) |
+| `examples/from_scratch/emu/dspdec.h` | plantillas de clase (`re/dsp_templates.txt`, `re/dsp_units_ab.txt`), área de slots, flujo de inmediatos, unidades, condiciones, saltos → `Op` / `Cond`; `dsp_check` (formas sin efecto medido), `dsp_hidden_use` | — |
+| `examples/from_scratch/emu/dspref.py` | `Machine` (un DSP, memoria plana 0–FFFF, banco 5 plegado a 1024 palabras: el simulador de las herramientas `make_*.py`, `dspasm.py`, `dspnative.py`, `dspverify.py`, `sim_main.py`), `layout`, `template`, `check`, `quant`, `raw_value`, contextos de banderas | — |
+| `examples/from_scratch/emu/chain.py` | `Model` (las hipótesis del esclavo), `Program`, `access_violations`, ayudas | el emulador es `cchain` |
+| `examples/from_scratch/emu/test_chain.py` | 20 pruebas; el modelo coincide con la medida de C-V4 (`log/VOICE_ALLOCATION_LOG.md` §6.7), sobre el núcleo en C | — |
+| `examples/from_scratch/emu/cchain.py` + `dspcore.c` + `dspcomp.py` | **núcleo en C**: `cchain.Slave` / `Bmc2`. `dspcomp.py` sólo empaqueta lo que decodifica `dspdec.h`. La `.so` se compila sola en `emu/build/` (`dspref.lib`) | huecos de §3.3 |
 | `examples/from_scratch/emu/dspjit.py` + `dspcore.h` | traducción de cada programa a código nativo y grupos de hilos por muestra (§3.6 punto 2): un slave del JX-3P en tiempo real | GCC 14 `-O2` necesita `-fno-gcse -fno-peephole2` (§3.6) |
-| `examples/from_scratch/emu/test_core.py` | C contra `chain.py`, bit a bit: las 15 756 instrucciones distintas del corpus local desde estados al azar, la cadena JX-3P (MAIN0–5 + DCO) muestra a muestra, los 212 programas del corpus en nativo contra el intérprete, nativo con hilos contra serie (4000 muestras), `quant`, v3/v4, velocidad (tiempo real) | — |
-| `examples/from_scratch/re/dspisa.py` | simulador de una instrucción; 100/100 instrucciones de Roland al azar coinciden con el equipo [medido, `DSP_HARDWARE.md` §10] | huecos de §3.3; flotantes, no enteros |
+| `examples/from_scratch/emu/test_core.py` | las 15 756 instrucciones distintas del corpus local contra el archivo dorado `work/golden_insn.txt` (sólo hashes, local), JX-3P nativo contra intérprete, los 212 programas del corpus en nativo contra el intérprete, nativo con hilos contra serie, `quant` contra su definición, v3/v4, velocidad | el dorado se regenera (`--update-golden`) sólo tras un cambio medido de la semántica |
 | `examples/from_scratch/re/emu1.py`, `tools/engine_emu.py` | región 1 (motor ARM) en Unicorn, servicios del OS `0x0113FC00` interceptados | sólo registran las llamadas; no las conectan a ningún DSP |
 | `examples/from_scratch/re/emu0.py` | región 0 (modelo, asignador) en Unicorn | sin entrada MIDI ni enlace a los slaves |
 | `examples/from_scratch/emu/listing.py` | lee programas de Roland de `programs.h` y los desensambla | sólo lectura estática |
 | `voicelog/voicelog.py`, `re/dspaudio.py` | capturas del equipo para comparar | — |
+
+### 1.1 El port a C (2026-10-29)
+
+`archive/dspisa.py`, `archive/chain.py` (con su `Slave` en Python) y `archive/dspcomp_py.py` son el modelo anterior,
+guardado sólo para validar. `archive/validate_port.py` comparó el C con él sobre las 9791 instrucciones distintas de
+`work/corpus_all`: plantilla, slots, unidades, decodificación y ejecución de una instrucción desde estados al azar
+(registros, banderas, memoria, saltos). Resultado: idénticas, salvo 50 cuyo coeficiente de MAC cambió por la regla
+medida ese día (`DSP_ISA_DISCREPANCIES.md` D8). `sim_main.py` dio las mismas negativas que antes sobre MAIN0–5.
+Las herramientas pasaron a `dspref.Machine` y siguieron dando lo mismo: `make_synth.py` y `make_mutable.py
+--sim-check` (el esclavo de `cchain` contra la máquina de memoria plana) idénticos, `make_*.py --sim` de
+`examples/from_scratch` con las mismas frecuencias.
 
 ## 2. Arquitectura propuesta
 
@@ -210,7 +228,7 @@ instrucciones, cadena JX-3P, 212 programas nativos contra el intérprete) y `mak
   0,037 s por simulación.
 
 Lo que queda en Python:
-* la referencia `dspisa`, a propósito, porque es la referencia independiente;
+* (hasta el 2026-10-29: la referencia `dspisa`; archivada, la referencia es el C, §1.1);
 * la preparación (≈ 0,04 s);
 * `Bmc2` (los dos slaves del SYSTEM-8, un bucle de Python por muestra; sólo lo usa `test_chain.py`). Pasarlo a C, con
   los dos slaves en paralelo, es lo siguiente para el SYSTEM-8.
@@ -231,6 +249,26 @@ Siguientes mejoras posibles, en orden de rentabilidad [inferido, sin medir]:
 Comparar el render con capturas del equipo, nota por nota: frecuencia, nivel, envolvente. Referencias: C-SAWPOLY
 (cadena de Roland con nuestras sierras), el JX-3P de serie en un slot, C-V4. Herramientas: `voicelog.py`
 (asignación + audio), `re/dspaudio.py`.
+
+**Ops nativas contra el equipo** (`re/dspnative.py`, maestro del SYSTEM-8 con la sonda PEEK, 2026-10-28): cada op
+con registros al azar, con y sin instrucción vacía antes de guardar, comparada palabra por palabra con
+la referencia (hasta el 2026-10-28 `re/dspisa.py run`, desde el 2026-10-29 el C a través de `emu/dspref.py`). Lo que
+se corrigió en `emu/dspcore.h` (y, antes del port, en `dspisa.py`) y `emu/dspjit.py` (`writes`):
+
+| op | antes en el emulador | en el equipo |
+|---|---|---|
+| `shl` / `shr` / `shrn` | X·2^k sin límite, truncado hacia 0 | complemento a 2 con 32 bits de fracción: redondea hacia −∞ en 2^−32, envuelve en [−512, 512); después la codificación RAW trunca hacia 0 (2026-10-29: 672/672 casos crudos; el «hacia −∞ en la grilla RAW» del 2026-10-28 sólo acertaba con el resultado en la grilla 2^−32) |
+| `recipseed` | escribía r(d), r(d+1) | también rY ← m; r(d) = 0 si 2^−e ≥ 512 |
+| `expsplit` | e^⌊Y⌋ exacto | ROM medida (`EXP_ROM`, n = −19…6), 0 debajo, satura arriba |
+| SFU modo 3, bit 3 | −(Y < 0) | ⌊Y⌋ (`floor`) |
+| `log2split`, Y < 0 | Y/512 truncado | Y leída en complemento a 2: e = ⌊log2((Y + 512)/0,75)⌋, m = Y/2^e redondeado hacia −∞ en 2^−32 y truncado por la codificación (2026-10-29: 120/120 crudos; e = 9 sólo para \|Y\| < 115) |
+| `sqrtsplit` | escribía r7 ← ±2^−k, semilla de 8 bits | rY ← m = \|Y\|·4^k ∈ [1, 4), r(d+1) ← Q[⌊(m−1)·16⌋]/512 con Q = round(512/√(medio del intervalo)) (9 bits), **r(d+3)** ← signo·2^−k (2026-10-29: 384 crudos + 3072 en `dspnative`). Con Y en r(d+1) o r(d+3) las escrituras mezclan bits: `dsp_check` la marca no medida |
+| MAC con D ≥ 8 | /2 siempre | /2 sólo con término P2 (op1 ≥ 4); sin P2 no escribe nada (2026-10-29) |
+| dos MAC (clase 0x080) | ambas escriben | un término P2 en cualquiera de las dos: ninguna escribe (2026-10-29) |
+| coeficiente inmediato de la MAC | después del inmediato de Y (Y inmediato) | en el byte C del arreglo de slots, +8 con el bit 9 de N; Y registro o inmediato, con o sin transferencias (19 clases, 2026-10-29) |
+
+Después de los cambios: 0 diferencias en 96 casos por op (`dspnative.py -n 96`), `test_core.py` 11/11 (incluidos
+los 212 programas de Roland en la traducción nativa).
 
 ## 4. Orden propuesto
 
@@ -274,8 +312,8 @@ Comandos: `cd examples/from_scratch/emu; python3 test_chain.py; python3 test_cor
 * Punto 3 de §3.6 (saltear DSP sin voces) **no se hace**: no puede ser bit a bit igual.
 * Dos slaves: `cchain.Bmc2` avanza muestra a muestra desde Python (sin hilos). Para el paso 8 hace falta un `run` en C
   de varios slaves con el enlace `Model.link`, en paralelo (12 hilos).
-* `asm/` (capa de formato del ensamblador) y `dspisa.Layout` siguen siendo dos decodificadores; unificarlos es una
-  tarea aparte (comparar los dos sobre el corpus primero; `DSP_ISA_DISCREPANCIES.md` tiene 4 puntos abiertos).
+* `asm/` (capa de formato del ensamblador) y `emu/dspdec.h` siguen siendo dos decodificadores; unificarlos es una
+  tarea aparte (comparar los dos sobre el corpus primero).
 
 * **La cadena completa del JX-3P no da audio válido** (2026-10-22, `examples/system_1_jx`, `docs/examples_system_1_jx_README.md`
   §7): con el modelo completo y el INIT PATCH, la salida `6020` de MAIN4 es 0, enorme (511) o NaN según el corte

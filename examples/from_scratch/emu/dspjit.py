@@ -5,7 +5,7 @@ tests of a local flags word, and the units call the inline functions of dspcore.
 constant words gcc folds them to the few operations each unit really does). The translation adds nothing to the
 semantics; it only drops work whose result is known:
 
-* quant(): dspisa quantises all eight registers after every A/B/M unit. quant is idempotent, so a register needs it
+* quant(): the core quantises all eight registers after every A/B/M unit. quant is idempotent, so a register needs it
   only if it may hold an unquantised value: one written by a unit (superset by unit type), or loaded since the last
   unconditional unit, or anything at a jump target / program start;
 * the result and flags of a unit are kept only when an X9bY of the same instruction reads them.
@@ -20,19 +20,15 @@ order; the other DSPs of a sample are independent (MXM and the pair window are l
 import ctypes as C
 import hashlib
 import os
-import shutil
 import subprocess
 
 import dspcomp
-from dspcomp import K_A, K_B, K_M, K_J, K_HID, K_X28, K_XB5, K_XFLAG, K_XMEM
+import dspref
+from dspcomp import K_A, K_B, K_M, K_J, K_HID, K_X28, K_XB5, K_XFLAG, K_XMEM, K_XTAP
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 JIT_DIR = os.path.join(HERE, 'build', 'jit')
-# compiler: DSP_CC=gcc|clang|<path> (default: clang if installed, else cc). -ffp-contract=off: an FMA would change the
-# bits. (The old -fno-gcse -fno-peephole2 hid a NaN-sign difference, not a GCC bug: quant() now makes every NaN
-# canonical, EMULATOR.md §3.6.1.)
-CC = os.environ.get('DSP_CC') or ('clang' if shutil.which('clang') else 'cc')
-CFLAGS = ['-O2', '-ffp-contract=off', '-fno-math-errno', '-shared', '-fPIC', '-w']
+CC, CFLAGS = dspref.CC, dspref.CFLAGS          # the compiler and flags of the core (dspref.py)
 LDFLAGS = []
 ALL = frozenset(range(8))
 _loaded = {}
@@ -64,7 +60,7 @@ def writes(o):
             if mode == 0:
                 return {s, y & 7, (s + 1) & 7}        # recipseed too writes rY (m; re/dspnative.py 2026-10-28)
             if mode == 1 and not y & 8:
-                return {y & 7, (s + 1) & 7, 7}
+                return {y & 7, (s + 1) & 7, (s + 3) & 7}
             if mode in (1, 2) and not (mode == 2 and y & 8):
                 return {s, y & 7}
             return {s}
@@ -74,7 +70,8 @@ def writes(o):
             return {d & 7, y & 7}
         return {d & 7}
     if o['kind'] == K_M:
-        return {d & 7} if (w >> 9) & 7 >= 2 and (o['w2'] >> 9) & 7 != 3 else set()
+        op1 = (w >> 9) & 7
+        return {d & 7} if op1 >= 2 and not (d >= 8 and op1 < 4) else set()
     if o['kind'] in (K_X28, K_XB5, K_XMEM) and o['a'] < 8:
         return {o['a']}
     return set()
@@ -82,7 +79,7 @@ def writes(o):
 
 def exact_dest(o, dirty):
     """the destination register of a unit-B op whose result is one of its inputs, its negation, its magnitude or a
-    clamp to +-1 (dspisa.b_op: min / max (+ -X forms), |X|, |Y|, Y, f4Y copy, ph_abs / ph_clamp / ph_neg, r = Y),
+    clamp to +-1 (dspcore.h b_op: min / max (+ -X forms), |X|, |Y|, Y, f4Y copy, ph_abs / ph_clamp / ph_neg, r = Y),
     when no register it reads may be off the quant grid (not in `dirty`) and its immediate is on the grid: then the
     result is on the grid and its quant() is a no-op. None otherwise."""
     if o['kind'] != K_B:
@@ -108,7 +105,7 @@ def exact_dest(o, dirty):
     reads = {(w >> 6) & 7, ((w >> 6) & 7) | 4, d & 7} | ({y & 7} if not mode else set())
     if reads & dirty:
         return None
-    if mode and o['has'] and dspcomp.dspisa.quant(o['imm'][0]) != o['imm'][0]:
+    if mode and o['has'] and dspref.quant(o['imm'][0]) != o['imm'][0]:
         return None
     return d & 7
 
@@ -189,6 +186,8 @@ def translate(name, prog, decoded, trace=False):
                     dirty |= {o['a']}
                 else:
                     body.append(f'wr(s, d, {addr}, r[{o["a"] - 8}]);')
+            elif kind == K_XTAP:
+                body.append(f'tap(s, d, r[{o["a"] & 7}]);')
             elif kind == K_XFLAG:
                 if o['a'] and o['b'] in units:
                     sh = 4 * o['a']

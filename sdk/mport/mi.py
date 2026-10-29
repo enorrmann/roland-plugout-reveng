@@ -66,7 +66,7 @@ def ratio(semitones):
 
 
 def on_grid(x):
-    """x on the register grid (multiples of 2^-32 below 0.125, dspisa.quant), so a parameter used by the instruction
+    """x on the register grid (multiples of 2^-32 below 0.125, the core's quant), so a parameter used by the instruction
     right after its load gives the same bits packed and unpacked (MICROCODE_OPTIMIZATION.md rule 6)"""
     return math.floor(x * 2 ** 32) / 2 ** 32 if abs(x) < 0.125 else x
 

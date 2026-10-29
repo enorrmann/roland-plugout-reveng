@@ -5,12 +5,12 @@ DSP esclavos del SYSTEM-1 tal como los compila s1cc ([S1CC.md](S1CC.md)). No son
 (eso es `sdk/s1cc/examples/mutable/`, [§7](#7-relación-con-los-envoltorios)): cada algoritmo está escrito en la
 forma que el DSP ejecuta barata. Cada archivo `mp_*.c` es un kernel completo para SYSTEM-S1CC
 ([examples_system_s1cc_README.md](examples_system_s1cc_README.md)): el oscilador en el DSP A, filtro y envolventes
-del anfitrión en el DSP B. Son 33 kernels. Sin el LFO del anfitrión todos entraban con 8 voces; con el LFO por voz
-(LFO TO PITCH / FILTER / AMP), DSP A ≤ 693 y los grupos de ops promovidos el 2026-10-28, entran 21 con 8 voces y
-los demás con 5 a 7 (§4).
+del anfitrión en el DSP B. Son 34 kernels. Con el anfitrión completo (LFO por voz en el DSP B, envolvente de pitch y
+COLOR MOD donde haya lugar, `MOD_DSP=auto`, mezclador) y las ops nativas de s1cc, el 2026-10-28 entran 25 con 8
+voces, 7 con 7 y 2 con 5 (§4).
 
 Estado (2026-10-28): verificados contra su referencia nativa (`s1cc check`) y en la cadena completa del emulador
-(`make_s1cc.py --sim`); **MP-CSAW probado en el equipo**. 15 leen OSC1 / OSC2 COLOR con su COLOR MOD
+(`make_s1cc.py --sim`); **MP-CSAW y MP-CSAW2 (6 voces) probados en el equipo** (MP-CSAW2 con 7 voces y `MOD_DSP=B`: instalado, sin confirmar). 16 leen OSC1 / OSC2 COLOR con su COLOR MOD
 (`s1_color`, §4).
 
 ## 1. Uso
@@ -41,7 +41,7 @@ contra la referencia (10 ms, nota 57, perillas en 128) y los totales de los prog
 
 | regla | por qué | cómo |
 |---|---|---|
-| sin divisiones en la voz | `x / y` usa `recipseed`, probado en el SYSTEM-8 pero no en el SYSTEM-1 (W910); además cuesta ~13 ops | lo que depende de una perilla, en la tabla `S1_PARAM` (corre en el PC); lo que depende de la nota, de `s1_dt()` / `s1_rdt()` |
+| pocas divisiones en la voz | `x / y` = `recipseed` + 3 `newton` (4 ops, exacto en el SYSTEM-8; en el SYSTEM-1 falta `NATIVE-CHECK`, [S1CC.md](S1CC.md) §7.6). Antes del 2026-10-28 la división tenía un error (`recipseed` pisa su entrada) | lo que depende de una perilla, en la tabla `S1_PARAM` (corre en el PC); lo que depende de la nota, de `s1_dt()` / `s1_rdt()` |
 | `dt` y `1/dt` por nota del anfitrión | calcularlos son dos `exp2` (~25 ops por voz) | `s1_dt()`, `s1_rdt()`: dos cargas de palabras que `engine.c` escribe con la nota |
 | fases float en [0, 1) con `if (p >= 1) p -= 1` | s1cc la guarda en [−1, 1) y el wrap es un `ph_wrap` | `mp_advance`; para pasos que pueden pasar 1 (relación × nota aguda), `mp_step` (≤ 1/2) |
 | sin signos en los bordes | una función signo se difumina en el borde: una muestra de error cuando un período cae justo ahí | `mp_saw_bl` (§3.1) |
@@ -93,44 +93,47 @@ A/D/S/R son las ADSR del anfitrión ([examples_system_s1cc_README.md](examples_s
 
 ## 4. Osciladores
 
-Instrucciones por voz del kernel (emulador, 2026-10-28) y totales de los programas del esclavo de SYSTEM-S1CC con 8
-voces, y cuántas voces entran (DSP A ≤ 693, DSP B ≤ 708). Los totales incluyen el LFO del anfitrión por voz (LFO TO PITCH / FILTER / AMP,
-~46 instrucciones por voz en el DSP A, [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.3), y en
-los kernels con COLOR MOD además la envolvente de pitch, el sub oscilador y la mezcla de los colores (§3.2, ~20 más).
-`LFO_PITCH=0` ahorra ~18 por voz. Con los 14 grupos de ops promovidos el 2026-10-28 (§4.1). SNR contra la
+Instrucciones por voz del kernel en el DSP A (emulador, 2026-10-28, `check_all.sh`: kernel con `--regs-a 0,1,2,3
+--regs-b 0,1,2,3`, voces de a pares) y totales de los programas del esclavo de SYSTEM-S1CC con las voces que entran
+(DSP A ≤ 703, DSP B ≤ 708, cada principal ≤ 6144 bytes; «+ n» = una sección). Los totales incluyen el anfitrión
+([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3): copia de puerta y disparo, tono modulado,
+sub y mezclador en el A; LFO y las dos ADSR en el B; envolvente de pitch y COLOR MOD en el DSP que elige
+`MOD_DSP=auto` (§3.4: en el A salvo `mp_csaw2`, `mp_bell`, `mp_harmonic` y `mp_triple_sine`, que tienen el A
+lleno). `LFO_PITCH=0` ahorra ~18 por voz. SNR contra la
 referencia nativa del mismo C (10 ms, nota 57). En los kernels con ruido el SNR no aplica (el hash da otra secuencia
 en el DSP): se comparan las bandas, todas dentro de ±0,4 dB.
 
-| kernel | origen | perillas (además de OSC1 MIX = nivel) | COLOR MOD | A / voz | 8 voces A / B | voces que entran |
+| kernel | origen | perillas (además de OSC1 MIX = nivel) | COLOR MOD | A / voz | programas A / B (principal + sección) | voces que entran |
 |---|---|---|---|---|---|---|
-| `mp_saw` | sierra polyBLEP (Braids / Plaits VA) | — | — | 19 | 513 / 567 | 8 |
-| `mp_square` | pulso con ancho (Braids SQUARE) | OSC1 COLOR ancho | OSC1 | 34 | 737 / 567 | 7 (A 646) |
-| `mp_csaw` | Braids CSAW (sierra con muesca) | OSC1 COLOR ancho, OSC2 COLOR profundidad | OSC1, OSC2 | 39 | 801 / 567 | 6 (A 603) |
-| `mp_variable_shape` | Plaits VariableShapeOscillator | OSC1 COLOR forma, OSC2 COLOR ancho | OSC1, OSC2 | 41 | 849 / 567 | 6 (A 639) |
-| `mp_tri_fold` | Braids TRIANGLE_FOLD | OSC1 COLOR ganancia | OSC1 | 12 | 512 / 567 | 8 |
-| `mp_sine_fold` | Braids SINE_FOLD | OSC1 COLOR ganancia | OSC1 | 18 | 558 / 567 | 8 |
-| `mp_saw_swarm` | Braids SAW_SWARM (7 sierras) | OSC1 COLOR desafinación | — | 28 | 535 / 567 | 8 |
-| `mp_triple_saw` | Braids TRIPLE_SAW | OSC1 / OSC2 COLOR intervalos | — | 53 | 783 / 567 | 7 (A 686) |
-| `mp_triple_sine` | Braids TRIPLE_SINE | OSC1 / OSC2 COLOR intervalos | — | 35 | 593 / 567 | 8 |
-| `mp_fm` | FM de 2 operadores (Braids FM, Plaits FM) | OSC1 COLOR relación, OSC2 COLOR índice | OSC2 | 28 | 647 / 567 | 8 |
-| `mp_feedback_fm` | Braids FEEDBACK_FM | OSC1 COLOR realimentación | OSC1 | 18 | 569 / 567 | 8 |
-| `mp_phase_distortion` | Plaits phase distortion (CZ) | OSC1 COLOR rodilla (`a = 2^(g·c)`, `b` polinomio de grado 4, `w = min(p·a, 1 − b·(1 − p))`: sin división) | OSC1 | 31 | 672 / 567 | 8 |
-| `mp_formant` | Plaits FormantOscillator | OSC1 COLOR formante, OSC2 COLOR fase | OSC2 | 22 | 598 / 567 | 8 |
-| `mp_vosim` | Braids VOSIM | OSC1 / OSC2 COLOR formantes | — | 33 | 576 / 567 | 8 |
-| `mp_harmonic` | Plaits HarmonicOscillator (8 armónicos) | OSC1 COLOR brillo, OSC2 COLOR pares | — | 80 | 967 / 567 | 5 (A 607) |
-| `mp_sync` | Braids SAW_SYNC | OSC1 COLOR relación | OSC1 | 37 | 775 / 567 | 7 (A 679) |
-| `mp_super_square` | Plaits SuperSquareOscillator (2 cuadradas: desafinadas, o la segunda en sync) | OSC1 COLOR forma | — | 69 | 905 / 567 | 6 (A 681) |
-| `mp_chord` | Plaits chord engine (4 sierras en un acorde) | OSC1 COLOR acorde | — | 76 | 967 / 567 | 5 (A 607) |
-| `mp_sub` | Braids SAW_SUB | OSC1 COLOR nivel del sub | — | 45 | 713 / 567 | 7 (A 625) |
-| `mp_ring` | ring mod de dos senos | OSC1 COLOR relación | OSC1 | 37 | 706 / 567 | 7 (A 619) |
-| `mp_nes_triangle` | Plaits chiptune (triángulo de 4 bits) | OSC1 COLOR escalones | — | 16 | 454 / 567 | 8 |
-| `mp_toy` | Braids TOY / CRUSHER | OSC1 COLOR frecuencia de muestreo, OSC2 COLOR bits | — | 30 | 549 / 567 | 8 |
-| `mp_noise` | Braids FILTERED_NOISE (B: pasa banda) | — | — | 10 | 334 / 582 | 8 |
-| `mp_clocked_noise` | Braids CLOCKED_NOISE | OSC1 COLOR reloj | — | 26 | 527 / 567 | 8 |
-| `mp_kick` | bombo (Braids KICK, Plaits) | OSC1 COLOR barrido, OSC2 COLOR tiempo | OSC1 | 24 | 615 / 567 | 8 |
-| `mp_snare` | caja (B: pasa altos) | OSC1 COLOR ruido / tono | OSC1 | 29 | 648 / 575 | 8 |
-| `mp_hihat` | hi-hat metálico (6 cuadradas del 808, B: pasa altos) | OSC1 COLOR ruido | — | 74 | 919 / 575 | 6 (A 691) |
-| `mp_bell` | Braids STRUCK_BELL (4 parciales) | OSC1 COLOR decaimiento, OSC2 COLOR inarmonicidad | — | 69 | 849 / 567 | 6 (A 639) |
+| `mp_saw` | sierra polyBLEP (Braids / Plaits VA) | — | — | 20 | 365 / 460+148 | 8 |
+| `mp_square` | pulso con ancho (Braids SQUARE) | OSC1 COLOR ancho | OSC1 | 35 | 485 / 463+149 | 8 |
+| `mp_csaw` | Braids CSAW (sierra con muesca) | OSC1 COLOR ancho, OSC2 COLOR profundidad | OSC1, OSC2 | 43 | 585 / 463+149 | 8 |
+| `mp_csaw2` | dos CSAW (la segunda con OSC2 RANGE y FINE TUNE ±1 semitono) | OSC1 / OSC2 COLOR ancho de cada una, OSC1 / OSC2 MIX niveles | OSC1, OSC2 | 88 | 618 / 399+288 | 7 |
+| `mp_variable_shape` | Plaits VariableShapeOscillator | OSC1 COLOR forma, OSC2 COLOR ancho | OSC1, OSC2 | 44 | 605 / 463+149 | 8 |
+| `mp_tri_fold` | Braids TRIANGLE_FOLD | OSC1 COLOR ganancia | OSC1 | 14 | 341 / 463+149 | 8 |
+| `mp_sine_fold` | Braids SINE_FOLD | OSC1 COLOR ganancia | OSC1 | 20 | 365 / 463+149 | 8 |
+| `mp_saw_swarm` | Braids SAW_SWARM (7 sierras) | OSC1 COLOR desafinación | — | 62 | 593 / 463+149 | 8 |
+| `mp_triple_saw` | Braids TRIPLE_SAW | OSC1 / OSC2 COLOR intervalos | — | 148 | 524+178 / 494 | 5 |
+| `mp_triple_sine` | Braids TRIPLE_SINE | OSC1 / OSC2 COLOR intervalos | — | 97 | 662 / 399+288 | 7 |
+| `mp_fm` | FM de 2 operadores (Braids FM, Plaits FM) | OSC1 COLOR relación, OSC2 COLOR índice | OSC2 | 33 | 473 / 463+149 | 8 |
+| `mp_feedback_fm` | Braids FEEDBACK_FM | OSC1 COLOR realimentación | OSC1 | 20 | 357 / 463+149 | 8 |
+| `mp_phase_distortion` | Plaits phase distortion (CZ) | OSC1 COLOR rodilla (`a = 2^(g·c)`, `b` polinomio de grado 4, `w = min(p·a, 1 − b·(1 − p))`: sin división) | OSC1 | 37 | 445 / 463+149 | 8 |
+| `mp_formant` | Plaits FormantOscillator | OSC1 COLOR formante, OSC2 COLOR fase | OSC2 | 32 | 469 / 463+149 | 8 |
+| `mp_vosim` | Braids VOSIM | OSC1 / OSC2 COLOR formantes | — | 56 | 581 / 463+149 | 8 |
+| `mp_harmonic` | Plaits HarmonicOscillator (8 armónicos) | OSC1 COLOR brillo, OSC2 COLOR pares | — | 95 | 490+119 / 399+288 | 7 |
+| `mp_sync` | Braids SAW_SYNC | OSC1 COLOR relación | OSC1 | 37 | 509 / 463+149 | 8 |
+| `mp_super_square` | Plaits SuperSquareOscillator (2 cuadradas: desafinadas, o la segunda en sync) | OSC1 COLOR forma | — | 95 | 553+125 / 560+124 | 7 |
+| `mp_chord` | Plaits chord engine (4 sierras en un acorde) | OSC1 COLOR acorde | — | 134 | 481+164 / 469 | 5 |
+| `mp_sub` | Braids SAW_SUB | OSC1 COLOR nivel del sub | — | 45 | 565 / 463+149 | 8 |
+| `mp_ring` | ring mod de dos senos | OSC1 COLOR relación | OSC1 | 41 | 453 / 463+149 | 8 |
+| `mp_nes_triangle` | Plaits chiptune (triángulo de 4 bits) | OSC1 COLOR escalones | — | 34 | 421 / 463+149 | 8 |
+| `mp_toy` | Braids TOY / CRUSHER | OSC1 COLOR frecuencia de muestreo, OSC2 COLOR bits | — | 60 | 454+151 / 463+149 | 8 |
+| `mp_noise` | Braids FILTERED_NOISE (B: pasa banda) | — | — | 12 | 245 / 457+147 | 8 |
+| `mp_clocked_noise` | Braids CLOCKED_NOISE | OSC1 COLOR reloj | — | 41 | 485 / 463+149 | 8 |
+| `mp_kick` | bombo (Braids KICK, Plaits) | OSC1 COLOR barrido, OSC2 COLOR tiempo | OSC1 | 41 | 517 / 463+149 | 8 |
+| `mp_snare` | caja (B: pasa altos) | OSC1 COLOR ruido / tono | OSC1 | 33 | 433 / 462+148 | 8 |
+| `mp_hihat` | hi-hat metálico (6 cuadradas del 808, B: pasa altos) | OSC1 COLOR ruido | — | 85 | 570 / 553+124 | 7 |
+| `mp_bell` | Braids STRUCK_BELL (4 parciales) | OSC1 COLOR decaimiento, OSC2 COLOR inarmonicidad | — | 105 | 596 / 398+289 | 7 |
 
 La percusión reinicia su barrido / sus parciales en cada comienzo de nota (`s1_trig()`); el decaimiento del nivel es
 la envolvente AMP (DECAY / RELEASE cortos, SUSTAIN 0).
@@ -152,7 +155,7 @@ la envolvente AMP (DECAY / RELEASE cortos, SUSTAIN 0).
 |---|---|---|
 | `s1_dt()` / `s1_rdt()` | `s1dsp.h`, `graph.cpp`, `lower.cpp`, `s1rt.c`, `s1check.py`; SYSTEM-S1CC: `A040+v`, `A048+v` (`engine.c`, tablas `dt_bits` / `rdt_bits`) | −25 ops por voz en todo oscilador limitado en banda |
 | fases float en [−1, 1) | `chooseStateReps` (`isPhaseWrap`) | el wrap es 1 op (7 fases de `mp_saw_swarm`: 63 → 43 instrucciones) |
-| W910 | `lower.cpp` | aviso de división por `recipseed` |
+| W910 | `lower.cpp` | aviso de división por `recipseed` (retirado 2026-10-28: la división se corrigió, S1CC.md §7.6) |
 | `min` / `max` normalizados | `lower.cpp` (`minmax`) | un valor recortado deja de quedar con escala diminuta: SVF del DSP B 42 → 39 por voz (8 voces 614 → 590) y su SNR 55–65 → 80–100 dB; el ladder sigue igual (+1 de planificación en 8 voces) |
 | `s1_color(i)` | `s1dsp.h`, `graph.cpp` (E119 / E120), `lower.cpp` (rango 0…1), `s1rt.c` (`color0=` / `color1=`, barrido en el perfilado), `s1check.py`; SYSTEM-S1CC: fuentes y mezcla en el DSP A, [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.2 | OSC1 / OSC2 COLOR con su COLOR MOD en 15 kernels (§4) |
 | `s1_lfo_filter()` / `s1_lfo_amp()` | `s1dsp.h`, `graph.cpp`, `lower.cpp` (rangos ±4 / 0…1), `s1rt.c` (0 / 1, barridos en el perfilado), `s1check.py`; SYSTEM-S1CC: el LFO del anfitrión por voz ([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.3) | LFO TO FILTER / TO AMP en `mp_dsp_b.h` y `mp_vowel.c`; LFO TO PITCH sin cambios en los kernels (el anfitrión modula las palabras de tono) |

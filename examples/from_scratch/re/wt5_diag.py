@@ -5,7 +5,7 @@
 
 Four independent checks:
 
-1. SIMULATOR. Builds the programs exactly as wt5.py does and runs them with dspasm.simulate (dspisa) into a memory
+1. SIMULATOR. Builds the programs exactly as wt5.py does and runs them with the C reference (emu/dspref.Machine) into a memory
    preloaded with the same table stored at 0xA000 + BASE: the output must be the expected frame waveform
    (resample to N points, linear interpolation, between frames). This is what NOTES.md calls "simulador exacto".
 2. SHADOW. Replays the program writes dspown.load would send (dspown's EMPTY head, runs against state.json, 32-word
@@ -52,38 +52,26 @@ def shadow_of(paths):
 
 
 def sim(words, table_words, pitch=4.75, n=4000):
-    """dspisa simulation with bank 5 holding the table at A000 + BASE"""
+    """simulation (emu/dspref.Machine) with bank 5 holding the table at A000 + BASE"""
     import dspasm
     mem_tbl = {0xA000 | ((BASE + i) & 0x3FF): v for i, v in enumerate(table_words)}
     # dspasm.simulate builds its own memory: patch it by running the same loop with the table preloaded
-    import dspisa
+    import dspref
     ins_list = [ins for _, ins in __import__('dspdis').instructions(words)]
     slot = 'dco2'
-    mem = {A.SLOTS[slot]['A'][0]: pitch, A.SLOTS[slot]['B'][0]: pitch}
+    m = dspref.Machine()
+    mem = m.mem
+    mem[A.SLOTS[slot]['A'][0]] = mem[A.SLOTS[slot]['B'][0]] = pitch
     mem.update(mem_tbl)
     ring = [A.SLOTS[slot][v][2] for v in 'AB'] + [A.FOLD_SLOTS.get(slot, {}).get(v, (0, 0, 0, None))[3] for v in 'AB']
-    pos, p = {}, 0
-    for i, ins in enumerate(ins_list):
-        pos[p] = i
-        p += len(ins)
-    starts = sorted(pos)
+    pid = m.add(ins_list)
     out = []
     for _ in range(n):
         for s in ring:
-            if s is not None and s in mem:
-                mem[s + 1] = mem[s]
-        regs = [0.0] * 8
-        i, steps = 0, 0
-        while i < len(ins_list):
-            steps += 1
-            if steps > 100000:
-                raise RuntimeError('endless loop in the simulation')
-            dspisa.JUMP = None
-            regs, mem, _ = dspisa.run(list(ins_list[i]), regs, mem)
-            if dspisa.JUMP is not None:
-                i = pos[starts[i] + len(ins_list[i]) + dspisa.JUMP]
-            else:
-                i += 1
+            if s is not None:
+                mem[s + 1] = mem.get(s)
+        m.regs = [0.0] * 8
+        m.run_program(pid)
         out.append(mem.get(A.SLOTS[slot]['A'][1][0], 0.0))
     return np.array(out)
 

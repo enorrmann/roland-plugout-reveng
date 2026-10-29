@@ -87,7 +87,7 @@ install to run the lab.
 | `wt5_isolate.py` | Hardware A/B/C test isolating program writes (DATA) vs bank-5 writes. | Diagnosing "the DSPs went silent after a bank-5 write". | Lab in slot 3, PLG3. Contains a hardcoded WAV path (line 22). |
 | `wtcheck.py` | Plays a scale and compares the measured harmonics of each note with the table's. | Verifying a `wav2dco` program on the device. | SYSTEM-8 + lab + USB audio (`hw:SYSTEM8,0`). |
 | `works.sh`, `works_code.sh` | Recorded working invocations of `wt5.py` (the second with `--code`). | Reference commands. | Lab plugin; hardcoded absolute WAV path. |
-| `dspasm.py` | Minimal assembler for the established DSP subset + our own SAW oscillator. `saw` / `sim` subcommands. | Writing our own microcode. | Pure Python (`dspisa` for verification). |
+| `dspasm.py` | Minimal assembler for the established DSP subset + our own SAW oscillator. `saw` / `sim` subcommands. | Writing our own microcode. | Pure Python (the C reference `emu/dspref.py` for verification). |
 | `dspflagsaw.py` | SAW variants using flags, C selects, jumps and loops (`sel` / `jmp` / `loop`). | Checking flags and jumps by ear. | Lab + SYSTEM-8 for the audio run. |
 | `prog.txt` | Example output of `wav2dco` (a 32-point saw for the DCO2 slot). | Sample data. | — |
 
@@ -115,7 +115,7 @@ install to run the lab.
 | `dspnum.py` | The DSP's internal "RAW" number format (sign, 2-bit exponent, 29-bit mantissa) encode/decode. | Pure Python. |
 | `dspmc.py` | Blob bytes → 16-bit words in execution order. | Pure Python, import-only helper. |
 | `dspdis.py` | Instruction-boundary disassembler with annotations (`--fields`). | Pure Python. |
-| `dspisa.py` | Decoder + disassembler + **simulator** (`dis` / `sim` / `cov`); built-in class templates. | Pure Python. |
+| `dspisa.py` | **Archived 2026-10-29** (`archive/dspisa.py`); importing it fails. The reference is `emu/dspref.py` (C). | — |
 | `dspbudget.py` | Time budget of an idle master DSP and the cost of A/A/B vs single-op fillers, jumps, loops. | Lab + PLG3 (master DSP3). |
 | `dspprobe.py` | Exact register before→after probe of instruction lines. | Lab + PLG3 (master). |
 | `dspfit.py` | Least-squares formula for one instruction over D/X/Z/W (degree ≤ 3). | Lab + PLG3. |
@@ -125,7 +125,7 @@ install to run the lab.
 | `dspslots.py` | Maps which body position of a class is A / M / T / reference / illegal (`ab` mode). | Lab + PLG3. |
 | `dsptemplates.py` | Infers the class templates from the slots map + corpus → `dsp_templates.txt`. | Lab + PLG3 (via `dspslots` output). |
 | `dspvar.py` | Finds operand positions by diffing aligned copies of the same code. | `work/corpus` (no hardware). |
-| `dspverify.py` | Verifies instruction semantics against `dspisa`'s simulation (`--inferred` uses `dsp_templates.txt`). | Lab + PLG3 (master DSP3). |
+| `dspverify.py` | Verifies instruction semantics exactly against the C reference, master DSP3 flag context (`--inferred` uses `dsp_templates.txt`). | Lab + PLG3 (master DSP3). |
 | `dspjump.py` | Verifies `0090 nnnn` = forward jump of nnnn words, and its conditional form. | Lab + PLG3. |
 | `dspcond.py`, `dspcondsnap.py` | Snapshot the 16 condition bits of a DSP context, after a prefix instruction. | Lab + PLG3; `DSPCTX`. |
 | `dspcreal.py`, `dspcsweep.py` | Which ops of a real instruction run for chosen flag values / for every C-word target byte. | Lab + PLG3. |
@@ -180,7 +180,7 @@ install to run the lab.
 
 | Path | What it is |
 |---|---|
-| `dsp_templates.txt` | Measured/inferred class → template table (consumed by `dspisa.py`, `dspverify.py --inferred`). |
+| `dsp_templates.txt` | Measured/inferred class → template table (consumed by `emu/dspdec.h`, `dspverify.py --inferred`). |
 | `dsp_units_ab.txt` | Unit A vs B position map per class (output of `dspslots.py ab`). |
 | `dspexp/audio/*.batch` | Batches mapping test names to programs (`b11.batch` is the voice/gain calibration used by `dspaudio.py report`). |
 | `dspexp/audio/*.txt`, `dspexp/audio/live/*.txt` | The 16-bit test programs and probe builders themselves. |

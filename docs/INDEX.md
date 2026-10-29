@@ -32,6 +32,7 @@ Status of each item is in the document itself; the scope of the project is in th
 | Document | What it covers |
 |---|---|
 | [DSP_HARDWARE.md](DSP_HARDWARE.md) | Technical reference of the DSP chip: arithmetic, seed ROMs, timing. Spanish. |
+| [NATIVE_OPS.md](NATIVE_OPS.md) | **Native ops of the DSP** (shifts, SFU, Newton, 3-operand add, two-product MAC, conditions, jumps, indexed loads, delay taps): status per op (measured on SYSTEM-8, emulator, s1cc, host, tested on SYSTEM-1), the plan to use them all, how to resume. Spanish. |
 | [DSP_ISA.md](DSP_ISA.md) | Instruction set of the DSP as measured on the device. |
 | [DSP_ISA_SPEC.md](DSP_ISA_SPEC.md) | Specification for assembler and compiler writers (used by `asm/`). |
 | [DSP_ISA_DISCREPANCIES.md](DSP_ISA_DISCREPANCIES.md) | Where the measured ISA, the assembler and the disassembler disagree, and what is still open. |
@@ -76,7 +77,7 @@ Status of each item is in the document itself; the scope of the project is in th
 | [examples_wt_pwm_README.md](examples_wt_pwm_README.md) | C-PWM: wavetable PLUG-OUT with a WAV inside. |
 | [examples_mutable_system_README.md](examples_mutable_system_README.md) | MUTABLE-SYSTEM (`examples/mutable_system/`, SYSTEM-1): C-S1SY13F with Braids' SAW_SWARM in place of DCO1 + DCO2 (DSP A 638 / B 564), panel map, memory map, emulator validation, first-test checklist. Installed in slot 1, not heard yet. Spanish. |
 | [examples_mutable_system_CANDIDATES.md](examples_mutable_system_CANDIDATES.md) | MUTABLE-SYSTEM (SYSTEM-1, Braids SAW_SWARM via `sdk/mport`): what else in `~/git/eurorack` can be ported (oscillators, filters, effects, modulators), with cost and blockers. Spanish. |
-| [examples_mutable_ported_README.md](examples_mutable_ported_README.md) | `sdk/s1cc/examples/mutable_ported`: Braids / Plaits oscillators, filters and drums rewritten in C for the SYSTEM-1 DSP (no divisions, s1_dt / s1_rdt, branch-free polyBLEP, shared SVF / ladder / LPG + host envelopes in DSP B); 33 kernels, all fit 8 voices in SYSTEM-S1CC; emulator-verified, not on hw yet. Spanish. |
+| [examples_mutable_ported_README.md](examples_mutable_ported_README.md) | `sdk/s1cc/examples/mutable_ported`: Braids / Plaits oscillators, filters and drums rewritten in C for the SYSTEM-1 DSP (no divisions, s1_dt / s1_rdt, branch-free polyBLEP, shared SVF / ladder / LPG + host envelopes in DSP B); 34 kernels; with the full host (MOD_DSP=auto) 25 fit 8 voices, 7 fit 7, 2 fit 5; MP-CSAW / MP-CSAW2 tested on hw. Spanish. |
 | [examples_sd_txt_README.md](examples_sd_txt_README.md) | SD-TXT: read a file from the SD card in a region 0 init hook. |
 
 The other example folders have no README: `examples/cave_tone`, `examples/mem_name`, `examples/mem_names`,

@@ -1248,8 +1248,12 @@
             "D": {
               "lt": 8
             },
-            "mode": 0,
-            "b11_8": 12
+            "b11_8": {
+              "in": [
+                12,
+                13
+              ]
+            }
           },
           "fields": {
             "D": "D",
@@ -1267,7 +1271,10 @@
                 0
               ]
             },
-            "Y": "Y"
+            "Y": "Y",
+            "mode": {
+              "operand_mode": "Y"
+            }
           },
           "result": "rD <- |rX| + Y",
           "evidence": [
@@ -1285,7 +1292,8 @@
               "tool": "re/dspbits.py",
               "line": 437
             }
-          ]
+          ],
+          "$doc": "2026-10-29: Y a register or an immediate (16/24/32), X in r0..r7 (odd nibble = X bit 2): exact on the SYSTEM-8 master (re/dspnative.py absadd_*); the old `mode 0` restricted it to a register Y"
         },
         {
           "mnemonic": "subabs",
@@ -1294,8 +1302,12 @@
             "D": {
               "lt": 8
             },
-            "b11_8": 14,
-            "e_family": 0
+            "b11_8": {
+              "in": [
+                14,
+                15
+              ]
+            }
           },
           "fields": {
             "D": "D",
@@ -1314,7 +1326,6 @@
               ]
             },
             "Y": "Y",
-            "e_family": 0,
             "mode": {
               "operand_mode": "Y"
             }
@@ -1335,7 +1346,8 @@
               "tool": "re/dspbits.py",
               "line": 437
             }
-          ]
+          ],
+          "$doc": "2026-10-29: no e_family with D < 8 (bits 7-6 are X's low bits; the e families exist only with D >= 8): the old field forced X to r0 / r4"
         },
         {
           "mnemonic": "min",
@@ -1779,7 +1791,12 @@
               "kind": "documented",
               "tag": "measured 2026-10-17"
             }
-          ]
+          ],
+          "kinds": {
+            "Y": "number"
+          },
+          "$note_y": "Y is the 4-bit shift written as a number (shl r2, r0, 13); 2026-10-28, was a register text",
+          "mode_is_selector": true
         },
         {
           "mnemonic": "shr",
@@ -1822,7 +1839,12 @@
               "kind": "documented",
               "tag": "measured 2026-10-17"
             }
-          ]
+          ],
+          "kinds": {
+            "Y": "number"
+          },
+          "$note_y": "Y is the 4-bit shift written as a number (shl r2, r0, 13); 2026-10-28, was a register text",
+          "mode_is_selector": true
         },
         {
           "mnemonic": "shrn",
@@ -1865,7 +1887,12 @@
               "kind": "documented",
               "tag": "measured 2026-10-17"
             }
-          ]
+          ],
+          "kinds": {
+            "Y": "number"
+          },
+          "$note_y": "Y is the 4-bit shift written as a number (shl r2, r0, 13); 2026-10-28, was a register text",
+          "mode_is_selector": true
         },
         {
           "mnemonic": "frexp",

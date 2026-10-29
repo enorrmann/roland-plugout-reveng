@@ -72,14 +72,13 @@ class Policy(unittest.TestCase):
                 self.assertTrue(self.strict.assemble(source).ok,
                                 self.strict.assemble(source).errors)
 
-    def test_coefficient_register_form_needs_the_flag(self):
-        """the MAC that reads its coefficient from rC sets bit 9, which the
-        corpus shows but no measurement pins down: inferred, so opt-in."""
+    def test_coefficient_register_form_is_measured(self):
+        """the MAC that reads its coefficient from rC (bit 9): measured exact on the SYSTEM-8 master
+        (re/dspnative.py 2026-10-28), so it emits by default."""
         v = TABLE.mnemonics["mac_p1p2"]
-        self.assertEqual(v.status, "inferred")
+        self.assertEqual(v.status, "measured")
         src = "mac_p1p2 r0, r0, -r2, -r1, r2, r1   ; @0x0040"
-        self.assertFalse(self.strict.assemble(src).ok)
-        self.assertTrue(self.lax.assemble(src).ok)
+        self.assertTrue(self.strict.assemble(src).ok)
 
     def test_inferred_needs_the_flag(self):
         # spec 5.2 marks op2 mode 1 as "presumably imm16 [inferred]"
@@ -114,11 +113,11 @@ class Policy(unittest.TestCase):
         self.assertTrue(r.ok, r.errors)
         self.assertEqual(r.words, words)
 
-    def test_ambiguous_class_is_rejected(self):
-        # 0x040 and 0x098 share the MN core: without a hint this must not guess
+    def test_mac_class_defaults_to_the_measured_one(self):
+        # 0x040 and 0x098 share the MN core: the assembler takes 0x040, the class measured exact (re/dspnative.py)
         r = self.lax.assemble("mac_p1p2 r0, r0, -r2, -r1, r2, r1")
-        self.assertFalse(r.ok)
-        self.assertIn("ambiguous", r.errors[0][1])
+        self.assertTrue(r.ok, r.errors)
+        self.assertEqual(r.words, self.lax.assemble("mac_p1p2 r0, r0, -r2, -r1, r2, r1   ; @0x0040").words)
 
     def test_pinned_class_resolves_ambiguity(self):
         r = self.lax.assemble("mac_p1p2 r0, r0, -r2, -r1, r2, r1   ; @0x0040")

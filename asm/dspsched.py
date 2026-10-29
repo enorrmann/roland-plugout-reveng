@@ -46,6 +46,12 @@ OPS = {'mul', 'mad', 'addxy', 'subxy', 'add', 'min', 'max', 'mov', 'ph_wrap', 'p
 READS_DEST = {'mad', 'ymacd', 'add'}
 
 
+# MAC forms (measured exact 2026-10-28 / -29): register coefficient, and the immediate coefficient K (c1/c2/c3:
+# 16/24/32 bits, read at byte C of the slot array) with and without W
+MAC_FORMS = frozenset({'mac_p1w', 'mac_p1p2w', 'mac_p1p2', 'mac_p1p2wp2'} |
+                      {f'{b}c{k}' for b in ('mac_p1w', 'mac_p1p2w', 'mac_p1p2', 'mac_p1p2wp2') for k in (1, 2, 3)})
+
+
 def _native(mn, r):
     """the native ops (DSP_HARDWARE.md §5, measured exact on the SYSTEM-8 master with re/dspnative.py 2026-10-28):
     r = the operand registers in text order -> (registers written, registers read), or None for an unknown op.
@@ -67,13 +73,15 @@ def _native(mn, r):
         return {d}, set(r)
     if mn == 'sum8':                                     # rD <- rX + rY + rR
         return {d}, set(r[1:])
-    if mn in ('mac_p1w', 'mac_p1p2w', 'mac_p1p2', 'mac_p1p2wp2'):   # rD <- (+-) rX rY + rC rZ (+ rW)
+    if mn in MAC_FORMS:                                  # rD <- (+-) rX rY + c rZ (+ rW), c a register or a #K
         return {d}, set(r[1:])
+    if mn == 'sqrtsplit':                                # rY <- m, r(D+1) <- seed, r(D+3) <- sign 2^-k (2026-10-29)
+        return {(d + 1) & 7, (d + 3) & 7, r[1]}, {r[1]}
     return None
 
 
 NATIVE = {'shl', 'shr', 'shrn', 'floor', 'ceil', 'sign', 'expsplit', 'log2split', 'recipseed', 'atanhsplit', 'frexp',
-          'newton', 'add3', 'sum8', 'mac_p1w', 'mac_p1p2w', 'mac_p1p2', 'mac_p1p2wp2'}
+          'newton', 'add3', 'sum8', 'sqrtsplit'} | MAC_FORMS
 MAX_OPS, MAX_XFER = 3, 3
 
 _TABLE = []

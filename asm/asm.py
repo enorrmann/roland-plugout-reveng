@@ -21,9 +21,11 @@ Directives, each on the line before the instruction it changes:
     .words 0xNNNN ...    words kept as they are (a truncated tail)
 
 Immediates (spec 4.4): `#v@b:w` is a value read at byte b of the slot array,
-w bits wide. A MAC coefficient `#v` is read in order after Y's immediate, or
-at the byte `@b` when Y is a register. An immediate with no byte is placed by
-the assembler at the first byte where its bits agree with the stream.
+w bits wide. A MAC coefficient `#v@c` is read at byte c (its C field; + 8 in
+the `...r` variants, bit 9 set), Y a register or an immediate (measured
+2026-10-29, docs/DSP_ISA_DISCREPANCIES.md D8). An immediate with no byte is
+placed by the assembler at the first byte where its bits agree with the stream
+(a coefficient: bytes 0-7, written into C).
 
 Confidence policy is enforced **here**, not by the caller: a line whose
 variant is not in `Table.EMIT_DEFAULT` (exact, measured) is rejected unless
@@ -754,6 +756,9 @@ class Assembler:
                 # is already there (a word the slot array fixes counts too)
                 r.at = self._first_fit(lineno, r, arr, bitmap, size)
                 body[r.pos] = isa.put_bits(body[r.pos], r.spec, r.at)
+                if r.pos in positions:    # a MAC's C field is in its N word, a slot word: keep the array in step
+                    k = positions.index(r.pos)
+                    arr.slots[k] = slots_mod.Occupant(arr.slots[k].kind, body[r.pos], arr.slots[k].by)
             pos, cursor = layout.stream_bits(r.bits, cursor, refs,
                                              None if r.at is None else r.at * 8)
             for j, bit in zip(pos, r.bitstring):
@@ -808,8 +813,7 @@ class Assembler:
         holds that byte.
 
         byte None with a field: no byte was named, the layout pass chooses one.
-        byte None without a field: read in order after the previous immediate
-        (a MAC coefficient after Y's, spec 4.4); hidden-register loads too.
+        byte None without a field: hidden-register loads (byte 0).
         """
         form = u.form
         if form.form == "hidden_reg":
@@ -819,11 +823,11 @@ class Assembler:
         if form.form == "mac":
             words = [body[spots[id(u)][0]], body[spots[id(u)][1]]]
             if name == "C":
-                y_is_imm = any(n == "Y" for n, _ in u.imm_args())
-                if y_is_imm and arg.at_byte is None:
-                    return None, None
-                byte = arg.at_byte if arg.at_byte is not None else codec._bits_of(form, words, "C")
-                return byte, None
+                # the coefficient is read at byte C (+ 8 with bit 9, the ...r variants): with no byte named the
+                # layout pass chooses one (0-7) and writes it into C
+                if arg.at_byte is None:
+                    return None, (1, "C")
+                return arg.at_byte + (8 if (words[1] >> 9) & 1 else 0), None
             word = 1 if name == "W" else 0
             field = (word, name)
             if arg.at_byte is not None:
@@ -836,8 +840,11 @@ class Assembler:
 
     @staticmethod
     def _first_fit(lineno, r, arr, bitmap, size):
-        """the first byte at which an immediate's bits agree with the stream"""
-        for at in range(16):
+        """the first byte at which an immediate's bits agree with the stream (and fits the field that names it)"""
+        top = 16 if r.spec is None else min(16, 1 << (r.spec["msb"] - r.spec["lsb"] + 1))
+        # a coefficient (its field is in the N word) is not placed over the N words themselves
+        first = 2 * arr.n_words if r.spec is not None and r.spec.get("_word", 0) == 1 else 0
+        for at in range(first, top):
             ok = True
             for j, bit in zip(range(at * 8, at * 8 + r.bits), r.bitstring):
                 if j // 16 >= size:
@@ -886,10 +893,7 @@ class Assembler:
                 if not (isinstance(src, dict) and src.get("free")):
                     continue
                 if fname == "C" and u.variant.coef_bits:
-                    # free only when read in order after Y's immediate; a
-                    # coefficient read at a byte keeps that byte in C
-                    if not y_is_imm or imm["C"].at_byte is not None:
-                        continue
+                    continue              # C holds the byte the coefficient is read at
                 spec = u.form.field_spec(fname)
                 width = spec["msb"] - spec["lsb"] + 1
                 mask = ((1 << width) - 1) << spec["lsb"]

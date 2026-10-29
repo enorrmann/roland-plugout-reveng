@@ -1,21 +1,22 @@
-"""The C core (cchain.py / dspcore.c) against the Python model (chain.py / re/dspisa.py): bit-exact agreement.
+"""Tests of the C core (cchain.py / dspcore.c / dspdec.h), the DSP reference since 2026-10-29 (the Python model
+re/dspisa.py + chain.py was archived after the port was checked against it on the whole corpus: docs/EMULATOR.md §1.1).
 
     python3 test_core.py                 all tests
-    python3 test_core.py insn            only the tests whose name contains test_insn
+    python3 test_core.py insn            only the tests whose name contains insn
+    python3 test_core.py --update-golden write the golden file (only after a measured change of the semantics)
 
-* test_insn_corpus: every distinct instruction of the local corpus (work/corpus/*.bin, work/corpus_all/*.txt: Roland
-  programs, study only, never copied) as a one-instruction program on DSP2 of both slaves, from the same random
-  state (registers, flags, pending flags, hidden registers, banks 0/1/5, IOMD, parameters); after one sample every
-  register, flag, hidden register, memory word and latched MXM input must be equal, or both must fail.
-* test_jx3p_chain: Roland's JX-3P mains and DCO slots (engine/build/programs.h, local) with random bank-5 inputs,
-  sample by sample: registers and IOMD equal.
+* test_insn_golden: every distinct instruction of the local corpus (work/corpus/*.bin, work/corpus_all/*.txt: Roland
+  programs, study only, never copied) as a one-instruction program on DSP2, from two random states (registers,
+  flags, pending flags, hidden registers, banks 0/1/5, IOMD, parameters); the hash of the state after one sample
+  must equal the golden file work/golden_insn.txt (local, like the corpus; hashes only, no instruction words).
+* test_jx3p_chain: Roland's JX-3P mains and DCO slots (engine/build/programs.h, local) with random bank-5 inputs:
+  native code against the interpreter, sample by sample, the whole state.
 * test_native_corpus: every corpus program translated to native code (dspjit.py) against the interpreter, on DSP2
   from random states, a few samples: every register, flag, memory word equal (or both fail).
 * test_native_threads_jx3p: the JX-3P with native code and threads against the interpreter on one thread, 4000
   samples with gate-like bank-5 changes: IOMD and the whole state equal.
-* test_ours: v3 / v4 (ours) with a note, 300 samples: IOMD 6020 equal.
-* test_speed: the C core is at least 100 times faster than chain.py on v4; the JX-3P slave runs in real time
-  (native + threads).
+* test_ours: v3 / v4 (ours) with a note, 300 samples: IOMD 6020 audible, interpreter = native code.
+* test_speed: the JX-3P slave runs in real time (native + threads).
 """
 import os
 import random
@@ -23,14 +24,16 @@ import sys
 import time
 import traceback
 
+import hashlib
+
 import cchain
 import chain
-import dspisa
 import listing
 import voices
 
 ROOT = chain.ROOT
 CORPUS = [os.path.join(ROOT, 'work', 'corpus'), os.path.join(ROOT, 'work', 'corpus_all')]
+GOLDEN = os.path.join(ROOT, 'work', 'golden_insn.txt')
 
 
 class Skip(Exception):
@@ -56,7 +59,7 @@ def rnd_value(r):
 
 
 class State:
-    """one random starting state, applied identically to a chain.Slave and a cchain.Slave"""
+    """one random starting state for a cchain.Slave"""
 
     POOL = []
 
@@ -73,30 +76,12 @@ class State:
                                [rnd_value(r) for _ in range(0x400)]))
         self.bank0, self.bank1, self.bank5, self.iomd, self.params = r.choice(State.POOL)
 
-    def py(self, s, n):
-        d = s.d[n]
-        d.regs, d.flags, d.pending, d.hidden = list(self.regs), self.flags, dict(self.pending), dict(self.hidden)
-        d.bank0[:], d.bank1[:] = list(self.bank0), list(self.bank1)
-        d.bank5 = dict(enumerate(self.bank5))
-        s.iomd = {0x6000 + i: v for i, v in enumerate(self.iomd)}
-        s.params = {0xC000 + i: v for i, v in enumerate(self.params)}
-
     def c(self, s, n):
         d = s.d[n]
         d.set_state(self.regs, self.flags, self.pending, self.hidden)
         d.bank0[:], d.bank1[:], d.bank5[:] = self.bank0, self.bank1, self.bank5
         s.iomd.a[:0x100] = self.iomd
         s.params.a[:0x400] = self.params
-
-
-def snapshot_py(s, only=None):
-    out = []
-    for d in (s.d if only is None else [s.d[only]]):
-        flags = d.flags or dspisa.CONTEXT_BITS[dspisa.CONTEXT] + dspisa.HIGH_BITS
-        out.append((d.regs, flags, d.pending, {k: d.hidden[k] for k in range(4, 8)}, list(d.bank0), list(d.bank1),
-                    [d.bank5.get(i, 0.0) for i in range(0x400)], dict(sorted(d.mxm_in.items()))))
-    mx = [dict(sorted(d.mxm_in.items())) for d in s.d]
-    return out, mx, [s.iomd.get(0x6000 + i, 0.0) for i in range(0x2000)]
 
 
 def snapshot_c(s, only=None):
@@ -137,27 +122,26 @@ def first_diff(a, b, path=''):
     return None
 
 
-def one_instruction(ins, st, dsp=2):
-    """(error or None) for one instruction from state st on DSP `dsp`"""
-    p = chain.Program(ins, 'one')
-    progs = {dsp: (p, [])}
-    res = []
-    for mod, apply, snap in ((chain, st.py, snapshot_py), (cchain, st.c, snapshot_c)):
-        s = mod.Slave(progs, chain.Model()) if mod is chain else mod.Slave(progs, native=False, threads=False)
-        apply(s, dsp)
-        try:
-            s.step()
-            res.append(snap(s, dsp))
-        except (RuntimeError, ValueError, KeyError, IndexError, StopIteration) as e:
-            res.append(('error', type(e).__name__))
-    if res[0][0] == 'error' or res[1][0] == 'error':
-        return None if res[0][0] == res[1][0] == 'error' else f'only one fails: {res[0][:1]} / {res[1][:1]}'
-    return first_diff(res[0], res[1])
+def one_instruction(ins, st, dsp=2, native=False):
+    """the state after one instruction from state st on DSP `dsp` (snapshot_c), or ('error', name)"""
+    s = cchain.Slave({dsp: (chain.Program(ins, 'one', strict=False), [])}, native=native, threads=False)
+    st.c(s, dsp)
+    try:
+        s.step()
+        return snapshot_c(s, dsp)
+    except (RuntimeError, ValueError) as e:
+        return ('error', type(e).__name__)
+
+
+def golden_line(ins, results):
+    """hashes only (the corpus is Roland's code, it is not copied): instruction, results"""
+    h = lambda x: hashlib.sha1(x.encode()).hexdigest()[:16]  # noqa: E731
+    return h(' '.join(f'{w:04x}' for w in ins)) + ' ' + h(repr(results))
 
 
 def test_quant():
-    """the branch-free quant of dspcore.h against its plain form (C, every exponent, edges) and against
-    dspisa.quant (Python, random values of the ranges the DSP uses)"""
+    """the branch-free quant of dspcore.h against its plain form (C, every exponent, edges) and against the
+    definition (DSP_HARDWARE.md §3, exact rationals: random values of the ranges the DSP uses)"""
     import ctypes as C
     L = cchain.lib()
     bad = C.c_double()
@@ -167,10 +151,25 @@ def test_quant():
     for _ in range(200000):
         v = r.choice([r.uniform(-1, 1), r.uniform(-600, 600), r.uniform(-1e-3, 1e-3), r.uniform(-40, 40)])
         v = r.choice([v, float.fromhex(v.hex())])
-        assert repr(L.sl_quant(v)) == repr(dspisa.quant(v)), v
+        assert repr(L.sl_quant(v)) == repr(quant_def(v)), v
     for e in range(-40, 12):
         for v in (2.0 ** e, -(2.0 ** e), 2.0 ** e * (1 - 2 ** -53), 2.0 ** e * (1 + 2 ** -52)):
-            assert repr(L.sl_quant(v)) == repr(dspisa.quant(v)), v
+            assert repr(L.sl_quant(v)) == repr(quant_def(v)), v
+
+
+def quant_def(v):
+    """RAW encoding by its definition: the smallest s = 0..3 with floor(|v| 2^(32-4s)) < 2^29, truncated toward
+    zero; |v| >= 512 kept"""
+    from fractions import Fraction
+    import math
+    if v == 0:
+        return v
+    m = Fraction(abs(v))
+    for s in range(4):
+        M = math.floor(m * 2 ** (32 - 4 * s))
+        if M < 2 ** 29:
+            return math.copysign(float(Fraction(M, 2 ** (32 - 4 * s))), v)
+    return v
 
 
 def test_pymod():
@@ -183,21 +182,22 @@ def test_pymod():
     assert n == 0, (n, bad.value)
 
 
-def test_insn_corpus():
+def test_insn_golden():
     if not any(os.path.isdir(d) for d in CORPUS):
         raise Skip('work/corpus missing')
     r = random.Random(7)
-    bad, n = [], 0
+    lines = []
     for ins in corpus_instructions():
-        n += 1
-        for _ in range(2):
-            e = one_instruction(ins, State(r))
-            if e:
-                bad.append((ins, e))
-                break
-    for ins, e in bad[:10]:
-        print('   ', ' '.join(f'{w:04x}' for w in ins), e)
-    print(f'    {n} distinct instructions, {len(bad)} differ')
+        lines.append(golden_line(ins, [one_instruction(ins, State(r)) for _ in range(2)]))
+    if UPDATE_GOLDEN:
+        open(GOLDEN, 'w').write('\n'.join(lines) + '\n')
+        print(f'    {len(lines)} instructions written to {GOLDEN}')
+        return
+    if not os.path.exists(GOLDEN):
+        raise Skip(f'{GOLDEN} missing (--update-golden)')
+    gold = dict(x.split() for x in open(GOLDEN).read().split('\n') if x)
+    bad = [x for x in lines if gold.get(x.split()[0]) != x.split()[1]]
+    print(f'    {len(lines)} distinct instructions, {len(bad)} differ from the golden file')
     assert not bad
 
 
@@ -217,7 +217,7 @@ def test_jx3p_chain(n=12):
         raise Skip('engine/build/programs.h missing (run engine/build.sh)')
     r = random.Random(3)
     progs = jx_programs()
-    sp, sc = chain.Slave(progs), cchain.Slave(progs)       # native code (single samples: one thread)
+    sp, sc = cchain.Slave(progs, native=False, threads=False), cchain.Slave(progs)   # interpreter / native code
     for dsp in range(6):
         for i in range(0x80):
             v = r.uniform(-1, 1)
@@ -226,7 +226,7 @@ def test_jx3p_chain(n=12):
     for t in range(n):
         sp.step()
         sc.step()
-        e = first_diff(snapshot_py(sp), snapshot_c(sc))
+        e = first_diff(snapshot_c(sp), snapshot_c(sc))
         assert e is None, f'sample {t}: {e}'
     print(f'    {n} samples, {sc.ninstr // n} instructions per sample, equal')
 
@@ -298,7 +298,8 @@ def test_native_threads_jx3p(n=4000):
 
 def test_ours():
     for which in ('v3', 'v4'):
-        sp, sc = chain.Slave(voices.programs(which)), cchain.Slave(voices.programs(which))
+        sp = cchain.Slave(voices.programs(which), native=False, threads=False)
+        sc = cchain.Slave(voices.programs(which))
         ep, ec = voices.Engine(sp), voices.Engine(sc)
         for e in (ep, ec):
             e.pitch(1, 69)
@@ -306,36 +307,6 @@ def test_ours():
         a = [(sp.step(), sp.iomd.get(0x6020, 0.0))[1] for _ in range(300)]
         b = sc.run(300, (0x6020,))[0x6020]
         assert a == b and chain.peak(a) > 0.9, which
-
-
-def test_s1_shared5(n=12):
-    """Model.shared5 / own_params (SYSTEM-1 slave A + B with one bank 5, a bank 6 per DSP, master B): the C core
-    against chain.py sample by sample, with C-S1SY step 11 (examples/system_1_synth) and a note playing"""
-    os.environ['STEP'] = '11'
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'system_1_synth'))
-    import make_synth as ms
-    progs = ms.sources()
-    model = chain.Model(order=(0, 1, 2), shared5=((0, 1),), own_params=(0, 1, 2))
-    panel = dict(ms.panel_defaults(), lfo_pitch=200, lfo_filt=60, lfo_amp=90, cutoff=150, res=120)
-    sl = []
-    for mk in (chain.Slave, cchain.Slave):
-        P = {k: chain.Program(progs[k][0], k) for k in ('s1m0', 's1m1', 's1mm1')}
-        s = mk({0: (P['s1m0'], []), 1: (P['s1m1'], []), 2: (P['s1mm1'], [])}, model)
-        b5 = ms.sim_b5(panel)
-        ms.sim_event(b5, 0, 69)
-        for d, prm in zip(s.d, ms.sim_params(b5, panel)):
-            for k, v in prm.items():
-                d.params[k] = v
-        for k, v in b5.items():
-            s.d[0].bank5[k & 0x3FF] = v
-        sl.append(s)
-    py, c = sl
-    for t in range(n):
-        py.step()
-        c.step()
-        for dn in range(3):
-            assert [py.d[dn].bank5.get(i, 0.0) for i in range(0x400)] == list(c.d[dn].bank5), (t, dn)
-        assert py.iomd.get(0x6006, 0.0) == c.iomd.get(0x6006, 0.0), t
 
 
 def test_s1_pipeline(n=6000):
@@ -433,19 +404,11 @@ def test_s8_poly_opt(n=12000):
 
 
 def test_speed():
-    progs = voices.programs('v4')
-    sp = chain.Slave(progs)
-    t0 = time.perf_counter()
-    for _ in range(20):
-        sp.step()
-    tp = (time.perf_counter() - t0) / 20
-    sc = cchain.Slave(progs)
+    sc = cchain.Slave(voices.programs('v4'))
     t0 = time.perf_counter()
     sc.run(20000)
     tc = (time.perf_counter() - t0) / 20000
-    mips = sc.ninstr / 20000 / tc / 1e6
-    print(f'    chain.py {tp * 1e3:.2f} ms/sample, C {tc * 1e6:.2f} us/sample: {tp / tc:.0f}x; {mips:.0f} M instr/s')
-    assert tp / tc >= 100
+    print(f'    v4: C {tc * 1e6:.2f} us/sample, {sc.ninstr / 20000 / tc / 1e6:.0f} M instr/s')
     if not listing.available():
         return
     s = cchain.Slave(jx_programs())
@@ -476,5 +439,8 @@ def main(sel):
     return 1 if bad else 0
 
 
+UPDATE_GOLDEN = False
+
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))
+    UPDATE_GOLDEN = '--update-golden' in sys.argv
+    sys.exit(main([a for a in sys.argv[1:] if not a.startswith('--')]))

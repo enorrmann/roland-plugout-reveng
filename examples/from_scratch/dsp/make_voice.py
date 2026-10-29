@@ -6,7 +6,7 @@
       VCA       output = saw * envelope, stored in IOMD 6020 (the word that reaches the audio output)
 
     python3 make_voice.py          -> voice.s (source) and voice.hex (words, execution order)
-    python3 make_voice.py --sim    -> run the words in re/dspisa.py with a gate pulse and print the result
+    python3 make_voice.py --sim    -> run the words in the C reference (emu/dspref.py) with a gate pulse and print the result
 """
 import math
 import os
@@ -86,19 +86,20 @@ def words(text):
 
 def simulate(w, gate, pitch, n):
     import dspdis
-    import dspisa
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu'))
+    import dspref
     ins = [i for _, i in dspdis.instructions(w)]
-    mem = {PITCH: pitch}
+    m = dspref.Machine()
+    mem = m.mem
+    mem[PITCH] = pitch
     out, env, lfo = [], [], []
     for t in range(n):
         mem[GATE] = gate(t)
         for st in (ENV, LFO, PHASE):
             if st in mem:
                 mem[st + 1] = mem[st]
-        regs = [0.0] * 8
-        for x in ins:
-            dspisa.JUMP = None
-            regs, mem, _ = dspisa.run(list(x), regs, mem)
+        m.regs = [0.0] * 8
+        m.run_program(ins)
         out.append(mem.get(OUT, 0.0))
         env.append(mem.get(ENV, 0.0))
         lfo.append(mem.get(LFO, 0.0))

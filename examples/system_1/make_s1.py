@@ -175,40 +175,31 @@ def simulate(progs, notes, n=9600):
     """per sample: slave A, slave B, master B. Bank 5 is shared by A and B of one BMC; the slave's IOMD words are
     read by the master in the same sample (the latency does not matter here). Returns master A118 per sample."""
     import dspdis
-    import dspisa
+    sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 'emu'))
+    import dspref
     code = {k: [i for _, i in dspdis.instructions(progs[k][0])] for k in ('s1m0', 's1m1', 's1mm1')}
     sb5, mb5 = {}, {}                                   # bank 5 of the slave pair / of the master pair
     for v in range(NV):
         sb5[PITCH[v]] = (notes[v] - 12) / 12.0 if v < len(notes) else 0.0
         sb5[GATE[v]] = 1.0 if v < len(notes) else 0.0
-    mem_a, mem_b, mem_m = {}, {}, {}
+    M = {k: dspref.Machine() for k in ('s1m0', 's1m1', 's1mm1')}
+    mem_a, mem_b, mem_m = (M[k].mem for k in ('s1m0', 's1m1', 's1mm1'))
     out = []
     for _ in range(n):
         for p in PHASE:                                  # bank 0 ring: R written now is read at R + 1 next sample
             mem_a[p + 1] = mem_a.get(p, 0.0)
         mem_b[0xC000] = 1.0
         mem_m[0xC000 + M_VOLUME] = 1.0
-        for key, mem, b5 in (('s1m0', mem_a, sb5), ('s1m1', mem_b, sb5)):
-            m = dict(mem)
-            m.update(b5)
-            regs = [0.0] * 8
-            for x in code[key]:
-                dspisa.JUMP = None
-                regs, m, _ = dspisa.run(list(x), regs, m)
-            for k, val in m.items():
-                if 0xA000 <= k < 0xC000:
-                    b5[k] = val
-            mem.clear()
-            mem.update(m)
-        m = dict(mem_m)
+        for key, b5 in (('s1m0', sb5), ('s1m1', sb5)):
+            M[key].mem.update(b5)
+            M[key].regs = [0.0] * 8
+            M[key].run_program(code[key])
+            b5.update(M[key].mem.bank5())
         for a in [OUT_L, OUT_R]:
-            m[a] = mem_b.get(a, 0.0)
-        regs = [0.0] * 8
-        for x in code['s1mm1']:
-            dspisa.JUMP = None
-            regs, m, _ = dspisa.run(list(x), regs, m)
-        mem_m = m
-        out.append(m.get(M_OUT[0], 0.0))
+            mem_m[a] = mem_b.get(a, 0.0)
+        M['s1mm1'].regs = [0.0] * 8
+        M['s1mm1'].run_program(code['s1mm1'])
+        out.append(mem_m.get(M_OUT[0], 0.0))
     return out
 
 

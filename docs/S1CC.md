@@ -135,9 +135,16 @@ Intrínsecos:
 | `s1_param(nombre, i)` | valor i de una tabla `S1_PARAM` |
 | `s1_export(i, v)` / `s1_import(i)` | un valor de `S1_DSP_A` a `S1_DSP_B` por la ranura `i` (una palabra del banco 5 por voz); cuándo llega: §3.1 |
 | `s1_wrap(x)`, `s1_clamp(x)`, `s1_tri(x)` | x envuelto a [−1, 1) / recortado a [−1, 1] / 1 − 2·\|wrap(−x − 1,5)\|: una op cada uno (`ph_wrap` / `ph_clamp` / `ph_tri`) |
-| `s1_exp2(x)` | 2ˣ (`exp2` del DSP: 10 ops más las cuadraturas que pida el rango) |
+| `s1_exp2(x)` | 2ˣ (Taylor + cuadraturas, 10 ops; con más de ±8 octavas de rango, `expsplit` + polinomio, 10 ops: §7.6) |
+| `s1_floor(x)`, `s1_ceil(x)`, `s1_sign(x)`, `s1_abs(x)` | ops nativas de una op: piso / techo (SFU, \|x\| < 511), signo −1 / 0 / +1 (SFU), \|x\| (§7.6) |
+| `s1_recip(x)` | 1/x: `recipseed` + 3 `newton`, 4 ops, error 10⁻⁸ (lo mismo que hace `a / x`; §7.6) |
+| `s1_exp(x)`, `s1_log2(x)` | eˣ (= `s1_exp2(x / ln 2)`); log₂ x para x > 0: `log2split` + polinomio de grado 6, 9 ops, 5·10⁻⁶ octavas (§7.6) |
+| `s1_ldexp(x, k)` | x·2ᵏ con k constante: gratis (cambia la escala, §7.1); si hay que materializarlo, un `shl` / `shr` (§7.6) |
+| `s1_sum3(a, b, c)` | a + b + c en una op (`sum8`) cuando los tres son registros (§7.6) |
+| `s1_mac2(a, b, c, d, e)` | a·b + c·d + e en una op de la MAC (dos productos); `e` puede ser 0. Un factor constante va como coeficiente inmediato de la MAC (un registro menos); dos, también. Con pocos registros, `mul` + `mad` (§7.6) |
+| `s1_sqrt(x)`, `s1_rsqrt(x)` | √x, 1/√x para x > 0 (E608): `sqrtsplit` + 2 pasos de Newton, 11 / 13 ops, 2·10⁻⁷ (§7.6) |
 | `s1_range(x, lo, hi)` | x, declarando su rango (cuando el perfilado no lo ve) |
-| `s1_dt()`, `s1_rdt()` | f/96000 de la nota (paso de una fase 0…1) y su inverso. El anfitrión los escribe por voz desde tablas por nota (SYSTEM-S1CC: `A040+v`, `A048+v`; `s1_rdt` guardado /16384): dos cargas, sin `exp2` ni división. Es la forma de tener `1/dt` (polyBLEP) sin `recipseed` (W910) |
+| `s1_dt()`, `s1_rdt()` | f/96000 de la nota (paso de una fase 0…1) y su inverso. El anfitrión los escribe por voz desde tablas por nota (SYSTEM-S1CC: `A040+v`, `A048+v`; `s1_rdt` guardado /16384): dos cargas, sin `exp2` ni división. Es la forma de tener `1/dt` (polyBLEP) sin dividir (`s1_recip` cuesta 4 ops, §7.6) |
 | `S1_NOTE_RANGE(lo, hi)` | (declaración, a nivel de archivo) las notas MIDI a las que se toca la voz; el perfilado sólo usa esas (por defecto 0…127). Lo que sólo pasa fuera del rango (los dos bordes de un pulso en una muestra, un límite de altura) no se compila (W908 / W909) |
 | `s1_env(i)` | solo en `S1_DSP_B`: la envolvente `i` del anfitrión, 0…1 (SYSTEM-S1CC: 0 = AMP, 1 = FILTER; [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.1). En la referencia nativa y en `check`, la puerta |
 | `s1_color(i)` | solo en `S1_DSP_A`: OSC1 (0) / OSC2 (1) COLOR, 0…1, con su fuente COLOR MOD (manual = la perilla; LFO, PITCH ENV, FILTER ENV, AMP ENV, SUB OSC = perilla × fuente; SYSTEM-S1CC las arma en ensamblador, [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.2). Rango declarado 0…1 sea cual sea el perfil (el perfilado lo barre 0…1 en cada nota). En la referencia nativa y en `check`, la perilla: `color0=K` / `color1=K` (128 por defecto) |
@@ -451,16 +458,16 @@ Cada valor V del programa vive en un registro r con una escala s y un desplazami
   [−1, 1) (s = 1/2, o = −1): el wrap es un `ph_wrap` y la carga y el guardado no convierten. Arranca en media vuelta.
 * **Kernel.** Elimina ops idénticas repetidas (CSE) y no suma offsets menores que 2^−26 de la escala; una suma con
   una constante fuera de ±512 se hace en pasos (antes E701).
-* **Recíproco.** Compartido por divisor (`recipCache`). Con `recipseed` (W910: no probado en el SYSTEM-1) por
-  defecto; `--no-recipseed`: normalización por octavas con comparaciones `ph_clamp`, semilla cúbica y Newton
+* **Recíproco.** Compartido por divisor (`recipCache`). Con `recipseed` + 3 `newton` (§7.6) por defecto; `--no-recipseed`: normalización por octavas con comparaciones `ph_clamp`, semilla cúbica y Newton
   (`recipNorm`, experimental: menos exacto, más ops).
 
 ### 7.3 Funciones y divisiones
 
 | función | cómo |
 |---|---|
-| `exp`, `exp2`, `pow(c, x)` | `exp2` del DSP (exacto salvo el polinomio de Taylor: 1,2 cents a \|x\| = 8), centrado en el rango del argumento |
-| `x / y`, `1/y` | si y viene de un `exp2` (`s1_increment`, frecuencias): 2^(−argumento), exacto. Si no: semilla ajustada (grado ≤ 4) y pasos de Newton b ← b·(2 − y·b) hasta un error relativo < 10⁻⁷ |
+| `exp`, `exp2`, `pow(c, x)` | rango hasta ±8 octavas: Taylor de grado 4 de e^(x·ln2/16) y 4 cuadraturas, centrado en el rango del argumento (el error baja con x⁵). Más ancho (hasta 20 octavas): `expsplit` + polinomio de grado 6 (§7.6), 10 ops, 6·10⁻⁸, en vez de una cuadratura más por cada duplicación del rango |
+| `x / y`, `1/y` | si y viene de un `exp2` (`s1_increment`, frecuencias): 2^(−argumento), exacto. Si no: y' = y/2ᵏ (k centra el rango en octavas) y `recipseed` + 3 `newton` (§7.6), 4 ops, 10⁻⁸. `--no-recipseed`: normalización por octavas con `mul`/`mad` (más ops) |
+| `floor` (`floorf`), `s1_floor`, `s1_ceil` | SFU `floor` / `ceil`, una op, si el rango perfilado está dentro de ±511; si no, x − (x mod 1) |
 | `sin`, `cos`, `tan`, `tanh`, `sinh`, `cosh`, `log`, `log2`, `log10`, `sqrt`, `atan`, `asin`, `acos`, `cbrt`, `pow(x, c)` | ajuste analítico en el rango perfilado del argumento (§6). El argumento puede depender de cualquier número de valores |
 | otras | isla (§4.3) |
 
@@ -492,6 +499,92 @@ El anfitrión cambia cada marcador por una dirección (`tools/s1kernel.py place`
   [2⁻¹², 256] que no es potencia de 2 se parte en pasos.
 * **Limpieza.** Se eliminan los resultados que nadie usa, y se pone un relleno `mov rS, rS` tras una carga cuyo
   registro usa la línea siguiente.
+
+### 7.6 Ops nativas del DSP
+
+Además de las ops de siempre (`mul`, `mad`, `addxy`, `ph_wrap`…), el DSP tiene unidades especiales (SFU, la MAC de
+dos productos, desplazamientos, suma de tres operandos; [DSP_HARDWARE.md](DSP_HARDWARE.md) §5). Todas las de esta
+tabla se midieron **exactas** en el maestro del SYSTEM-8 (`examples/from_scratch/re/dspnative.py`, 2026-10-28 y -29:
+24–96 casos al azar por op, con y sin instrucción vacía antes de leer el resultado, contra el emulador; el
+resultado se puede usar en la instrucción siguiente). En el SYSTEM-1 ninguna está probada todavía: el PLUG-OUT
+`NATIVE-CHECK` (`sdk/s1cc/examples/native_ops/native_check.c`) las prueba de oído.
+
+**Dónde está cada parte:**
+
+| qué | archivo |
+|---|---|
+| declaración y una línea por intrínseco | `sdk/s1cc/include/s1dsp.h` (bloque «Native ops») |
+| referencia nativa (lo que da el C en el PC: `check`, perfilado) | `sdk/s1cc/runtime/s1rt.c` |
+| reconocimiento en el grafo | `sdk/s1cc/src/graph.cpp` (`kS1Calls`, nodos `Op` con el nombre del intrínseco) |
+| bajada (rango del resultado, cuándo usar la op nativa) | `sdk/s1cc/src/lower.cpp` (`s1_floor` … `s1_mac2`, `recip1`, `exp2LV`, `log2LV`) |
+| emisión y registros | `sdk/s1cc/src/kernel.cpp` (`Kernel::recip`, `expsplit`, `log2split`, `sqrtsplit`, `exp2split`, `floor`, `ceil`, `sign`, `shift`, `mac2`, `mac2k`, `macOf`, `sum3`; op `multi` para las que escriben más de un registro; `sqrtsplit` busca r(b+1) y r(b+3) libres) |
+| qué registros lee y escribe cada una (para el planificador) | `asm/dspsched.py` (`_native`) |
+| codificación | `asm/isa.json` (formas SFU con el bit 3 de Y, `floor`, `shl` con el desplazamiento como número, MAC de coeficiente en registro e inmediato `measured`; el ensamblador ubica el coeficiente inmediato en un byte 0–7 y lo escribe en C) |
+| semántica en el emulador | `examples/from_scratch/emu/dspcore.h` (la referencia), `dspdec.h`, `dspjit.py` |
+
+**Intrínsecos** (todos `float`, funciones puras; se usan como cualquier función de C):
+
+| intrínseco | op del DSP | costo | límites |
+|---|---|---|---|
+| `s1_floor(x)`, `s1_ceil(x)` | SFU `floor` / `ceil` | 1 op | \|x\| < 511 (si no, la forma vieja) |
+| `s1_sign(x)` | SFU `sign` | 1 op | −1, 0, +1 |
+| `s1_abs(x)` | \|x\| (unidad B) | 1 op | — |
+| `s1_recip(x)` | `recipseed` + 3 × `newton` | 4 ops | error 10⁻⁸; x se escala por 2ᵏ para que \|x'\| ≥ 2⁻⁹ y 1/x' ≤ 256; rango perfilado de más de 16 octavas: W904 |
+| `s1_exp2(x)`, `s1_exp(x)` | Taylor (≤ ±8 octavas) o `expsplit` + grado 6 | 8–10 ops | resultado < 512 (2⁹); rango del argumento ≤ 20 octavas para `expsplit` |
+| `s1_log2(x)` | `log2split` + grado 6 en m − 1 | 9 ops | x > 0 en todo el perfil (E607); 5·10⁻⁶ octavas |
+| `s1_ldexp(x, k)` | ninguna (escala) o `shl` / `shr` / `shrn` | 0–1 op | k constante (E606); `shl` envuelve en complemento a 2 si pasa de ±512 |
+| `s1_sum3(a, b, c)` | `sum8` | 1 op | los tres en registros |
+| `s1_mac2(a, b, c, d, e)` | MAC `mac_p1p2` / `mac_p1w`; con un factor constante `mac_p1p2c3` / `mac_p1wc3` (coeficiente inmediato de 32 bits, en el byte C del área de slots); con dos, Y inmediata también | 1 op | un registro por operando no constante + 1 (si no, `mul` + `mad`); W911 si el resultado puede pasar de ±512 |
+| `s1_sqrt(x)`, `s1_rsqrt(x)` | `sqrtsplit` (m ∈ [1, 4), semilla de 9 bits, ±2⁻ᵏ) + 2 Newton (cada uno 3 `mul` + una MAC con inmediatos) | 11 / 13 ops | x > 0 en todo el perfil (E608); 2·10⁻⁷; `s1_rsqrt` usa `s1_recip` de 2⁻ᵏ |
+
+```c
+#include "s1dsp.h"
+static float ph;
+S1_DSP_A {
+    float p = ph + s1_dt();
+    p -= s1_floor(p);                         /* frac en una op */
+    ph = p;
+    float g = s1_exp2(4.0f * s1_color(0) - 2.0f);   /* 2^-2 .. 2^2 */
+    float w = s1_mac2(p, g, 1.0f - p, s1_color(1), 0.0f);  /* p g + (1 - p) c1: una op */
+    return w * s1_recip(1.0f + g);            /* 1 / (1 + g): 4 ops */
+}
+```
+
+**Lo que s1cc hace solo** (sin llamar a nada; `--no-native` lo apaga, salvo `shl` y la división):
+
+* multiplicar por una constante de más de 256 → `shl` con la potencia de 2 (unidad B, una op) y, si hace falta,
+  un `mul` por el resto en [1, 2). Antes eran `mul #256` encadenados (el BLEP de los polyBLEP: `mul #256; mul #32`);
+* `x / y` con y variable → `recipseed` + 3 `newton`;
+* `floorf` → SFU `floor`;
+* `exp2` / `exp` / `pow(c, x)` de rango ancho → `expsplit`;
+* **fusión en la MAC** (2026-10-29; `--no-fuse-mac` la apaga): `acc + x·y` con `acc` hecho por un `mul`, y la suma
+  de dos productos, salen en una op de la MAC en vez de `mul` + `mad` / `mul` + `mul` + `addxy`. Sólo formas medidas:
+  Y y C registros, Y registro con K inmediato, Y y K inmediatos (no Y inmediata con C registro). Si el producto
+  se usa también en otro lado, queda el `mul` y la MAC no ahorra nada.
+
+**`recipseed` pisa su entrada.** La medición mostró que `recipseed rD, rY` deja N = ±2⁻ᵉ en rD, la semilla F ≈ 1/m
+en rD+1 **y m en rY**. La bajada vieja de la división volvía a leer y después de `recipseed` (`m = y·N`), es decir
+leía m: el resultado estaba mal en el equipo y bien en el emulador, que no lo modelaba (los clicks de BRAIDS-CSAW
+del 2026-10-27, W910). Ahora `Kernel::recip` usa esos tres registros como los espera `newton` (división de
+Goldschmidt, la de Roland) y el asignador copia y antes si se lee después (op `multi` con `clobber`). W910 ya no se
+emite.
+
+**Verificar en el equipo** (SYSTEM-1, una sola vez por op nueva):
+
+```sh
+sdk/s1cc/s1cc build sdk/s1cc/examples/native_ops/native_check.c --regs 0,1,2,3,4,5,6,7 -o sdk/s1cc/build/native_check --check
+KERNEL=sdk/s1cc/build/native_check NAME=NATIVE-CHECK sh examples/system_s1cc/build.sh
+python3 tools/plugout_tool.py install plugins/NATIVE-CHECK --slot 1 --force --no-patches -y
+```
+
+Cada op se compara con una identidad que no la usa (1/x·x = 1, exp(log₂x·ln2) = x, piso + fracción = y,
+signo(x)·x = \|x\|, MAC contra a·b + c·d + e, `sum8` contra dos sumas, `shl` contra una multiplicación,
+log₂(2ᵗ) = t sobre 18 octavas con `expsplit`, techo(y) + piso(−y) = 0). La voz es una sierra × (1 − clamp(64·error)):
+sierra limpia = bien; más baja, muda o áspera = alguna op mal. OSC1 COLOR elige qué ops entran: 0–27 todas, después
+una cada 28 pasos (28 `s1_recip`, 56 `s1_log2` + `s1_exp`, 84 `s1_floor`, 112 `s1_sign`, 140 `s1_mac2`,
+168 `s1_sum3`, 196 `shl`, 224 `expsplit` + `s1_ceil`). Si el equipo se cuelga al elegirlo, es una op o un grupo que
+el SYSTEM-1 no acepta: apagar y prender, y avisar. En el emulador el PLUG-OUT entero da SNR 99 dB contra la
+referencia nativa (`make_s1cc.py --sim`).
 
 ## 8. Diferencias con el C, por diseño
 
@@ -739,6 +832,9 @@ preferencia:
 | `E601` | `OP: operand N must be a constant` | desplazamiento (`<<`, `>>`) por una cantidad variable; división o resto entero por una variable que no quedó en una isla | desplazar por constante; para `x << n` variable, `x * s1_exp2(n)` en float |
 | `E603` | `'or' with a constant is not supported outside a tabulated function` | `x \| c` con `x` de varias fuentes | `x + c` si los bits no se pisan; si no, que dependa de un valor (isla) |
 | `E604` | `compare 'P' not supported` | predicado de comparación raro (`ord`, `uno`: chequeos de NaN) | quitar los chequeos de NaN: el DSP no tiene NaN |
+| `E606` | `s1_ldexp: the exponent must be a constant` | `s1_ldexp(x, k)` con k variable | k constante; para k variable, `x * s1_exp2(k)` |
+| `E607` | `s1_log2: the argument must stay above 0` | el rango perfilado del argumento llega a 0 o es negativo | `s1_range` o `fmaxf(x, eps)` en el C |
+| `E608` | `s1_sqrt: the argument must stay above 0` (o `s1_rsqrt`) | el rango perfilado del argumento llega a 0 o es negativo (`sqrtsplit` no escribe nada con 0) | `s1_range` o `fmaxf(x, eps)` en el C |
 | `E605` | `operation 'OP' not supported` | operación del IR sin bajada en `lower.cpp` (enteros de más de 64 bits, operaciones de bits raras) | reescribirla con operaciones de §7.2 |
 | `E116` | `s1_import(i) without an s1_export(i)` | `S1_DSP_B` importa un índice que `S1_DSP_A` nunca exporta | agregar el `s1_export(i, v)` |
 | `E117` | `s1_env in S1_DSP_A` | las envolventes del anfitrión corren en el DSP B | usar `s1_env` en `S1_DSP_B`; para que A dependa de una envolvente, calcularla en C ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md)) |
@@ -755,7 +851,8 @@ preferencia:
 | `E702` | `kernel: a multiply by a non-finite constant` / `a non-finite constant` | un rango sin límite (división por un valor que llega a 0, `log(0)`) | `s1_range`, o proteger la división en el C (`max(y, eps)`) |
 | `E703` | `kernel: exp2 of a value spanning more than 2^11` | el argumento de `exp2` / `exp` / `pow(c, x)` cubre más de 2048 octavas | limitar el argumento (`s1_range` o `s1_clamp`) |
 | `E704` | `kernel: out of registers (N usable) even with spilling` | demasiados valores vivos a la vez | más registros con `--regs` si el programa anfitrión lo permite, o partir el cálculo entre `S1_DSP_A` y `S1_DSP_B` |
-| `E705`, `E706` | `kernel: value read before it is defined` / `no free register pair for recipseed` | error interno | informar con el fuente y `--debug` |
+| `E705`, `E706` | `kernel: value read before it is defined` / `no free register pair for recipseed` | error interno (E706: con 4 registros o menos puede faltar el par rD, rD+1 de `recipseed`) | informar con el fuente y `--debug`; E706: más registros con `--regs` |
+| `E707` | `kernel: the argument of OP is still live` | error interno: una op nativa que pisa su entrada (`recipseed`, `expsplit`, `log2split`) recibió un valor que se lee después sin la copia previa | informar con el fuente y `--debug` |
 
 #### 9.2.9 Avisos
 
@@ -772,7 +869,7 @@ El build termina, pero el resultado puede diferir del C. `s1cc check` mide cuán
 | `W907` | `state 'v' starts at 0 in the ring (...)` | con `--no-exact-init`, la palabra de estado no arranca en su valor inicial | quitar `--no-exact-init` |
 | `W908` | `DSP S: N values no profiling scenario computed (a branch none of them took) are 0 on the DSP; the first at ...` | código en una rama que ningún escenario del perfilado tomó (una segunda vuelta de un bucle desenrollado, un caso límite). Su rango es desconocido, y calcularlo con los rangos de sus operandos puede dar 10¹⁵, lo que arruina la escala de los valores que se combinan con él. Se calcula como 0, sin costo | nada, si esa rama no se toma en la práctica (Plaits `VariableShapeOscillator`: la segunda vuelta del `while` del BLEP, §11). Si se toma, hacer que un escenario la alcance o declarar los rangos con `s1_range`; `--debug` da la línea del C |
 | `W909` | `DSP S: N compares gave one answer in every profiling scenario and are that constant` | una comparación dio siempre lo mismo en el perfilado (el cambio de forma que `S1_INIT` ya hizo, un límite que ninguna nota alcanza): se baja como esa constante, y el lado que nunca toma no cuesta nada | nada, si los escenarios cubren el uso (todas las perillas, las notas de `S1_NOTE_RANGE`). Si no, `--no-fold-branches` |
-| `W910` | `a division by a variable uses recipseed ... not on the SYSTEM-1` | `x / y` con `y` variable se baja con la semilla de recíproco de la SFU, decodificada y probada en el SYSTEM-8 pero no en el SYSTEM-1 (sospechosa de clicks en BRAIDS-CSAW, 2026-10-27) | sacar la división de la voz: el valor que depende de una perilla a una tabla `S1_PARAM`, el que depende de la nota con `s1_exp2` (`1/f` = `2^-pitch`); `--no-recipseed` usa una normalización por octavas con ops probadas (experimental) |
+| `W911` | `s1_mac2 at ...: the result can pass +-512 (it wraps)` | el rango de a·b + c·d + e llega a ±512 | escalar los operandos (`s1_ldexp`) o acotarlos (`s1_range`) |
 
 ## 10. Verificación (`s1cc check`)
 
@@ -907,6 +1004,9 @@ python3 -m unittest discover -s sdk/s1cc/tests      # ≈ 8 s: build + check de 
   hoy las tablas pasan por islas, y las islas sólo sirven para funciones de un valor.
 * **Estado inicial exacto.** Opción para generar el código que pone el estado inicial del C (una bandera y un `mad`
   por palabra).
+* **Ops nativas en el SYSTEM-1** (plan completo: [NATIVE_OPS.md](NATIVE_OPS.md)). Medidas exactas en el SYSTEM-8 (§7.6); falta `NATIVE-CHECK` en el equipo, y
+  después probar los grupos (`shl` con un `mul`, la MAC con una op de A) con TRY_FORMS. `sqrtsplit` (1/√) quedó
+  sin modelo exacto: escribe 2⁻ᵏ en r5 y su tabla Q no coincide (`dspnative.py sqrtsplit`).
 * **Costes.** Compares de float más baratos con los flags del DSP (`X9bY`, probados en el SYSTEM-8, no en el
   SYSTEM-1) y fusión de más formas (lista de formas probadas).
 * **stmlib.** Sustitutos de `stmlib/dsp/*` (filter, polyblep, parameter_interpolator) para compilar Plaits, Rings o

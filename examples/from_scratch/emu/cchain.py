@@ -1,12 +1,12 @@
-"""chain.Slave / chain.Bmc2 on the C core (dspcore.c): same constructor, same ARM-side calls, same results.
+"""The slave emulator on the C core (dspcore.c): Slave (six DSPs) and Bmc2 (two slaves), with the ARM-side calls.
 
     import cchain
     s = cchain.Slave(voices.programs('v4'), chain.Model())
     s.p_bank(0, 0x21, 0.5); s.step(); s.iomd.get(0x6020, 0.0)
     s.run(n, (0x6020,))          # n samples in C, returns {word: [values]} (no per-sample Python call)
 
-The shared library is built with cc the first time (and whenever dspcore.c / dspcore.h is newer). The instruction
-semantics are those of re/dspisa.py, decoded once by dspcomp.py; test_core.py checks them against dspisa/chain.py.
+The shared library is built with cc the first time (and whenever a C source is newer, dspref.py). The instruction
+semantics are the C core's (the reference since 2026-10-29), decoded once by dspdec.h through dspcomp.py.
 
 Slave(..., native=True, threads=True): programs translated to native code (dspjit.py, cached in build/jit/) and the
 independent DSP groups of a sample on their own threads (for run() / step(n) with n >= 64). Both give the same bits
@@ -14,68 +14,14 @@ as the interpreter (native=False, threads=False).
 """
 import ctypes as C
 import os
-import subprocess
 
 import chain
 import dspcomp
-import dspisa
 import dspjit
+import dspref
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, 'dspcore.c')
-HDR = os.path.join(HERE, 'dspcore.h')
-QMASK = os.path.join(HERE, 'qmask.h')
-LIB = os.path.join(HERE, 'build', f'dspcore-{os.path.basename(dspjit.CC)}.so')   # one per compiler
-_lib = None
-
-
-def lib():
-    global _lib
-    if _lib is None:
-        if not os.path.exists(LIB) or os.path.getmtime(LIB) < max(map(os.path.getmtime, (SRC, HDR, QMASK))):
-            os.makedirs(os.path.dirname(LIB), exist_ok=True)
-            tmp = LIB + f'.{os.getpid()}.tmp'           # several processes may build it at once
-            subprocess.check_call([dspjit.CC, *dspjit.CFLAGS, '-pthread', '-o', tmp, SRC, '-lm'])
-            os.replace(tmp, LIB)
-        L = C.CDLL(LIB)
-        P, I, D = C.c_void_p, C.c_int, C.POINTER(C.c_double)
-        L.sl_new.restype = P
-        L.sl_new.argtypes = [I, I, I, I, I, C.POINTER(I), I, C.POINTER(I), I, C.POINTER(I), I, C.POINTER(I), I]
-        L.sl_free.argtypes = [P]
-        L.sl_add_prog.argtypes = [P, I, C.c_void_p, I, C.c_void_p, I, C.c_void_p]
-        L.sl_set_progs.argtypes = [P, I, C.POINTER(I), I]
-        U = C.c_uint32
-        L.sl_get_state.argtypes = [P, I, D, C.POINTER(U), C.POINTER(U), C.POINTER(U), D]
-        L.sl_set_state.argtypes = [P, I, D, U, U, U, D]
-        L.sl_set_native.argtypes = [P, I, C.c_void_p]
-        L.sl_set_trace.argtypes = [P, C.c_void_p]
-        L.sl_set_groups.argtypes = [P, C.POINTER(I), C.POINTER(I), I]
-        L.sl_ngroups.argtypes = [P]
-        L.sl_ninstr_dsp.restype = C.c_int64
-        L.sl_ninstr_dsp.argtypes = [P, I]
-        L.sl_quant.restype = C.c_double
-        L.sl_quant.argtypes = [C.c_double]
-        L.sl_quant_check.restype = C.c_int64
-        L.sl_quant_check.argtypes = [C.c_int64, C.c_uint64, D]
-        L.sl_pymod_check.restype = C.c_int64
-        L.sl_pymod_check.argtypes = [C.c_int64, C.c_uint64, D]
-        for f in ('sl_iomd', 'sl_params'):
-            getattr(L, f).restype = D
-            getattr(L, f).argtypes = [P]
-        L.sl_params_dsp.restype = D
-        L.sl_params_dsp.argtypes = [P, I]
-        for f in ('sl_bank5', 'sl_bank0', 'sl_bank1'):
-            getattr(L, f).restype = D
-            getattr(L, f).argtypes = [P, I]
-        L.sl_t.restype = L.sl_ninstr.restype = C.c_int64
-        L.sl_t.argtypes = L.sl_ninstr.argtypes = [P]
-        L.sl_error.restype = C.c_char_p
-        L.sl_error.argtypes = [P]
-        L.sl_mxm_out.argtypes = L.sl_mxm_in.argtypes = [P, I, C.POINTER(I), D, I]
-        L.sl_step.argtypes = [P, I, C.POINTER(I), I, D]
-        L.sl_set_pipeline.argtypes = [P, I, I, C.POINTER(I), I, C.POINTER(I), I]
-        _lib = L
-    return _lib
+lib = dspref.lib                                   # the core library (dspref.py builds and loads it)
 
 
 class Words:
@@ -166,12 +112,12 @@ class DspView:
         return self._mxm(lib().sl_mxm_out)
 
     def mxm_in(self):
-        """latched MXM inputs (chain.Dsp.mxm_in)"""
+        """latched MXM inputs"""
         return self._mxm(lib().sl_mxm_in)
 
 
 class Slave:
-    """one BMC: six DSPs. programs = {dsp: (main chain.Program, [slot chain.Programs])} as for chain.Slave"""
+    """one BMC: six DSPs. programs = {dsp: (main chain.Program, [slot chain.Programs])}"""
 
     TRACE = C.CFUNCTYPE(None, C.c_int, C.c_int, C.POINTER(C.c_double), C.c_uint32, C.c_uint32, C.c_uint32)
 
@@ -188,6 +134,8 @@ class Slave:
         self.h = L.sl_new(int(m.ring1), m.mxm_shift, m.mxm_delay, int(m.dp_pairs), m.dp_delay, order,
                           len(m.order), (C.c_int * max(1, len(sh)))(*sh), len(m.shared1),
                           (C.c_int * max(1, len(s5)))(*s5), len(s5) // 2, (C.c_int * max(1, len(op)))(*op), len(op))
+        if m.edm:                                  # the delay line (DSP_HARDWARE.md §8.4)
+            L.sl_set_edm(self.h, *m.edm)
         self._ids = {}
         per_dsp = {}
         for n, (main, slots) in programs.items():
@@ -215,9 +163,9 @@ class Slave:
         self.iomd = Words(L.sl_iomd(self.h), 0x6000, 0x2000, self)
         self.params = Words(L.sl_params(self.h), 0xC000, 0x2000, self)
         self.d = [DspView(self, n) for n in range(6)]
-        flags = dspisa.CONTEXT_BITS[dspisa.CONTEXT] + dspisa.HIGH_BITS
-        for d in self.d:                       # chain.Dsp: hidden = dspisa.HIDDEN at construction, default flags
-            d.set_state(regs=[0.0] * 8, flags=flags, pending={}, hidden=dict(dspisa.HIDDEN))
+        flags = dspref.CONTEXT_BITS[dspref.CONTEXT] + dspref.HIGH_BITS
+        for d in self.d:                       # hidden = dspref.HIDDEN at construction, default flags
+            d.set_state(regs=[0.0] * 8, flags=flags, pending={}, hidden=dict(dspref.HIDDEN))
 
     def _prog_id(self, p):
         if id(p) not in self._ids:
@@ -225,8 +173,8 @@ class Slave:
         return self._ids[id(p)][0]
 
     def __del__(self):
-        if getattr(self, 'h', None) and _lib is not None:
-            _lib.sl_free(self.h)
+        if getattr(self, 'h', None) and dspref._lib is not None:
+            dspref._lib.sl_free(self.h)
             self.h = None
 
     @property

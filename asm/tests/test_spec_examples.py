@@ -137,10 +137,10 @@ class SpecExamples(unittest.TestCase):
         text, _ = disasm.program(words, TABLE, "spec 4.4")
         line = first_line(text)[0].split(";")[0].strip()
         # Y = 3000 (byte 2) is the RAW value 1.0; the coefficient 233333 is read
-        # right after Y, over the two reference words, and is 0.2; W = c4c008
+        # at byte C + 8 = 8 (bit 9 set; D8, 2026-10-29) and is 0.2; W = c4c008
         # (byte 11) is -4.75 to the precision of its 24 bits
         self.assertIn("#1@2:16", line, line)    # Y, at byte 2
-        self.assertIn("#0.2,", line, line)      # C, after the two references
+        self.assertIn("#0.2@0,", line, line)    # C: field 0, byte 8
         self.assertIn("#-4.75", line, line)     # W, at byte 11
 
     def test_sequential_read_skips_reference_words(self):

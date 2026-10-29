@@ -17,6 +17,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace llvm {
@@ -178,6 +179,8 @@ struct KOp {
     std::string kind;            // "op" / "ld" / "st" / "comment" / "multi" (a native op that writes more than its
                                  // destination: fmt = its lines, {d} / {d1} = r(D) / r(D+1), {0} = the argument)
     KVal *d2 = nullptr;          // multi + clobber: the second result, in the argument's register (expsplit: frac)
+    KVal *d3 = nullptr;          // multi, sqrt split: the third result, in r(b + 3) (d in r(b + 1), {b} in fmt)
+    int base = -1;               // multi, sqrt split: b, the D field (r(b) itself is not written)
     bool pairD = false;          // multi: r(D + 1) is written too (a scratch register next to D)
     bool clobber = false;        // multi: the argument's register is written (the argument dies here; a copy first
                                  // when it is read later)
@@ -218,10 +221,18 @@ public:
     KVal *sign(KVal *x);
     KVal *shift(KVal *x, int k);                    // x 2^k (shl / shr / shrn: unit B, two's complement)
     KVal *mac2(KVal *a, KVal *b, KVal *c, KVal *d, KVal *e = nullptr);   // a b + c d (+ e): one MAC
+    // a y + k z (+ e), k a constant (the MAC's immediate coefficient, 32 bits), y a register or a constant
+    KVal *mac2k(KVal *a, KOperand y, double k, KVal *z, KVal *e = nullptr);
+    KVal *macOf(KOperand p, KOperand q, KOperand r, KOperand s);   // p q + r s, one MAC op in a measured form, or nullptr
+    // the SFU's sqrt split of y != 0: (seed ~ 1/sqrt(m), 9 bits; m = |y| 4^k in [1, 4); t = sign(y) 2^-k)
+    std::tuple<KVal *, KVal *, KVal *> sqrtsplit(KVal *y);
+    bool fuseMac = false;                           // mad / add of two products -> one MAC op (LowerOptions::fuseMac)
+    bool fuseAbs = false;                           // |a| + b -> absadd, b - |a| -> subabs (LowerOptions::native)
     KVal *sum3(KVal *a, KVal *b, KVal *c);          // a + b + c: sum8
     std::vector<std::string> lines();
     int units() const;
     int spills() const { return spills_; }
+    int nregs() const { return (int)regs_.size(); }
     size_t opCount() const { return ops_.size(); }
     std::string tag;                                   // set by the lowering: the C line of the ops that follow
     std::map<std::string, int> liveByTag;              // after lines(): ops kept per tag   // ops emitted so far (unused ones are dropped by lines())
@@ -248,6 +259,8 @@ struct LowerOptions {
                                  // normalisation with proven ops (experimental: less exact, more ops)
     bool native = true;          // the DSP's native ops where they are shorter: SFU exp split for exp2, floor / ceil,
                                  // the MAC for s1_mac2 (--no-native: the older sequences of mul / mad / addxy)
+    bool fuseMac = true;         // acc + x y with acc a product, or the sum of two products: one MAC op (measured
+                                 // forms only; --no-fuse-mac: mul + mad)
     bool foldBranches = true;    // a compare with one value in every profiling scenario is that constant (W909)
     bool exactInit = true;       // state words with a non-zero start: first-sample flag + one mad each
     bool trace = false;          // debugging: every lowered value also stored to {D:<record id>} (s1cc check --trace)

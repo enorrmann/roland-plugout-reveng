@@ -38,7 +38,7 @@ for p in ('asm', 'examples/from_scratch/re', 'examples/from_scratch/emu', 'syste
     sys.path.insert(0, os.path.join(ROOT, p))
 sys.path.insert(0, HERE)
 import dspdis  # noqa: E402
-import dspisa  # noqa: E402
+import dspref  # noqa: E402
 import disasm  # noqa: E402
 import isa  # noqa: E402
 import s1_progs as S  # noqa: E402
@@ -60,7 +60,7 @@ def table():
 def transfers(ins):
     """[(ld/st, bank or None, mode byte)] of one instruction (the bank rule of chain.access_violations)"""
     try:
-        L = dspisa.Layout(list(ins))
+        L = dspref.layout(list(ins))
     except ValueError:
         return None, None
     slot_pos = [i for i, t in enumerate(L.t) if t in 'NS']

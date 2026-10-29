@@ -66,19 +66,19 @@ def words(text):
 
 def simulate(w, pitch, gate, n):
     import dspdis
-    import dspisa
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu'))
+    import dspref
     ins = [i for _, i in dspdis.instructions(w)]
-    mem = {}
+    m = dspref.Machine()
+    mem = m.mem
     out = []
     for t in range(n):
         for k in range(NV):
             mem[PITCH[k]] = pitch[k]
             mem[GATE[k]] = gate[k](t)
             mem[PHASE[k] + 1] = mem.get(PHASE[k], 0.0)
-        regs = [0.0] * 8
-        for x in ins:
-            dspisa.JUMP = None
-            regs, mem, _ = dspisa.run(list(x), regs, mem)
+        m.regs = [0.0] * 8
+        m.run_program(ins)
         out.append(mem.get(OUT, 0.0))
     return out
 

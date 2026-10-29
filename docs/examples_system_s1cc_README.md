@@ -30,6 +30,8 @@ python3 tools/plugout_tool.py install plugins/SYSTEM-S1CC --slot 1 --force --no-
 | `MODEL_ID`, `PARAMLOG=1` | como en MUTABLE-SYSTEM |
 | `ENV_TMIN=s`, `ENV_TMAX=s` | tiempos de las envolventes del anfitrión con el fader en 0 y en 255 (por defecto 0,001 y 10 s, exponencial entre medio, como C-S1SY). Solo si el kernel usa `s1_env` |
 | `OUTDIR=dir` | solo `make_s1cc.py`: dónde escribir los programas (los tests usan una carpeta temporal) |
+| `MOD_DSP=auto` / `A` / `B` | dónde corren la envolvente de pitch y la mezcla de COLOR MOD (§3.4). `auto` (por defecto): `make_s1cc.py` arma las dos y se queda con la que entra, o con la que deja más margen si entran las dos |
+| `MIX=0` | sin el mezclador del anfitrión (SUB / NOISE, §3.5) |
 
 ### 1.1 Lo decide el kernel
 
@@ -157,29 +159,32 @@ ganancia, una relación con `s1_exp2`…); lo que no es un `s1_color` sigue en t
 | COLOR MOD | fuente | dónde |
 |---|---|---|
 | 0 MANUAL | la perilla | — |
-| 1 LFO | el LFO del anfitrión de la voz con su DELAY TIME (§3.3), 0,5 + 0,5 · lfo | DSP A |
-| 2 PITCH ENV | AD de la voz: PITCH ENV ATTACK / DECAY (`0x17B` / `0x17C`, 1 ms…10 s) | DSP A |
-| 3 FILTER ENV | la ADSR 1 del anfitrión (§3.1) | DSP B → `A178+v` → DSP A |
-| 4 AMP ENV | la ADSR 0 del anfitrión (§3.1) | DSP B → `A170+v` → DSP A |
-| 5 SUB OSC | cuadrada una octava abajo de la nota, 0 / 1 | DSP A |
+| 1 LFO | el LFO del anfitrión de la voz con su DELAY TIME (§3.3), 0,5 + 0,5 · lfo | DSP B (`A120+v`) |
+| 2 PITCH ENV | AD de la voz: PITCH ENV ATTACK / DECAY (`0x17B` / `0x17C`, 1 ms…10 s) | `MOD_DSP` (§3.4) |
+| 3 FILTER ENV | la ADSR 1 del anfitrión (§3.1) | DSP B |
+| 4 AMP ENV | la ADSR 0 del anfitrión (§3.1) | DSP B |
+| 5 SUB OSC | cuadrada una octava abajo de la nota, −1 / +1 | DSP A (`A130+v`) |
+
+La mezcla (color i = Σ pesos × fuentes) corre en el DSP que diga `MOD_DSP` (§3.4); las fuentes del otro DSP llegan
+por el banco 5 con una muestra de atraso.
 
 Si el kernel llama a `s1_color`, `make_s1cc.py` agrega:
-* **DSP A, por voz, antes del kernel** (`hlfo_voice`), además del LFO de §3.3:
-  * Envolvente de pitch: las cuentas de la ADSR del anfitrión (`adsr()`, probada) con la puerta en 1 y sustain 0.
-    El latch (1 cuando el nivel pasó 0,999) se borra con cada disparo; ataque = 1 − latch; el nivel va hacia
-    1,25 · ataque con tasa ataque · kA + latch · kD.
-  * Sub oscilador: fase −1…1 + `s1_dt()` por muestra, cuadrada por `ph_clamp`.
-  * Color i = Σ pesos (`C050 + 8 i`…) × (1, lf, pitch env, filter env, amp env, sub), a una palabra del bloque de la
-    voz que el kernel lee como `s1_color(i)`.
-* **DSP B:** las dos ADSR del anfitrión aunque el kernel no lea `s1_env`, y su nivel a `A170+v` / `A178+v`. El DSP A
-  lo lee una muestra después.
-* **ARM (`engine.c`, `cmod_*`):** las perillas → parámetros del DSP A, como las demás tablas. Se escriben al cargar,
-  en cada nota y cuando se mueve la perilla.
+* **Envolvente de pitch** (`penv_core`): las cuentas de la ADSR del anfitrión (`adsr()`, probada) con la puerta en
+  1 y sustain 0. El latch se borra con cada disparo y vale 1 cuando el nivel pasó 0,999, en dos pasos recortados
+  de ×256 (un producto ×65536 pasa del rango ±512); bandera de ataque = clamp(256·(1 − latch)); el nivel va hacia
+  1,25 · ataque con tasa kD + ataque · (kA − kD).
+* **Sub oscilador** (DSP A): fase −1…1 + `s1_dt()` por muestra, cuadrada por `ph_clamp`, a `A130+v`.
+* **Color i** = Σ pesos × (1, lf, pitch env, filter env, amp env, sub). En el DSP B (`colors_b`) los dos colores en
+  una pasada: cada fuente se carga una vez para los dos y el resultado va a `A138+v` / `A140+v`. En el DSP A, a una
+  palabra del bloque de la voz.
+* **DSP B:** las dos ADSR del anfitrión aunque el kernel no lea `s1_env`.
+* **ARM (`engine.c`):** las perillas → parámetros `M6_*` del DSP que diga `MOD_DSP` (`b6(M6_SEL, …)`). Se escriben al
+  cargar, en cada nota y cuando se mueve la perilla.
 
-| parámetro del DSP A | valor |
-|---|---|
-| `C048` / `C049` | tasas de decay / ataque de la envolvente de pitch (tablas `decay_bits` / `attack_bits`) |
-| `C050 + 8 i` … `+5` | pesos del color i: manual, LFO, pitch env, filter env, amp env, sub. Con LFO o SUB OSC (−1…1): manual = ese peso = perilla / 2 |
+| parámetro | DSP B (`MOD_DSP=B`) | DSP A (`MOD_DSP=A`) | valor |
+|---|---|---|---|
+| envolvente de pitch | `C052` / `C053` | `C048` / `C049` | tasas de decay / ataque (tablas `decay_bits` / `attack_bits`) |
+| pesos del color 0 / 1 | `C054`…`C059` / `C05A`…`C05F` | `C050`…`C055` / `C058`…`C05D` | manual, LFO, pitch env, filter env, amp env, sub. Con LFO o SUB OSC (−1…1): manual = ese peso = perilla / 2 |
 
 Por defecto, hasta que se mueve un control: PITCH ENV A 0 / D 128, colores en 128 con MOD = MANUAL (el LFO: §3.3).
 
@@ -200,11 +205,15 @@ baja a la mitad):
 
 Primer intento de la envolvente de pitch: `(1 − e) · 65536` desborda el rango del DSP (±512) y da 0, y la bandera de
 ataque nunca subía. El segundo, con una bandera continua que baja con `min`, quedaba en equilibrio en 0,997 y no
-decaía. Por eso se usa la forma probada de la ADSR.
+decaía. Por eso se usa la forma probada de la ADSR. **2026-10-28, en el equipo:** con ataques lentos la envolvente se
+quedaba en un valor y no caía: el latch quedaba a medias en la franja de 0,999 y el ataque 1 − latch dejaba el
+objetivo 1,25·(1 − latch) debajo del nivel. Con la bandera clamp(256·(1 − latch)) (también en `adsr()`) funciona
+(MP-CSAW2, confirmado de oído).
 
 ### 3.3 El LFO del anfitrión (`s1_lfo_filter`, `s1_lfo_amp`, el tono) [sim, 2026-10-28; sin probar en el equipo]
 
-Un LFO por voz en el DSP A, antes del kernel (`hlfo_voice`), con los controles LFO del panel. Es `step_lfo_voice` de
+Un LFO por voz en el DSP B, antes de las envolventes (`hlfo_voice_b`; hasta el 2026-10-28 en el DSP A), con los
+controles LFO del panel. Su lf va al DSP A por `A120+v` (una muestra de atraso) para el tono y COLOR MOD. Es `step_lfo_voice` de
 MUTABLE-SYSTEM paso 11 (probado en el equipo), con el fade y sus tres destinos:
 
 | control | panel | qué hace |
@@ -224,9 +233,11 @@ es decir sin modulación.
   mutable_ported los usa. Un kernel que no los lee no los paga.
 * **2^y.** Taylor de e^(y·ln2/2) hasta el cuarto grado, al cuadrado: 0,6 cents de error a 0,7 octavas. `dt · rdt`
   queda en 1,0000.
-* **Parámetros del DSP A.** `C040` paso de fase, `C041` coeficiente del S&G, `C042`–`C047` formas, `C04A` paso del
-  fade, `C04B` octavas a pitch, `C04C` octavas al filtro, `C04D` / `C04E` M y \|M\|. Palabras de banco 0 después de
-  los bloques de voz: el ruido del S&H y su contador de Weyl (`step_noise`).
+* **Parámetros del DSP B** (`B6_*`): `C048` paso de fase, `C049` coeficiente del S&G, `C04A`–`C04D` forma
+  (α, β, K, w: lfo = w·g + ph_clamp(K·p) + t·(α + β·t²), t el triángulo de la fase, g el S&G), `C04E` paso del
+  fade, `C04F` octavas al filtro, `C050` / `C051` M y \|M\|. En el DSP A quedan `C04B` octavas a pitch (LFO TO
+  PITCH), `C05E` PITCH ENV AMOUNT, `C05F` OSC1 RANGE (§3.5). Palabras de banco 0 después de los bloques de voz de
+  cada DSP: su ruido y su contador de Weyl (`step_noise`; el del B para el S&H, el del A para NOISE).
 * **Cuándo.** Si el kernel lee el tono (casi todos), `s1_lfo_filter`, `s1_lfo_amp` o `s1_color`. `LFO_PITCH=0`
   deja el tono como lo escribe el ARM (ahorra ~18 instrucciones por voz).
 * **Costo.** ~46 instrucciones por voz en el DSP A con pitch, filtro y amp (`mp_saw`: 155 → 521 con 8 voces); el
@@ -243,6 +254,44 @@ es decir sin modulación.
 | TO FILTER 255, TO AMP 255 | filtro ±4,0 octavas; amp 0,03…0,99 |
 | TO AMP 0 | amp con el LFO invertido |
 | DELAY TIME 200, TO PITCH 200 | fade en rampa de 3,1 s; la profundidad crece con él |
+
+### 3.4 Dónde corren la envolvente de pitch y COLOR MOD (`MOD_DSP`) [sim, 2026-10-28]
+
+Las dos cosas pueden ir en el DSP A o en el B. Un kernel con un DSP A largo (dos osciladores, MP-CSAW2: 88
+instrucciones por voz) necesita sacarlas del A; uno con un A corto (casi todos los de mutable_ported) necesita dejarlas
+en el A, porque el B ya tiene el LFO, las dos ADSR y el filtro.
+
+| `MOD_DSP` | DSP A | DSP B | banco 5 |
+|---|---|---|---|
+| `B` | copia de puerta / disparo, tono (pitch, `dt`, `rdt`), sub, mezclador | LFO, ADSR × 2, envolvente de pitch (`penv_b`), colores (`colors_b`) | lf `A120+v`, pitch env `A128+v`, sub `A130+v`, colores `A138+v` / `A140+v` |
+| `A` | lo de arriba + envolvente de pitch + colores | LFO, ADSR × 2 (y su nivel a `A170+v` / `A178+v`) | lf `A120+v`, sub `A130+v`, envolventes `A170+v` / `A178+v` |
+
+`auto` (por defecto) arma las dos en `make_s1cc.py main()` y elige: primero la que entra en los límites (§4),
+después la de menor carga máxima (instrucciones / presupuesto del DSP más cargado). `build.sh` hace eso para cada
+cantidad de voces, de 8 para abajo.
+
+| kernel (mutable_ported, 2026-10-28) | voces con `B` | con `auto` |
+|---|---|---|
+| `mp_csaw2` | 7 (A 618, B 687) | 7 (`B`) |
+| `mp_csaw`, `mp_saw`, `mp_fm`… | 5 | 8 (`A`) |
+| `mp_bell`, `mp_harmonic`, `mp_hihat` | 5 | 7 |
+
+Medido en el emulador (la envolvente de pitch y las seis fuentes de color dan lo mismo en las dos ubicaciones, salvo
+la muestra de atraso). En el equipo: MP-CSAW2 con `B` y 7 voces instalado el 2026-10-28, sin confirmar todavía.
+
+### 3.5 Mezclador, PITCH ENV AMOUNT y OSC1 RANGE [medido en el equipo 2026-10-28, MP-CSAW2]
+
+| control | panel | dónde | qué hace |
+|---|---|---|---|
+| SUB | `0x176` | DSP A, después del kernel | + nivel · sub (cuadrada una octava abajo), nivel 0…0,5 (`A6_SUBMIX`, `C056`) |
+| NOISE | `0x177` | DSP A, después del kernel | + nivel · ruido (el ruido del DSP A), 0…0,5 (`A6_NOISEMIX`, `C057`) |
+| PITCH ENV AMOUNT | `0x17A` | DSP A, tono | E = 4·b·\|b\| octavas (±4), b bipolar: y = P·lf + E·pe + RANGE |
+| OSC1 RANGE | `0x16A` | DSP A, tono | 64'…2' = −3…+2 octavas (`C05F`); otro valor, 8' |
+
+El kernel devuelve su salida a una palabra (`xo`) y el mezclador escribe la voz (`MIX=0`: el kernel escribe directo).
+El tono modulado es 2^y = (e^(y·ln2/8))⁸: Taylor de grado 4 (`dt`) o 3 (`rdt`) y tres cuadraturas, ~2 cents a 6
+octavas. Al entrar al PLUG-OUT el modelo pide al OS que reenvíe los controles `0x160`–`0x18F` (`model.c
+resend_panel`: `touch` + `flush`), porque el OS solo manda un control cuando se mueve.
 
 ## 4. Presupuesto
 

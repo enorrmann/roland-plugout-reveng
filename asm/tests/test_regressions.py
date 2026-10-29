@@ -71,12 +71,12 @@ class RoundTripCases(unittest.TestCase):
         self.assertIn("hset h4, #260@2:24", text)
 
     def test_mac_coefficient_immediate_spec_4_4(self):
-        # the spec's own worked example: Y at byte 2, the coefficient right after
-        # Y's immediate (over the two references), W at byte 11
+        # the spec's own worked example: Y at byte 2, the coefficient at byte
+        # C + 8 = 8 (C = 0, bit 9 set: measured 2026-10-29, D8), W at byte 11
         words = [0x540C, 0x1C12, 0xAF1B, 0xAFE4, 0xCFE6, 0x7A2B, 0x3000, 0x0638,
                  0x063D, 0x2333, 0x33C4, 0xC008]
         text, _ = round_trips(self, words)
-        self.assertIn("#1@2:16, #0.2, r7", text)
+        self.assertIn("#1@2:16, #0.2@0, r7", text)
 
     def test_mac_coefficient_with_register_y_is_read_at_byte_c(self):
         # spec 4.4 "or at byte c when Y is a register": the coefficient is read

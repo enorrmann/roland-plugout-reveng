@@ -57,7 +57,7 @@ python3 examples/system_1_synth/make_synth.py --sim-check    # además: núcleo 
 | `RES_MAX` | 3,6 (4,4 con `RESCOMP=1`) | realimentación del filtro con la resonancia al máximo |
 | `GMAX` | 0,7 | tope del coeficiente del filtro |
 | `PAD` | 0 | prueba de presupuesto: n rellenos al final del DSP A |
-| `SIM` | `c` | `py`: `--sim` con la referencia Python (`re/dspisa.py`, minutos) en vez del núcleo C (1 s de audio ≈ 0,4 s) |
+| `SIM` | `c` | `py`: `--sim` con la máquina de memoria plana (`emu/dspref.Machine`, más lenta) en vez del esclavo de `cchain` (1 s de audio ≈ 0,4 s) |
 | `SIM_JOBS` | núcleos de la máquina | simulaciones independientes de `--sim` / `--sim-check` a la vez, una por proceso; 1 = en serie |
 | `DSP_CC` | `clang` si está, si no `cc` | compilador del núcleo C y del código nativo (`gcc`, `clang` o una ruta) |
 | `SIM_N` | 9600 | muestras de la prueba de La 440 de `--sim` |
@@ -69,10 +69,11 @@ python3 examples/system_1_synth/make_synth.py --sim-check    # además: núcleo 
 `--pack-check` hace sólo la comparación 2 (sin la referencia Python). `--sim-check` hace las dos. Dos comparaciones, muestra a muestra. Cada una dice `identical` o el número de muestras distintas, la primera
 muestra distinta y los dos valores:
 
-1. **`sim check`: núcleo C del emulador contra la referencia Python.** Corre `simulate()` (núcleo C,
-   `examples/from_scratch/emu/cchain.py`) y `simulate_py()` (`re/dspisa.py`) con los mismos programas y eventos:
+1. **`sim check`: el esclavo del núcleo C contra la máquina de memoria plana.** Corre `simulate()` (esclavo de
+   `examples/from_scratch/emu/cchain.py`) y `simulate_py()` (`emu/dspref.Machine`, un DSP por programa, anillos movidos
+   a mano) con los mismos programas y eventos: comprueba el modelo de bancos y anillos del esclavo:
    La 440 en la voz 0 en t = 0, Mi en la voz 1 en t = 50, la voz 0 soltada en la mitad. Dura `SIM_CHECK_N`
-   muestras y casi todo el tiempo se va en la referencia Python.
+   muestras.
 2. **`pack check`: programas empaquetados / fusionados contra los mismos sin empaquetar** (`sources(True)` contra
    `sources(False)`), en el núcleo C. 8 notas, la mitad soltadas en la mitad, `SIM_PACK_N` muestras. Valida
    `pack()` y `FUSE`: la optimización no puede cambiar ni un bit.
@@ -138,13 +139,16 @@ python3 tools/proven_forms.py promote BUILD/try_forms.txt --by PLUGOUT     # agr
 | `python3 -m http.server 8000 --bind 127.0.0.1 --directory web` | instalador web en `http://localhost:8000/` (Chrome / Edge); [WEB_INSTALLER.md](WEB_INSTALLER.md) |
 | `node web/test/test-protocol.js [FILE.Dat...]` / `sh web/test/run-page-test.sh` | pruebas del instalador web sin hardware: biblioteca contra `plugout.py`, página completa en Chrome headless |
 | `examples/system_1/paramlog.py -t SEG [--raw] [--file LOG...]` | escucha una build `PARAMLOG=1`: ids de los controles del panel (con el PLUG-OUT seleccionado) |
+| `python3 examples/from_scratch/re/dsplive.py install l00.batch` | SYSTEM-8: instala en el slot 3 el laboratorio con la sonda del maestro (`PEEK`); seleccionar PLG3. `python3 examples/from_scratch/re/dsppeek.py ping` responde `pong 0x1234` cuando está activa |
+| `python3 examples/from_scratch/re/dspnative.py [PRUEBA...] [-n 24] [--list] [--sim]` | SYSTEM-8 con la sonda: ops nativas (`shl`, SFU, `newton`, `add3`, `sum8`, MAC de dos productos) en el DSP3 del maestro, exactas contra la referencia C (`emu/dspref.py`), con y sin instrucción vacía antes de leer; `--sim` sólo el emulador ([S1CC.md](S1CC.md) §7.6) |
+| `KERNEL=sdk/s1cc/build/native_check NAME=NATIVE-CHECK sh examples/system_s1cc/build.sh` | SYSTEM-1: PLUG-OUT que prueba de oído las ops nativas que usa s1cc (sierra limpia = bien; OSC1 COLOR elige la op; [S1CC.md](S1CC.md) §7.6) |
 
 ## 6. Emulador (`examples/from_scratch/emu/`)
 
 | herramienta | uso |
 |---|---|
 | `cchain.Slave(programs, model, native=True, threads=True)` | un BMC: hasta 6 DSP; `step(n)`, `run(n, words)`, `d[n].bank5`, `params`, `iomd`; ver el docstring de `cchain.py` |
-| `python3 examples/from_scratch/emu/test_core.py [nombre...]` | pruebas del núcleo C, bit a bit contra `dspisa` / `chain.py` (todas o las que contienen el nombre) |
+| `python3 examples/from_scratch/emu/test_core.py [nombre...]` | pruebas del núcleo C: corpus contra el archivo dorado local, nativo contra intérprete, hilos, `quant` (todas o las que contienen el nombre; `--update-golden` sólo tras un cambio medido) |
 | `python3 examples/from_scratch/emu/test_chain.py` | pruebas del modelo de la cadena del SYSTEM-8 |
 
 Velocidad y estado: [EMULATOR.md](EMULATOR.md) §3.6.

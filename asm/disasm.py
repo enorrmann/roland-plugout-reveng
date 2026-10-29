@@ -252,9 +252,8 @@ def free_bits_in(table, ins, letters, prefix):
     text cannot express them; the listing hands them to the assembler as
     `.free @n mask`, which puts them back in word n. Only bits of the variant
     that actually decoded the word count -- a bit another variant leaves free
-    is a real operand here. A MAC coefficient's C field is free only when the
-    coefficient is read in order (Y is an immediate); otherwise it holds the
-    byte it is read at (spec 4.4).
+    is a real operand here. A MAC with an immediate coefficient: its C field
+    holds the byte the coefficient is read at (D8, 2026-10-29), never free.
     """
     body = ins[1:]
     out = []
@@ -287,7 +286,7 @@ def free_bits_in(table, ins, letters, prefix):
         for fname, src in v.fields.items():
             if not (isinstance(src, dict) and src.get("free")):
                 continue
-            if fname == "C" and v.coef_bits and not y_is_imm:
+            if fname == "C" and v.coef_bits:
                 continue                  # the byte the coefficient is read at
             spec = form.field_spec(fname)
             width = spec["msb"] - spec["lsb"] + 1
@@ -375,7 +374,7 @@ def _render_alu(table, form, v, fields, stream):
             bit = form.fields["X"]["borrowed_by_nibble"]
             args.append("r%d" % (fields.get("X", 0) | ((fields.get("b11_8", 0) & 1) << bit)))
         elif name == "Y":
-            args.append(ytxt)
+            args.append(str(fields.get("Y", 0)) if v.kinds.get("Y") == "number" else ytxt)
         else:
             if name == "R":                # the third register of a D >= 8 op: the op field
                 args.append("r%d" % (fields.get("op", 0) & 7))
@@ -392,9 +391,11 @@ def _reg_text(y):
 def mac_text(table, w1, w2, stream):
     """the text of a MAC pair, or None (spec 5.2, 4.4, 7).
 
-    The hardware reads the MAC's immediates in this order: Y at byte Y, then the
-    coefficient right after Y's immediate (or at byte C when Y is a register),
-    then W at byte W.
+    The hardware reads the MAC's immediates at bytes of the slot array: Y at byte
+    Y, the coefficient at byte C (+ 8 when bit 9 of the second word is set, the
+    `...r` variants), W at byte W; Y a register or an immediate, with or without
+    transfers (measured 2026-10-29, docs/DSP_ISA_DISCREPANCIES.md D8). The text
+    names the C field (`@C`).
     """
     form = forms_for(table, "M")[0]
     v, fields = codec.decode(form, [w1, w2])
@@ -408,12 +409,8 @@ def mac_text(table, w1, w2, stream):
         imm["Y"] = "#%s@%d:%d" % (imm_text(table, y_bits, stream.take(fields["Y"] * 8, y_bits)),
                                   fields["Y"], y_bits)
     if c_bits:
-        if y_bits:
-            c = stream.take(None, c_bits)                   # right after Y's immediate
-            imm["C"] = "#" + imm_text(table, c_bits, c)
-        else:
-            byte = fields["C"]                              # at byte C (Y is a register)
-            imm["C"] = "#%s@%d" % (imm_text(table, c_bits, stream.take(byte * 8, c_bits)), byte)
+        byte = fields["C"] + (8 if (w2 >> 9) & 1 else 0)    # at byte C (+ 8 with bit 9)
+        imm["C"] = "#%s@%d" % (imm_text(table, c_bits, stream.take(byte * 8, c_bits)), fields["C"])
     if w_bits:
         imm["W"] = "#%s@%d:%d" % (imm_text(table, w_bits, stream.take(fields["W"] * 8, w_bits)),
                                   fields["W"], w_bits)

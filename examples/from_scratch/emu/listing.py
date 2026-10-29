@@ -61,7 +61,7 @@ def refs(name, lo, hi):
 
 def forwards(name):
     """pairs (source, destination): a store of rX whose value is the load of rX in the previous instruction
-    (dspisa model: a store sees a load of the instruction before; the pattern `ld r0,[a]` / `st r0,[b] | ld r0,[c]`
+    (the core's model: a store sees a load of the instruction before; the pattern `ld r0,[a]` / `st r0,[b] | ld r0,[c]`
     is how every Roland main copies its inputs)"""
     ins = instructions(name)
     out = []

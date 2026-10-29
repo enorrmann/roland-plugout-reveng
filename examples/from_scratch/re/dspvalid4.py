@@ -1,4 +1,4 @@
-"""Validate re/dspisa.py and dsp/sim_main.py on the master's DSP4, live (dspmaster.py / dsppeek.py transport).
+"""Validate the C reference (emu/dspref.py) and dsp/sim_main.py on the master's DSP4, live (dspmaster.py / dsppeek.py transport).
 
 The test program (dspexp/master/m02_sim_check.txt) is stateless: every value it stores is a function of constants,
 so the stored words do not depend on how many samples have run. It replaces the global-effect slot 0xEFDC of DSP4
@@ -23,7 +23,7 @@ from dsppeek import Peek, raw_value           # noqa: E402
 
 BASE = 0x700
 ADDRS = [BASE + i for i in range(4)]
-CONTEXT = 'master_dsp4_efdc'                   # the measured condition context of DSP4 (dspisa.CONTEXT_BITS)
+CONTEXT = 'master_dsp4_efdc'                   # the measured condition context of DSP4 (dspref.CONTEXT_BITS)
 
 
 def program():

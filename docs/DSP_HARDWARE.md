@@ -130,7 +130,7 @@ bits 2–0 = registro); mY = 1/2/3: inmediato de 16/24/32 bits (§4.3). "Nibble"
 
 | op (D < 8) | rD ← |
 |---|---|
-| 1 | D + X + Y |
+| 1 | D + X + Y (`add3`, exacto 2026-10-28) |
 | 2 | X · Y |
 | 3 | D + X · Y |
 | 4 | Y + X · D |
@@ -138,11 +138,11 @@ bits 2–0 = registro); mY = 1/2/3: inmediato de 16/24/32 bits (§4.3). "Nibble"
 | 6 | X + Y |
 | 7 | Y − X |
 | 0, sub X = 1 | Y (mover / cargar inmediato) |
-| 0, sub 2 | paso de Newton: rD ← D·r(D+1); r(D+1) ← 2 − r(D+1)·rY; rY ← r(D+1)·rY |
+| 0, sub 2 | paso de Newton: rD ← D·r(D+1); r(D+1) ← 2 − r(D+1)·rY; rY ← r(D+1)·rY (exacto, resultados listos en la instrucción siguiente, 2026-10-28) |
 | 0, sub 4 / 5 | D + Y + h4 / h5 |
 | 0, sub 6 / 7 | D + Y |
 | 0, sub 0 / 3 | nada |
-| D ≥ 8 | r(D−8) ← X + Y + r[op] (op indexa un tercer registro) |
+| D ≥ 8 | r(D−8) ← X + Y + r[op] (op indexa un tercer registro; `sum8`, exacto 2026-10-28) |
 
 ### 5.2 Unidad B
 
@@ -153,7 +153,7 @@ bits 2–0 = registro); mY = 1/2/3: inmediato de 16/24/32 bits (§4.3). "Nibble"
 | D ≥ 8, nibble 0 / 2 / 4 / 6 | min(X, Y) / min(−X, Y) / max(X, Y) / max(−X, Y) | [exacto] |
 | D ≥ 8, nibble 8 / a | \|X\| / \|Y\| | [exacto] |
 | D ≥ 8, nibble c, modo 0 | frexp: X = m·2^e, m ∈ [0.5, 1): r(d) ← m, rY ← e | [medido] |
-| D ≥ 8, nibble c, modo 1 / 2 / 3 | X·2^Y / X·2^−Y / X·2^−(16+Y) (Y = el número del campo) | [medido] |
+| D ≥ 8, nibble c, modo 1 / 2 / 3 | X·2^Y / X·2^−Y / X·2^−(16+Y) (Y = el número del campo, 0–15). **Complemento a 2 con 32 bits de fracción**: redondea hacia −∞ en 2^−32 y envuelve en [−512, 512) (2,65·2⁸ = 679 → −345); después la codificación RAW (§3) trunca hacia 0 como cualquier resultado. Un resultado negativo en la grilla 2^−32 queda 1 LSB por debajo de `mul`; en grillas más gruesas es igual a `mul` | [exacto, 2026-10-29: 672 casos crudos + 15 360 en `re/dspnative.py`] |
 | D ≥ 8, nibble e, bits 7–6 = 00 | **CMP**: banderas de r(d) + Y, no escribe | [medido] |
 | D ≥ 8, nibble e, bits 7–6 = 01 | r(d) ← Y | [medido] |
 | D ≥ 8, nibble e, bits 7–6 = 11 | según bits 5–4 y Y bit 3: 00 r(d) ± rY; 01 \|rY\| / clamp(rY, −1, 1); 10 wrap(rY) a [−1, 1) / triángulo 1 − 2\|wrap(−rY − 1.5)\|; 11 (rY mod 2)/2 / −rY | [medido] |
@@ -168,21 +168,23 @@ Bits 7–6 = 00, función según bits 5–4 (modo) y Y bit 3:
 
 | modo | Y bit 3 | función |
 |---|---|---|
-| 00 | 0 | semilla de recíproco: \|Y\| = m·2^e, m ∈ [0.5, 1): r(d) ← signo·2^−e, r(d+1) ← **R[k]** |
+| 00 | 0 | semilla de recíproco: \|Y\| = m·2^e, m ∈ [0.5, 1): r(d) ← signo·2^−e (**0 si 2^−e ≥ 512**), r(d+1) ← **R[k]**, **rY ← m** (pisa la entrada). Con `newton` r(d), r(d+1), rY tres veces: r(d) = 1/Y con error 10⁻⁸ (Goldschmidt) [exacto, 2026-10-28] |
 | 00 | 1 | separación atanh: x = rY; (x+1)/(2·2^k) ∈ [0.5, 1): r(d) ← (x−1)/(2·2^k), rY ← (x+1)/(2·2^k), r(d+1) ← R[k] de rY → (x−1)/(x+1) = r(d)·r(d+1) tras Newton (logaritmos) |
-| 01 | 0 | separación para raíz: \|Y\| = m·4^−k, m ∈ [1, 4): rY ← m, r(d+1) ← **Q[j]**, r7 ← signo·2^−k |
-| 01 | 1 | r(d) ← e^⌊Y⌋, rY ← Y − ⌊Y⌋ |
-| 10 | 0 | separación log2: Y = m·2^e, m ∈ [0.75, 1.5): rY ← m, r(d) ← e (Y < 0: r(d) ← 9, rY ← Y/512) |
+| 01 | 0 | separación para raíz: \|Y\| = m·4^−k, m ∈ [1, 4): rY ← m, r(d+1) ← **Q[j]/512**, **r(d+3)** ← signo·2^−k. Con rY = r(d+1) o r(d+3) las dos escrituras mezclan bits (no usar) [exacto, 2026-10-29: 384 casos crudos + 3072 en `re/dspnative.py`] |
+| 01 | 1 | r(d) ← e^⌊Y⌋ **de una ROM propia** (n = −19…6, palabras RAW en `emu/dspcore.h EXP_ROM`; ni truncado ni redondeado: hasta 6·10⁻³ de error en n = −18, 10⁻⁸ cerca de 0), 0 para n < −19, el RAW más grande (511,999998) para n > 6; rY ← Y − ⌊Y⌋ [exacto, 2026-10-28] |
+| 10 | 0 | separación log2: Y = m·2^e, m ∈ [0.75, 1.5): rY ← m, r(d) ← e. Y < 0 se lee en complemento a 2: r(d) ← e = ⌊log2((Y + 512)/0.75)⌋, rY ← Y/2^e redondeado hacia −∞ en 2^−32 (luego RAW trunca); e = 9 para \|Y\| < 115 [exacto, 2026-10-29: 120 crudos + 3072] |
 | 10 | 1 | r(d) ← signo(Y) (±1, 0) |
 | 11 | 0 | r(d) ← ⌈Y⌉ |
-| 11 | 1 | r(d) ← −1 si Y < 0, si no 0 |
+| 11 | 1 | r(d) ← **⌊Y⌋** (piso; leído antes como −(Y < 0) con \|Y\| < 1, donde coinciden) [exacto, 2026-10-28] |
 
 **Tablas ROM (bit a bit, `re/dspseed.py`)**:
 * **R** (recíproco, 64 entradas): k = 6 bits de la mantisa después del 1 inicial (tramos de 1/128 en [0.5, 1));
   `R[k] = round(4096 / (0.5 + (2k + 1)/256)) / 4096`. Coincide en 64/64. **[exacto]**
-* **Q** (1/√, 48 entradas): j = ⌊(m − 1)·16⌋ para m ∈ [1, 4); valor = Q[j]/256 con
-  Q = 252 245 238 232 226 221 216 211 207 203 199 195 192 188 185 182 179 177 174 172 169 167 165 163 161 159 157
-  155 153 152 150 148 147 145 144 142 141 140 138 137 136 135 134 133 131 130 129 128. **[exacto, tabla literal]**
+* **Q** (1/√, 48 entradas, 9 bits): j = ⌊(m − 1)·16⌋ para m ∈ [1, 4); valor = Q[j]/512 con
+  `Q[j] = round(512 / √(1 + (j + 0.5)/16))`:
+  504 490 476 464 452 442 432 422 414 406 398 391 384 377 371 365 359 354 349 344 339 334 330 326 322 318 314 311
+  307 304 300 297 294 291 288 285 283 280 277 275 272 270 268 266 263 261 259 257. **[exacto, 2026-10-29]** (La
+  tabla de 8 bits leída antes, Q/256, era la mitad con un bit menos: difería en j = 11, 16, 17, …)
 
 Bits 7–6 = 01 (sub-op en bits 5–4): `f4Y` r(d) ← r(Y & 7); `f5c` r(d) ← posición de escritura del retardo;
 `f5Y` (Y ≠ c) lee 0 en nuestros contextos; `f6Y` (Y = c–f) r(d) ← (r(d) + h(Y−8)) mod 512; `f7Y` = marcadores
@@ -194,9 +196,16 @@ w1 = D op1 X mY Y        w2 = Z op2 C mW W
 P1 = Y · rX              P2 = c · Z   (c = rC, o inmediato si op2 >> 1 ≠ 0; Z = ±rZ)
 rD ← (op1 & 1 ? −P1 : P1) + (op1 & 2 ? W : 0) + (op1 & 4 ? P2 : 0)        op1 ∈ {0, 1}: no escribe
 op2 = 000 y op1 ∈ {6, 7}: P1 = X (o X·Y si Y es inmediato), P2 = Z  (modo suma, sin productos)
-D ≥ 8: r(D − 8) ← resultado / 2
+D ≥ 8: r(D − 8) ← resultado / 2, sólo con P2 (op1 ≥ 4); con op1 2 / 3 y D ≥ 8 no escribe nada
+coeficiente inmediato: en el byte C del área de slots (+8 con el bit 9 de w2); Y inmediato en el byte Y, W en W
 ```
-Una instrucción puede tener dos MAC (clases MM…). Resultado exacto + truncado (§3).
+Una instrucción puede tener dos MAC (clases MM…): en la clase 0x080 (`MMNN`, la que usa Roland con un producto
+cada una) las dos leen los registros de antes de la instrucción (en paralelo) y son exactas; **si cualquiera de las
+dos tiene término P2, ninguna escribe** [exacto, 2026-10-29]. Coeficiente inmediato con Y registro o inmediato, 16/24/32
+bits, con y sin W, negado, /2: exacto (20 formas × 1536 casos) [2026-10-29]. Resultado exacto + truncado (§3). Con el coeficiente en un
+registro (op2 = 001: `mac_p1p2`, `mac_p1w`, `mac_p1p2w`, `mac_p1p2wp2`, también D ≥ 8 = /2): exacto, resultado listo
+en la instrucción siguiente [medido 2026-10-28, `re/dspnative.py`]. Las clases 0x040 y 0x098 tienen el mismo cuerpo
+(MN); la medida es con 0x040 (cabecera `0803`), la que elige el ensamblador.
 
 ### 5.5 Banderas desde las ops
 `X9bY` (transferencia de modo `9b`): grupo X − 8 (X = 9…d → grupos 1…5) ← banderas del resultado de la unidad Y
@@ -358,8 +367,9 @@ por cada muestra n:
             si hay salto tomado: pc = fin de la instrucción + desplazamiento (+1 ciclo); si no pc = fin
     publicar lo escrito en MXM para la muestra n+1
 ```
-Referencia en Python: `re/dspisa.py` (instrucción: `run`) y `re/dspasm.py` (`simulate`: programa completo con
-anillo, banderas y saltos). Validación: `re/dspverify.py` ejecuta una instrucción real en el equipo y la compara
+Referencia: el código C (`emu/dspdec.h`, `emu/dspcore.h`, `emu/dspcore.c`; desde Python `emu/dspref.py`:
+`Machine.run` una instrucción, `Machine.run_program` un programa con banderas y saltos; `re/dspasm.py simulate` con el
+anillo). La referencia en Python (`re/dspisa.py`) se archivó el 2026-10-29 (`EMULATOR.md` §1.1). Validación: `re/dspverify.py` ejecuta una instrucción real en el equipo y la compara
 (100/100 instrucciones de Roland al azar coinciden).
 
 **Qué ya es exacto**: decodificación de todas las clases del corpus, A, B, SFU (incluidas las tablas), MAC,

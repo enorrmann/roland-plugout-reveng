@@ -97,7 +97,7 @@ cuelga el slave), hasta 3 ops y 6 transferencias por instrucción, programa de h
 | `re/dsppeek.py` | PC + región 0 `-DPEEK` en el **maestro** (core 0) | lee y escribe memoria **del maestro** en vivo, incluidos sus DSP; responde por SysEx | valores exactos de registros (DSP del maestro) |
 
 | `re/dspmaster.py`, `re/dspprobe.py`, `re/dspfit.py`, `re/dspclass.py`, `re/dspslots.py`, `re/dspcount.py` | PC + región 0 `-DPEEK` | programas de prueba en el **DSP3 del maestro** (ocioso; por defecto) o en la ranura `0xEFDC` del DSP4 (compartida con los efectos: tocarla puede silenciar la salida hasta reiniciar), resultados leídos de DT0 | ISA exacto (`docs/DSP_ISA.md`) |
-| `re/dspisa.py` | PC | nada (decodificador / desensamblador / simulador con `re/dsp_templates.txt`) | leer el microcódigo de Roland |
+| `emu/dspref.py` (+ `emu/dspdec.h`, `emu/dspcore.h`) | PC | nada (la referencia en C: decodificador con `re/dsp_templates.txt` y simulador; desensamblador: `asm/disasm.py`) | leer y simular el microcódigo |
 
 La distinción importante: **dsplive** actúa en los DSP de los **slaves** (voces, se observan por audio) y
 **dsppeek** en los del **maestro** (efectos, se leen directamente). No hay forma conocida de leer la

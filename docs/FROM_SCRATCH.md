@@ -305,7 +305,7 @@ python3 test_chain.py           # 20 pruebas (A–H y regresión), unos 20 minut
 python3 test_chain.py A D       # sólo algunas
 ```
 
-`chain.py` ejecuta nuestros programas con el simulador de instrucciones `re/dspisa.py` y modela los bancos, MXM, el
+`cchain.py` (núcleo C; antes `chain.py` sobre `re/dspisa.py`, archivados el 2026-10-29) ejecuta nuestros programas y modela los bancos, MXM, el
 buzón de pareja, el IOMD y el enlace entre slaves. Cada regla del hardware es un campo de `Model`, así que una prueba
 puede comparar el modelo medido con la alternativa. **Antes de instalar un cambio de microcódigo, hay que pasarlo por
 el emulador**: un programa que el emulador da mudo casi seguro estará mudo en el equipo.
@@ -343,7 +343,7 @@ el emulador**: un programa que el emulador da mudo casi seguro estará mudo en e
 | `emu/listing.py`, `emu/allplugouts.py` | lectura de las referencias de bus de los programas de Roland (estudio, nada se copia) |
 | `emu/sigcheck.py` | comprobación de firmas: sin bytes de Roland |
 | `voicelog/voicelog.py` | medida en el equipo: voz asignada a cada nota y si se oye, con su frecuencia |
-| `re/dspisa.py`, `re/dspdis.py`, `asm/asm.py` | simulador, desensamblador y ensamblador del DSP |
+| `emu/dspref.py` (C: `emu/dspdec.h`, `emu/dspcore.h`), `re/dspdis.py`, `asm/asm.py`, `asm/disasm.py` | simulador (la referencia), cortador, ensamblador y desensamblador del DSP |
 
 **Generados por la build (no se editan, no van al repositorio)**: `engine/build/` (`programs.h`, `model.h`, ELF/BIN,
 `projC/`), `model/build/`, `plugins/C-V4/`.

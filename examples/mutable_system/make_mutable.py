@@ -1118,7 +1118,7 @@ def lfo_hz(v):
 
 
 def on_grid(x):
-    """x on the register grid (dspisa.quant: multiples of 2^-32 below 0.125), so a parameter used by the very next
+    """x on the register grid (the core's quant: multiples of 2^-32 below 0.125), so a parameter used by the very next
     instruction after its load (packed) gives the same bits as after a filler (unpacked)"""
     return math.floor(x * 2 ** 32) / 2 ** 32 if abs(x) < 0.125 else x
 
@@ -1352,7 +1352,8 @@ def simulate(progs, events, n, panel=None):
     DSP 2 = master B. Model.shared5 = ((0, 1),): one bank 5 for slave A and B (as simulate_py); Model.own_params:
     each DSP its own bank 6 (FCEC(sel, ...)); B's 6006 / 6007 reach the master through the IOMD in the same sample.
     Banks 0 / 1 are whole rings (S+1 per sample). The samples between two events run in one C call. SIM=py:
-    simulate_py (re/dspisa.py, slow); --sim-check compares the two."""
+    simulate_py (the C reference with flat memories, emu/dspref.Machine, slower); --sim-check compares the
+    two (the slave model of cchain against hand-moved rings and flat memories)."""
     if os.environ.get('SIM') == 'py':
         return simulate_py(progs, events, n, panel)
     sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 'emu'))
@@ -1381,10 +1382,11 @@ def simulate(progs, events, n, panel=None):
 
 
 def simulate_py(progs, events, n, panel=None):
-    """the reference in Python (re/dspisa.py, minutes): dict memories, the ring words of the voice blocks moved by
-    hand (S -> S+1), registers 0 at the start of each program"""
+    """the flat-memory reference (emu/dspref.Machine, the C reference with one flat memory per DSP): the ring words
+    of the voice blocks moved by hand (S -> S+1), registers 0 at the start of each program"""
     import dspdis
-    import dspisa
+    sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 'emu'))
+    import dspref
     code = {k: [i for _, i in dspdis.instructions(progs[k][0])] for k in ('s1m0', 's1m1', 's1mm1')}
     panel = panel or panel_defaults()
     b5 = sim_b5(panel)
@@ -1395,8 +1397,10 @@ def simulate_py(progs, events, n, panel=None):
              + ([0x0400 + 0x20 * v + o for v in range(NV) for o in range(0, 0x20, 2)] if KERNEL else []),
              's1m1': [x + o for x in (STEP_B_BASE if STEP else B_BASE) for o in range(0, span, 2)]
              + ([0x0600 + 0x20 * v + o for v in range(NV) for o in range(0, 0x20, 2)] if KERNEL else [])}
-    mem = {'s1m0': {}, 's1m1': {}}
-    mem_m = dict(pm)
+    M = {k: dspref.Machine() for k in ('s1m0', 's1m1', 's1mm1')}
+    mem = {k: M[k].mem for k in ('s1m0', 's1m1')}
+    mem_m = M['s1mm1'].mem
+    mem_m.update(pm)
     out = []
     for t in range(n):
         for v, note in events.get(t, []):
@@ -1407,25 +1411,17 @@ def simulate_py(progs, events, n, panel=None):
                 m[s + 1] = m.get(s, 0.0)
             m.update(pb if key == 's1m1' else pa)
             m.update(b5)
-            regs = [0.0] * 8
-            for x in code[key]:
-                dspisa.JUMP = None
-                regs, m, _ = dspisa.run(list(x), regs, m)
-            for k, val in m.items():
-                if 0xA000 <= k < 0xC000:
-                    b5[k] = val
-            mem[key] = m
-        m = dict(mem_m)
+            M[key].regs = [0.0] * 8
+            M[key].run_program(code[key])
+            b5.update(m.bank5())
+        m = mem_m
         m[OUT_L], m[OUT_R] = mem['s1m1'].get(OUT_L, 0.0), mem['s1m1'].get(OUT_R, 0.0)
         if STEP >= 13:                 # master bank 1 is a ring (the C core's model): the effect return 2001 / 2003
             for snd, ret in zip(FX_SEND, FX_RET):   # = the send 2000 / 2002 of the sample before (no OS effect
-                m[ret] = mem_m.get(snd, 0.0)        # program in the emulator); without it the reference gave 0
+                m[ret] = m.get(snd, 0.0)            # program in the emulator); without it the reference gave 0
 
-        regs = [0.0] * 8
-        for x in code['s1mm1']:
-            dspisa.JUMP = None
-            regs, m, _ = dspisa.run(list(x), regs, m)
-        mem_m = m
+        M['s1mm1'].regs = [0.0] * 8
+        M['s1mm1'].run_program(code['s1mm1'])
         out.append(m.get(M_OUT[0], 0.0))
     return out
 

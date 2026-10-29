@@ -544,7 +544,7 @@ def nojump(words, name):
     out, n = [], 0
     for _o, ins in R.dspdis.instructions(words):
         ins = list(ins)
-        L = R.dspisa.Layout(ins)
+        L = R.dspref.layout(ins)
         for pos, t in enumerate(L.t):
             if t == 'J':
                 ins[1 + pos] = 0x0000
@@ -617,7 +617,7 @@ def split_bank5(words, name, dummy0=None):
         out += r.words
         changed += 1
     if changed and any(t == 'J' for _o, i in R.dspdis.instructions(words)
-                       for t in R.dspisa.Layout(list(i)).t):
+                       for t in R.dspref.layout(list(i)).t):
         raise ValueError(f'{name}: has jumps; inserting instructions would move their targets')
     return out
 

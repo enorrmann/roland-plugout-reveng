@@ -273,7 +273,7 @@ const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_in
                                         "s1_export", "s1_import", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env",
                                         "s1_color", "s1_lfo_filter", "s1_lfo_amp",
                                         "s1_range", "s1_floor", "s1_ceil", "s1_sign", "s1_abs", "s1_recip", "s1_exp",
-                                        "s1_log2", "s1_ldexp", "s1_sum3", "s1_mac2"};
+                                        "s1_log2", "s1_ldexp", "s1_sum3", "s1_mac2", "s1_sqrt", "s1_rsqrt"};
 
 std::string intrinsicBase(const std::string &fn) { return fn.substr(5, fn.find('.', 5) - 5); }   // llvm.<base>.<type>
 
@@ -941,7 +941,7 @@ struct Builder {
         }
         if (fn == "s1_wrap" || fn == "s1_clamp" || fn == "s1_tri" || fn == "s1_exp2" || fn == "s1_floor" ||
             fn == "s1_ceil" || fn == "s1_sign" || fn == "s1_abs" || fn == "s1_recip" || fn == "s1_exp" ||
-            fn == "s1_log2") {
+            fn == "s1_log2" || fn == "s1_sqrt" || fn == "s1_rsqrt") {
             vmap[CI] = mk(NK::Op, fn, {arg(0)}, CI);
             return;
         }

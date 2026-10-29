@@ -1,4 +1,5 @@
-"""Run one Roland main program (engine/build/programs.h, copied from the JX-3P) sample by sample on re/dspisa.py.
+"""Run one Roland main program (engine/build/programs.h, copied from the JX-3P) sample by sample on the C reference
+(emu/dspref.Machine, with this file's access hook).
 
 Only what is measured is simulated. Anything else stops the run with an error that names the missing piece:
   - the condition-flag context of the DSP (--context; only the measured ones, DSP_HARDWARE.md §6)
@@ -6,14 +7,14 @@ Only what is measured is simulated. Anything else stops the run with an error th
   - a bank-0, bank-5 or bank-6 word that was never given (--input); the ARM writes banks 5 and 6
   - reads of banks that depend on other DSPs or on the ARM: 1, 2, 3 (IOMD), 4 (MXM), 7
   - bank-5 words above 0x3FF, bank-0 references above 0x7FF, jumps into the middle of an instruction
-  - undecoded ops, and ops whose effect is not modelled (dspisa prints them as unknown / reads 0 / ...)
+  - undecoded ops, and ops whose effect is not measured (dspref.check)
 Writes to banks 3 and 4 are collected per sample (outputs to the wave bus and the other DSPs), not read back.
 Registers r0-r7 at power-up are not measured: they start at --regs (default 0). --check-init reruns the program
 with other random register values and reports the samples where a recorded word changes.
 
     python3 sim_main.py MAIN0 --context <ctx> --input init.txt --n 1500 --record 0261,025B
 
-Input file: one "t addr value" per line (addr hex, absolute; value = the DSP's RAW value, as dspisa uses it).
+Input file: one "t addr value" per line (addr hex, absolute; value = the DSP's RAW value, as the reference uses it).
   t = 0 is the state before sample 0 (bank 0, 5 and 6 words); t > 0 is written before sample t (banks 5 and 6 only).
 Ring: bank 0 is a 0x800-word ring. Between samples every word moves +1 (mod 0x800): stored at S in sample n, read at
 S+1 in sample n+1 (DSP_HARDWARE.md §7.2). Nothing else is reset between samples: flags, hidden registers, r0-r7 and
@@ -22,13 +23,12 @@ memory carry over (measured, DSP_HARDWARE.md §2).
 import argparse, os, random, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 're'))
-import dspdis, dspisa   # noqa: E402
+sys.path.insert(0, os.path.join(HERE, '..', 'emu'))
+import dspdis, dspref   # noqa: E402
 
 PROGRAMS = os.path.join(HERE, '..', 'engine', 'build', 'programs.h')
 RING = 0x800
-NOOP_WORDS = {0xFF70}     # program-start form, the only "no visible effect" word measured in MAIN0
-UNMODELLED = ('unknown', '??', 'no effect measured', 'mode unknown', 'reads 0', 'time-varying', 'tap_request',
-              'SFU:', 'counter f5', 'no visible effect')
+NOOP_WORD = 0xFF70        # program-start form, the only "no visible effect" word measured in MAIN0
 
 
 class Refused(Exception):
@@ -62,16 +62,6 @@ def read_inputs(path):
             raise SystemExit(f'{path}:{ln}: address {a:04x} can not be given as input (banks 0, 5, 6 only)')
         events.setdefault(t, []).append((a, v))
     return events
-
-
-def check_text(text, idx):
-    for part in text.split('; '):
-        if not any(m in part for m in UNMODELLED):
-            continue
-        mm = re.match(r'B:([0-9a-f]{4}) ', part)
-        if mm and 'no visible effect' in part and int(mm.group(1), 16) in NOOP_WORDS:
-            continue
-        raise Refused(f'instruction {idx}: not modelled: {part}')
 
 
 def make_hook(io):
@@ -116,9 +106,9 @@ def make_hook(io):
 
 
 def simulate(words, events, regs0, hidden, context, n, record):
-    if context not in dspisa.CONTEXT_BITS:
+    if context not in dspref.CONTEXT_BITS:
         raise Refused(f'condition-flag context {context!r} is not measured for this DSP; '
-                      f'the measured ones are {", ".join(dspisa.CONTEXT_BITS)}')
+                      f'the measured ones are {", ".join(dspref.CONTEXT_BITS)}')
     ins = [i for _, i in dspdis.instructions(words)]
     starts, p = [], 0
     for i in ins:
@@ -126,16 +116,23 @@ def simulate(words, events, regs0, hidden, context, n, record):
     if p != len(words):
         raise ValueError('instructions do not cover the program')
     pos = {s: k for k, s in enumerate(starts)}
+    why = [dspref.check(x, NOOP_WORD) for x in ins]     # a unit with no measured effect (refused if it runs)
+    use = [dspref.hidden_use(x) for x in ins]
 
-    # every run starts from the same measured-or-given state; module globals of dspisa are reset here
-    dspisa.CONTEXT = context
-    dspisa.FLAGS = None
-    dspisa.PENDING = {}
-    dspisa.HIDDEN.update({k: hidden.get(k) for k in (4, 5, 6, 7)})
-    io = {}
-    dspisa.ACCESS = make_hook(io)
-    mem = {}
-    regs = list(regs0)
+    # every run starts from the same measured-or-given state
+    m = dspref.Machine(context=context, hidden={k: hidden.get(k) or 0.0 for k in (4, 5, 6, 7)})
+    known = {k for k in (4, 5, 6, 7) if hidden.get(k) is not None}
+    io, mem, err = {}, {}, []
+    hook = make_hook(io)
+
+    def access(op, a, v):
+        try:
+            return hook(op, a, mem, v)
+        except Refused as e:                           # raised again after the instruction
+            err.append(e)
+            return 0.0
+    m.set_access(access)
+    m.regs = list(regs0)
     out = {a: [] for a in record}
     io_last = {}
     try:
@@ -150,14 +147,20 @@ def simulate(words, events, regs0, hidden, context, n, record):
                 steps += 1
                 if steps > 200000:
                     raise Refused('endless loop in one sample')
-                dspisa.JUMP = None
+                if why[i]:
+                    raise Refused(f'instruction {i}: not modelled: {why[i]}')
+                reads, loads = use[i]
+                if reads - known:
+                    raise Refused(f'instruction {i}: reads h{min(reads - known)} before it is loaded (--hidden)')
                 try:
-                    regs, mem, text = dspisa.run(list(ins[i]), regs, mem)
-                except (KeyError, ValueError, TypeError) as e:
+                    jump = m.run(list(ins[i]))
+                except (ValueError, IndexError) as e:
                     raise Refused(f'instruction {i} ({" ".join(f"{w:04x}" for w in ins[i])}): {e!r}')
-                check_text(text, i)
-                if dspisa.JUMP is not None:
-                    tgt = starts[i] + len(ins[i]) + dspisa.JUMP
+                if err:
+                    raise err[0]
+                known |= loads
+                if jump is not None:
+                    tgt = starts[i] + len(ins[i]) + jump
                     if tgt == len(words):
                         i = len(ins)
                     elif tgt in pos:
@@ -170,7 +173,7 @@ def simulate(words, events, regs0, hidden, context, n, record):
             for a in record:
                 out[a].append(mem.get(a))
     finally:
-        dspisa.ACCESS = None
+        m.set_access(None)
     return out, io_last
 
 
@@ -193,7 +196,7 @@ def run_checked(name, words, events, regs0, hidden, context, n, record, seed):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('name')
-    ap.add_argument('--context', default=None, help='condition-flag context (dspisa.CONTEXT_BITS key)')
+    ap.add_argument('--context', default=None, help='condition-flag context (dspref.CONTEXT_BITS key)')
     ap.add_argument('--input', default=None, help='"t addr value" lines (see the docstring)')
     ap.add_argument('--n', type=int, default=1500)
     ap.add_argument('--regs', default=None, help='r0..r7 at power-up, comma separated (default 0)')

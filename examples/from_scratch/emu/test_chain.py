@@ -2,10 +2,9 @@
 
     python3 test_chain.py              all tests on the C core (cchain.py, a few seconds)
     python3 test_chain.py A G          only the tests whose name contains test_A / test_G
-    python3 test_chain.py --py [...]   on chain.py itself (pure Python, about 10 minutes)
 
 Each test can fail: it checks either a fact read from Roland's listings (study only, needs the local
-engine/build/programs.h; skipped without it) or a prediction of the emulator (chain.py) for a hardware model.
+engine/build/programs.h; skipped without it) or a prediction of the emulator (cchain.py, the C core) for a hardware model.
 Where the prediction depends on the model, the test checks both the chosen model and the alternative, so that the
 measurement that tells them apart is explicit. Only our programs run in the emulator.
 """
@@ -20,7 +19,7 @@ import sigcheck
 import voices
 
 FS = voices.FS_DIR
-EMU = cchain                        # chain.Slave / chain.Bmc2 with --py
+EMU = cchain                        # the emulator (the Python chain.Slave was archived 2026-10-29)
 HI, LO = 81, 69                     # note 81 = 880 Hz, note 69 = 440 Hz (pitch 5.75 / 4.75)
 
 
@@ -303,8 +302,4 @@ def main(sel):
 
 
 if __name__ == '__main__':
-    args = sys.argv[1:]
-    if '--py' in args:
-        args.remove('--py')
-        EMU = chain
-    sys.exit(main(args))
+    sys.exit(main(sys.argv[1:]))

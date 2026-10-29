@@ -48,6 +48,9 @@ CASES = [
     # s1_export / s1_import: DSP A's note frequency to DSP B's key-tracked low-pass
     ('simple_saw_wrapped/simple_saw_export.c', ['--regs', '0,1,2,3,4,5,6,7'],
      [(45, {'track': 100}, 90, 85), (69, {'track': 200}, 90, 85)], (31, 17)),
+    # the native ops measured 2026-10-29: s1_mac2 with immediate coefficients, s1_sqrt / s1_rsqrt (sqrtsplit)
+    ('native_ops/native_new.c', ['--regs', '0,1,2,3,4,5,6,7'], [(45, {'level': 255}, 85, None),
+                                                                (93, {'level': 255}, 85, None)], (43, None)),
     # a plain C library, two instances per voice, and its wrapper; no S1_DSP_B (min SNR B / max instructions B: None)
     # saw.c comes in by itself (the source next to saw.h: s1cc build, automatic sources)
     ('simple_saw_wrapped/simple_saw_wrapped.c', [],
@@ -159,7 +162,8 @@ class TestSystemS1cc(unittest.TestCase):
     def test_budget_guard(self):
         r = subprocess.run([sys.executable, self.gen], env=dict(self.env, BUDGET='100'), capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn('over the budget of 100 instructions', r.stdout + r.stderr)
+        self.assertIn('voices do not fit', r.stdout + r.stderr)
+        self.assertIn('budget 100', r.stdout + r.stderr)
 
 
 @unittest.skipUnless(HAVE, 'needs clang and LLVM 19')
@@ -177,7 +181,8 @@ class TestSystemS1ccHostEnvelopes(unittest.TestCase):
                                 '-o', kernel, '--regs', '0,1,2,3,4,5,6,7'], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr[-2000:])
             r = subprocess.run([sys.executable, os.path.join(ROOT, 'examples', 'system_s1cc', 'make_s1cc.py'), '--sim'],
-                               env=dict(os.environ, KERNEL=kernel, OUTDIR=out), capture_output=True, text=True)
+                               env=dict(os.environ, KERNEL=kernel, OUTDIR=out, VOICES='6'), capture_output=True,
+                               text=True)          # 6: with the host LFO on DSP B, 8 voices pass its budget (715)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertNotIn('warning', r.stdout)
             self.assertIn('no notes: peak 0.000000', r.stdout)

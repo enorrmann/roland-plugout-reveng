@@ -9,7 +9,7 @@ marked with how sure it is. The history, raw evidence and dead ends are in `NOTE
 templates, immediate packing, execution semantics, encoding examples). This file is the short overview.
 **What the decoded operations are good for (delays, indexed delay lines, hidden registers…): `DSP_USOS.md`.**
 
-Tools: `re/dspisa.py` (decoder / disassembler / simulator), `re/dsp_templates.txt` + `re/dsp_units_ab.txt`
+Tools: the C reference `emu/dspdec.h` + `emu/dspcore.h` (decoder / simulator, from Python `emu/dspref.py`), `asm/disasm.py` (disassembler; `re/dspisa.py` archived 2026-10-29), `re/dsp_templates.txt` + `re/dsp_units_ab.txt`
 (measured templates), `re/dspmc.py` (word order), `re/dspnum.py` (number format).
 
 ## 1. Program and words

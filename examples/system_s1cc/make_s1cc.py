@@ -181,6 +181,15 @@ H_ENV_WORDS = 6 if HOST_ENVS else 0             # per voice on DSP B: (level, la
 # sub; LFO and sub are -1..1: with them selected manual = that weight = knob / 2). Bank 5, free words: the pitch
 # envelope B -> A (PEB, for -> pitch), the sub square A -> B (SUBB), the colors B -> A (COLB), one sample late each
 B6_PENV, B6_COL = 0x52, (0x54, 0x5A)
+# ... or on DSP A (MOD_DSP=A): DSP A parameters C048 / C049 pitch envelope rates, C050 + 8 i color i's weights; the
+# envelope levels DSP B -> DSP A in bank 5 (ENVX: AMP A170+v, FILTER A178+v). MOD_DSP=auto (default): make_s1cc.py
+# takes B, and A when B does not fit or fits fewer voices (a kernel with a short DSP A: most of mutable_ported)
+A6_PENV, A6_COL = 0x48, (0x50, 0x58)
+ENVX = ([0xA170 + v for v in range(NV)], [0xA178 + v for v in range(NV)])
+MOD_DSP = os.environ.get('MOD_DSP', 'auto')
+if MOD_DSP not in ('A', 'B', 'auto'):
+    raise SystemExit('make_s1cc.py: MOD_DSP must be A, B or auto')
+MOD_B = MOD_DSP != 'A'                          # where the pitch envelope and COLOR MOD are now (main() may change it)
 PEB = [0xA128 + v for v in range(NV)]
 SUBB = [0xA130 + v for v in range(NV)]
 COLB = ([0xA138 + v for v in range(NV)], [0xA140 + v for v in range(NV)])
@@ -207,15 +216,23 @@ SG_K = 4.0                                      # sample & glide: k = min(1, SG_
 def host_a_words():
     """the host's words per voice on DSP A, before the kernel's (ring words): the modulated pitch / dt / rdt (written
     and read in the same sample), the sub's phase and its square, the kernel's output for the mixer"""
-    w = [n + 'm' for n in PITCH_MOD if f'IN:{n}' in A_SELF]
+    w = (['pt', 'pe', 'pf'] if PENV and not MOD_B else []) + [n + 'm' for n in PITCH_MOD if f'IN:{n}' in A_SELF]
     w += ['sp'] if CMOD or HOST_MIX else []
+    w += [f'color{i}' for i in COLOR_USED] if not MOD_B else []
     return w + (['xo'] if HOST_MIX else [])
 
 
 def host_b_words():
     """the host LFO's words per voice on DSP B, after its envelopes': last trigger, phase, S&H, S&G, fade; -> amp
     and -> filter for the kernel (same sample); the note start and the pitch envelope (level, latch)"""
-    return ['bpt', 'lph', 'lsh', 'lsg', 'fade', 'lfa', 'lff'] + (['bd', 'pe', 'pf'] if PENV else []) if HOST_LFO else []
+    return ['bpt', 'lph', 'lsh', 'lsg', 'fade', 'lfa', 'lff'] + (['bd', 'pe', 'pf'] if PENV and MOD_B else []) if HOST_LFO else []
+
+
+def set_mod_dsp(on_b):
+    """put the pitch envelope and COLOR MOD on DSP B (True) or DSP A: the host's word counts follow"""
+    global MOD_B, H_A_WORDS, H_B_WORDS
+    MOD_B = on_b
+    H_A_WORDS, H_B_WORDS = len(host_a_words()), len(host_b_words())
 
 
 H_A_WORDS = len(host_a_words())
@@ -274,7 +291,7 @@ def addresses(dsp, v):
         k = H_ENV_WORDS + H_B_WORDS
     if dsp == 'A' and HOST_LFO:                   # the host's words: LFO, modulated inputs, COLOR MOD
         h = {n: base + 2 * j for j, n in enumerate(host_a_words())}
-        addr.update({f'IN:color{i}': COLB[i][v] for i in COLOR_USED})
+        addr.update({f'IN:color{i}': COLB[i][v] if MOD_B else h[f'color{i}'] for i in COLOR_USED})
         addr.update({f'IN:{n}': h[n + 'm'] for n in PITCH_MOD if n + 'm' in h})
         if 'xo' in h:                           # the kernel's output, for the host's mixer
             addr['OUT'] = h['xo']
@@ -336,7 +353,7 @@ def hlfo_voice_b(v):
     P = lambda k: f'c0{k:02x}'  # noqa: E731
     return [f'; voice {v}: host LFO (DSP B), b = d = 1 at a note start',
             f'ld {a}, [{TB[v]:04x}]', f'ld {b}, [{hb["bpt"] + 1:04x}]', f'mov {a}, {a}', f'st {a}, [{hb["bpt"]:04x}]',
-            f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}', *([f'st {b}, [{hb["bd"]:04x}]'] if PENV else []),
+            f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}', *([f'st {b}, [{hb["bd"]:04x}]'] if PENV and MOD_B else []),
             f'; voice {v}: LFO phase a, 0 at a note start; c = 2 at a wrap',
             f'ld {a}, [{hb["lph"] + 1:04x}]', f'ld {c}, [{P(B6_LRATE)}]', f'mov {a}, {a}', f'mad {a}, {a}, -{b}',
             f'addxy {c}, {a}, {c}', f'ph_wrap {a}, r3, {c}', f'st {a}, [{hb["lph"]:04x}]', f'subxy {c}, {a}, {c}',
@@ -360,31 +377,37 @@ def hlfo_voice_b(v):
             f'ld {b}, [{P(B6_LAMP)}]', f'ld {c}, [{P(B6_LAMPABS)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}',
             f'mad {b}, {a}, -{c}', f'add {b}, #1.0', f'st {b}, [{hb["lfa"]:04x}]',
             f'ld {b}, [{P(B6_LFILT)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}', f'st {b}, [{hb["lff"]:04x}]'] + \
-        (penv_b(v, hb) if PENV else [])
+        (penv_b(v, hb) if PENV and MOD_B else [])
 
 
-def penv_b(v, hb):
-    """pitch envelope AD of voice v on DSP B, after the LFO (the host ADSR's math, adsr(), proven on the device, with
-    the gate at 1 and sustain 0: latch cleared at a note start, attack flag clamp(256 (1 - latch)), level toward 1.25
-    attack at rate kD + attack (kA - kD)) -> word pe (COLOR MOD) and bank 5 PEB+v (-> pitch on DSP A)"""
-    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
-    P = lambda k: f'c0{k:02x}'  # noqa: E731
+def penv_core(v, a, b, c, d, pe, pf, prm):
+    """pitch envelope AD (the host ADSR's math, adsr(), proven on the device, with the gate at 1 and sustain 0:
+    latch cleared at a note start (b = 1), attack flag clamp(256 (1 - latch)), level toward 1.25 attack at rate
+    kD + attack (kA - kD)) -> a, stored at word pe; pf = the latch; prm = the decay rate's parameter (attack next)"""
+    prm2 = f'c0{int(prm[2:], 16) + 1:02x}'
     return [f'; voice {v}: pitch envelope a: the ADSR\'s latch form with gate 1, sustain 0',
-            f'ld {b}, [{hb["bd"]:04x}]', f'ld {a}, [{hb["pe"] + 1:04x}]', f'ld {c}, [{hb["pf"] + 1:04x}]',
-            f'mov {c}, {c}', f'mad {c}, {c}, -{b}',                               # latch *= 1 - d
+            f'ld {a}, [{pe + 1:04x}]', f'ld {c}, [{pf + 1:04x}]', f'mov {c}, {c}',
+            f'mad {c}, {c}, -{b}',                                                # latch *= 1 - d
             # latch = 1 once the level passed 0.999: 256 (256 (e - 0.999)) in two clamped steps (one product would
             # pass the DSP's +-512)
             f'addxy {b}, {a}, #-0.999', f'mul {b}, {b}, #256.0', f'ph_clamp {b}, r3, -{b}', f'mul {b}, {b}, #256.0',
-            f'ph_clamp {b}, r3, -{b}', f'max {c}, {c}, {b}', f'st {c}, [{hb["pf"]:04x}]',
+            f'ph_clamp {b}, r3, -{b}', f'max {c}, {c}, {b}', f'st {c}, [{pf:04x}]',
             # attack flag c = clamp(256 (1 - latch)): 1 until the latch is full. With the attack 1 - latch itself a
             # latch caught half way in the 0.999 band (slow attacks) left the target 1.25 (1 - latch) under the
             # level and the envelope stuck there (2026-10-28, on the device: it stayed at a value, never fell to 0)
             f'subxy {c}, {c}, #1.0', f'mul {c}, {c}, #256.0', f'ph_clamp {c}, r3, -{c}',
-            f'ld {b}, [{P(B6_PENV)}]', f'ld {d}, [{P(B6_PENV + 1)}]', f'mov {d}, {d}',
-            f'subxy {d}, {b}, {d}', f'mad {b}, {c}, {d}',                        # rate = kD + attack (kA - kD)
-            f'mul {c}, {c}, #1.25',                                              # target 1.25 attack
-            f'subxy {c}, {a}, {c}', f'mad {a}, {c}, {b}', f'min {a}, {a}, #1.0', f'st {a}, [{hb["pe"]:04x}]',
-            *([f'st {a}, [{PEB[v]:04x}]'] if PITCH_MOD else [])]
+            f'ld {b}, [{prm}]', f'ld {d}, [{prm2}]', f'mov {d}, {d}',
+            f'subxy {d}, {b}, {d}', f'mad {b}, {c}, {d}',                         # rate = kD + attack (kA - kD)
+            f'mul {c}, {c}, #1.25',                                               # target 1.25 attack
+            f'subxy {c}, {a}, {c}', f'mad {a}, {c}, {b}', f'min {a}, {a}, #1.0', f'st {a}, [{pe:04x}]']
+
+
+def penv_b(v, hb):
+    """the pitch envelope of voice v on DSP B (MOD_DSP=B), after the LFO: penv_core with the note start stored by
+    hlfo_voice_b -> word pe (COLOR MOD) and bank 5 PEB+v (-> pitch on DSP A)"""
+    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
+    return [f'ld {b}, [{hb["bd"]:04x}]'] + penv_core(v, a, b, c, d, hb['pe'], hb['pf'], f'c0{B6_PENV:02x}') + \
+        ([f'st {a}, [{PEB[v]:04x}]'] if PITCH_MOD else [])
 
 
 def colors_b(v):
@@ -429,12 +452,18 @@ def hlfo_voice(v):
             out.append(f'st {reg}, [{INB0 + 8 * KDEF.inputs_b.index(name) + v:04x}]')
         return out
     L = [f'; voice {v}: host (DSP A): gate / trigger copies for DSP B']
-    if GT_B:
+    if PENV and not MOD_B:                          # MOD_DSP=A: the pitch envelope here (a = its level)
+        L += [f'ld {a}, [{TRIG[v]:04x}]', f'ld {c}, [{GATE[v]:04x}]', f'ld {b}, [{h["pt"] + 1:04x}]',
+              f'mov {a}, {a}', *([f'st {a}, [{TB[v]:04x}]', f'st {c}, [{GB[v]:04x}]'] if GT_B else []),
+              f'st {a}, [{h["pt"]:04x}]', f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}']
+        L += penv_core(v, a, b, c, d, h['pe'], h['pf'], P(A6_PENV))
+    elif GT_B:
         L += [f'ld {a}, [{TRIG[v]:04x}]', f'ld {c}, [{GATE[v]:04x}]', f'mov {a}, {a}',
               f'st {a}, [{TB[v]:04x}]', f'st {c}, [{GB[v]:04x}]']
     if PITCH_MOD:
         L += [f'; voice {v}: -> pitch b = y = P lf + E pe + OSC1 RANGE octaves', f'ld {b}, [{LFB[v]:04x}]',
-              f'ld {c}, [{P(A6_LPITCH)}]', f'ld {a}, [{PEB[v]:04x}]', f'mov {c}, {c}', f'mul {b}, {b}, {c}',
+              f'ld {c}, [{P(A6_LPITCH)}]', *([f'ld {a}, [{PEB[v]:04x}]'] if MOD_B else []), f'mov {c}, {c}',
+              f'mul {b}, {b}, {c}',
               f'ld {c}, [{P(A6_PAMT)}]', f'mov {c}, {c}', f'mad {b}, {a}, {c}', f'ld {c}, [{P(A6_RANGE1)}]', f'mov {c}, {c}', f'addxy {b}, {b}, {c}']
         if 'pitch' in PITCH_MOD:
             L += [f'ld {c}, [{PITCH[v]:04x}]', f'mov {c}, {c}', f'addxy {c}, {c}, {b}'] + put(c, 'pitchm', 'pitch')
@@ -454,6 +483,13 @@ def hlfo_voice(v):
               f'ld {b}, [{h["sp"] + 1:04x}]', f'ld {c}, [{DT[v]:04x}]', f'mov {c}, {c}',
               f'addxy {c}, {b}, {c}', f'ph_wrap {b}, r3, {c}', f'st {b}, [{h["sp"]:04x}]', f'mul {b}, {b}, #256.0',
               f'ph_clamp {b}, r3, -{b}', f'st {b}, [{SUBB[v]:04x}]']
+    if not MOD_B:                                   # MOD_DSP=A: the colors here, the envelopes from DSP B (ENVX)
+        for i in COLOR_USED:
+            k = A6_COL[i]
+            L += [f'; voice {v}: color {i} = w0 + w1 lf + w2 pe + w3 fe + w4 ae + w5 sub (c)', f'ld {c}, [{P(k)}]']
+            for w_, src in ((1, LFB[v]), (2, h['pe']), (3, ENVX[1][v]), (4, ENVX[0][v]), (5, SUBB[v])):
+                L += [f'ld {b}, [{src:04x}]', f'ld {d}, [{P(k + w_)}]', f'mov {d}, {d}', f'mad {c}, {b}, {d}']
+            L += [f'st {c}, [{h[f"color{i}"]:04x}]']
     return L
 
 
@@ -550,7 +586,9 @@ def voice_b(v):
         for i in HOST_ENV_USED:
             e = b + 6 * i
             L += [f'; voice {v}: host envelope {i}'] + adsr(e, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
-    if CMOD:
+            if CMOD and not MOD_B:                  # its level for COLOR MOD on DSP A
+                L += [f'st r0, [{ENVX[i][v]:04x}]']
+    if CMOD and MOD_B:
         L += colors_b(v)
     if HAS_B:
         L += KDEF.place('B', addresses('B', v))
@@ -680,14 +718,17 @@ def hlfo_params(knobs):
     pb = {0xC000 + B6_LRATE: f32(lfo_rate(k['lfo_rate'])), 0xC000 + B6_LSG: f32(lfo_sg(k['lfo_rate'])),
           0xC000 + B6_LDELAY: f32(lfo_delay(k['lfo_delay'])), 0xC000 + B6_LFILT: f32(lfo_filt(k['lfo_filter'])),
           0xC000 + B6_LAMP: f32(lfo_amp(k['lfo_amp'])), 0xC000 + B6_LAMPABS: f32(abs(lfo_amp(k['lfo_amp']))),
-          0xC000 + B6_PENV: f32(decay_rate(k['penv_d'])), 0xC000 + B6_PENV + 1: f32(attack_rate(k['penv_a']))}
+          }
+    pm = pb if MOD_B else pa                        # pitch envelope and COLOR MOD: DSP B or A (MOD_DSP)
+    pm[0xC000 + (B6_PENV if MOD_B else A6_PENV)] = f32(decay_rate(k['penv_d']))
+    pm[0xC000 + (B6_PENV if MOD_B else A6_PENV) + 1] = f32(attack_rate(k['penv_a']))
     for j, x in enumerate(LFO_SHAPES[min(max(k['lfo_shape'], 0), 5)]):
         pb[0xC000 + B6_LWAVE + j] = x
     if k['lfo_shape'] == 5:                         # sample & hold: the glide follows at once
         pb[0xC000 + B6_LSG] = 1.0
     for i in (0, 1):
         for j, x in enumerate(color_weights(k[f'color{i}'], k[f'mod{i}'])):
-            pb[0xC000 + B6_COL[i] + j] = f32(x)
+            pm[0xC000 + (B6_COL if MOD_B else A6_COL)[i] + j] = f32(x)
     return pa, pb
 
 
@@ -871,17 +912,22 @@ def header(progs):
         out.append(f'#define H6_ENV0 0x{H6_ENV[0]:02x}\n#define H6_ENV1 0x{H6_ENV[1]:02x}')
         out.append('static const uint16_t henv_panel[8] = { ' + ', '.join(f'0x{x:03x}' for p in H_ENV_PANEL for x in p) + ' };')
         out.append('static const uint8_t henv_default[8] = { ' + ', '.join(str(x) for d in H_ENV_DEFAULT for x in d) + ' };')
+
+    if HOST_ENVS or HOST_LFO:                      # the envelopes' and the pitch envelope's rates, COLOR levels
         out.append(table('attack_bits', [attack_rate(v) for v in range(256)]))
         out.append(table('decay_bits', [decay_rate(v) for v in range(256)]))
         out.append(table('level_bits', [v / 255.0 for v in range(256)]))
     out.append(f'#define HOST_LFO {int(HOST_LFO)}')
     if HOST_LFO:
-        out.append(f'/* the host: LFO (DSP B parameters B6_*), pitch envelope, COLOR MOD (DSP B, B6_*), mixer (DSP A, A6_*); controls\n'
+        out.append(f'/* the host: LFO (DSP B parameters B6_*), pitch envelope and COLOR MOD (M6_*: DSP A or B, MOD_DSP), mixer (DSP A, A6_*); controls\n'
                    f'   (panel id, default); tables */\n'
                    f'#define B6_LRATE 0x{B6_LRATE:02x}\n#define B6_LSG 0x{B6_LSG:02x}\n#define B6_LWAVE 0x{B6_LWAVE:02x}\n'
                    f'#define B6_LDELAY 0x{B6_LDELAY:02x}\n#define B6_LFILT 0x{B6_LFILT:02x}\n#define B6_LAMP 0x{B6_LAMP:02x}\n'
                    f'#define B6_LAMPABS 0x{B6_LAMPABS:02x}\n'
-                   f'#define B6_PENV 0x{B6_PENV:02x}\n#define B6_COL0 0x{B6_COL[0]:02x}\n#define B6_COL1 0x{B6_COL[1]:02x}\n'
+                   f'#define M6_SEL {int(MOD_B)}  /* pitch envelope and COLOR MOD: DSP B (1) or A (0), MOD_DSP */\n'
+                   f'#define M6_PENV 0x{B6_PENV if MOD_B else A6_PENV:02x}\n'
+                   f'#define M6_COL0 0x{(B6_COL if MOD_B else A6_COL)[0]:02x}\n'
+                   f'#define M6_COL1 0x{(B6_COL if MOD_B else A6_COL)[1]:02x}\n'
                    f'#define A6_LPITCH 0x{A6_LPITCH:02x}\n#define A6_PAMT 0x{A6_PAMT:02x}\n#define A6_RANGE1 0x{A6_RANGE1:02x}\n'
                    f'#define A6_SUBMIX 0x{A6_SUBMIX:02x}\n#define A6_NOISEMIX 0x{A6_NOISEMIX:02x}')
         out.append(f'static const uint16_t hlfo_panel[{len(HLFO)}] = {{ ' + ', '.join(f'0x{p:03x}' for _, p, _ in HLFO) + ' };')
@@ -1093,11 +1139,42 @@ def forms_report():
           'play; if it works: python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by NAME')
 
 
+def overruns(progs):
+    """the limits a build passes: instructions per DSP (main and sections), bytes per region -> [text]; and the
+    largest share of a DSP's budget it uses"""
+    over, load = [], 0.0
+    for name, (w, _, lines) in progs.items():
+        if name in BUDGET:
+            parts = dsp_programs(progs, 'A' if name == 's1m0' else 'B')
+            n_ins = sum(instr_count(x[1][2]) for x in parts)
+            load = max(load, n_ins / BUDGET[name])
+            if n_ins > BUDGET[name]:
+                over.append(f'{name}: {n_ins} instructions{" (with its sections)" if len(parts) > 1 else ""}, '
+                            f'budget {BUDGET[name]}')
+            if 2 * len(w) > MAIN_BYTES:
+                over.append(f'{name}: {2 * len(w)} bytes, its region has {MAIN_BYTES}')
+        if name in SECTION_OF and 2 * len(w) > SECTION_OF[name][3] - SECTION_OF[name][2]:
+            over.append(f'{name}: {2 * len(w)} bytes, its section has {SECTION_OF[name][3] - SECTION_OF[name][2]}')
+    return over, load
+
+
 def main():
     if '--forms' in sys.argv:
         forms_report()
         return
-    progs = sources()
+    if MOD_DSP == 'auto' and PENV:                  # the pitch envelope and COLOR MOD on the DSP with room for them
+        tried = []
+        for on_b in (True, False):
+            set_mod_dsp(on_b)
+            progs = sources()
+            over, load = overruns(progs)
+            tried.append((bool(over), load, on_b, progs))
+        _, _, on_b, progs = min(tried, key=lambda t: (t[0], t[1]))
+        set_mod_dsp(on_b)
+        progs = sources()                           # again: TRIED and the sections are this placement's
+        print(f'MOD_DSP=auto: pitch envelope and COLOR MOD on DSP {"B" if on_b else "A"}')
+    else:
+        progs = sources()
     over = []
     for n in ['s1s0'] + list(SECTION_OF):             # sections this build does not use: no stale files
         if n not in progs:

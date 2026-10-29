@@ -1,18 +1,18 @@
 """Front end of the C core (dspcore.c): every instruction of a chain.Program becomes a list of units and conditions.
 
-The decoding is re/dspisa.py's own (dspisa.Layout: template, slot area, immediate stream, units, jumps); this module
-only replays the immediate reads of the A / B / M units in run()'s order and packs the result into ctypes arrays.
-What depends on run-time values (registers, flags, hidden registers, memory) is left to the C core.
+The decoding is the C decoder's (dspdec.h dsp_decode: template, slot area, immediate stream, units, jumps); this module
+only packs the result into ctypes arrays (and dicts, for dspjit.py). What depends on run-time values (registers,
+flags, hidden registers, memory) is left to the C core.
 """
 import ctypes as C
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, '..', 're'))
-import dspisa  # noqa: E402
+sys.path.insert(0, HERE)
+import dspref  # noqa: E402
 
-K_A, K_B, K_M, K_J, K_HID, K_X28, K_XB5, K_XFLAG, K_XMEM = range(1, 10)
+K_A, K_B, K_M, K_J, K_HID, K_X28, K_XB5, K_XFLAG, K_XMEM, K_XTAP = range(1, 11)
 
 
 class Op(C.Structure):
@@ -29,75 +29,25 @@ class Insn(C.Structure):
                 ('err', C.c_int32)]
 
 
+_OPS, _CONDS, _JOFF = (Op * 64)(), (Cond * 64)(), (C.c_int32 * 64)()
+
+
 def decode(ins):
     """(ops, conds, jumps) of one instruction: ops = [dict] in body order, conds = [(cc, neg, op skipped if true,
-    op skipped if false)], jumps = {op index: offset in words from the instruction end}. Raises where dspisa.run
-    would."""
-    L = dspisa.Layout(ins)
-    imm = L.imm()
-    n_words = iter(L.n_list)
-    ops, pos_op, jumps = [], {}, {}
-
-    def add(pos, **kw):
-        pos_op[pos] = len(ops)
-        o = dict(kind=0, unit=0, w=0, w2=0, a=0, b=0, c=0, has=0, imm=[0.0, 0.0, 0.0])
-        o.update(kw)
-        ops.append(o)
-        return o
-
-    def take(mode, field=None):
-        return dspisa.raw_value(imm.take(mode, field))
-
-    # the immediate reads below are those of a_op / b_op / mac: A and B start from byte Y; a MAC reads Y at byte Y,
-    # C right after it (or at byte C when Y is a register) and W at byte W. They do not depend on run-time values.
-    for pos, (w, k) in enumerate(zip(L.body, L.t)):
-        unit = L.units.index(pos) + 1 if pos in L.units else 0
-        if k == 'A':
-            o = add(pos, kind=K_A, unit=unit, w=w)
-            if (w >> 4) & 3:
-                o['imm'][0], o['has'] = take((w >> 4) & 3, w & 15), 1
-        elif k == 'B':
-            o = add(pos, kind=K_B, unit=unit, w=w)
-            if (w >> 4) & 3 and not (w >> 12 >= 8 and (w >> 8) & 15 == 0xF):
-                o['imm'][0], o['has'] = take((w >> 4) & 3, w & 15), 1
-        elif k == 'M':
-            w2 = next(n_words)
-            o = add(pos, kind=K_M, unit=unit, w=w, w2=w2)
-            ym, cm, wm = (w >> 4) & 3, (w2 >> 10) & 3, (w2 >> 4) & 3
-            if ym:
-                o['imm'][0] = take(ym, w & 15)
-            if cm:
-                o['imm'][1] = take(cm) if ym else take(cm, (w2 >> 6) & 7)
-            if wm:
-                o['imm'][2] = take(wm, w2 & 15)
-        elif k == 'J':
-            jumps[len(ops)] = L.jump(w)
-            add(pos, kind=K_J)
-        elif k == 'C' and w >> 8 == 0x40:
-            tg, m = 4 + ((w >> 6) & 3), (w >> 4) & 3
-            if m == 0:
-                add(pos, kind=K_HID, a=tg, b=0, c=w & 15)
-            elif m != 3:
-                o = add(pos, kind=K_HID, a=tg, b=1)
-                o['imm'][0] = L.hidden_static(pos, w)
-        elif k == 'T':
-            reg, slot, mode = w >> 12, (w & 15) >> 1, (w >> 4) & 0xFF
-            if mode == 0x28:
-                add(pos, kind=K_X28, a=reg, b=w & 15)
-            elif mode in (0xDA, 0xDE, 0xDB, 0xDF):
-                add(pos, kind=K_XB5, a=reg, b=w & 15, c=6 if mode in (0xDA, 0xDE) else 7)
-            elif 0xD0 <= mode <= 0xD7:
-                add(pos, kind=K_XB5, a=reg, b=(mode & 7) << 4 | (w & 15), c=0)
-            elif mode == 0x9B:
-                add(pos, kind=K_XFLAG, a=dspisa.FLAG_GROUP.get(reg, 0), b=w & 15)
-            elif mode == 0xFE and slot < len(L.slots):
-                add(pos, kind=K_XMEM, a=reg, b=L.slots[slot])
-    conds = []
-    for w, k in zip(L.body, L.t):
-        if k == 'C':
-            sk = [L.skipped_unit(w, c) for c in (True, False)]
-            sk = [pos_op.get(L.units[u - 1], -1) if u else -1 for u in sk]
-            conds.append(((w >> 9) & 31, (w >> 8) & 1, sk[0], sk[1]))
+    op skipped if false)], jumps = {op index: offset in words from the instruction end}. Raises ValueError for an
+    instruction that cannot run."""
+    no, nc = C.c_int(), C.c_int()
+    e = dspref.lib().dsp_decode(dspref.words_arg(ins), len(ins), _OPS, 64, C.byref(no), _CONDS, 64, C.byref(nc),
+                                _JOFF)
+    if e:
+        raise ValueError(f'undecodable instruction ({e}): {" ".join(f"{w:04x}" for w in ins)}')
+    ops, jumps = [], {}
+    for k in range(no.value):
+        o = _OPS[k]
+        ops.append(dict(kind=o.kind, unit=o.unit, w=o.w, w2=o.w2, a=o.a, b=o.b, c=o.c, has=o.has, imm=list(o.imm)))
+        if o.kind == K_J:
+            jumps[k] = _JOFF[k]
+    conds = [(c.cc, c.neg, c.op_t, c.op_f) for c in _CONDS[:nc.value]]
     return ops, conds, jumps
 
 
@@ -127,7 +77,7 @@ def _decode_program(prog):
     for i, ins in enumerate(prog.ins):
         try:
             o, c, jumps = decode(list(ins))
-        except (ValueError, StopIteration, IndexError):
+        except ValueError:
             out.append(None)
             continue
         if len(o) > 64:

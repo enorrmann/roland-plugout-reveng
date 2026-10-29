@@ -548,6 +548,89 @@ struct Lowerer {
         return r;
     }
 
+    // a b + c d + e in one MAC op (DSP_HARDWARE.md §5.4, measured exact on the SYSTEM-8): two register products
+    // (mac_p1p2 / mac_p1w), or a constant factor as the MAC's immediate coefficient K (mac_p1p2c3 / mac_p1wc3: one
+    // register less), or both products with a constant (Y immediate and K). A product of two constants and a constant
+    // e go into W. Otherwise (no native ops, too few registers, no product left): multiplies and adds.
+    LV macLV(LV a, LV b, LV c, LV d, LV e, Node *n) {
+        double ct = 0;                               // constant products
+        std::vector<std::pair<LV, LV>> prods;        // (register, register or constant)
+        for (auto pq : {std::make_pair(a, b), std::make_pair(c, d)}) {
+            LV p = pq.first, q = pq.second;
+            if (p.isConst() && q.isConst())
+                ct += p.k * q.k;
+            else if (p.isConst())
+                prods.push_back({q, p});
+            else
+                prods.push_back({p, q});
+        }
+        LV E = e.isConst() ? cst(e.k + ct) : (ct != 0 ? addLV(e, cst(ct)) : e);
+        bool hasE = !(E.isConst() && E.k == 0);
+        auto generic = [&]() {
+            return addLV(addLV(mulLV(a, b, nullptr), mulLV(c, d, nullptr)), e);
+        };
+        if (!opt.native || prods.size() < 2)
+            return generic();
+        // the register product first (it takes X, Y); the other gives K (its constant) and Z
+        if (prods[0].second.isConst() && !prods[1].second.isConst())
+            std::swap(prods[0], prods[1]);
+        bool k2 = prods[1].second.isConst(), k1 = prods[0].second.isConst();
+        int regsNeeded = 2 + (k1 ? 0 : 1) + (k2 ? 0 : 1) + (hasE ? 1 : 0) + 1;   // + 1: what stays live
+        if (K->nregs() < regsNeeded)
+            return generic();
+        Range ab = mulRange(rangeOf(prods[0].first), rangeOf(prods[0].second));
+        Range cd = mulRange(rangeOf(prods[1].first), rangeOf(prods[1].second));
+        Range ev = rangeOf(E);
+        LV r;
+        KVal *rx = materialize(prods[0].first, 1, 0);
+        KOperand y = k1 ? KOperand::im(prods[0].second.k) : KOperand::of(materialize(prods[0].second, 1, 0));
+        KVal *rz = materialize(prods[1].first, 1, 0);
+        KVal *re = hasE ? materialize(E, 1, 0) : nullptr;
+        if (k2)
+            r.r = K->mac2k(rx, y, prods[1].second.k, rz, re);
+        else
+            r.r = K->mac2(rx, y.v, rz, materialize(prods[1].second, 1, 0), re);
+        r.V.add(ab.lo + cd.lo + (ev.seen() ? ev.lo : 0));
+        r.V.add(ab.hi + cd.hi + (ev.seen() ? ev.hi : 0));
+        if (std::max(std::fabs(r.V.lo), std::fabs(r.V.hi)) >= 512)
+            warnings.push_back({"W911", "s1_mac2 at " + where(n->v) + ": the result can pass +-512 (it wraps)"});
+        return r;
+    }
+
+    // sqrt V / 1/sqrt V, V > 0 (s1_sqrt, s1_rsqrt): y = V 4^-j inside the DSP range; the SFU's sqrt split y = m 4^-k,
+    // m in [1, 4): seed q ~ 1/sqrt m (9 bits, 1.5 %), t = 2^-k; two Newton steps q (1.5 - 0.5 m q^2) (2e-7, 4 ops each,
+    // the last one a MAC with immediates); sqrt y = m q t (2 ops), 1/sqrt y = q / t (q times 1/t: 4 ops)
+    LV sqrtLV(LV x, Node *n, bool inv) {
+        if (x.isConst())
+            return cst(inv ? 1 / std::sqrt(x.k) : std::sqrt(x.k));
+        Range v = rangeOf(x);
+        if (!v.seen() || v.lo <= 0)
+            fail("E608", std::string(inv ? "s1_rsqrt" : "s1_sqrt") + ": the argument must stay above 0 (profiled range [" +
+                 std::to_string(v.lo) + ", " + std::to_string(v.hi) + "]) " + where(n->v));
+        int j = std::max(0, (int)std::ceil(std::log2(v.hi / 256) / 2));   // y = V 4^-j below 256
+        KVal *y = materialize(x, std::ldexp(1.0, 2 * j), 0);
+        auto sp = K->sqrtsplit(y);
+        KVal *q = std::get<0>(sp), *m = std::get<1>(sp), *t = std::get<2>(sp);
+        for (int step = 0; step < 2; step++) {
+            KVal *w = K->mul(K->mul(m, KOperand::of(q)), KOperand::of(q));       // m q^2
+            KVal *w3 = K->mul(w, KOperand::of(q));                              // m q^3
+            q = K->mac2k(q, KOperand::im(1.5), -0.5, w3);                       // 1.5 q - 0.5 m q^3
+        }
+        LV r;
+        if (inv) {
+            r.r = K->mul(q, KOperand::of(K->recip(t)));                         // 1/sqrt y = q 2^k
+            r.s = std::ldexp(1.0, -j);                                          // 1/sqrt V = (1/sqrt y) 2^-j
+            r.V.add(1 / std::sqrt(v.hi));
+            r.V.add(1 / std::sqrt(v.lo));
+        } else {
+            r.r = K->mul(K->mul(m, KOperand::of(q)), KOperand::of(t));          // sqrt y = m q t
+            r.s = std::ldexp(1.0, j);                                           // sqrt V = sqrt(y) 2^j
+            r.V.add(std::sqrt(v.lo));
+            r.V.add(std::sqrt(v.hi));
+        }
+        return r;
+    }
+
     // 1 / V: an exponential -> exp2 of the negated exponent; otherwise a fitted seed and Newton steps
     // 1/y once per divisor: two divisions by the same value (Braids' BLEP times, / (phase_increment >> 16) on
     // both edges) share it
@@ -1669,24 +1752,21 @@ struct Lowerer {
                 fail("E606", "s1_ldexp: the exponent must be a constant " + where(n->v));
             return scale(in(0), std::ldexp(1.0, (int)in(1).k));
         }
-        if (op == "s1_sum3")
-            return addLV(addLV(in(0), in(1)), in(2));
-        if (op == "s1_mac2") {                       // a b + c d + e: one MAC when all are registers at scale 1
-            LV a = in(0), b = in(1), c = in(2), d = in(3), e = in(4);
-            if (!opt.native || a.isConst() || b.isConst() || c.isConst() || d.isConst())
-                return addLV(addLV(mulLV(a, b, nullptr), mulLV(c, d, nullptr)), e);
-            Range ab = mulRange(rangeOf(a), rangeOf(b)), cd = mulRange(rangeOf(c), rangeOf(d)), ev = rangeOf(e);
+        if (op == "s1_sum3") {                       // a + b + c: one sum8 when all three are registers
+            LV a = in(0), b = in(1), c = in(2);
+            if (!opt.native || a.isConst() || b.isConst() || c.isConst())
+                return addLV(addLV(a, b), c);
+            Range ra = rangeOf(a), rb = rangeOf(b), rc = rangeOf(c);
             LV r;
-            KVal *ra = materialize(a, 1, 0), *rb = materialize(b, 1, 0), *rc = materialize(c, 1, 0),
-                 *rd = materialize(d, 1, 0);
-            KVal *re = e.isConst() && e.k == 0 ? nullptr : materialize(e, 1, 0);
-            r.r = K->mac2(ra, rb, rc, rd, re);
-            r.V.add(ab.lo + cd.lo + (ev.seen() ? ev.lo : 0));
-            r.V.add(ab.hi + cd.hi + (ev.seen() ? ev.hi : 0));
-            if (std::max(std::fabs(r.V.lo), std::fabs(r.V.hi)) >= 512)
-                warnings.push_back({"W911", "s1_mac2 at " + where(n->v) + ": the result can pass +-512 (it wraps)"});
+            r.r = K->sum3(materialize(a, 1, 0), materialize(b, 1, 0), materialize(c, 1, 0));
+            r.V.add(ra.lo + rb.lo + rc.lo);
+            r.V.add(ra.hi + rb.hi + rc.hi);
             return r;
         }
+        if (op == "s1_mac2")                         // a b + c d + e: one MAC op (macLV)
+            return macLV(in(0), in(1), in(2), in(3), in(4), n);
+        if (op == "s1_sqrt" || op == "s1_rsqrt")
+            return sqrtLV(in(0), n, op == "s1_rsqrt");
         if (op == "s1_exp")
             return exp2LV(scale(in(0), 1 / std::log(2.0)));
         if (op == "s1_log2")
@@ -1771,6 +1851,8 @@ struct Lowerer {
         Kernel k(S.name == "A" && !opt.regsA.empty() ? opt.regsA : S.name == "B" && !opt.regsB.empty() ? opt.regsB
                                                                                                   : opt.regs);
         K = &k;
+        k.fuseMac = opt.native && opt.fuseMac;
+        k.fuseAbs = opt.native;
         val.clear();
         recipCache.clear();
         warnedSeed = false;

@@ -23,6 +23,32 @@ std::string fmtImm(double x) {
     return s;
 }
 
+namespace {
+// the multiply that made v (a plain `mul`, register first operand, nothing negated), or nullptr
+const KOp *productOf(const std::vector<KOp> &ops, KVal *v) {
+    for (auto it = ops.rbegin(); it != ops.rend(); ++it)
+        if (it->d == v)
+            return it->kind == "op" && it->fmt == "mul {d}, {0}, {1}" && it->args[0].v && !it->args[0].neg &&
+                           !(it->args[1].v && it->args[1].neg)
+                       ? &*it
+                       : nullptr;
+    return nullptr;
+}
+}
+
+namespace {
+// the source of |a| made as `max {d}, a, -a` (absLV), or nullptr
+KVal *absOf(const std::vector<KOp> &ops, KVal *v) {
+    for (auto it = ops.rbegin(); it != ops.rend(); ++it)
+        if (it->d == v)
+            return it->kind == "op" && it->fmt == "max {d}, {0}, {1}" && it->args[0].v && !it->args[0].neg &&
+                           it->args[1].v == it->args[0].v && it->args[1].neg
+                       ? it->args[0].v
+                       : nullptr;
+    return nullptr;
+}
+}
+
 KVal *Kernel::val(const std::string &name) {
     vals_.push_back(std::make_unique<KVal>());
     vals_.back()->n = (int)vals_.size();
@@ -136,6 +162,20 @@ KVal *Kernel::mul(KVal *x, KOperand y) {
 KVal *Kernel::add(KVal *x, KOperand y) {
     if (!y.v && !std::isfinite(y.imm))
         fail("E702", "kernel: a non-finite constant");
+    if (fuseAbs && !y.v && std::fabs(y.imm) < 256)  // |a| + c: absadd with an immediate (the polyBLEP's |u| - 2)
+        if (KVal *a = absOf(ops_, x))
+            return op("absadd {d}, {0}, {1}", {KOperand::of(a), y});
+    if (fuseAbs && y.v && !y.neg) {                 // |a| + b: absadd (unit B, one op; DSP_HARDWARE.md §5.2)
+        if (KVal *a = absOf(ops_, x))
+            return op("absadd {d}, {0}, {1}", {KOperand::of(a), y});
+        if (KVal *a = absOf(ops_, y.v))
+            return op("absadd {d}, {0}, {1}", {KOperand::of(a), KOperand::of(x)});
+    }
+    if (fuseMac && y.v && !y.neg)                   // the sum of two products: one MAC
+        if (const KOp *a = productOf(ops_, x))
+            if (const KOp *b = productOf(ops_, y.v))
+                if (KVal *r = macOf(a->args[0], a->args[1], b->args[0], b->args[1]))
+                    return r;
     // a constant beyond the immediate range: in steps (x and x + c are registers, so every step between is too)
     while (!y.v && std::fabs(y.imm) >= 512) {
         double step = y.imm > 0 ? 511.0 : -511.0;
@@ -151,9 +191,34 @@ KVal *Kernel::sub(KVal *x, KOperand y) {
         return add(x, KOperand::im(-y.imm));
     if (y.neg)
         return add(x, KOperand::of(y.v));
+    if (fuseAbs)                                    // x - |a|: subabs (Y - |X|, one op)
+        if (KVal *a = absOf(ops_, y.v))
+            return op("subabs {d}, {0}, {1}", {KOperand::of(a), KOperand::of(x)});
     return op("subxy {d}, {0}, {1}", {y, KOperand::of(x)});      // subxy d, X, Y = Y - X
 }
+
+// p q + r s as one MAC op (DSP_HARDWARE.md §5.4), the measured forms only: X Y + C Z with Y and C registers
+// (mac_p1w), Y a register and C an immediate K (mac_p1wc3), Y and K immediates; p and r registers. nullptr: no form
+KVal *Kernel::macOf(KOperand p, KOperand q, KOperand r, KOperand s) {
+    if (!p.v)
+        std::swap(p, q);
+    if (!r.v)
+        std::swap(r, s);
+    if (!p.v || !r.v || p.neg || q.neg || r.neg || s.neg)
+        return nullptr;
+    if (!q.v && s.v)                                // Y immediate with a register C (exact too, 2026-10-29): the register
+                                                    // product first all the same
+        std::swap(p, r), std::swap(q, s);
+    if (q.v && s.v)
+        return op("mac_p1w {d}, {0}, {1}, {3}, {2}", {p, q, s, r});            // X Y + C Z: C = s, Z = r
+    return op("mac_p1wc3 {d}, {0}, {1}, {2}, {3}", {p, q, KOperand::im(s.imm), r});
+}
+
 KVal *Kernel::mad(KVal *acc, KVal *x, KOperand y) {
+    if (fuseMac)                                    // acc = p q: acc + x y = p q + x y, one MAC
+        if (const KOp *m = productOf(ops_, acc))
+            if (KVal *r = macOf(m->args[0], m->args[1], KOperand::of(x), y))
+                return r;
     if (!y.v && !goodImm(y.imm))
         return add(acc, KOperand::of(mul(x, y)));
     return op("mad {d}, {0}, {1}", {KOperand::of(x), y}, acc);
@@ -165,8 +230,8 @@ namespace {
 // e^f on [0, 1): least squares of the relative error, degree 6 (5.7e-8)
 const double kExpPoly[7] = {1.00000005659, 0.999996450303, 0.500051973938, 0.166360755989, 0.0425387636987,
                             0.00706573356093, 0.00226793999827};
-// the shift field of shl / shr / shrn: 4 bits written as a register operand (bit 3 = its negation sign)
-std::string shiftField(int k) { return k >= 8 ? "-r" + std::to_string(k - 8) : "r" + std::to_string(k); }
+// the shift field of shl / shr / shrn: the 4-bit number itself (asm: `shl r2, r0, 13`)
+std::string shiftField(int k) { return std::to_string(k); }
 }
 
 KVal *Kernel::multi(const std::string &fmt, KVal *arg, bool pairD, bool clobber, bool second) {
@@ -239,6 +304,24 @@ KVal *Kernel::mac2(KVal *a, KVal *b, KVal *c, KVal *d, KVal *e) {
     return op("mac_p1w {d}, {0}, {1}, {3}, {2}", {KOperand::of(a), KOperand::of(b), KOperand::of(c), KOperand::of(d)});
 }
 
+KVal *Kernel::mac2k(KVal *a, KOperand y, double k, KVal *z, KVal *e) {
+    // MAC unit, immediate coefficient (DSP_HARDWARE.md §5.4: read at byte C of the slot array; the assembler places
+    // it): rD <- rX Y + K rZ (+ rW); text order D, X, Y, K, Z, W. Measured exact on the SYSTEM-8 (2026-10-29)
+    if (e)
+        return op("mac_p1p2c3 {d}, {0}, {1}, {2}, {3}, {4}",
+                  {KOperand::of(a), y, KOperand::im(k), KOperand::of(z), KOperand::of(e)});
+    return op("mac_p1wc3 {d}, {0}, {1}, {2}, {3}", {KOperand::of(a), y, KOperand::im(k), KOperand::of(z)});
+}
+
+std::tuple<KVal *, KVal *, KVal *> Kernel::sqrtsplit(KVal *y) {
+    // sqrtsplit rB, rY: rY <- m, r(B+1) <- seed, r(B+3) <- sign 2^-k (r(B) is not written; DSP_HARDWARE.md §5.3)
+    KVal *seed = multi("sqrtsplit r{b}, {0}", y, false, true, true);
+    KOp &o = ops_.back();
+    o.d3 = val();
+    o.base = 0;
+    return {seed, o.d2, o.d3};
+}
+
 KVal *Kernel::sum3(KVal *a, KVal *b, KVal *c) {
     return op("sum8 {d}, {0}, {1}, {2}", {KOperand::of(a), KOperand::of(b), KOperand::of(c)});
 }
@@ -292,7 +375,8 @@ std::vector<std::string> Kernel::lines() {
         std::vector<KOp> keep;
         for (auto &o : ops_) {
             if ((o.kind == "op" && o.d && !used.count(o.d->n)) ||
-                (o.kind == "multi" && !used.count(o.d->n) && !(o.d2 && used.count(o.d2->n)))) {
+                (o.kind == "multi" && !used.count(o.d->n) && !(o.d2 && used.count(o.d2->n)) &&
+                 !(o.d3 && used.count(o.d3->n)))) {
                 changed = true;
                 continue;
             }
@@ -459,6 +543,37 @@ std::vector<std::string> Kernel::lines() {
                 freeRegs.erase(it);
             }
             int got = -1;
+            if (o.d3) {                              // sqrt split: r(b + 1) and r(b + 3) free, any b
+                for (int tries = 0; tries < 16 && got < 0; tries++) {
+                    for (int b = 0; b < 8 && got < 0; b++) {
+                        int s = (b + 1) & 7, t = (b + 3) & 7;
+                        if (std::find(freeRegs.begin(), freeRegs.end(), s) != freeRegs.end() &&
+                            std::find(freeRegs.begin(), freeRegs.end(), t) != freeRegs.end())
+                            got = b;
+                    }
+                    if (got < 0) {
+                        int r = takeReg(i, keep, true);
+                        freeRegs.push_back(r);
+                    }
+                }
+                if (got < 0)
+                    fail("E706", "kernel: no free registers r(b+1), r(b+3) for sqrtsplit");
+                int s = (got + 1) & 7, t = (got + 3) & 7;
+                freeRegs.erase(std::find(freeRegs.begin(), freeRegs.end(), s));
+                freeRegs.erase(std::find(freeRegs.begin(), freeRegs.end(), t));
+                o.base = got;
+                o.d->reg = s;
+                o.d2->reg = yreg;
+                o.d3->reg = t;
+                for (KVal *v : {o.d, o.d2, o.d3}) {
+                    if (nextUse(v->n, i + 1) != 1 << 30)
+                        live[v->n] = v;
+                    else
+                        freeRegs.push_back(v->reg);
+                }
+                out2.push_back(o);
+                continue;
+            }
             if (o.pairD) {                           // r(D), r(D+1)
                 for (int tries = 0; tries < 16 && got < 0; tries++) {
                     for (int r : freeRegs)
@@ -536,6 +651,7 @@ std::vector<std::string> Kernel::lines() {
             };
             all("{d}", "r" + std::to_string(o.d->reg));
             all("{d1}", "r" + std::to_string(o.d->reg + 1));
+            all("{b}", std::to_string(o.base));
             all("{0}", "r" + std::to_string(o.args[0].v->reg));
             for (size_t p = 0, q; (q = s.find('\n', p)) != std::string::npos; p = 0) {
                 out.push_back(s.substr(0, q));

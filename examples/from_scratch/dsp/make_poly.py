@@ -8,7 +8,7 @@ vibrato, times the envelope. The four voices are summed (scale 1/4) into IOMD 60
     python3 make_poly.py --opt    -> also poly_opt.s / poly_opt.hex: the same voice with ph_wrap (Roland's form)
                                      instead of the manual wraps, scheduled by asm/dspsched.py
                                      (docs/MICROCODE_OPTIMIZATION.md); poly.hex (tested on the device) stays
-    python3 make_poly.py --sim    -> four voices in re/dspisa.py: each gate pulse must give its own pitch
+    python3 make_poly.py --sim    -> four voices in the C reference (emu/dspref.py): each gate pulse must give its own pitch
 """
 import math
 import os
@@ -100,9 +100,11 @@ def words(text):
 
 def simulate(w, gates, pitches, n):
     import dspdis
-    import dspisa
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu'))
+    import dspref
     ins = [i for _, i in dspdis.instructions(w)]
-    mem = {}
+    m = dspref.Machine()
+    mem = m.mem
     for k in range(NV):
         mem[PITCH[k]] = pitches[k]
     out = []
@@ -112,10 +114,8 @@ def simulate(w, gates, pitches, n):
         for st in list(PHASE) + list(ENV) + [LFO]:
             if st in mem:
                 mem[st + 1] = mem[st]
-        regs = [0.0] * 8
-        for x in ins:
-            dspisa.JUMP = None
-            regs, mem, _ = dspisa.run(list(x), regs, mem)
+        m.regs = [0.0] * 8
+        m.run_program(ins)
         out.append(mem.get(OUT_L, 0.0))
     return out
 

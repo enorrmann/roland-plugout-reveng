@@ -1,4 +1,4 @@
-"""Memory references of a DSP program and their relocation (same decoder as the emulator: re/dspisa.Layout).
+"""Memory references of a DSP program and their relocation (same decoder as the emulator: emu/dspref.layout, the C decoder).
 
     import dspreloc as R
     p = R.Prog(words, 'MAIN2')          # words in execution order
@@ -17,8 +17,9 @@ from dataclasses import dataclass
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 're'))
+sys.path.insert(0, os.path.join(ROOT, 'examples', 'from_scratch', 'emu'))
 import dspdis  # noqa: E402
-import dspisa  # noqa: E402
+import dspref  # noqa: E402
 
 BANKS = {0x0: 'b0', 0x2: 'b1', 0x6: 'iomd', 0x8: 'mxm', 0xA: 'b5', 0xC: 'b6', 0xE: 'b7'}
 
@@ -39,7 +40,7 @@ class Prog:
         for k, (off, ins) in enumerate(dspdis.instructions(self.words)):
             self.starts.append(off)
             try:
-                L = dspisa.Layout(list(ins))
+                L = dspref.layout(list(ins))
             except ValueError:
                 self.other.append((k, 'undecodable'))
                 continue

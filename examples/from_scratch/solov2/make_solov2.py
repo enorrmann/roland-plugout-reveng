@@ -78,13 +78,17 @@ def simulate(w_osc2, w_osc, w_gate, pitch, gate, n):
     """one sample = DSP2 program, DSP3 program, then DSP4 program; DSP4 reads what DSP2 / DSP3 stored in the
     previous sample (MXM double buffer, docs/DSP_HARDWARE.md 8.2). pitch[v], gate[v](t) for v in 0..3"""
     import dspdis
-    import dspisa
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu'))
+    import dspref
     ins_osc2 = [i for _, i in dspdis.instructions(w_osc2)]
     ins_osc = [i for _, i in dspdis.instructions(w_osc)]
     ins_gate = [i for _, i in dspdis.instructions(w_gate)]
-    mem = [{PITCH[0]: pitch[0], PITCH[1]: pitch[1], PHASE[0] + 1: 0.0, PHASE[1] + 1: 0.0} for _ in range(2)]
-    mem4 = {GATE[k]: 0.0 for k in range(4)}
-    mem4.update({a: 0.0 for a in IN})
+    M = [dspref.Machine() for _ in range(2)]
+    mem = [x.mem for x in M]
+    for m in mem:
+        m[PITCH[0]], m[PITCH[1]] = pitch[0], pitch[1]
+    M4 = dspref.Machine()
+    mem4 = M4.mem
     out = []
     for t in range(n):
         for k in range(4):
@@ -97,15 +101,10 @@ def simulate(w_osc2, w_osc, w_gate, pitch, gate, n):
                 m[PHASE[v] + 1] = m.get(PHASE[v], 0.0)
             if d == 1:                                             # DSP3 gets its pitches from ids of its own
                 m[PITCH[0]], m[PITCH[1]] = pitch[2], pitch[3]
-            regs = [0.0] * 8
-            for x in (ins_osc2 if d == 0 else ins_osc):
-                dspisa.JUMP = None
-                regs, m, _ = dspisa.run(list(x), regs, m)
-            mem[d] = m                                             # run() returns a new dict
-        regs = [0.0] * 8
-        for x in ins_gate:
-            dspisa.JUMP = None
-            regs, mem4, _ = dspisa.run(list(x), regs, mem4)
+            M[d].regs = [0.0] * 8
+            M[d].run_program(ins_osc2 if d == 0 else ins_osc)
+        M4.regs = [0.0] * 8
+        M4.run_program(ins_gate)
         out.append(mem4.get(OUT_L, 0.0))
     return out
 
