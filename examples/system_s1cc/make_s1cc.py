@@ -188,21 +188,21 @@ if ENV_CURVE != 'none' and ENV_CURVE not in CURVES:
     raise SystemExit(f'make_s1cc.py: ENV_CURVE={ENV_CURVE}: one of none, {", ".join(CURVES)}')
 CURVE = ENV_CURVE != 'none' and HOST_ENVS
 LUT0, LUT_EN, LUT_LN = 0xA080, 32, 16
-LUT_SHAPES = ('sine', 'tri', 'saw', 'square')
+LUT_SHAPES = ('sine', 'tri', 'saw')             # the square is clamp(256 saw) (hlfo: amp 256, then the clamp)
 
 
 def lut_layout():
     """(values, {table: first word}) of the bank-5 tables: the envelope curve (LUT_EN + 1 points of 0..1), then the
-    LFO shapes (LUT_LN + 1 points of the phase -1..1 each, as hlfo_voice_b's formulas: triangle 1 - 2 |wrap(p - 1.5)|,
-    sine -sin(pi p) (the same peaks), saw p, square clamp(256 p))"""
+    LFO shapes (LUT_LN + 1 points of the phase -1..1 each, as hlfo_voice_b's formulas in the emulator: triangle =
+    ph_tri (-1 at p = -0.5, +1 at 0.5), sine = sin(pi p) (the true sine; the formula's is t (1.5 - 0.5 t^2)), saw p,
+    the square = clamp(256 saw) in the code)"""
     vals, at = [], {}
     if CURVE:
         at['env'] = LUT0 + len(vals)
         vals += [CURVES[ENV_CURVE](i / LUT_EN) for i in range(LUT_EN + 1)]
     if LFO_LUT:
-        wrap = lambda x: (x + 1) % 2 - 1  # noqa: E731
-        f = {'sine': lambda p: -math.sin(math.pi * p), 'tri': lambda p: 1 - 2 * abs(wrap(p - 1.5)),
-             'saw': lambda p: p, 'square': lambda p: max(-1.0, min(1.0, 256 * p))}
+        f = {'sine': lambda p: math.sin(math.pi * p), 'tri': lambda p: 2 / math.pi * math.asin(math.sin(math.pi * p)),
+             'saw': lambda p: p}
         for name in LUT_SHAPES:
             at[name] = LUT0 + len(vals)
             vals += [f32(f[name](-1 + 2 * i / LUT_LN)) for i in range(LUT_LN + 1)]
@@ -216,13 +216,75 @@ def lut_h(word):
     return (word & 0x3FF) / 16384
 
 
-def lut_read(x, t, d, base, n, regs):
-    """d = T(x) from the table at base (n intervals, x already in 0..n): fl = floor x, fr = x - fl, h6 = word of fl,
-    two indexed loads, d = T0 + fr (T1 - T0). regs = (x, t): x is overwritten (fr), t is a scratch register; base:
-    an immediate (float) or a register holding h of the first word"""
+def lut_read(x, t, d, base, h=6):
+    """d = T(x) from the table at base (x in table points): fl = floor x, fr = x - fl, h = word of fl, two indexed
+    loads, d = T0 + fr (T1 - T0). x is overwritten (fr), t is a scratch register; base: an immediate (float) or a
+    register holding h of the table's first word; h: h6 (ldb5) or h7 (ldb5h7)"""
     add = f'addxy {t}, {t}, #{base!r}' if isinstance(base, float) else f'addxy {t}, {t}, {base}'
-    return [f'floor {t}, {x}', f'subxy {x}, {t}, {x}', f'mul {t}, {t}, #{2.0 ** -14!r}', add, f'hset h6, {t}',
-            f'ldb5 {d}, 0', f'ldb5 {t}, 1', f'subxy {t}, {d}, {t}', f'mad {d}, {x}, {t}']
+    ld = 'ldb5' if h == 6 else 'ldb5h7'
+    return [f'floor {t}, {x}', f'subxy {x}, {t}, {x}', f'mul {t}, {t}, #{2.0 ** -14!r}', add, f'hset h{h}, {t}',
+            f'{ld} {d}, 0', f'{ld} {t}, 1', f'subxy {t}, {d}, {t}', f'mad {d}, {x}, {t}']
+
+
+def env_out(i, v):
+    """where host envelope i of voice v leaves the level the kernel and COLOR MOD read (C(level) with ENV_CURVE)"""
+    return cmt(4 if i == 0 else 3, v) if cmod_idx() else block('B', v) + H_ENV_STRIDE * i + (6 if CURVE else 0)
+
+
+def luts_all():
+    """LFO_LUT / ENV_CURVE: every table lookup of the sample in one unit after the voices (h6 and h7 are one each per
+    DSP: inside a voice the lookups were a serial chain; here two run at a time, h6 on r0..r2 and h7 on r4..r6,
+    and the scheduler overlaps them): the envelopes' C(level) -> env_out (the kernel reads it one sample late), the
+    LFO's T[x] -> ly (its voice reads it one sample late)"""
+    jobs = []
+    for v in range(NV):
+        if CURVE:
+            for i in HOST_ENV_USED:
+                jobs.append((block('B', v) + H_ENV_STRIDE * i, [env_out(i, v)] + ([ENVX[i][v]] if CMOD and not MOD_B else []),
+                             lut_h(lut_layout()[1]['env']), float(LUT_EN)))
+        if LFO_LUT:
+            hb = {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
+            jobs.append((hb['lx'], [hb['ly']], 'lfo', None))
+    if not jobs:
+        return []
+    head = [f'; table lookups (LUT): {len(jobs)} per sample, h6 / h7 alternating']
+    if LFO_LUT:
+        head += [f'ld r3, [c0{B6_LWAVE:02x}]', f'ld r7, [c0{B6_LWAVE:02x}]']   # h of the LFO shape's table
+    chains = []
+    for k, (src, dsts, base, scale) in enumerate(jobs):
+        x, t, d = ('r0', 'r1', 'r2') if k % 2 == 0 else ('r4', 'r5', 'r6')
+        L = [f'ld {x}, [{src:04x}]'] + ([f'mul {x}, {x}, #{scale!r}'] if scale else [])
+        L += lut_read(x, t, d, base if base != 'lfo' else ('r3' if k % 2 == 0 else 'r7'), 6 + k % 2)
+        chains.append(L + [f'st {d}, [{a:04x}]' for a in dsts])
+    out = head
+    for k in range(0, len(chains), 2):
+        x, y = chains[k], chains[k + 1] if k + 1 < len(chains) else []
+        for i in range(max(len(x), len(y))):
+            out += x[i:i + 1] + y[i:i + 1]
+    return out
+
+
+# ARM_ENV=1 / ARM_LFO=1 (2026-10-30): the host's ADSRs / LFO run on the slave ARM (engine.c tick), one value per
+# voice in a DSP B parameter that the hardware ramps (FCE4, 4.00 ms per ramp with y = 0 whatever the distance); a
+# hook in the slave OS's 1 ms cyclic handler advances each voice every 4 ms (docs/examples_system_s1cc_README.md
+# §3.7). DSP B only reads the parameter.
+ARM_ENV = os.environ.get('ARM_ENV', '0') == '1' and HOST_ENVS
+ARM_LFO = os.environ.get('ARM_LFO', '0') == '1' and HOST_LFO
+if ARM_LFO and LFO_LUT:
+    raise SystemExit('make_s1cc.py: ARM_LFO and LFO_LUT together: the LFO is either on the ARM or on DSP B')
+ARM_SEG = 384                                   # samples per ramp (y = 0)
+ARM_RAMP = os.environ.get('ARM_RAMP', '1') == '1'   # 0: no ramps, the value written at every tick (FCEC)
+ARM_FADE = os.environ.get('ARM_FADE', '1') == '1'   # 0: no DELAY TIME (the LFO's fade at 1)
+# diagnostics, heard on the device (2026-10-30): ARM_DIAG=1 DSP B adds 0.1 x C11F to the output and engine.c
+# toggles C11F at every note on / off (a click: the positive check); ARM_TICK=1 the 1 ms tick also toggles it every
+# 4 ticks (a 125 Hz buzz while the tick runs)
+ARM_DIAG = os.environ.get('ARM_DIAG', '0') == '1'
+ARM_TICK = os.environ.get('ARM_TICK', '0') == '1'
+# DSP B parameters: envelope i of voice v at P_ENV0 + 8 i + v; lf, fade at P_LFO0 / P_FADE0 + v. 0x100..: on the
+# slave's DSP B the ramps of C0C0..C0DF never reached the program (2026-10-30: silent), those of C100.. did. The
+# end-of-ramp interrupt gives the id in 8 bits and FE3C's table has 256 entries: engine.c registers id & 0xFF and
+# puts 0x100 back in arm_cb
+P_ENV0, P_LFO0, P_FADE0 = 0x100, 0x110, 0x118
 
 
 H_ENV_STRIDE = 8 if CURVE else 6                # addresses of one host envelope: level, latch, last trigger (, curved)
@@ -269,7 +331,8 @@ LFO_SHAPES = [(1.5, -0.5, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0),
               (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0)]       # sine, triangle, saw, square, S&G, S&H
 if LFO_LUT:                                     # (h of the shape's table, amp, -, w): S&G / S&H only w g
     _AT = {n: LUT0 + k * (LUT_LN + 1) + ((LUT_EN + 1) if CURVE else 0) for k, n in enumerate(LUT_SHAPES)}
-    LFO_SHAPES = [(lut_h(_AT[n]), 1.0, 0.0, 0.0) for n in LUT_SHAPES] + [(lut_h(_AT['sine']), 0.0, 0.0, 1.0)] * 2
+    LFO_SHAPES = [(lut_h(_AT[n]), 1.0, 0.0, 0.0) for n in LUT_SHAPES] + [(lut_h(_AT['saw']), 256.0, 0.0, 0.0)] + \
+        [(lut_h(_AT['sine']), 0.0, 0.0, 1.0)] * 2                  # sine, triangle, saw, square, S&G, S&H
 A6_LPITCH, A6_PAMT, A6_RANGE1 = 0x4B, 0x5E, 0x5F   # DSP A: LFO TO PITCH, PITCH ENV AMOUNT, OSC1 RANGE (octaves)
 # DSP B: the LFO (rate, S&G coefficient, shape alpha / beta / K / w, fade step, -> filter, -> amp M / |M|)
 B6_LRATE, B6_LSG, B6_LWAVE, B6_LDELAY, B6_LFILT, B6_LAMP, B6_LAMPABS = 0x48, 0x49, 0x4A, 0x4E, 0x4F, 0x50, 0x51
@@ -298,7 +361,8 @@ def host_a_words():
 def host_b_words():
     """the host LFO's words per voice on DSP B, after its envelopes': last trigger, phase, S&H, S&G, fade; -> amp
     and -> filter for the kernel (same sample); the note start and the pitch envelope (level, latch)"""
-    w = ['bpt', 'lph', 'lsh', 'lsg', 'fade', 'lfa', 'lff'] + (['bd', 'pe', 'pf'] if PENV and MOD_B else []) if HOST_LFO else []
+    w = ['bpt', 'lph', 'lsh', 'lsg', 'fade', 'lfa', 'lff'] + (['bd', 'pe', 'pf'] if PENV and MOD_B else []) + \
+        (['lx', 'ly'] if LFO_LUT else []) if HOST_LFO else []      # LFO_LUT: the table position, its T (luts_all)
     return w
 
 
@@ -327,6 +391,14 @@ def layout():
             bb, b = b, b + p['count']
         out[p['name']] = (p['count'], ab, bb)
     return out
+
+
+def check_arm_ids():
+    """ARM_ENV / ARM_LFO: the kernel's DSP B parameters must end below P_ENV0"""
+    if ARM_ENV or ARM_LFO:
+        top = max([bb + cnt for cnt, ab, bb in layout().values() if bb is not None] + [0])
+        if top > 0x100:
+            raise SystemExit(f'make_s1cc.py: the kernel\'s DSP B parameters reach C{top:03x}, past P_ENV0 C{P_ENV0:03x}')
 
 
 def words(dsp):
@@ -358,8 +430,8 @@ def lfo_block(dsp='A'):
 def addresses(dsp, v):
     addr, k, base = {}, 0, block(dsp, v)
     if dsp == 'B' and HOST_ENVS:                  # the host's envelopes first: level, latch, last trigger each
-        addr['IN:env0'], addr['IN:env1'] = (cmt(4, v), cmt(3, v)) if cmod_idx() else \
-            (base + 6, base + 14) if CURVE else (base, base + 6)
+        addr['IN:env0'], addr['IN:env1'] = (env_out(0, v) + int(CURVE), env_out(1, v) + int(CURVE))
+        # (CURVE: luts_all writes C(level) after the voices, the kernel reads it one sample later: ring word + 1)
         k = H_ENV_WORDS
     if dsp == 'B' and HOST_LFO:                   # then the host LFO's; -> amp / -> filter for the kernel
         hb = {n: base + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
@@ -426,7 +498,7 @@ def hlfo_voice_b(v):
     G = lfo_block('B')
     a, b, c, d = 'r0', 'r1', 'r2', 'r3'
     P = lambda k: f'c0{k:02x}'  # noqa: E731
-    return [f'; voice {v}: host LFO (DSP B), b = d = 1 at a note start',
+    L = [f'; voice {v}: host LFO (DSP B), b = d = 1 at a note start',
             f'ld {a}, [{TB[v]:04x}]', f'ld {b}, [{hb["bpt"] + 1:04x}]', f'mov {a}, {a}', f'st {a}, [{hb["bpt"]:04x}]',
             f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}', *([f'st {b}, [{hb["bd"]:04x}]'] if PENV and MOD_B else []),
             f'; voice {v}: LFO phase a, 0 at a note start; c = 2 at a wrap',
@@ -454,20 +526,27 @@ def hlfo_voice_b(v):
             f'mad {b}, {a}, -{c}', f'add {b}, #1.0', f'st {b}, [{hb["lfa"]:04x}]',
             f'ld {b}, [{P(B6_LFILT)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}', f'st {b}, [{hb["lff"]:04x}]'] + \
         (penv_b(v, hb) if PENV and MOD_B else [])
+    if ARM_LFO:                                     # the ARM's lf (x fade) and fade, ramped by the hardware
+        i0 = [k for k, x in enumerate(L) if 'LFO phase' in x][0]
+        i1 = [k for k, x in enumerate(L) if x.startswith(f'st {d}, [{LFB[v]:04x}]')][0]
+        L = L[:i0] + [f'; voice {v}: LFO from the ARM (ARM_LFO): d = lf, a = fade',
+                      f'ld {d}, [c{P_LFO0 + v:03x}]', f'ld {a}, [c{P_FADE0 + v:03x}]'] + L[i1:]
+    return L
 
 
 def lfo_shape_lut(v, a, b, c, d):
-    """LFO_LUT: d = w g + amp T[(p + 1) N / 2], the shape's table chosen by the ARM (B6_LWAVE = h of its first word,
-    + 1 = amp, + 3 = w; LFO_SHAPES); a = the phase p (then free), d = the sample & glide value g"""
+    """LFO_LUT: d = w g + clamp(amp T), T = the shape's table at x = (p + 1) N / 2 from the sample before (luts_all
+    reads x after the voices; B6_LWAVE = h of the table's first word, + 1 = amp, + 3 = w; LFO_SHAPES): amp 1 the
+    table itself, 256 on the saw the square (as the formula's ph_clamp(256 p)), 0 for S&G / S&H; a = the phase p
+    (then free), d = the sample & glide value g"""
     P = lambda k: f'c0{k:02x}'  # noqa: E731
+    hb = {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
     half = float(LUT_LN // 2)
-    return [f'; voice {v}: lfo d = w g + amp T[(p + 1) N / 2] (LFO_LUT: the shape table, linear interpolation)',
+    return [f'; voice {v}: lfo d = w g + clamp(amp T) (LFO_LUT: T from luts_all, one sample late)',
             f'ld {b}, [{P(B6_LWAVE + 3)}]', f'mov {b}, {b}', f'mul {d}, {d}, {b}',
-            f'mul {c}, {a}, #{half!r}', f'addxy {c}, {c}, #{half!r}', f'ld {a}, [{P(B6_LWAVE)}]', f'mov {a}, {a}'] + \
-        lut_read(c, b, b, a, LUT_LN, None)[:3] + [f'addxy {b}, {b}, {a}', 'hset h6, ' + b,
-                                                   f'ldb5 {a}, 0', f'ldb5 {b}, 1', f'subxy {b}, {a}, {b}',
-                                                   f'mad {a}, {c}, {b}',
-                                                   f'ld {b}, [{P(B6_LWAVE + 1)}]', f'mov {b}, {b}', f'mad {d}, {a}, {b}']
+            f'mul {c}, {a}, #{half!r}', f'addxy {c}, {c}, #{half!r}', f'st {c}, [{hb["lx"]:04x}]',
+            f'ld {a}, [{hb["ly"] + 1:04x}]', f'ld {b}, [{P(B6_LWAVE + 1)}]', f'mov {b}, {b}', f'mul {a}, {a}, {b}',
+            f'ph_clamp {a}, r3, -{a}', f'addxy {d}, {d}, {a}']
 
 
 def penv_core(v, a, b, c, d, pe, pf, prm):
@@ -690,6 +769,8 @@ def prog_b_parts():
          + (f'; per voice s1cc kernel DSP B' if HAS_B else ''), 'mov r7, #0.0']
     for v in range(NV):                         # B outputs of the sample before (ring S+1); A outputs as they are
         L += [f'ld r{v & 1}, [{(B_OUT[v] + 1) if HAS_B else XV[v]:04x}]', f'addxy r7, r7, r{v & 1}']
+    if ARM_DIAG:                                # the ARM's callback toggle, audible
+        L += ['ld r6, [c11f]', 'mad r7, r6, #0.1']
     L += ['ld r6, [c000]', f'mul r7, r7, #{GAIN!r}', 'mul r7, r7, r6',
           f'st r7, [{OUT_L:04x}]', f'st r7, [{OUT_R:04x}]', 'mov r0, #0.0']
     L += [f'st r0, [{x:04x}]' for x in OUT_ZERO]
@@ -705,6 +786,8 @@ def prog_b_parts():
             else:
                 units.append(voice_b(v))
                 v += 1
+        if LFO_LUT or CURVE:                    # the table lookups of all voices (before COLOR MOD reads the levels)
+            units.append(luts_all())
         if cmod_idx():                          # COLOR MOD of all voices, by indexed loads
             units.append(colors_idx_all())
     return L, units
@@ -717,13 +800,13 @@ def voice_b(v):
         b = block('B', v)
         for i in HOST_ENV_USED:
             e = b + H_ENV_STRIDE * i
-            out = cmt(4 if i == 0 else 3, v) if cmod_idx() else e + 6 if CURVE else e   # what the kernel reads
-            lvl = e if CURVE else out               # the ADSR's level: in the COLOR MOD table (CMOD_IDX) unless curved
-            L += [f'; voice {v}: host envelope {i}'] + adsr(lvl, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
-            if CURVE:                               # level = C(ADSR) from the shared curve table (r0 -> r0)
-                L += [f'; voice {v}: envelope {i} curve {ENV_CURVE} (shared table)', f'mul r1, r0, #{float(LUT_EN)!r}'] + \
-                    lut_read('r1', 'r2', 'r0', lut_h(lut_layout()[1]['env']), LUT_EN, None) + [f'st r0, [{out:04x}]']
-            if CMOD and not MOD_B:                  # its level for COLOR MOD on DSP A
+            lvl = e if CURVE else env_out(i, v)     # the ADSR's level (CURVE: luts_all makes C(level) from it)
+            if ARM_ENV:                             # the ARM's envelope, ramped by the hardware
+                L += [f'; voice {v}: host envelope {i} from the ARM (ARM_ENV)', f'ld r0, [c{P_ENV0 + 8 * i + v:03x}]',
+                      f'st r0, [{lvl:04x}]']
+            else:
+                L += [f'; voice {v}: host envelope {i}'] + adsr(lvl, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
+            if CMOD and not MOD_B and not CURVE:    # its level for COLOR MOD on DSP A (CURVE: luts_all)
                 L += [f'st r0, [{ENVX[i][v]:04x}]']
     if CMOD and MOD_B and not cmod_idx():
         L += colors_b(v)
@@ -1095,6 +1178,25 @@ def header(progs):
         out.append(table('lfo_amp_bits', [lfo_amp(v) for v in range(256)]))
         out.append(table('lfo_ampabs_bits', [abs(lfo_amp(v)) for v in range(256)]))
         out.append(table('half_bits', [v / 510.0 for v in range(256)]))
+    check_arm_ids()
+    out.append(f'#define ARM_ENV {int(ARM_ENV)}\n#define ARM_LFO {int(ARM_LFO)}\n'
+               f'#define ARM_DIAG {int(ARM_DIAG)}\n#define ARM_TICK {int(ARM_TICK)}\n'
+               f'#define ARM_RAMP {int(ARM_RAMP)}\n#define ARM_FADE {int(ARM_FADE)}')
+    if ARM_ENV or ARM_LFO:
+        q24 = lambda x: max(0, min(1 << 24, round(x * (1 << 24))))  # noqa: E731
+        out.append(f'/* ARM_ENV / ARM_LFO: DSP B parameters (envelope i of voice v: P_ENV0 + 8 i + v; lf, fade: P_LFO0 /\n'
+                   f'   P_FADE0 + v); per ramp of {ARM_SEG} samples (y = 0, 4.00 ms), Q24 (1 = 1 << 24) */\n'
+                   f'#define P_ENV0 0x{P_ENV0:03x}\n#define P_LFO0 0x{P_LFO0:03x}\n#define P_FADE0 0x{P_FADE0:03x}')
+        itab = lambda name, vals, t='uint32_t': (f'static const {t} {name}[{len(vals)}] = {{\n    ' +  # noqa: E731
+                                                  ',\n    '.join(', '.join(f'{x}u' for x in vals[i:i + 8])
+                                                                 for i in range(0, len(vals), 8)) + '\n};')
+        if ARM_ENV:                                 # (1 - rate)^ARM_SEG: the one-pole's factor over one ramp
+            out.append(itab('env_att_seg', [q24((1 - attack_rate(v)) ** ARM_SEG) for v in range(256)]))
+            out.append(itab('env_dec_seg', [q24((1 - decay_rate(v)) ** ARM_SEG) for v in range(256)]))
+        if ARM_LFO:                                 # phase step per ramp (2^32 = one cycle), fade step, S&G factor
+            out.append(itab('lfo_seg_inc', [round(lfo_hz(v) * ARM_SEG / FS * 2 ** 32) & 0xFFFFFFFF for v in range(256)]))
+            out.append(itab('lfo_fade_seg', [q24(min(1.0, lfo_delay(v) * ARM_SEG)) for v in range(256)]))
+            out.append(itab('lfo_sg_seg', [q24(1 - (1 - lfo_sg(v)) ** ARM_SEG) for v in range(256)]))
     lut, _ = lut_layout()
     out.append(f'/* LUT (LFO_LUT / ENV_CURVE): bank-5 tables from A000 + LUT0_IDX, written at load and refresh */\n'
                f'#define LUT_N {len(lut)}\n#define LUT0_IDX 0x{LUT0 & 0xFF:02x}')

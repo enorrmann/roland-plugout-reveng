@@ -38,9 +38,9 @@ Este documento dice, para cada op, en qué estado está y qué falta. La semánt
 | dos MAC en una instrucción (clase 0x080) | dos MAC de un producto, en paralelo; con P2 no escribe ninguna | sí (2026-10-29) | sí | no | no | no |
 | banderas + condición (`X9bY`, `cond`) | saltear unidades según el resultado de otra | en curso 2026-10-29: instrucciones de Roland con condiciones en el maestro, exactas salvo clases 0x590 / 0x190 (plantilla) | sí | no | no | no |
 | saltos y bucles (`009Y`) | | sí (S8, slaves por audio) | sí | no | no | no |
-| cargas indexadas (`X28Y` banco 0; `da`/`de`, `db`/`df` banco 5; `hset` h4–h7) | dirección = ⌊h·16384⌋ + Y | sí (maestro exacto 2026-10-29, `dspverify --programs`) | sí | no (s1cc) | **sí**: COLOR MOD (`CMOD_IDX`) | **sí** (`hset` + `X28Y`, MP-CSAW2-8) |
+| cargas indexadas (`X28Y` banco 0; `da`/`de`, `db`/`df` banco 5; `hset` h4–h7) | dirección = ⌊h·16384⌋ + Y | sí (maestro exacto 2026-10-29, `dspverify --programs`) | sí | no (s1cc) | **sí**: COLOR MOD (`CMOD_IDX`); banco 5 en `LFO_LUT` / `ENV_CURVE` | **sí** (`hset` + `X28Y`, MP-CSAW2-8); banco 5 sin probar (MP-CSAW2-LUT) |
 | línea de retardo (`tapreq`, `f5c`, `f6Y`) | taps del banco 2 | sí (maestro, DSP4 `f7dc`) | sí | no | no | no |
-| rampas de parámetros (`FCE4`, ARM) | el ARM rampa un parámetro del DSP | — | no | no | no | **medida 2026-10-29**: lineal, paso cada 1/3 ms, 4–97 ms de 0 a 1 ([examples_system_1_ramp_README.md](examples_system_1_ramp_README.md)) |
+| rampas de parámetros (`FCE4`, ARM) | el ARM rampa un parámetro del DSP | — | no | no | no | **medida 2026-10-29**: lineal, paso cada 1/3 ms, 4–97 ms de 0 a 1; encadenables por la interrupción de fin (`FE3C`; medido 2026-10-30: 6225 llamadas cada 4,00 ms) ([examples_system_1_ramp_README.md](examples_system_1_ramp_README.md)) |
 
 ## 3. Plan, en orden de aporte
 
@@ -102,6 +102,15 @@ Un solo programa a la vez sobre el equipo (MIDI): no correr dos herramientas jun
 
 ## 5. Registro
 
+* **2026-10-30: cadena de rampas en el equipo.** C-S1RAMP con LFO SHAPE ≥ 3: `FE3C` registró nuestra función de fin
+  de rampa, que se llamó 6225 veces, una cada 4,00 ms, lanzando cada vez la rampa siguiente. Sin cuelgues; `FE40`
+  la libera. Envolventes y LFO en el ARM sin tick: posibles ([S1_OPTIMIZATIONS.md](S1_OPTIMIZATIONS.md) §3).
+* **2026-10-29, noche (2): rampas y LUT.** `FCE4` medida en el SYSTEM-1 (C-S1RAMP): lineal, un paso cada 1/3 ms,
+  4–97 ms de 0 a 1 ([examples_system_1_ramp_README.md](examples_system_1_ramp_README.md)). En el OS: `FE3C(sel, id, fn)`
+  registra una función propia de fin de rampa y la interrupción la llama en cada fin, sin liberarla: se pueden
+  encadenar rampas sin tick (prueba lista en C-S1RAMP, sin correr). Cargas indexadas del banco 5 (`ldb5`/`ldb5h7`)
+  en el planificador y en SYSTEM-S1CC (`LFO_LUT`, `ENV_CURVE`; MP-CSAW2-LUT armado, sin probar). Grupo
+  `min:imm + shl:reg` probado (MP-BELL-8). Catálogo de ahorros: [S1_OPTIMIZATIONS.md](S1_OPTIMIZATIONS.md).
 * **2026-10-29, noche: cargas indexadas en el SYSTEM-1.** `plugins/MP-CSAW2-8` (`CMOD_IDX=1`, `MOD_DSP=B`): COLOR MOD
   con `hset h6` (una vez por color y muestra, la fila de la fuente elegida que escribe el ARM) y `ldidx r, 2 v` (la
   fuente de la voz v en una tabla del banco 0, `CMT0` 0x0500, donde las envolventes guardan su nivel): 8 voces

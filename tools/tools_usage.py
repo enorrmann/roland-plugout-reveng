@@ -24,6 +24,7 @@ DIRS = [
     ('examples/from_scratch/dsp', 'Own DSP program generators (SYSTEM-8)'),
     ('system-1', 'SYSTEM-1 study tools'),
     ('examples/system_1', 'C-S1V4 / C-S1V8 (SYSTEM-1)'),
+    ('examples/system_1_ramp', 'C-S1RAMP: parameter ramp measurement (SYSTEM-1)'),
     ('examples/system_1_synth', 'C-S1SY (SYSTEM-1)'),
     ('examples/system_1_jx', 'C-S1JX (SYSTEM-1)'),
     ('sdk/mport', 'Mutable Instruments port toolkit (docs/MUTABLE_SDK.md)'),

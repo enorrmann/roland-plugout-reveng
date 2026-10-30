@@ -117,20 +117,25 @@ def mem_key(addr):
 
 
 class Unit:
-    __slots__ = ('i', 'text', 'kind', 'reg', 'addr', 'dest', 'dests', 'reads', 'barrier', 'idx', 'hset', 'b5')
+    __slots__ = ('i', 'text', 'kind', 'reg', 'addr', 'dest', 'dests', 'reads', 'barrier', 'idx', 'hset', 'b5', 'h')
 
     def __init__(self, i, text):
         self.i, self.text = i, text
         self.barrier = False
         self.addr = None
         self.idx = self.hset = self.b5 = False
+        self.h = None                          # the hidden register an indexed load reads / a hset writes
         m = IDX.match(text) or IDX5.match(text)
         if m:                                  # an indexed load (bank 0, or bank 5: b5): no static address
             self.kind, self.reg, self.idx, self.b5 = 'ld', int(m.group(1)), True, text.startswith('ldb5')
+            self.h = 7 if text.startswith('ldb5h7') else 6
             self.dest, self.dests, self.reads = self.reg, {self.reg}, set()
             return
-        if HSET.match(text):                   # a hidden-register load: alone in its instruction (a barrier)
-            self.hset = True
+        m = HSET.match(text)
+        if m:                                  # a hidden-register load: alone in its instruction, ordered only with
+            self.hset, self.h = True, int(m.group(1))   # its register and the indexed loads, not a barrier
+            self.kind, self.reg, self.dest, self.dests, self.reads = 'op', None, None, set(), {int(m.group(2))}
+            return
         m = XFER.match(text)
         if m:
             self.kind, self.reg, self.addr = m.group(1), int(m.group(2)), int(m.group(3), 16)
@@ -174,7 +179,7 @@ def dependencies(units):
     reads_since = {}           # reg -> [units] reading it since its last write
     last_store, loads_since = {}, {}
     barrier = None
-    last_hset, any_store, idx_since = None, None, []
+    last_hset, any_store, idx_since = {}, None, {}      # per hidden register h6 / h7
     for j, u in enumerate(units):
         dep = {}
 
@@ -205,13 +210,13 @@ def dependencies(units):
         if u.idx:                              # any bank-0 word: after every bank-0 store, two after the hset
             if not u.b5:                       # (bank 5: a table nobody stores into)
                 need(any_store, 1)
-            need(last_hset, 2)
+            need(last_hset.get(u.h), 2)
         if u.kind == 'st' and u.addr >> 13 == 0:   # a bank-0 store after an indexed load of bank 0
-            for i in idx_since:
+            for i in idx_since.get(6, []):
                 if not units[i].b5:
                     need(i, 0)
         if u.hset:                             # a new h: after the indexed loads that used the old one
-            for i in idx_since:
+            for i in idx_since.get(u.h, []):
                 need(i, 1)
         dep.pop(j, None)
         preds[j] = list(dep.items())
@@ -221,11 +226,11 @@ def dependencies(units):
             last_write[w] = j
             reads_since[w] = []
         if u.idx:
-            idx_since.append(j)
+            idx_since.setdefault(u.h, []).append(j)
         if u.kind == 'st' and u.addr >> 13 == 0:   # the indexed loads read bank 0 only
             any_store = j
         if u.hset:
-            last_hset, idx_since = j, []
+            last_hset[u.h], idx_since[u.h] = j, []
         if u.barrier:
             barrier = j
             for r in range(8):
@@ -381,7 +386,7 @@ class Ins:
     def fits(self, u):
         if not self._fits(u):
             return False
-        if self.shapes is None or u.barrier:
+        if self.shapes is None or u.barrier or u.hset:
             return True
         import collections
         acc = collections.Counter(f'{x.kind}{("5" if x.b5 else "0") if x.idx else _bank_name(x.addr)}'
@@ -390,8 +395,10 @@ class Ins:
         return any(ops <= p_ops and not (acc - p_acc) for p_acc, p_ops in self.shapes)
 
     def _fits(self, u):
-        if u.barrier:
+        if u.barrier or u.hset:
             return not self.ops and not self.xf
+        if any(x.hset for x in self.ops):
+            return False
         if any(x.barrier for x in self.ops):
             return False
         if u.kind == 'op':

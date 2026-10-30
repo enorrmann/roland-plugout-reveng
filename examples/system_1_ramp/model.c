@@ -2,7 +2,7 @@
  * FCE4 (docs/examples_system_1_ramp_README.md): LFO RATE (0x162) starts a ramp of master DSP B parameter C030 with
  * rate y = knob / 16; LFO DELAY TIME (0x161) sets the mode z = knob / 32, LFO TO PITCH (0x163) the direction
  * (< 128 up 0 -> 1, else down 1 -> 0), LFO SHAPE (0x160) how the ARM reads bank 5 (0 the window, 1 / 2 FD78 sel
- * 0 / 1, 3 / 4 FD74 sel 0 / 1); every parameter the model receives sends a report (SysEx F0 7D 07, read by
+ * 0 / 1, 3 / 4 FD74 sel 0 / 1; >= 3 also starts the end-of-ramp chain, chain() below); every parameter the model receives sends a report (SysEx F0 7D 07, read by
  * ramp.py) of what master DSP B measured (make_s1.py prog_m1). Freestanding, no library, no foreign code.
  * The rest as C-S1V4: Port of the C-V4 model (examples/from_scratch/model/model.c) to the SYSTEM-1 interface
  * (docs/examples_system_1_README.md section 3):
@@ -358,6 +358,66 @@ static void ramp_start(int y)
     r_total = t;
 }
 
+/* ---- the end-of-ramp chain (LFO SHAPE >= 3) ------------------------------------------------------------
+   FE3C(sel, id, fn) (master 1.30 SVC 0x23C -> 0x01008CBC) puts fn in the end-of-ramp table (0x20003534 + 4 / + 0x404
+   + 4 id, only if the entry is free; returns 1 / 0); FE40(sel, id) frees it. The interrupt handler 0x0100B008 (DSP B)
+   reads the finished id from a hardware register (bits 4-11) and calls table[id](id) (0x01008A4C), which does not
+   free the entry. Here fn starts the opposite ramp (z = 1: the end raises the interrupt) and notes the time: a
+   triangle 0 <-> 1 that runs with no ARM tick. Report F0 7D 08 (ramp.py). */
+typedef int (*cbreg_fn)(int sel, int id, void (*fn)(int));
+typedef int (*cbfree_fn)(int sel, int id);
+static volatile uint32_t c_count, c_t[8], c_reg, c_free;
+static volatile int c_on, c_dir;
+static volatile uint32_t c_amp = 0x3F800000u;     /* the triangle's top: LFO TO PITCH < 64: 1, < 128: 0.5, < 192: 0.25, else 0.125 */
+
+static void chain_cb(int id)
+{
+    uint32_t t = CYCCNT;
+    c_t[c_count & 7] = t;
+    c_count++;
+    if (!c_on)
+        return;
+    c_dir ^= 1;
+    ((ramp_fn)SVC(0xE4))(1, id, c_dir ? c_amp : 0, r_y < 0 ? 0 : r_y, 1);
+}
+
+static void chain(int on)
+{
+    if (on == c_on)
+        return;
+    if (on) {
+        DEMCR |= 1u << 24;
+        DWT_CTRL |= 1u;
+        c_count = 0;
+        ((env_fn)SVC(0xEC))(1, R_V, 0);
+        c_reg = (uint32_t)((cbreg_fn)SVC(0x23C))(1, R_V, chain_cb);
+        c_on = 1;
+        c_dir = 1;
+        ((ramp_fn)SVC(0xE4))(1, R_V, c_amp, r_y < 0 ? 0 : r_y, 1);
+    } else {
+        c_on = 0;
+        c_free = (uint32_t)((cbfree_fn)SVC(0x240))(1, R_V);
+    }
+}
+
+/* F0 7D 08 <on> <y> <count> <registered> <freed> <the last 8 times (cycles)> <table entry> F7, 5 x 7 bits per word */
+static void chain_report(void)
+{
+    if (!(*(volatile uint8_t *)0x6009BF08u & 1))
+        return;
+    uint8_t buf[6 + 5 * 13];
+    uint8_t *p = buf;
+    *p++ = 0xF0; *p++ = 0x7D; *p++ = 0x08;
+    *p++ = (uint8_t)(c_on | (c_amp == 0x3F800000u ? 0 : c_amp == 0x3F000000u ? 2 : c_amp == 0x3E800000u ? 4 : 6));
+    *p++ = (uint8_t)(r_y & 0x7F);
+    uint32_t w[13] = { c_count, c_reg, c_free, c_t[0], c_t[1], c_t[2], c_t[3], c_t[4], c_t[5], c_t[6], c_t[7], CBTAB,
+                       SYST_LOAD };
+    for (int k = 0; k < 13; k++, p += 5)
+        put32(p, w[k]);
+    *p++ = 0xF7;
+    ((void (*)(void *, const void *, int, int, int))0x600065B1u)((void *)0x605F20D4u, buf, (int)(p - buf), 3, 1);
+}
+
 static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x30 */
 {
     (void)m; (void)flag;
@@ -368,10 +428,20 @@ static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x
         set_volume(value);
     else if (id == ID_FADE)
         r_z = (value >> 5) & 7;
-    else if (id == ID_TOPITCH)
+    else if (id == ID_TOPITCH) {
         r_down = value >= 128;
-    else if (id == ID_SHAPE)
+        c_amp = value < 64 ? 0x3F800000u : value < 128 ? 0x3F000000u : value < 192 ? 0x3E800000u : 0x3E000000u;
+    }
+    else if (id == ID_SHAPE) {
         r_how = value > 4 ? 4 : value;
+        chain(value >= 3);
+    }
+    if (c_on || c_count) {                                          /* the chain: its own report */
+        if (id == ID_RATE)
+            r_y = value >> 4;                                       /* the next ramps' rate */
+        chain_report();
+        return;
+    }
     ramp_report();                                                  /* the previous case, as it is now */
     if (id == ID_RATE && (value >> 4) != r_y)
         ramp_start(value >> 4);

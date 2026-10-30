@@ -68,3 +68,5 @@ min:reg + ph_wrap:reg
 ph_wrap:reg + subxy:reg
 # proven 2026-10-29 by MP-CSAW2-T5 (TRY_FORMS build run on the device)
 mul:reg + subxy:imm
+# proven 2026-10-29 by MP-BELL-8 (TRY_FORMS build run on the device)
+min:imm + shl:reg

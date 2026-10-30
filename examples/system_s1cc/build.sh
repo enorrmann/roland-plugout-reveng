@@ -29,6 +29,10 @@ Options (environment variables):
                 the build writes the ones it used to examples/system_s1cc/build/try_forms.txt; once the PLUG-OUT works
                 on the device: python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by NAME
   LFO_PITCH=0   the host LFO does not modulate the pitch / s1_dt / s1_rdt words (saves ~18 instructions per voice)
+  LFO_LUT=1     the host LFO's shapes from bank-5 tables (sine, triangle, saw; square = clamp(256 saw)): ~3 more
+                DSP B instructions per voice; the sine is a true sine (docs/examples_system_s1cc_README.md §3.6)
+  ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
+                instructions per envelope
 
 Examples:
   sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c

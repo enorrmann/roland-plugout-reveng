@@ -139,6 +139,7 @@ python3 tools/proven_forms.py promote BUILD/try_forms.txt --by PLUGOUT     # agr
 | `python3 -m http.server 8000 --bind 127.0.0.1 --directory web` | instalador web en `http://localhost:8000/` (Chrome / Edge); [WEB_INSTALLER.md](WEB_INSTALLER.md) |
 | `node web/test/test-protocol.js [FILE.Dat...]` / `sh web/test/run-page-test.sh` | pruebas del instalador web sin hardware: biblioteca contra `plugout.py`, página completa en Chrome headless |
 | `examples/system_1/paramlog.py -t SEG [--raw] [--file LOG...]` | escucha una build `PARAMLOG=1`: ids de los controles del panel (con el PLUG-OUT seleccionado) |
+| `examples/system_1_ramp/ramp.py -t SEG [--log F] [--file F]` | escucha C-S1RAMP: tiempos de las rampas `FCE4` (`F0 7D 07`) y la cadena de fin de rampa (`F0 7D 08`) |
 | `python3 examples/from_scratch/re/dsplive.py install l00.batch` | SYSTEM-8: instala en el slot 3 el laboratorio con la sonda del maestro (`PEEK`); seleccionar PLG3. `python3 examples/from_scratch/re/dsppeek.py ping` responde `pong 0x1234` cuando está activa |
 | `python3 examples/from_scratch/re/dspnative.py [PRUEBA...] [-n 24] [--list] [--sim]` | SYSTEM-8 con la sonda: ops nativas (`shl`, SFU, `newton`, `add3`, `sum8`, MAC de dos productos) en el DSP3 del maestro, exactas contra la referencia C (`emu/dspref.py`), con y sin instrucción vacía antes de leer; `--sim` sólo el emulador ([S1CC.md](S1CC.md) §7.6) |
 | `KERNEL=sdk/s1cc/build/native_check NAME=NATIVE-CHECK sh examples/system_s1cc/build.sh` | SYSTEM-1: PLUG-OUT que prueba de oído las ops nativas que usa s1cc (sierra limpia = bien; OSC1 COLOR elige la op; [S1CC.md](S1CC.md) §7.6) |
@@ -2942,6 +2943,67 @@ Uses `amidi -d` (alsa-utils). Do not run it while another tool talks to the devi
 | `--file` | decode these amidi -d logs instead of listening |  |
 | `--device` | port name to listen on (SYSTEM-8 for the SYSTEM-8) | `SYSTEM-1` |
 
+## C-S1RAMP: parameter ramp measurement (SYSTEM-1) (`examples/system_1_ramp/`)
+
+### `examples/system_1_ramp/build.sh`
+
+```
+C-S1RAMP: C-S1V4 (examples/system_1) plus the measurement of the parameter ramps FCE4
+(docs/examples_system_1_ramp_README.md).
+examples/system_1_ramp/build.sh           -> plugins/C-S1RAMP/Script/Code1.Dat (and Code.Dat, the same file)
+TONE=1 NAME=C-S1TONE examples/system_1/build.sh   bring-up build: voice 0 sounds all the time (no notes needed)
+PARAMLOG=1 TONE=1 NAME=C-S1LOG ...   diagnostic: the model sends every parameter it receives to the PC (model.c)
+Needs arm-none-eabi-gcc/ld/objcopy and Python 3. No Roland file is read: all code and microcode are ours.
+```
+
+### `examples/system_1_ramp/make_s1.py`
+
+```
+C-S1V4: our own DSP programs for the SYSTEM-1 port of C-V4 (no Roland bytes; docs/examples_system_1_README.md).
+
+The SYSTEM-1 has two DSPs per BMC (A and B, queues 0x0100FC30 / 0x0100FC34), and in PLUG-OUT mode the audio goes
+slave DSP A/B -> IOMD 6006..600D -> master DSP B (program at 0x1000) -> bank 5 A118/A119 -> the OS's own output
+program of master DSP A (at 0x82: A118/A119 -> DC filter -> x C004 -> 6000/6001). Found in the SH-2 and SH-101
+images and the OS 1.30 (study only, nothing copied; docs/examples_system_1_README.md section 2).
+
+C-V4's flow on SYSTEM-8 was DSP0/1 pitch -> DSP2/3 saw slot -> DSP4/5 gate -> 6020. Here one DSP does it all:
+
+    slave A  s1m0 @0x0100: 4 voices: pitch A030+v (ARM, octaves: (note-12)/12), saw (the C-V4 saw, phase in the
+                           bank-0 ring: store P, load P+1), x gate A038+v (ARM, 0/1), sum x 0.25 -> A150
+    slave B  s1m1 @0x0100: A150 x C000 (the DSP's output level, set by the OS) -> 6006 (L), 6007 (R); 6008..600D = 0
+    master B m1   @0x1000: 6006 x C01C -> A118, 6007 x C01C -> A119; A11A..A11D = 0 (C01C = volume, model.c)
+    closes   s1c0/s1c1 @0x7FF2 (slave A / B): frame counter E000 -> A004 / A005, as every SYSTEM-1 PLUG-OUT has
+             s1e @0x5FF2/0x6FF2 (master B): empty section, as the OS's own PLUG-OUT-mode set has
+
+    python3 make_s1.py            -> s1*.s / s1*.hex here, build/s1_programs.h
+    python3 make_s1.py --tone     -> the same, but s1m0 plays voice 0 at 4.75 (A) all the time (bring-up test:
+                                     sound without notes or ARM parameters)
+    python3 make_s1.py --sim      -> also simulate one chord through slave A, slave B and master B
+```
+
+Environment: `VOICES` (default '4')
+
+### `examples/system_1_ramp/ramp.py`
+
+```
+Read C-S1RAMP's reports (model.c ramp_report: SysEx F0 7D 07) and show what master DSP B measured of each FCE4
+ramp (docs/examples_system_1_ramp_README.md).
+
+    python3 examples/system_1_ramp/ramp.py -t 300 --log work/captures/ramp.txt   listen (C-S1RAMP selected)
+    python3 examples/system_1_ramp/ramp.py --file work/captures/ramp.txt         decode a saved log again
+
+Report: case, y, z, direction; the ARM's own timing of the ramp (the live value, parameter block +8, polled with
+the Cortex-M3 cycle counter): time until it crossed 0.01 0.1 0.25 0.5 0.75 0.9 0.99 0.999 (down: 1 - those);
+parameter block C030 +0 control, +4 target, +8 value, +C; end-of-ramp table entry; SysTick, CPUID, DWT.
+F0 7D 08 (LFO SHAPE >= 3): the end-of-ramp chain: callbacks so far, FE3C / FE40 results, intervals between callbacks. Uses `amidi -d`; no other MIDI tool at the same time.
+```
+
+| option | help | default |
+|---|---|---|
+| `-t, --time` |  | `300` |
+| `--file` |  |  |
+| `--log` | keep the raw amidi output here |  |
+
 ## C-S1SY (SYSTEM-1) (`examples/system_1_synth/`)
 
 ### `examples/system_1_synth/build.sh`
@@ -3547,6 +3609,10 @@ Options (environment variables):
                 the build writes the ones it used to examples/system_s1cc/build/try_forms.txt; once the PLUG-OUT works
                 on the device: python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by NAME
   LFO_PITCH=0   the host LFO does not modulate the pitch / s1_dt / s1_rdt words (saves ~18 instructions per voice)
+  LFO_LUT=1     the host LFO's shapes from bank-5 tables (sine, triangle, saw; square = clamp(256 saw)): ~3 more
+                DSP B instructions per voice; the sine is a true sine (docs/examples_system_s1cc_README.md §3.6)
+  ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
+                instructions per envelope
 
 Examples:
   sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c
@@ -3586,4 +3652,4 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                                       reference (sdk/s1cc refdsp), and the silence without notes
 ```
 
-Environment: `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `CMOD_IDX` (default '1'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `MIX` (default '1'), `MOD_DSP` (default 'auto'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')
+Environment: `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `CMOD_IDX` (default '1'), `ENV_CURVE` (default 'none'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_LUT` (default '0'), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `MIX` (default '1'), `MOD_DSP` (default 'auto'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')

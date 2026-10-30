@@ -6,7 +6,8 @@ ramp (docs/examples_system_1_ramp_README.md).
 
 Report: case, y, z, direction; the ARM's own timing of the ramp (the live value, parameter block +8, polled with
 the Cortex-M3 cycle counter): time until it crossed 0.01 0.1 0.25 0.5 0.75 0.9 0.99 0.999 (down: 1 - those);
-parameter block C030 +0 control, +4 target, +8 value, +C; end-of-ramp table entry; SysTick, CPUID, DWT. Uses `amidi -d`; no other MIDI tool at the same time.
+parameter block C030 +0 control, +4 target, +8 value, +C; end-of-ramp table entry; SysTick, CPUID, DWT.
+F0 7D 08 (LFO SHAPE >= 3): the end-of-ramp chain: callbacks so far, FE3C / FE40 results, intervals between callbacks. Uses `amidi -d`; no other MIDI tool at the same time.
 """
 import argparse
 import os
@@ -34,6 +35,23 @@ def messages(tokens):
             if b == 0xF7:
                 yield cur
                 cur = None
+
+
+def decode_chain(m):
+    """F0 7D 08: the end-of-ramp chain (model.c chain_report)"""
+    if m[:3] != [0xF0, 0x7D, 0x08] or len(m) != 6 + 5 * 13:
+        return None
+    w = [p[0] << 28 | p[1] << 21 | p[2] << 14 | p[3] << 7 | p[4] for p in (m[5 + 5 * k:10 + 5 * k] for k in range(13))]
+    return {'on': m[3] & 1, 'amp': (1.0, 0.5, 0.25, 0.125)[(m[3] >> 1) & 3], 'y': m[4], 'count': w[0], 'reg': w[1], 'free': w[2], 't': w[3:11], 'cb': w[11],
+            'per_ms': (w[12] & 0xFFFFFF) + 1}
+
+
+def show_chain(r):
+    n = r['count']
+    ts = [r['t'][(n - 8 + k) & 7] for k in range(8)] if n >= 8 else r['t'][:n]
+    dt = [((b - a) & 0xFFFFFFFF) / r['per_ms'] for a, b in zip(ts, ts[1:])]
+    print(f"chain {'on ' if r['on'] else 'off'} y {r['y']:2d} amp {r['amp']:<5}: callbacks {n}, registered {r['reg']}, freed {r['free']}, "
+          f"table {r['cb']:08x}; last intervals ms: {' '.join(f'{x:.2f}' for x in dt)}")
 
 
 def decode(m):
@@ -68,9 +86,11 @@ def main():
     a = ap.parse_args()
     if a.file:
         for m in messages(open(a.file).read().split()):
-            r = decode(m)
+            r, c = decode(m), decode_chain(m)
             if r:
                 show(r)
+            if c:
+                show_chain(c)
         return
     out = subprocess.run(['amidi', '-l'], capture_output=True, text=True).stdout
     ps = [mm.group(1) for mm in re.finditer(r'^IO\s+(hw:\S+)\s+(.*)$', out, re.M) if 'SYSTEM-1' in mm.group(2)]
@@ -102,10 +122,12 @@ def main():
             if 'F7' in toks:
                 i = len(toks) - 1 - toks[::-1].index('F7')
                 for m in messages(toks[:i + 1]):
-                    r = decode(m)
+                    r, c = decode(m), decode_chain(m)
                     if r:
                         show(r)
-                        sys.stdout.flush()
+                    if c:
+                        show_chain(c)
+                    sys.stdout.flush()
                 del toks[:i + 1]
 
 

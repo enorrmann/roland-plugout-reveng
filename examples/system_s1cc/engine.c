@@ -13,6 +13,8 @@
  *                     MOD -> DSP A parameters C040.. (make_s1cc.py hlfo_voice)
  *   refresh (vt+0x24) voices from the current values, knob tables from the last values received
  *   LUT_N             LFO_LUT / ENV_CURVE: the bank-5 tables (A000 + LUT0_IDX ..) at load and refresh
+ *   ARM_ENV / ARM_LFO the host's ADSRs / LFO on this ARM: ramped DSP B parameters, stepped by a hook in the
+ *                     slave OS's 1 ms cyclic handler (tick); deinit (vt+0x04) takes it out
  */
 #include <stdint.h>
 #include "syninfo.h"
@@ -189,6 +191,263 @@ static void hlfo_set(int id, int value) { (void)id; (void)value; }
 static void hlfo_all(void) {}
 #endif
 
+/* ---- ARM_ENV / ARM_LFO: the host's ADSRs and LFO on this ARM (docs/examples_system_s1cc_README.md §3.7) ---------
+   Each envelope and each voice's LFO is one DSP B parameter that the hardware ramps (FCE4 with y = 0: 4.00 ms per
+   ramp, whatever the distance, docs/examples_system_1_ramp_README.md). The time base is the slave OS's cyclic handler
+   (driver\cyclic_handle.c: the RTOS cyclic handler 0x01008983, period "1" (its time unit unknown), calls its only client, the function at
+   0x20002BFC): load puts tick() there, which calls the OS's function first, measures the time since the last step
+   with the cycle counter and advances every voice by that many ramps of 4 ms, with a ramp as long (2026-10-30: the end-of-ramp functions, FE3C, run on the master but
+   are never called on the slave; the cyclic hook was heard on the device). Integer only (no FPU on the SYSTEM-1's
+   ARM; the SYSTEM-8's has one): levels in Q24 (1 = 1 << 24), tables from make_s1cc.py. */
+
+#if ARM_ENV || ARM_LFO || ARM_TICK
+typedef void (*ramp_fn)(int sel, int id, uint32_t target, int y, int z);
+typedef void (*cyc_fn)(int i);
+#define Q1 (1 << 24)
+#define CYC_CLIENT (*(volatile cyc_fn *)0x20002BFCu)
+
+static uint32_t q24_bits(int32_t q)                    /* Q24 -> IEEE float bits */
+{
+    if (q == 0)
+        return 0;
+    uint32_t sign = q < 0 ? 0x80000000u : 0, m = (uint32_t)(q < 0 ? -q : q);
+    int e = 31 - __builtin_clz(m);                     /* m = 1.f x 2^e */
+    uint32_t frac = e > 23 ? m >> (e - 23) : m << (23 - e);
+    return sign | (uint32_t)(e - 24 + 127) << 23 | (frac & 0x7FFFFFu);
+}
+
+static int32_t qmul(int32_t a, int32_t b) { return (int32_t)(((int64_t)a * b) >> 24); }
+
+static int ramp_y;                                     /* the ramp's rate: as long as the time between two steps */
+
+static void ramp(int id, int32_t q)                    /* to q in one ramp of ramp_y, no interrupt */
+{
+#if ARM_RAMP
+    ((ramp_fn)SVC(0xE4))(1, id, q24_bits(q), ramp_y, 0);
+#else
+    b6(1, id, q24_bits(q));                            /* ARM_RAMP=0: at once (FCEC) */
+#endif
+}
+#endif
+
+#if ARM_ENV
+/* C-S1SY's ADSR (make_s1cc.py adsr) one ramp at a time: attack toward 1.25 until 1, decay toward S, release toward
+   0; the one-pole's factor over a ramp from the faders (env_att_seg / env_dec_seg) */
+enum { ST_IDLE, ST_ATT, ST_DEC, ST_REL };
+static volatile uint8_t env_st[2][NV];
+static int32_t env_lvl[2][NV];                         /* the level the running ramp ends at */
+
+static void env_step(int i, int v, int m)              /* m ramps of 4 ms at once (the time since the last step) */
+{
+    const uint8_t *k = &henv_knob[4 * i];              /* S, A, D, R */
+    int32_t l = env_lvl[i][v], top = Q1 + Q1 / 4, sl = (int32_t)(((uint32_t)k[0] << 24) / 255u);
+    switch (env_st[i][v]) {
+    case ST_ATT:
+        for (int j = 0; j < m; j++)
+            l = top - qmul(top - l, (int32_t)env_att_seg[k[1]]);
+        if (l >= Q1) {
+            l = Q1;
+            env_st[i][v] = ST_DEC;
+        }
+        break;
+    case ST_DEC:
+        for (int j = 0; j < m; j++)
+            l = sl + qmul(l - sl, (int32_t)env_dec_seg[k[2]]);
+        break;
+    case ST_REL:
+        for (int j = 0; j < m; j++)
+            l = qmul(l, (int32_t)env_dec_seg[k[3]]);
+        if (l < (Q1 >> 14)) {                          /* -84 dB: the last ramp, to 0 */
+            l = 0;
+            env_st[i][v] = ST_IDLE;
+        }
+        break;
+    default:
+        return;
+    }
+    env_lvl[i][v] = l;
+    ramp(P_ENV0 + 8 * i + v, l);
+}
+#endif
+
+#if ARM_LFO
+/* the DSP version's LFO (make_s1cc.py hlfo_voice_b) one ramp at a time: phase restarted at the note start, S&H of a
+   random value at each wrap, sample & glide, shapes sine t (1.5 - 0.5 t^2) / triangle / saw / square / S&G / S&H,
+   fade from the gate (DELAY TIME); lf = lfo x fade -> P_LFO0 + v, fade -> P_FADE0 + v */
+static uint32_t lfo_ph[NV], lfo_rnd = 0x12345678u;
+static int32_t lfo_h[NV], lfo_g[NV], lfo_fade[NV];
+static volatile uint8_t lfo_on[NV], lfo_restart[NV];
+
+static int32_t lfo_shape(int sh, uint32_t ph, int v)
+{
+    int32_t p = (int32_t)ph >> 7;                      /* the phase -1..1 */
+    int32_t t = p > Q1 / 2 ? 2 * Q1 - 2 * p : p < -Q1 / 2 ? -2 * Q1 - 2 * p : 2 * p;   /* ph_tri: +1 at 0.5 */
+    switch (sh) {
+    case 0: return qmul(t, Q1 + Q1 / 2 - qmul(qmul(t, t), Q1 / 2));
+    case 1: return t;
+    case 2: return p;
+    case 3: return p > 0 ? Q1 : p < 0 ? -Q1 : 0;
+    default: return lfo_g[v];
+    }
+}
+
+static void lfo_step(int v, int m)                     /* m sixteenths of 4 ms at once */
+{
+    int sh = hlfo_knob[C_LFO_SHAPE] > 5 ? 5 : hlfo_knob[C_LFO_SHAPE], r = hlfo_knob[C_LFO_RATE];
+    if (lfo_restart[v]) {                              /* a note start: the phase from 0 (as on DSP B) */
+        lfo_restart[v] = 0;
+        lfo_ph[v] = 0;
+    }
+    uint32_t old = lfo_ph[v];
+    lfo_ph[v] = old + (lfo_seg_inc[r] >> 4) * (uint32_t)m;
+    if ((int32_t)old >= 0 && (int32_t)lfo_ph[v] < 0) {   /* wrapped: a new random value */
+        lfo_rnd = lfo_rnd * 1664525u + 1013904223u;
+        lfo_h[v] = (int32_t)lfo_rnd >> 7;
+    }
+    if (sh == 5) {
+        lfo_g[v] = lfo_h[v];
+    } else {                                           /* the glide over m sixteenths (first order) */
+        int32_t k = (int32_t)(((int64_t)lfo_sg_seg[r] * m) >> 4);
+        lfo_g[v] += qmul(lfo_h[v] - lfo_g[v], k > Q1 ? Q1 : k);
+    }
+#if ARM_FADE
+    if (lfo_on[v]) {
+        lfo_fade[v] += (int32_t)((lfo_fade_seg[hlfo_knob[C_LFO_DELAY]] >> 4) * (uint32_t)m);
+        if (lfo_fade[v] > Q1)
+            lfo_fade[v] = Q1;
+    } else {
+        lfo_fade[v] = 0;
+    }
+#else
+    lfo_fade[v] = Q1;                                  /* ARM_FADE=0: no DELAY TIME */
+#endif
+    ramp(P_FADE0 + v, lfo_fade[v]);
+    ramp(P_LFO0 + v, qmul(lfo_shape(sh, lfo_ph[v], v), lfo_fade[v]));
+}
+#endif
+
+#if ARM_ENV || ARM_LFO || ARM_TICK
+static cyc_fn cyc_os;                                  /* the OS's client function, called first */
+static volatile uint32_t tick_n;
+#define DEMCR (*(volatile uint32_t *)0xE000EDFCu)
+#define DWT_CTRL (*(volatile uint32_t *)0xE0001000u)
+#define CYCCNT (*(volatile uint32_t *)0xE0001004u)
+#define SYST_LOAD (*(volatile uint32_t *)0xE000E014u)
+static uint32_t tick_last, tick_acc, seg_cycles, step_last, step_min;
+/* the ramp durations of y = 0..15 in 1/100 ms (docs/examples_system_1_ramp_README.md §3) */
+static const uint16_t y_cms[16] = { 398, 813, 1220, 1625, 2008, 2438, 2843, 3250, 3591, 4014, 4877, 5684, 6496, 7181,
+                                    8025, 9744 };
+
+static void tick(int i)                                /* the cyclic handler, every period */
+{
+    if (cyc_os)
+        cyc_os(i);
+    if (CYC_CLIENT != tick) {                          /* the OS's function replaced itself: keep its new one */
+        cyc_os = CYC_CLIENT;
+        CYC_CLIENT = tick;
+    }
+    uint32_t n = ++tick_n;
+#if ARM_TICK
+    if ((n & 3) == 0)                                  /* diagnostic: a buzz on DSP B (ARM_DIAG adds C11F) */
+        b6(1, 0x11F, (n & 4) ? F_ONE : F_ZERO);
+#endif
+    /* the time since the last step, measured (the cyclic handler's period is not known), in sixteenths of 4 ms */
+    uint32_t now = CYCCNT, unit = seg_cycles >> 4;
+    tick_acc += now - tick_last;
+    tick_last = now;
+    int m = 0;
+    while (tick_acc >= unit && m < 16 * 24) {
+        tick_acc -= unit;
+        m++;
+    }
+    if (tick_acc > 16 * 24 * unit)                     /* a long gap (load): forget it */
+        tick_acc = 0;
+#if ARM_RAMP
+    if (m < 16)                                        /* with ramps: steps of 4 ms at least */
+        { tick_acc += (uint32_t)m * unit; return; }
+#endif
+    if (!m)
+        return;
+    /* the ramp: shorter than the shortest recent time between steps (85 %), so that it ends before the next one (a
+       new ramp before the end jumped: 2026-10-30, the ticks come irregularly); the minimum forgets slowly */
+    uint32_t gap = now - step_last;
+    step_last = now;
+    step_min = gap < step_min ? gap : step_min + (step_min >> 5);
+    uint32_t lim = step_min / (seg_cycles / 400) * 85 / 100;   /* in 1/100 ms (32-bit division: no library) */
+    int y = 0;
+    while (y < 15 && y_cms[y + 1] <= lim)
+        y++;
+    ramp_y = y;
+    for (int v = 0; v < NV; v++) {
+#if ARM_LFO
+        lfo_step(v, m);
+#endif
+#if ARM_ENV
+        env_step(0, v, (m + 8) >> 4);                  /* (whole ramps; envelope on the tick: next step) */
+        env_step(1, v, (m + 8) >> 4);
+#endif
+    }
+}
+
+static void arm_start(void)                            /* load: clear, hook the cyclic handler */
+{
+    for (int v = 0; v < NV; v++) {
+#if ARM_ENV
+        for (int i = 0; i < 2; i++) {
+            env_st[i][v] = ST_IDLE;
+            env_lvl[i][v] = 0;
+            b6(1, P_ENV0 + 8 * i + v, F_ZERO);
+        }
+#endif
+#if ARM_LFO
+        lfo_ph[v] = 0;
+        lfo_fade[v] = lfo_g[v] = lfo_h[v] = 0;
+        b6(1, P_LFO0 + v, F_ZERO);
+        b6(1, P_FADE0 + v, F_ZERO);
+#endif
+    }
+    DEMCR |= 1u << 24;                                 /* the cycle counter */
+    DWT_CTRL |= 1u;
+    uint32_t per_ms = (SYST_LOAD & 0xFFFFFFu) + 1;      /* SysTick at 1 kHz (the master: 156 000, 156 MHz) */
+    seg_cycles = 4 * (per_ms >= 10000 && per_ms <= 1000000 ? per_ms : 156000u);
+    tick_last = step_last = CYCCNT;
+    tick_acc = 0;
+    step_min = seg_cycles;
+    if (CYC_CLIENT != tick) {
+        cyc_os = CYC_CLIENT;
+        CYC_CLIENT = tick;
+    }
+}
+
+static void arm_stop(void)                             /* deinit: the OS's function back */
+{
+    if (CYC_CLIENT == tick)
+        CYC_CLIENT = cyc_os;
+}
+
+static void arm_gate(int v, int on)
+{
+#if ARM_DIAG
+    static int g;
+    g ^= 1;
+    b6(1, 0x11F, g ? F_ONE : F_ZERO);                  /* diagnostic: a click at every note on / off */
+#endif
+#if ARM_LFO
+    if (on)
+        lfo_restart[v] = 1;
+    lfo_on[v] = (uint8_t)on;
+#endif
+#if ARM_ENV
+    for (int i = 0; i < 2; i++)                        /* the next tick takes the voice on from its level */
+        env_st[i][v] = on ? ST_ATT : env_st[i][v] == ST_IDLE ? ST_IDLE : ST_REL;
+#endif
+}
+#else
+static void arm_start(void) {}
+static void arm_stop(void) {}
+static void arm_gate(int v, int on) { (void)v; (void)on; }
+#endif
+
 /* ---- sections (make_s1cc.py SECTIONS: the voices a DSP's main program does not hold) ------------------------------ */
 
 #if NSECT
@@ -246,6 +505,7 @@ static void voice_gate(engine_t *e, int v, int vel)
     }
     e->on[v] = on;
     b5(B5_GATE + v, on ? F_ONE : F_ZERO);
+    arm_gate(v, on);
 }
 
 static int e_nop(engine_t *e) { (void)e; return 0; }
@@ -294,6 +554,14 @@ static void e_load(engine_t *e)                                  /* vt+0x08 */
     kparam_all();
     henv_all();
     hlfo_all();
+    arm_start();
+}
+
+static int e_deinit(engine_t *e)                                 /* vt+0x04: our end-of-ramp functions out */
+{
+    (void)e;
+    arm_stop();
+    return 0;
 }
 
 static void e_refresh(engine_t *e, int all)                      /* vt+0x24 */
@@ -330,7 +598,7 @@ static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
 
 static const void *const engine_vt[22] = {
     [0] = (const void *)e_init,
-    [1] = (const void *)e_nop,
+    [1] = (const void *)e_deinit,
     [2] = (const void *)e_load,
     [3] = (const void *)e_nop, [4] = (const void *)e_nop, [5] = (const void *)e_nop, [6] = (const void *)e_nop,
     [7] = (const void *)e_nop, [8] = (const void *)e_nop,

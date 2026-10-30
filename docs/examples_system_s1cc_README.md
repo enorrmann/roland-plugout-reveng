@@ -301,6 +301,73 @@ El tono modulado es 2^y = (e^(y·ln2/8))⁸: Taylor de grado 4 (`dt`) o 3 (`rdt`
 octavas. Al entrar al PLUG-OUT el modelo pide al OS que reenvíe los controles `0x160`–`0x18F` (`model.c
 resend_panel`: `touch` + `flush`), porque el OS solo manda un control cuando se mueve.
 
+### 3.6 Tablas (LUT) para el LFO y las envolventes (`LFO_LUT`, `ENV_CURVE`) [sim, 2026-10-29; sin probar en el equipo]
+
+Tablas fijas en el banco 5, en `A080`–`A0FF` (el ARM escribe `A000`–`A0FF`; esas 128 palabras estaban libres).
+`engine.c lut_all` las escribe en `load` y en cada `refresh`. El DSP B las lee con una carga indexada:
+`hset h6/h7` + `ldb5` / `ldb5h7` en 0 y 1, e interpola linealmente entre los dos puntos.
+
+| opción | tabla | qué hace | costo (MP-CSAW2, 8 voces, DSP B) |
+|---|---|---|---|
+| `LFO_LUT=1` | seno, triángulo y sierra: 3 × 17 palabras (N = 16) | lfo = w·g + clamp(amp·T[(p + 1)·N/2]); la cuadrada es clamp(256 · sierra) | +23 (705 → 728): entran 7 voces |
+| `ENV_CURVE=sq\|cube\|sqrt\|smooth\|lin` | una curva de 33 palabras (N = 32) para las 16 envolventes | nivel = C(ADSR): cada envolvente con su estado y la misma curva | +109 (705 → 814): entran 6 voces |
+| las dos | 84 palabras | | 849: entran 6 voces |
+
+**Exactitud en el emulador (2026-10-29).** Con `LFO_LUT=1`, el triángulo, la sierra, la cuadrada, S&G y S&H son
+idénticos bit a bit a las fórmulas. El seno es un seno verdadero; la fórmula vieja era t·(1,5 − 0,5·t²), y la
+envolvente de la salida difiere en 0,0016 sobre 0,173. `ENV_CURVE=lin` es idéntico a no tener curva.
+
+**Organización.** Las búsquedas no van dentro de cada voz. Cada una es una cadena de unas 10 instrucciones en serie
+(`floor`, fracción, índice, `hset`, dos cargas, interpolación), y hay un solo h6 y un solo h7 por DSP: dentro de
+la voz quedaban una detrás de otra (861 instrucciones con 6 voces). Ahora cada voz deja su índice en el banco 0.
+Un bloque global después de las voces (`make_s1cc.py luts_all`) hace todas las búsquedas, dos a la vez (h6 en
+r0–r2, h7 en r4–r6), y escribe los resultados. La voz los usa en la muestra siguiente: el kernel lee
+`IN:env` en la palabra del anillo + 1, y el LFO lee `ly + 1`. COLOR MOD lee las curvas en la misma muestra, porque
+`colors_idx_all` va después de `luts_all`.
+
+**El tamaño de las tablas no es el límite.** 84 palabras de 128 libres. Guardarlas en el ARM y copiarlas a medida
+no ahorraría nada: lo que cuesta son las instrucciones de cada búsqueda, unas 7 por búsqueda empaquetadas. Las
+tablas dan forma (un seno verdadero, curvas a elección), no velocidad. La recursión de un polo del ADSR es más
+barata que cualquier búsqueda.
+
+**Para probar en el equipo:** `plugins/MP-CSAW2-LUT` (`LFO_LUT=1 ENV_CURVE=sq`, 6 voces, armado el 2026-10-29). Es la
+primera carga indexada del banco 5 en el SYSTEM-1: el S8 la tiene medida exacta, y en el S1 solo se probó `X28Y`
+(banco 0). Hay que oír las cuatro formas del LFO con TO AMP / TO PITCH y la curva al cuadrado en la amplitud.
+
+### 3.7 Envolventes y LFO en el ARM (`ARM_ENV`, `ARM_LFO`) [2026-10-30; instalado, sin oír todavía]
+
+Las dos ADSR por voz y el LFO por voz corren en el ARM del esclavo (`engine.c arm_*`). Cada una es un parámetro
+del DSP B que el hardware lleva en rampa: envolvente i de la voz v en `C0C0 + 8 i + v`, lf (LFO × fade) en
+`C0D0 + v` y fade en `C0D8 + v`. **Los ids tienen que ser menores que `0x100`**: la interrupción da el id en 8 bits
+y la tabla de `FE3C` tiene 256 entradas. La primera build (ids `0x100`–`0x11F`) hizo solo la primera rampa: las
+notas quedaban sonando y el LFO no se movía (2026-10-30). El DSP B solo lee el parámetro (`ld` + `st`). Así funciona:
+
+1. `FCE4(1, id, destino, y = 0, z = 1)` arma una rampa de 4,00 ms, dure lo que dure la distancia.
+2. Al terminar la rampa, la interrupción llama a `arm_cb(id)`, registrada con `FE3C`.
+3. `arm_cb` calcula el punto siguiente y lanza la rampa nueva.
+
+El estado avanza cada 4 ms sin tick ([examples_system_1_ramp_README.md](examples_system_1_ramp_README.md) §2.1, medido).
+
+* **ADSR.** Es la de C-S1SY (ataque hacia 1,25 hasta 1, decay hacia S, release hacia 0). El factor del polo sobre
+  una rampa sale de tablas: `env_att_seg` / `env_dec_seg` = (1 − tasa)^384, en Q24. Al terminar el release, por
+  debajo de −84 dB, la cadena se detiene; la nota siguiente la vuelve a arrancar.
+* **LFO.** Fase de 32 bits (reinicio en el note on), S&H en cada vuelta, S&G y las seis formas de la versión del
+  DSP. El fade sigue al gate (DELAY TIME). Corre siempre, desde `load`.
+* **Solo enteros.** El ARM del SYSTEM-1 no tiene FPU: los niveles van en Q24 y `q24_bits` arma el `float` IEEE.
+  El SYSTEM-8 sí tiene FPU en el ARM: al portarlo allá se puede usar `float`.
+* **Concurrencia.** Las notas llegan desde una tarea y la interrupción las puede cortar: `env_gate` desactiva las
+  interrupciones (`primask`) mientras cambia la etapa. `deinit` (`vt+0x04`) libera las funciones registradas
+  (`FE40`).
+* **Ahorro** (MP-CSAW2, 8 voces): DSP B de 701 a 375 instrucciones, todo en el programa principal.
+
+**Límites.**
+* El paso mínimo es de 4 ms: un ataque o un decay de menos de ~10 ms queda más lento que en el DSP.
+* La curva es una sucesión de rectas de 4 ms.
+* A más de ~40 Hz el LFO tiene pocos puntos por ciclo: 6 a 40 Hz.
+* `--sim` todavía no modela el ARM (los parámetros quedan en 0): la verificación es de oído en el equipo.
+
+Build: `ARM_ENV=1 ARM_LFO=1 KERNEL=... sh examples/system_s1cc/build.sh` → `plugins/MP-CSAW2-ARM` (8 voces).
+
 ## 4. Presupuesto
 
 Instrucciones por muestra del DSP A ≈ instrucciones del kernel A × `NV` (el empaquetado ahorra un poco). El DSP B
