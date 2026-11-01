@@ -29,35 +29,46 @@
 #include <math.h>
 #include "s1dsp.h"
 #include "saw.h"
-#include "filter.h"
 
 /* the kernel's own panel: S1_PARAM tables, run on the PC, rows written by the ARM (DSP A C070.., DSP B C060..) */
 S1_PARAM(mix1, S1_OSC1_MIX, 1) { out[0] = knob / 255.0f; }
 S1_PARAM(mix2, S1_OSC2_MIX, 1) { out[0] = knob / 255.0f; }
 S1_PARAM(fine2, S1_OSC2_FINE, 1) { out[0] = s1_exp2((knob - 128) / 128.0f / 12.0f); }
+
+#ifdef USE_CUSTOM_FILTER    
+#include "filter.h"
 /* FILTER CUTOFF -> coefficient of the low-pass, 20 Hz .. 20 kHz (exponential); lowpass_coefficient runs on the PC */
 S1_PARAM(cutoff, S1_FILTER_CUTOFF, 1) { out[0] = lowpass_coefficient(20.0f * powf(1000.0f, knob / 255.0f), 96000.0f); }
 /* FILTER ENV AMOUNT -> octaves the filter envelope moves the cutoff: -8 .. +8, 128 = none (bipolar, as C-S1SY) */
 S1_PARAM(env_amount, S1_FILTER_ENV_AMOUNT, 1) { out[0] = (knob - 128) / 128.0f * 8.0f; }
+static struct lowpass lp;                /* DSP B's state; the envelopes' state is the host's */
+#endif
 
 static struct saw osc1, osc2;            /* DSP A's state */
-static struct lowpass lp;                /* DSP B's state; the envelopes' state is the host's */
 
 S1_INIT {
     saw_init(&osc1);
     saw_init(&osc2);
-    lowpass_init(&lp);
+    //lowpass_init(&lp);
 }
 
 S1_DSP_A {
-    float hz = 440.0f * s1_exp2(s1_pitch() - 4.75f);
-    saw_set_frequency(&osc1, hz, 96000.0f);
-    saw_set_frequency(&osc2, hz * s1_param(fine2, 0), 96000.0f);
+    float hz = s1_dt();
+    saw_set_frequency(&osc1, hz);
+    saw_set_frequency(&osc2, hz * s1_param(fine2, 0));
     return 0.5f * (saw_process(&osc1) * s1_param(mix1, 0) + saw_process(&osc2) * s1_param(mix2, 0));
 }
 
+S1_DSP_B {
+  float amp = s1_env(0) * s1_lfo_amp();        /* AMP envelope x the host LFO's tremolo (LFO TO AMP) */
+  return x * amp;
+
+}
+
+#ifdef USE_CUSTOM_FILTER    
 S1_DSP_B {                               /* x = the two saws, from DSP A */
     /* filter envelope: the cutoff moves env_amount octaves at the top of the envelope (g <= 0.9: stable) */
     float g = fminf(s1_param(cutoff, 0) * s1_exp2(s1_env(1) * s1_param(env_amount, 0)), 0.9f);
     return lowpass_process(&lp, x, g) * s1_env(0);       /* amp envelope: the VCA */
 }
+#endif

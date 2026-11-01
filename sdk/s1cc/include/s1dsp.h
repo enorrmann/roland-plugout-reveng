@@ -34,8 +34,10 @@
  *   s1_gate(), s1_trig()  gate 0 / 1; trigger: toggles 0 / 1 at every note start
  *   s1_param(name, i)     value i of the knob table `name` (a DSP parameter C0xx the ARM writes)
  *   s1_export(i, v), s1_import(i)   a value from S1_DSP_A to S1_DSP_B, same sample
- *   s1_wrap(x)            x wrapped into [-1, 1)         s1_clamp(x)   x limited to [-1, 1]
- *   s1_tri(x)             1 - 2 |wrap(-x - 1.5)|         s1_exp2(x)    2^x
+ *   s1_wrap(x)            x wrapped into [-1, 1)         
+ *   s1_clamp(x)           x limited to [-1, 1]
+ *   s1_tri(x)             1 - 2 |wrap(-x - 1.5)|         
+ *   s1_exp2(x)            2^x
  *   s1_env(i)             S1_DSP_B only: envelope i of the host, 0..1 (SYSTEM-S1CC builds them in assembly on DSP B
  *                         when a kernel uses them: 0 = AMP ATTACK / DECAY / SUSTAIN / RELEASE, 1 = FILTER A / D / S / R;
  *                         docs/examples_system_s1cc_README.md §3). The native reference and `check` give the gate

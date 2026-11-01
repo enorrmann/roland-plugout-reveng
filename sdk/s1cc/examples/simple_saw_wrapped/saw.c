@@ -8,8 +8,8 @@ void saw_init(struct saw *s) {
     s->inc = 0.0f;
 }
 
-void saw_set_frequency(struct saw *s, float hz, float sample_rate) {
-    s->inc = hz / sample_rate;
+void saw_set_frequency(struct saw *s, float hz) {
+    s->inc = hz;
 }
 
 float saw_process(struct saw *s) {

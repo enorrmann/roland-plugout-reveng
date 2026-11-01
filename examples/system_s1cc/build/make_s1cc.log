@@ -1,10 +1,9 @@
 MOD_DSP=auto: pitch envelope and COLOR MOD on DSP A
-s1m0    518 instructions, 2754 halfwords
-s1m1    691 instructions, 3051 halfwords
+s1m0    373 instructions, 1653 halfwords
+s1m1    411 instructions, 1733 halfwords
 s1mm1     7 instructions, 44 halfwords
 s1c0      2 instructions, 7 halfwords
 s1c1      2 instructions, 7 halfwords
-kernel per voice: A 102 lines, 19 words; B 56 lines, 16 words
-A -> B x: one sample late (voices 0,1); same sample (voices 2,4,5,6); race (voices 3)
-A -> B input pitch: same sample (voices 0,1,2,3,4,5,6)
-A -> B gate / trigger copies: same sample (voices 0,1,2,3,4,5,6)
+kernel per voice: A 21 lines, 8 words; B 7 lines, 13 words
+A -> B x: same sample (voices 0,1,2,3,4,5,6,7)
+A -> B gate / trigger copies: same sample (voices 0,1,2,3,4,5,6,7)
