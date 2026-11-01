@@ -9,7 +9,7 @@ void saw_init(struct saw *s) {
 }
 
 void saw_set_frequency(struct saw *s, float hz) {
-    s->inc = hz;
+    s->inc = hz ;
 }
 
 float saw_process(struct saw *s) {

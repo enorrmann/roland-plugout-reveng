@@ -35,6 +35,8 @@ S1_PARAM(mix1, S1_OSC1_MIX, 1) { out[0] = knob / 255.0f; }
 S1_PARAM(mix2, S1_OSC2_MIX, 1) { out[0] = knob / 255.0f; }
 S1_PARAM(fine2, S1_OSC2_FINE, 1) { out[0] = s1_exp2((knob - 128) / 128.0f / 12.0f); }
 
+#define USE_CUSTOM_FILTER
+
 #ifdef USE_CUSTOM_FILTER    
 #include "filter.h"
 /* FILTER CUTOFF -> coefficient of the low-pass, 20 Hz .. 20 kHz (exponential); lowpass_coefficient runs on the PC */
@@ -59,16 +61,16 @@ S1_DSP_A {
     return 0.5f * (saw_process(&osc1) * s1_param(mix1, 0) + saw_process(&osc2) * s1_param(mix2, 0));
 }
 
-S1_DSP_B {
-  float amp = s1_env(0) * s1_lfo_amp();        /* AMP envelope x the host LFO's tremolo (LFO TO AMP) */
-  return x * amp;
 
-}
-
-#ifdef USE_CUSTOM_FILTER    
 S1_DSP_B {                               /* x = the two saws, from DSP A */
+
+    #ifdef USE_CUSTOM_FILTER    
     /* filter envelope: the cutoff moves env_amount octaves at the top of the envelope (g <= 0.9: stable) */
     float g = fminf(s1_param(cutoff, 0) * s1_exp2(s1_env(1) * s1_param(env_amount, 0)), 0.9f);
-    return lowpass_process(&lp, x, g) * s1_env(0);       /* amp envelope: the VCA */
+    return lowpass_process(&lp, x, g) * s1_env(0)* s1_lfo_amp();       /* amp envelope: the VCA */
+    #else
+
+    return x * s1_env(0) * s1_lfo_amp();                 /* amp envelope: the VCA */
+    
+    #endif
 }
-#endif
