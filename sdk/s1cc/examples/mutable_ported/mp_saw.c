@@ -4,7 +4,7 @@
 #include "include/mp_dsp_b.h"
 
 S1_PARAM(level, S1_OSC1_MIX, 1) { out[0] = 0.75f * knob / 255.0f; }
-//S1_PARAM(level, S1_OSC1_MIX, 1) { out[0] = knob / 255.0f; }
+
 static float ph;
 
 S1_DSP_A {

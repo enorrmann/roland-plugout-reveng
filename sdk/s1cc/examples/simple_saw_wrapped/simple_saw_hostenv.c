@@ -35,7 +35,7 @@ S1_PARAM(mix1, S1_OSC1_MIX, 1) { out[0] = knob / 255.0f; }
 S1_PARAM(mix2, S1_OSC2_MIX, 1) { out[0] = knob / 255.0f; }
 S1_PARAM(fine2, S1_OSC2_FINE, 1) { out[0] = s1_exp2((knob - 128) / 128.0f / 12.0f); }
 
-#define USE_CUSTOM_FILTER
+//#define USE_CUSTOM_FILTER
 
 #ifdef USE_CUSTOM_FILTER    
 #include "filter.h"
