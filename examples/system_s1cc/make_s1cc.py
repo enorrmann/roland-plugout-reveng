@@ -216,16 +216,6 @@ def lut_h(word):
     return (word & 0x3FF) / 16384
 
 
-def lut_read(x, t, d, base, h=6):
-    """d = T(x) from the table at base (x in table points): fl = floor x, fr = x - fl, h = word of fl, two indexed
-    loads, d = T0 + fr (T1 - T0). x is overwritten (fr), t is a scratch register; base: an immediate (float) or a
-    register holding h of the table's first word; h: h6 (ldb5) or h7 (ldb5h7)"""
-    add = f'addxy {t}, {t}, #{base!r}' if isinstance(base, float) else f'addxy {t}, {t}, {base}'
-    ld = 'ldb5' if h == 6 else 'ldb5h7'
-    return [f'floor {t}, {x}', f'subxy {x}, {t}, {x}', f'mul {t}, {t}, #{2.0 ** -14!r}', add, f'hset h{h}, {t}',
-            f'{ld} {d}, 0', f'{ld} {t}, 1', f'subxy {t}, {d}, {t}', f'mad {d}, {x}, {t}']
-
-
 def env_out(i, v):
     """where host envelope i of voice v leaves the level the kernel and COLOR MOD read (C(level) with ENV_CURVE)"""
     return cmt(4 if i == 0 else 3, v) if cmod_idx() else block('B', v) + H_ENV_STRIDE * i + (6 if CURVE else 0)
@@ -243,20 +233,16 @@ def luts_all():
                 jobs.append((block('B', v) + H_ENV_STRIDE * i, [env_out(i, v)] + ([ENVX[i][v]] if CMOD and not MOD_B else []),
                              lut_h(lut_layout()[1]['env']), float(LUT_EN)))
         if LFO_LUT:
-            hb = {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
+            hb = host_b_block(v)
             jobs.append((hb['lx'], [hb['ly']], 'lfo', None))
     if not jobs:
         return []
-    head = [f'; table lookups (LUT): {len(jobs)} per sample, h6 / h7 alternating']
-    if LFO_LUT:
-        head += [f'ld r3, [c0{B6_LWAVE:02x}]', f'ld r7, [c0{B6_LWAVE:02x}]']   # h of the LFO shape's table
     chains = []
-    for k, (src, dsts, base, scale) in enumerate(jobs):
+    for k, (src, dsts, base, scale) in enumerate(jobs):         # microcode/lut.s
         x, t, d = ('r0', 'r1', 'r2') if k % 2 == 0 else ('r4', 'r5', 'r6')
-        L = [f'ld {x}, [{src:04x}]'] + ([f'mul {x}, {x}, #{scale!r}'] if scale else [])
-        L += lut_read(x, t, d, base if base != 'lfo' else ('r3' if k % 2 == 0 else 'r7'), 6 + k % 2)
-        chains.append(L + [f'st {d}, [{a:04x}]' for a in dsts])
-    out = head
+        chains.append(frag('lut_job', x=x, t=t, d=d, src=src, dsts=dsts, scale=scale, h=6 + k % 2,
+                           base=base if base != 'lfo' else ('r3' if k % 2 == 0 else 'r7')))
+    out = frag('lut_head', n=len(jobs))
     for k in range(0, len(chains), 2):
         x, y = chains[k], chains[k + 1] if k + 1 < len(chains) else []
         for i in range(max(len(x), len(y))):
@@ -334,6 +320,9 @@ if LFO_LUT:                                     # (h of the shape's table, amp, 
     LFO_SHAPES = [(lut_h(_AT[n]), 1.0, 0.0, 0.0) for n in LUT_SHAPES] + [(lut_h(_AT['saw']), 256.0, 0.0, 0.0)] + \
         [(lut_h(_AT['sine']), 0.0, 0.0, 1.0)] * 2                  # sine, triangle, saw, square, S&G, S&H
 A6_LPITCH, A6_PAMT, A6_RANGE1 = 0x4B, 0x5E, 0x5F   # DSP A: LFO TO PITCH, PITCH ENV AMOUNT, OSC1 RANGE (octaves)
+# OSC1 RANGE 64'..2' (0..5) -> RANGE_64FT .. RANGE_64FT + 5 octaves. -3 (8' = 0) sounded two octaves under the stock
+# SYSTEM-1 at every position (2026-11-03, MP-CSAW2 on the device: its 4' = the stock 16', its 2' = the stock 8'): -1
+RANGE_64FT = -1.0
 # DSP B: the LFO (rate, S&G coefficient, shape alpha / beta / K / w, fade step, -> filter, -> amp M / |M|)
 B6_LRATE, B6_LSG, B6_LWAVE, B6_LDELAY, B6_LFILT, B6_LAMP, B6_LAMPABS = 0x48, 0x49, 0x4A, 0x4E, 0x4F, 0x50, 0x51
 LFB = [0xA120 + v for v in range(NV)]           # bank 5: lf of voice v, DSP B -> DSP A
@@ -474,224 +463,180 @@ def addresses(dsp, v):
     return addr
 
 
+# ---- microcode templates --------------------------------------------------------------------------------------------
+# The host's assembly is in microcode/*.s, as fragments; the Python here only chooses them and fills them in.
+#   .fragment NAME ARG ...         starts fragment NAME (until the next .fragment); frag(NAME, ARG=value, ...)
+#   {expr} {expr:04x} {expr!r}     a Python expression over the ARGs and this module's globals, formatted
+#   .if EXPR / .elif EXPR / .else / .endif, .for NAMES in EXPR / .endfor     (they nest)
+#   .include NAME ARG=expr, ...    the lines of another fragment
+#   ;; ...                         a comment of the file only; `; ...` lines go into the program
+# Indentation is for the reader only (every line is stripped).
+MICROCODE = os.path.join(HERE, 'microcode')
+_FIELD = re.compile(r'\{([^{}]+?)(?:!([rs]))?(?::([^{}!]*))?\}')
+_FRAGS = {}                                         # name -> (args, parsed body)
+
+
+def _parse(body, k, stop):
+    """body lines [(where, text)] from k into nodes, up to a directive in stop -> (nodes, index of that line)"""
+    nodes = []
+    while k < len(body):
+        where, s = body[k]
+        word, _, rest = s.partition(' ')
+        if word in stop:
+            return nodes, k
+        if word == '.if':
+            arms = []
+            while True:
+                sub, k = _parse(body, k + 1, ('.elif', '.else', '.endif'))
+                arms.append((rest.strip(), where, sub))
+                if k >= len(body):
+                    raise SystemExit(f'{where}: .if without .endif')
+                where, s = body[k]
+                word, _, rest = s.partition(' ')
+                if word == '.elif':
+                    continue
+                if word == '.else':
+                    sub, k = _parse(body, k + 1, ('.endif',))
+                    if k >= len(body):
+                        raise SystemExit(f'{where}: .else without .endif')
+                    arms.append(('True', where, sub))
+                break
+            nodes.append(('if', arms))
+        elif word == '.for':
+            names, sep, expr = rest.partition(' in ')
+            if not sep:
+                raise SystemExit(f'{where}: .for NAMES in EXPR')
+            sub, k = _parse(body, k + 1, ('.endfor',))
+            if k >= len(body):
+                raise SystemExit(f'{where}: .for without .endfor')
+            nodes.append(('for', where, [n.strip() for n in names.split(',')], expr.strip(), sub))
+        elif word == '.include':
+            name, _, args = rest.strip().partition(' ')
+            nodes.append(('include', where, name, args))
+        elif word.startswith('.'):
+            raise SystemExit(f'{where}: unexpected {word}')
+        else:
+            nodes.append(('line', where, s))
+        k += 1
+    return nodes, k
+
+
+def _load_frags():
+    for fn in sorted(os.listdir(MICROCODE)):
+        if not fn.endswith('.s'):
+            continue
+        frags, name = {}, None
+        for no, line in enumerate(open(os.path.join(MICROCODE, fn)), 1):
+            s, where = line.strip(), f'microcode/{fn}:{no}'
+            if not s or s.startswith(';;'):
+                continue
+            if s.startswith('.fragment'):
+                name, *args = s.split()[1:]
+                if name in _FRAGS or name in frags:
+                    raise SystemExit(f'{where}: fragment {name} twice')
+                frags[name] = (args, [])
+            elif name is None:
+                raise SystemExit(f'{where}: code before the first .fragment')
+            else:
+                frags[name][1].append((where, s))
+        for name, (args, body) in frags.items():
+            _FRAGS[name] = (args, _parse(body, 0, ())[0])
+
+
+_CODE = {}
+
+
+def _eval(expr, ns, where):
+    try:
+        if expr not in _CODE:
+            _CODE[expr] = compile(expr, where, 'eval')
+        return eval(_CODE[expr], ns)
+    except Exception as e:
+        raise SystemExit(f'{where}: {expr}: {type(e).__name__}: {e}')
+
+
+def _run(nodes, ns, out):
+    for n in nodes:
+        if n[0] == 'line':
+            def field(m, where=n[1]):
+                x = _eval(m.group(1), ns, where)
+                return format(repr(x) if m.group(2) == 'r' else x, m.group(3) or '')
+            out.append(_FIELD.sub(field, n[2]))
+        elif n[0] == 'if':
+            for cond, where, sub in n[1]:
+                if _eval(cond, ns, where):
+                    _run(sub, ns, out)
+                    break
+        elif n[0] == 'for':
+            _, where, names, expr, sub = n
+            for x in _eval(expr, ns, where):
+                inner = dict(ns)
+                inner.update({names[0]: x} if len(names) == 1 else dict(zip(names, x)))
+                _run(sub, inner, out)
+        else:
+            _, where, name, args = n
+            out += frag(name, **_eval(f'dict({args})', ns, where))
+
+
+def frag(name, /, **kw):
+    """the lines of microcode fragment name with its ARGs kw"""
+    if not _FRAGS:
+        _load_frags()
+    if name not in _FRAGS:
+        raise SystemExit(f'make_s1cc.py: no microcode fragment {name} (microcode/*.s)')
+    args, nodes = _FRAGS[name]
+    if set(args) != set(kw):
+        raise SystemExit(f'make_s1cc.py: fragment {name} takes {", ".join(args) or "nothing"}, given {", ".join(kw)}')
+    out = []
+    _run(nodes, dict(globals(), **kw), out)
+    return out
+
+
 # ---- programs -------------------------------------------------------------------------------------------------------
+def host_b_block(v):
+    """the host LFO's words of voice v on DSP B (host_b_words): name -> address"""
+    return {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
+
+
+def host_a_block(v):
+    """the host's words of voice v on DSP A (host_a_words): name -> address"""
+    return {n: block('A', v) + 2 * j for j, n in enumerate(host_a_words())}
+
+
 def hlfo_global(dsp='A'):
-    """a DSP's global noise source (MUTABLE-SYSTEM step 11 step_noise, proven on the device): n = wrap(K n + w), w a
-    Weyl counter. DSP A: the mixer's NOISE; DSP B: the LFOs' sample & hold"""
-    G = lfo_block(dsp)
-    return [f'; host: noise n = wrap(K n + w), w = Weyl counter (DSP {dsp})',
-            f'ld r2, [{G["nz"] + 1:04x}]', f'ld r0, [{G["w"] + 1:04x}]', 'mov r1, r1', f'add r0, #{NOISE_W!r}:32',
-            'ph_wrap r0, r3, r0', f'st r0, [{G["w"]:04x}]', f'mul r2, r2, #{NOISE_K!r}', 'addxy r2, r2, r0',
-            'ph_wrap r2, r3, r2', f'st r2, [{G["nz"]:04x}]']
+    """a DSP's global noise source (microcode/lfo.s noise)"""
+    return frag('noise', dsp=dsp, G=lfo_block(dsp))
 
 
 def hlfo_voice_b(v):
-    """the host LFO of voice v on DSP B, before its envelopes; four registers (pairs: r4..r7 for the odd voice):
-    * note start d: the trigger copy changed
-    * LFO (MUTABLE-SYSTEM step 11 step_lfo_voice, proven on the device): phase restarted at the note start, own S&H
-      of DSP B's noise at each wrap, own sample & glide g += k (h - g) (k = 1: sample & hold);
-      lfo = w g + ph_clamp(K p) + t (alpha + beta t^2), t the triangle of the phase p (B6_LSG .. : k, alpha, beta,
-      K, w per shape); fade f 0 -> 1 from the gate copy (DELAY TIME), lf = f lfo -> bank 5 LFB+v for DSP A
-    * -> amp: 1 + f (M lf - |M|) (tremolo down from full level; M < 0 the inverted LFO) -> s1_lfo_amp()
-    * -> filter: F lf octaves -> s1_lfo_filter()"""
-    hb = {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
-    G = lfo_block('B')
-    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
-    P = lambda k: f'c0{k:02x}'  # noqa: E731
-    L = [f'; voice {v}: host LFO (DSP B), b = d = 1 at a note start',
-            f'ld {a}, [{TB[v]:04x}]', f'ld {b}, [{hb["bpt"] + 1:04x}]', f'mov {a}, {a}', f'st {a}, [{hb["bpt"]:04x}]',
-            f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}', *([f'st {b}, [{hb["bd"]:04x}]'] if PENV and MOD_B else []),
-            f'; voice {v}: LFO phase a, 0 at a note start; c = 2 at a wrap',
-            f'ld {a}, [{hb["lph"] + 1:04x}]', f'ld {c}, [{P(B6_LRATE)}]', f'mov {a}, {a}', f'mad {a}, {a}, -{b}',
-            f'addxy {c}, {a}, {c}', f'ph_wrap {a}, r3, {c}', f'st {a}, [{hb["lph"]:04x}]', f'subxy {c}, {a}, {c}',
-            f'; voice {v}: sample & hold b of the noise at each wrap',
-            f'ld {b}, [{hb["lsh"] + 1:04x}]', f'ld {d}, [{G["nz"]:04x}]', f'mov {d}, {d}',
-            f'subxy {d}, {b}, {d}', f'mul {d}, {d}, {c}', f'mad {b}, {d}, #0.5', f'st {b}, [{hb["lsh"]:04x}]',
-            f'; voice {v}: sample & glide d += k (b - d)',
-            f'ld {c}, [{P(B6_LSG)}]', f'ld {d}, [{hb["lsg"] + 1:04x}]', f'mov {d}, {d}',
-            f'subxy {b}, {d}, {b}', f'mad {d}, {b}, {c}', f'st {d}, [{hb["lsg"]:04x}]',
-            *(lfo_shape_lut(v, a, b, c, d) if LFO_LUT else [
-            f'; voice {v}: lfo d = w g + ph_clamp(K p) + t (alpha + beta t^2)',
-            f'ld {b}, [{P(B6_LWAVE + 3)}]', f'mov {b}, {b}', f'mul {d}, {d}, {b}',
-            f'ld {b}, [{P(B6_LWAVE + 2)}]', f'mov {b}, {b}', f'mul {c}, {a}, {b}', f'ph_clamp {c}, r3, -{c}',
-            f'addxy {d}, {d}, {c}', f'ph_tri {a}, r3, -{a}', f'mul {c}, {a}, {a}',
-            f'ld {b}, [{P(B6_LWAVE + 1)}]', f'mov {b}, {b}', f'mul {c}, {c}, {b}',
-            f'ld {b}, [{P(B6_LWAVE)}]', f'mov {b}, {b}', f'addxy {c}, {c}, {b}', f'mad {d}, {a}, {c}']),
-            f'; voice {v}: fade a (0 -> 1 from the gate copy, DELAY TIME), d = lf = lfo x fade -> DSP A',
-            f'ld {a}, [{hb["fade"] + 1:04x}]', f'ld {b}, [{P(B6_LDELAY)}]', f'ld {c}, [{GB[v]:04x}]', f'mov {c}, {c}',
-            f'addxy {a}, {a}, {b}', f'mul {a}, {a}, {c}', f'min {a}, {a}, #1.0', f'st {a}, [{hb["fade"]:04x}]',
-            f'mul {d}, {d}, {a}', f'st {d}, [{LFB[v]:04x}]'] + ([f'st {d}, [{cmt(1, v):04x}]'] if cmod_idx() else []) + [
-            f'; voice {v}: -> amp 1 + f (M lf - |M|), -> filter F lf (for the kernel)',
-            f'ld {b}, [{P(B6_LAMP)}]', f'ld {c}, [{P(B6_LAMPABS)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}',
-            f'mad {b}, {a}, -{c}', f'add {b}, #1.0', f'st {b}, [{hb["lfa"]:04x}]',
-            f'ld {b}, [{P(B6_LFILT)}]', f'mov {b}, {b}', f'mul {b}, {d}, {b}', f'st {b}, [{hb["lff"]:04x}]'] + \
-        (penv_b(v, hb) if PENV and MOD_B else [])
-    if ARM_LFO:                                     # the ARM's lf (x fade) and fade, ramped by the hardware
-        i0 = [k for k, x in enumerate(L) if 'LFO phase' in x][0]
-        i1 = [k for k, x in enumerate(L) if x.startswith(f'st {d}, [{LFB[v]:04x}]')][0]
-        L = L[:i0] + [f'; voice {v}: LFO from the ARM (ARM_LFO): d = lf, a = fade',
-                      f'ld {d}, [c{P_LFO0 + v:03x}]', f'ld {a}, [c{P_FADE0 + v:03x}]'] + L[i1:]
-    return L
-
-
-def lfo_shape_lut(v, a, b, c, d):
-    """LFO_LUT: d = w g + clamp(amp T), T = the shape's table at x = (p + 1) N / 2 from the sample before (luts_all
-    reads x after the voices; B6_LWAVE = h of the table's first word, + 1 = amp, + 3 = w; LFO_SHAPES): amp 1 the
-    table itself, 256 on the saw the square (as the formula's ph_clamp(256 p)), 0 for S&G / S&H; a = the phase p
-    (then free), d = the sample & glide value g"""
-    P = lambda k: f'c0{k:02x}'  # noqa: E731
-    hb = {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
-    half = float(LUT_LN // 2)
-    return [f'; voice {v}: lfo d = w g + clamp(amp T) (LFO_LUT: T from luts_all, one sample late)',
-            f'ld {b}, [{P(B6_LWAVE + 3)}]', f'mov {b}, {b}', f'mul {d}, {d}, {b}',
-            f'mul {c}, {a}, #{half!r}', f'addxy {c}, {c}, #{half!r}', f'st {c}, [{hb["lx"]:04x}]',
-            f'ld {a}, [{hb["ly"] + 1:04x}]', f'ld {b}, [{P(B6_LWAVE + 1)}]', f'mov {b}, {b}', f'mul {a}, {a}, {b}',
-            f'ph_clamp {a}, r3, -{a}', f'addxy {d}, {d}, {a}']
-
-
-def penv_core(v, a, b, c, d, pe, pf, prm):
-    """pitch envelope AD (the host ADSR's math, adsr(), proven on the device, with the gate at 1 and sustain 0:
-    latch cleared at a note start (b = 1), attack flag clamp(256 (1 - latch)), level toward 1.25 attack at rate
-    kD + attack (kA - kD)) -> a, stored at word pe; pf = the latch; prm = the decay rate's parameter (attack next)"""
-    prm2 = f'c0{int(prm[2:], 16) + 1:02x}'
-    return [f'; voice {v}: pitch envelope a: the ADSR\'s latch form with gate 1, sustain 0',
-            f'ld {a}, [{pe + 1:04x}]', f'ld {c}, [{pf + 1:04x}]', f'mov {c}, {c}',
-            f'mad {c}, {c}, -{b}',                                                # latch *= 1 - d
-            # latch = 1 once the level passed 0.999: 256 (256 (e - 0.999)) in two clamped steps (one product would
-            # pass the DSP's +-512)
-            f'addxy {b}, {a}, #-0.999', f'mul {b}, {b}, #256.0', f'ph_clamp {b}, r3, -{b}', f'mul {b}, {b}, #256.0',
-            f'ph_clamp {b}, r3, -{b}', f'max {c}, {c}, {b}', f'st {c}, [{pf:04x}]',
-            # attack flag c = clamp(256 (1 - latch)): 1 until the latch is full. With the attack 1 - latch itself a
-            # latch caught half way in the 0.999 band (slow attacks) left the target 1.25 (1 - latch) under the
-            # level and the envelope stuck there (2026-10-28, on the device: it stayed at a value, never fell to 0)
-            f'subxy {c}, {c}, #1.0', f'mul {c}, {c}, #256.0', f'ph_clamp {c}, r3, -{c}',
-            f'ld {b}, [{prm}]', f'ld {d}, [{prm2}]', f'mov {d}, {d}',
-            f'subxy {d}, {b}, {d}', f'mad {b}, {c}, {d}',                         # rate = kD + attack (kA - kD)
-            f'mul {c}, {c}, #1.25',                                               # target 1.25 attack
-            f'subxy {c}, {a}, {c}', f'mad {a}, {c}, {b}', f'min {a}, {a}, #1.0', f'st {a}, [{pe:04x}]']
-
-
-def penv_b(v, hb):
-    """the pitch envelope of voice v on DSP B (MOD_DSP=B), after the LFO: penv_core with the note start stored by
-    hlfo_voice_b -> word pe (COLOR MOD) and bank 5 PEB+v (-> pitch on DSP A)"""
-    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
-    pe = cmt(2, v) if cmod_idx() else hb['pe']     # the level in the COLOR MOD table (CMOD_IDX)
-    return [f'ld {b}, [{hb["bd"]:04x}]'] + penv_core(v, a, b, c, d, pe, hb['pf'], f'c0{B6_PENV:02x}') + \
-        ([f'st {a}, [{PEB[v]:04x}]'] if PITCH_MOD else [])
+    """the host LFO of voice v on DSP B, before its envelopes; with the pitch envelope (MOD_DSP=B) after it
+    (microcode/lfo.s lfo_b)"""
+    return frag('lfo_b', v=v, hb=host_b_block(v), G=lfo_block('B'))
 
 
 def colors_b(v):
-    """COLOR MOD of voice v on DSP B, after its envelopes: color i = weights (C054 + 6 i ..) x (1, lf, pitch env,
-    filter env, amp env, sub) -> bank 5 COLB (s1_color(i) on DSP A, one sample late); the sub square from DSP A.
-    Both colors in one pass (a = color 0, c = color 1): each source is loaded once for the two (the loads, not the
-    multiplies, set its length: two bank-6 loads and one bank-5 access per instruction)"""
-    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
-    P = lambda k: f'c0{k:02x}'  # noqa: E731
-    hb = {n: block('B', v) + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
-    e = block('B', v)
-    acc = dict(zip(COLOR_USED, (a, c)))
-    L = [f'; voice {v}: colors ' + ', '.join(f'{i} ({acc[i]})' for i in COLOR_USED) +
-         ' = w0 + w1 lf + w2 pe + w3 fe + w4 ae + w5 sub']
-    L += [f'ld {acc[i]}, [{P(B6_COL[i])}]' for i in COLOR_USED]
-    for w_, src in ((1, LFB[v]), (2, hb['pe']), (3, e + 6), (4, e), (5, SUBB[v])):
-        L += [f'ld {b}, [{src:04x}]']
-        for i in COLOR_USED:
-            L += [f'ld {d}, [{P(B6_COL[i] + w_)}]', f'mov {d}, {d}', f'mad {acc[i]}, {b}, {d}']
-    L += [f'st {acc[i]}, [{COLB[i][v]:04x}]' for i in COLOR_USED]
-    return L
+    """COLOR MOD of voice v on DSP B, after its envelopes (microcode/color.s colors_b): color 0 in r0, color 1 in r2"""
+    return frag('colors_b', v=v, hb=host_b_block(v), e=block('B', v), acc=dict(zip(COLOR_USED, ('r0', 'r2'))))
 
 
 def colors_idx_all():
-    """COLOR MOD of every voice by indexed loads (CMOD_IDX), after all the voices: per color i h6 = the chosen source's
-    table row (parameter C054 + 6 i + 2, written by the ARM), w0 and w (C054 + 6 i, + 1); per voice
-    color = w0 + w src[h6 + 2 v] (ldidx + ymacd + st). The sources: the envelopes and the pitch envelope keep their
-    level in the table (cmt), the LFO is stored there too, the sub is copied (voice_b)"""
-    P = lambda k: f'c0{k:02x}'  # noqa: E731
-    L = ['; COLOR MOD by indexed loads: per color h6 = the row of the chosen source, each voice w0 + w src[h6 + 2 v]']
-    for i in COLOR_USED:
-        k = B6_COL[i]
-        L += [f'ld r0, [{P(k + 2)}]', 'mov r0, r0', 'hset h6, r0', f'ld r1, [{P(k)}]', f'ld r2, [{P(k + 1)}]',
-              'mov r2, r2']
-        for v in range(NV):
-            r = f'r{3 + v % 4}'
-            L += [f'ldidx {r}, {2 * v}', f'ymacd {r}, r2, r1', f'st {r}, [{COLB[i][v]:04x}]']
-    return L
+    """COLOR MOD of every voice by indexed loads (CMOD_IDX), after all the voices (microcode/color.s colors_idx)"""
+    return frag('colors_idx')
 
 
 def hlfo_voice(v):
-    """the host's DSP A part of voice v, before the kernel; four registers (pairs: r4..r7 for the odd voice), longer
-    lived values in same-sample words of the voice block:
-    * gate and trigger copies for DSP B (its envelopes, LFO and pitch envelope), from their loads
-    * -> pitch: y = P lf + E pe + R octaves (LFO TO PITCH, PITCH ENV AMOUNT, OSC1 RANGE 64'..2' = -3..+2; lf and pe
-      from DSP B, one sample late); pitch + y,
-      dt 2^y = (e^(y ln2 / 8))^8 (Taylor to the 4th power, three squarings: ~2 cents at 6 octaves), rdt 2^-y (to the
-      3rd: it only sets a polyBLEP's width) -> the words the kernel reads as s1_pitch / s1_increment,
-      s1_dt, s1_rdt; DSP B's pitch straight to its word (HOSTB)
-    * sub oscillator (square one octave down) -> bank 5 SUBB+v: COLOR MOD source (DSP B), SUB of the mixer
-    The colors (s1_color) come from DSP B (colors_b), the kernel reads them in bank 5 (COLB)"""
-    h = {n: block('A', v) + 2 * j for j, n in enumerate(host_a_words())}
-    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
-    P = lambda k: f'c0{k:02x}'  # noqa: E731
-
-    def put(reg, word, name):                       # the kernel's word (DSP A reads it) and / or DSP B's (INB)
-        out = [f'st {reg}, [{h[word]:04x}]'] if word in h else []
-        if name in HOSTB:
-            out.append(f'st {reg}, [{INB0 + 8 * KDEF.inputs_b.index(name) + v:04x}]')
-        return out
-    L = [f'; voice {v}: host (DSP A): gate / trigger copies for DSP B']
-    if PENV and not MOD_B:                          # MOD_DSP=A: the pitch envelope here (a = its level)
-        L += [f'ld {a}, [{TRIG[v]:04x}]', f'ld {c}, [{GATE[v]:04x}]', f'ld {b}, [{h["pt"] + 1:04x}]',
-              f'mov {a}, {a}', *([f'st {a}, [{TB[v]:04x}]', f'st {c}, [{GB[v]:04x}]'] if GT_B else []),
-              f'st {a}, [{h["pt"]:04x}]', f'subxy {b}, {b}, {a}', f'mul {b}, {b}, {b}']
-        L += penv_core(v, a, b, c, d, h['pe'], h['pf'], P(A6_PENV))
-    elif GT_B:
-        L += [f'ld {a}, [{TRIG[v]:04x}]', f'ld {c}, [{GATE[v]:04x}]', f'mov {a}, {a}',
-              f'st {a}, [{TB[v]:04x}]', f'st {c}, [{GB[v]:04x}]']
-    if PITCH_MOD:
-        L += [f'; voice {v}: -> pitch b = y = P lf + E pe + OSC1 RANGE octaves', f'ld {b}, [{LFB[v]:04x}]',
-              f'ld {c}, [{P(A6_LPITCH)}]', *([f'ld {a}, [{PEB[v]:04x}]'] if MOD_B else []), f'mov {c}, {c}',
-              f'mul {b}, {b}, {c}',
-              f'ld {c}, [{P(A6_PAMT)}]', f'mov {c}, {c}', f'mad {b}, {a}, {c}', f'ld {c}, [{P(A6_RANGE1)}]', f'mov {c}, {c}', f'addxy {b}, {b}, {c}']
-        if 'pitch' in PITCH_MOD:
-            L += [f'ld {c}, [{PITCH[v]:04x}]', f'mov {c}, {c}', f'addxy {c}, {c}, {b}'] + put(c, 'pitchm', 'pitch')
-        # 2^y = (e^(y ln2 / 8))^8: Taylor of e^z on |z| <= 0.52 (y up to +-6 octaves: RANGE, PITCH ENV, LFO), then
-        # three squarings; dt to z^4 (~2 cents at 6 octaves), rdt (a polyBLEP's width) to z^3
-        poly = {'dt': [f'mov {a}, #0.041666666666666664', f'ymacd {a}, {c}, #0.16666666666666666',
-                       f'ymacd {a}, {c}, #0.5', f'ymacd {a}, {c}, #1.0', f'ymacd {a}, {c}, #1.0'],
-                'rdt': [f'mov {a}, #0.16666666666666666', f'ymacd {a}, {c}, #0.5', f'ymacd {a}, {c}, #1.0',
-                        f'ymacd {a}, {c}, #1.0']}
-        for n, src, sign in (('dt', DT, 1.0), ('rdt', RDT, -1.0)):
-            if n in PITCH_MOD:
-                L += [f'mul {c}, {b}, #{sign * math.log(2) / 8!r}'] + poly[n] + \
-                    [f'mul {a}, {a}, {a}', f'mul {a}, {a}, {a}', f'mul {a}, {a}, {a}', f'ld {c}, [{src[v]:04x}]',
-                     f'mov {c}, {c}', f'mul {c}, {c}, {a}', f'st {c}, [{h[n + "m"]:04x}]']
-    if 'sp' in h:
-        L += [f'; voice {v}: sub oscillator: a square one octave down (COLOR MOD source, SUB of the mixer)',
-              f'ld {b}, [{h["sp"] + 1:04x}]', f'ld {c}, [{DT[v]:04x}]', f'mov {c}, {c}',
-              f'addxy {c}, {b}, {c}', f'ph_wrap {b}, r3, {c}', f'st {b}, [{h["sp"]:04x}]', f'mul {b}, {b}, #256.0',
-              f'ph_clamp {b}, r3, -{b}', f'st {b}, [{SUBB[v]:04x}]']
-    if not MOD_B:                                   # MOD_DSP=A: the colors here, the envelopes from DSP B (ENVX)
-        for i in COLOR_USED:
-            k = A6_COL[i]
-            L += [f'; voice {v}: color {i} = w0 + w1 lf + w2 pe + w3 fe + w4 ae + w5 sub (c)', f'ld {c}, [{P(k)}]']
-            for w_, src in ((1, LFB[v]), (2, h['pe']), (3, ENVX[1][v]), (4, ENVX[0][v]), (5, SUBB[v])):
-                L += [f'ld {b}, [{src:04x}]', f'ld {d}, [{P(k + w_)}]', f'mov {d}, {d}', f'mad {c}, {b}, {d}']
-            L += [f'st {c}, [{h[f"color{i}"]:04x}]']
-    return L
+    """the host's DSP A part of voice v, before the kernel (microcode/host_a.s host_a)"""
+    return frag('host_a', v=v, h=host_a_block(v))
 
 
 def voice_a(v):
     """DSP A code of voice v: the host's (four registers), the kernel's, and the host's mixer"""
     L = [f'; voice {v}'] + (hlfo_voice(v) if HOST_LFO else []) + KDEF.place('A', addresses('A', v))
     if HOST_MIX:                                # kernel (its output word xo) + SUB x sub + NOISE x noise -> x of DSP B
-        h = {n: block('A', v) + 2 * j for j, n in enumerate(host_a_words())}
-        L += [f'; voice {v}: mixer', f'ld r0, [{h["xo"]:04x}]', f'ld r1, [{SUBB[v]:04x}]',
-              f'ld r2, [c0{A6_SUBMIX:02x}]', 'mov r2, r2', 'mad r0, r1, r2',
-              f'ld r1, [{lfo_block("A")["nz"]:04x}]', f'ld r2, [c0{A6_NOISEMIX:02x}]', 'mov r2, r2', 'mad r0, r1, r2',
-              f'st r0, [{XV[v]:04x}]']
+        L += frag('mixer', v=v, h=host_a_block(v))
     if HOST_ENVS and not HOST_LFO:             # gate and trigger for the host's envelopes on DSP B (with the host LFO,
                                                 # hlfo_voice stores them from its loads)
-        L += [f'ld r0, [{GATE[v]:04x}]', f'st r0, [{GB[v]:04x}]', f'ld r1, [{TRIG[v]:04x}]', f'st r1, [{TB[v]:04x}]']
+        L += frag('gate_copy', v=v)
     return L
 
 
@@ -738,8 +683,7 @@ def _interleave(x, y):
 def prog_a_parts():
     """DSP A as (the head: comment and the global part, [the code of each voice pair, or voice]); prog_a() is all of
     it in one program, sources() may put the last pairs in section 2"""
-    head = [f'; s1m0: slave DSP A main @0x0100: {NV} voices x s1cc kernel {KERNEL} DSP A -> A151+v'
-            + (' (voice pairs interleaved, PAIRS=1)' if PAIRS else '')]
+    head = frag('head_a')
     if HOST_MIX:
         head += hlfo_global('A')
     units, v = [], 0
@@ -764,18 +708,8 @@ def prog_b():
 
 
 def prog_b_parts():
-    """DSP B as (the head: the mix, [the code of each voice pair, or voice])"""
-    L = [f'; s1m1: slave DSP B main @0x0100: mix of {NV} voices x {GAIN!r} x C000 -> 6006 / 6007'
-         + (f'; per voice s1cc kernel DSP B' if HAS_B else ''), 'mov r7, #0.0']
-    for v in range(NV):                         # B outputs of the sample before (ring S+1); A outputs as they are
-        L += [f'ld r{v & 1}, [{(B_OUT[v] + 1) if HAS_B else XV[v]:04x}]', f'addxy r7, r7, r{v & 1}']
-    if ARM_DIAG:                                # the ARM's callback toggle, audible
-        L += ['ld r6, [c11f]', 'mad r7, r6, #0.1']
-    L += ['ld r6, [c000]', f'mul r7, r7, #{GAIN!r}', 'mul r7, r7, r6',
-          f'st r7, [{OUT_L:04x}]', f'st r7, [{OUT_R:04x}]', 'mov r0, #0.0']
-    L += [f'st r0, [{x:04x}]' for x in OUT_ZERO]
-    if HOST_LFO:
-        L += hlfo_global('B')
+    """DSP B as (the head: the mix, microcode/host_b.s head_b; [the code of each voice pair, or voice])"""
+    L = frag('head_b')
     units = []
     if HAS_B or HOST_ENVS or HOST_LFO:
         v = 0
@@ -794,55 +728,21 @@ def prog_b_parts():
 
 
 def voice_b(v):
-    """DSP B code of voice v: the host's envelopes (four registers) and the kernel's"""
+    """DSP B code of voice v: the host's envelopes (four registers, microcode/host_b.s host_env) and the kernel's"""
     L = [f'; voice {v}'] + (hlfo_voice_b(v) if HOST_LFO else [])
     if HOST_ENVS:
         b = block('B', v)
         for i in HOST_ENV_USED:
             e = b + H_ENV_STRIDE * i
             lvl = e if CURVE else env_out(i, v)     # the ADSR's level (CURVE: luts_all makes C(level) from it)
-            if ARM_ENV:                             # the ARM's envelope, ramped by the hardware
-                L += [f'; voice {v}: host envelope {i} from the ARM (ARM_ENV)', f'ld r0, [c{P_ENV0 + 8 * i + v:03x}]',
-                      f'st r0, [{lvl:04x}]']
-            else:
-                L += [f'; voice {v}: host envelope {i}'] + adsr(lvl, e + 2, e + 4, GB[v], TB[v], 0xC000 + H6_ENV[i])
-            if CMOD and not MOD_B and not CURVE:    # its level for COLOR MOD on DSP A (CURVE: luts_all)
-                L += [f'st r0, [{ENVX[i][v]:04x}]']
+            L += frag('host_env', v=v, i=i, e=e, lvl=lvl)
     if CMOD and MOD_B and not cmod_idx():
         L += colors_b(v)
     if cmod_idx():                                  # the sub square into the COLOR MOD table
-        L += [f'ld r1, [{SUBB[v]:04x}]', f'st r1, [{cmt(5, v):04x}]']
+        L += frag('sub_to_cmt', v=v)
     if HAS_B:
         L += KDEF.place('B', addresses('B', v))
     return L
-
-
-def adsr(e, latch, pt, gate, trig, prm):
-    """C-S1SY's ADSR (examples/mutable_system/make_mutable.py step_adsr, proven on the device) in four registers,
-    r0..r3 (PAIRS=1 runs the odd voice's copy in r4..r7) -> r0 (stored at e). prm: sustain, attack, decay, release
-    rate. latch = 1 once the attack reached 1; target 1.25 (attack) / S (decay) / 0 (release); a change of trig
-    clears the latch (new note). The attack is g - latch: it follows the gate itself, so a trigger and a gate that
-    arrive apart lose nothing. The same math as step_adsr, except: the end of the attack, 65536 (e - 0.999), is two
-    clamped steps of 256 (one product passes the DSP's +-512); the attack is clamp(256 (g - latch)), 1 while the
-    latch is not full (with g - latch a latch caught half way in the 0.999 band, slow attacks, kept the envelope
-    stuck: 2026-10-28, the pitch envelope on the device); the level is loaded again for the last step instead of
-    holding a register"""
-    a, b, c, d = 'r0', 'r1', 'r2', 'r3'
-    return [f'ld {a}, [{e + 1:04x}]', f'ld {b}, [{latch + 1:04x}]', f'ld {c}, [{trig:04x}]', f'ld {d}, [{pt + 1:04x}]',
-            f'mov {d}, {d}', f'st {c}, [{pt:04x}]',
-            f'subxy {d}, {d}, {c}', f'mul {d}, {d}, {d}',                       # d = (trig - last trig)^2
-            f'subxy {d}, {d}, #1.0', f'mul {b}, {b}, {d}',                      # latch *= 1 - d
-            f'addxy {c}, {a}, #-0.999', f'mul {c}, {c}, #256.0', f'ph_clamp {c}, r3, -{c}', f'mul {c}, {c}, #256.0',
-            f'ph_clamp {c}, r3, -{c}',                                           # two clamped steps: no overflow
-            f'max {b}, {b}, {c}', f'ld {d}, [{gate:04x}]', f'mov {d}, {d}', f'mul {b}, {b}, {d}', f'st {b}, [{latch:04x}]',
-            f'subxy {c}, {b}, {d}', f'mul {c}, {c}, #256.0', f'ph_clamp {c}, r3, -{c}',   # attack = clamp(256 (g - latch))
-            f'subxy {d}, {d}, #1.0',                                             # 1 - g
-            f'ld {a}, [{prm + 3:04x}]', f'mov {a}, {a}', f'mul {d}, {d}, {a}',  # rate = (1 - g) kR
-            f'ld {a}, [{prm + 1:04x}]', f'mov {a}, {a}', f'mad {d}, {c}, {a}',  #   + attack kA
-            f'ld {a}, [{prm + 2:04x}]', f'mov {a}, {a}', f'mad {d}, {b}, {a}',  #   + latch kD
-            f'ld {a}, [{prm:04x}]', f'mov {a}, {a}', f'mul {b}, {b}, {a}', f'mad {b}, {c}, #1.25',   # target
-            f'ld {a}, [{e + 1:04x}]', f'mov {a}, {a}', f'subxy {b}, {a}, {b}', f'mad {a}, {b}, {d}',
-            f'min {a}, {a}, #1.0', f'st {a}, [{e:04x}]']
 
 
 def env_time(v):
@@ -935,7 +835,7 @@ def hlfo_params(knobs):
     them -> (DSP A's, DSP B's); knobs: HLFO's names"""
     k = dict(HLFO_DEFAULT, **{n: x for n, x in knobs.items() if n in HLFO_DEFAULT})
     pa = {0xC000 + A6_LPITCH: f32(lfo_pitch(k['lfo_pitch'])), 0xC000 + A6_PAMT: f32(penv_amt(k['penv_amt'])),
-          0xC000 + A6_RANGE1: float(min(max(k['range1'], 0), 5) - 3),
+          0xC000 + A6_RANGE1: RANGE_64FT + min(max(k['range1'], 0), 5),
           0xC000 + A6_SUBMIX: f32(k['sub_mix'] / 510.0), 0xC000 + A6_NOISEMIX: f32(k['noise_mix'] / 510.0)}
     pb = {0xC000 + B6_LRATE: f32(lfo_rate(k['lfo_rate'])), 0xC000 + B6_LSG: f32(lfo_sg(k['lfo_rate'])),
           0xC000 + B6_LDELAY: f32(lfo_delay(k['lfo_delay'])), 0xC000 + B6_LFILT: f32(lfo_filt(k['lfo_filter'])),
@@ -961,15 +861,8 @@ def hlfo_params(knobs):
 
 
 def prog_master():
-    """C-S1SY13's master B (examples/mutable_system make_mutable.py step_m1, STEP 13)"""
-    L = ['; s1mm1: master DSP B @0x1000: 6006 / 6007 x volume (C01C) -> OS effect send 2000 / 2002;'
-         ' effect return 2001 / 2003 -> A118 / A119',
-         f'ld r0, [{OUT_L:04x}]', f'ld r1, [{OUT_R:04x}]', f'ld r7, [c{M_VOLUME:03x}]', 'mov r4, r4',
-         'mul r0, r0, r7', 'mul r1, r1, r7',
-         f'st r0, [{FX_SEND[0]:04x}]', f'st r1, [{FX_SEND[1]:04x}]',
-         f'ld r2, [{FX_RET[0]:04x}]', f'ld r3, [{FX_RET[1]:04x}]', 'mov r4, r4',
-         f'st r2, [{M_OUT[0]:04x}]', f'st r3, [{M_OUT[1]:04x}]', 'mov r2, #0.0']
-    return L + [f'st r2, [{x:04x}]' for x in M_ZERO]
+    """C-S1SY13's master B (microcode/master.s master)"""
+    return frag('master')
 
 
 _ISA = []
@@ -1022,7 +915,7 @@ def section(name, lines, record=True):
 
 def close(word):
     """the close program at 0x7FF2: frame counter E000 -> A004 (DSP A) / A005 (DSP B), as every SYSTEM-1 PLUG-OUT"""
-    lines = ['ld r0, [e000]', f'st r0, [{word:04x}]']
+    lines = frag('close', word=word)
     w = [0x0000] + assemble(lines).words
     assert len(w) == 7
     return w, None, lines
@@ -1054,7 +947,7 @@ def _fill(main, head, units, dsp):
     regions = [(main, 0x0100, 0x0100 + MAIN_BYTES)] + [(n, a, b) for n, _, a, b in SECTIONS[dsp]]
     out, rest = {}, list(units)
     for name, a, b in regions:
-        hd = head if name == main else [f'; {name}: slave DSP {dsp} section @0x{a:04x}, after the main']
+        hd = head if name == main else frag('section_head', name=name, dsp=dsp, a=a)
         k = len(rest)
         while k > 0 and size(name, hd + flat(rest[:k])) > b - a:
             k -= 1
@@ -1168,8 +1061,8 @@ def header(progs):
         out.append(table('lfo_rate_bits', [lfo_rate(v) for v in range(256)]))
         out.append(table('lfo_sg_bits', [lfo_sg(v) for v in range(256)]))
         out.append(table('penv_amt_bits', [penv_amt(v) for v in range(256)]))
-        out.append('/* OSC RANGE 64\'..2\' (0..5) -> octaves -3..+2 */')
-        out.append(table('range_bits', [r - 3.0 for r in range(6)]))
+        out.append(f'/* OSC RANGE 64\'..2\' (0..5) -> octaves {RANGE_64FT:+g}..{RANGE_64FT + 5:+g} */')
+        out.append(table('range_bits', [RANGE_64FT + r for r in range(6)]))
         out.append('/* LFO SHAPE -> (alpha, beta, K, w) of DSP B B6_LWAVE.. */')
         out.append(table('lfo_shape_bits', [x for sh in LFO_SHAPES for x in sh], 4))
         out.append(table('lfo_delay_bits', [lfo_delay(v) for v in range(256)]))

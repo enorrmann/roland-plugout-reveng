@@ -169,7 +169,7 @@ La mezcla (color i = Σ pesos × fuentes) corre en el DSP que diga `MOD_DSP` (§
 por el banco 5 con una muestra de atraso.
 
 Si el kernel llama a `s1_color`, `make_s1cc.py` agrega:
-* **Envolvente de pitch** (`penv_core`): las cuentas de la ADSR del anfitrión (`adsr()`, probada) con la puerta en
+* **Envolvente de pitch** (`microcode/penv.s` `penv_core`): las cuentas de la ADSR del anfitrión (`microcode/host_b.s` `adsr`, probada) con la puerta en
   1 y sustain 0. El latch se borra con cada disparo y vale 1 cuando el nivel pasó 0,999, en dos pasos recortados
   de ×256 (un producto ×65536 pasa del rango ±512); bandera de ataque = clamp(256·(1 − latch)); el nivel va hacia
   1,25 · ataque con tasa kD + ataque · (kA − kD).
@@ -207,7 +207,7 @@ Primer intento de la envolvente de pitch: `(1 − e) · 65536` desborda el rango
 ataque nunca subía. El segundo, con una bandera continua que baja con `min`, quedaba en equilibrio en 0,997 y no
 decaía. Por eso se usa la forma probada de la ADSR. **2026-10-28, en el equipo:** con ataques lentos la envolvente se
 quedaba en un valor y no caía: el latch quedaba a medias en la franja de 0,999 y el ataque 1 − latch dejaba el
-objetivo 1,25·(1 − latch) debajo del nivel. Con la bandera clamp(256·(1 − latch)) (también en `adsr()`) funciona
+objetivo 1,25·(1 − latch) debajo del nivel. Con la bandera clamp(256·(1 − latch)) (también en `adsr`) funciona
 (MP-CSAW2, confirmado de oído).
 
 ### 3.3 El LFO del anfitrión (`s1_lfo_filter`, `s1_lfo_amp`, el tono) [sim, 2026-10-28; sin probar en el equipo]
@@ -294,7 +294,7 @@ la muestra de atraso). En el equipo: MP-CSAW2 con `B` y 7 voces instalado el 202
 | SUB | `0x176` | DSP A, después del kernel | + nivel · sub (cuadrada una octava abajo), nivel 0…0,5 (`A6_SUBMIX`, `C056`) |
 | NOISE | `0x177` | DSP A, después del kernel | + nivel · ruido (el ruido del DSP A), 0…0,5 (`A6_NOISEMIX`, `C057`) |
 | PITCH ENV AMOUNT | `0x17A` | DSP A, tono | E = 4·b·\|b\| octavas (±4), b bipolar: y = P·lf + E·pe + RANGE |
-| OSC1 RANGE | `0x16A` | DSP A, tono | 64'…2' = −3…+2 octavas (`C05F`); otro valor, 8' |
+| OSC1 RANGE | `0x16A` | DSP A, tono | 64'…2' = −1…+4 octavas (`C05F`, `make_s1cc.py RANGE_64FT`): con −3…+2 sonaba dos octavas debajo del SYSTEM-1 de serie en cada posición (2026-11-03, MP-CSAW2: su 4' = el 16' de serie); otro valor, 2' |
 
 El kernel devuelve su salida a una palabra (`xo`) y el mezclador escribe la voz (`MIX=0`: el kernel escribe directo).
 El tono modulado es 2^y = (e^(y·ln2/8))⁸: Taylor de grado 4 (`dt`) o 3 (`rdt`) y tres cuadraturas, ~2 cents a 6
@@ -545,6 +545,7 @@ corregido, §7). Para repetir la prueba:
 | archivo | qué es |
 |---|---|
 | `make_s1cc.py` | generador de los programas DSP y de `build/s1_programs.h` (programas, `pitch_bits`, `volume_bits`, tablas del kernel); `--sim` |
+| `microcode/*.s` | el ensamblador del host como fragmentos (`.fragment NOMBRE ARGS`); `make_s1cc.py frag()` elige y completa: `{expr}` / `{expr:04x}` / `{expr!r}` sobre los ARGS y las globales de `make_s1cc.py`, `.if` / `.elif` / `.else` / `.endif`, `.for NOMBRES in EXPR` / `.endfor`, `.include NOMBRE ARG=expr, ...`; `;;` comentario solo del archivo, `;` va al programa. `noise`, `lfo_b`, `lfo_shape_lut` (`lfo.s`); `penv_core`, `penv_b` (`penv.s`); `colors_b`, `colors_idx`, `sub_to_cmt` (`color.s`); `head_a`, `host_a`, `mixer`, `gate_copy` (`host_a.s`); `head_b`, `host_env`, `adsr` (`host_b.s`); `lut_head`, `lut_job`, `lut_read` (`lut.s`); `master`, `close`, `section_head` (`master.s`) |
 | `engine.c` | región 1, ARM del esclavo: el de MUTABLE-SYSTEM sin el panel de C-S1SY. Carga los programas; notas → banco 5; perillas → tablas del kernel |
 | `model.c` | región 0, ARM del maestro: el de MUTABLE-SYSTEM (asignador de `NV` voces, carga `s1mm1`, VOLUME, que reenvía en cada nota) |
 | `syninfo.h`, `link.ld` | copias de MUTABLE-SYSTEM |

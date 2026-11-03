@@ -4,11 +4,11 @@ https://korginc.github.io/logue-sdk/unit-index/
 si ponemos osc + lfo y env en cada dsp se puede optimizar un poco mas, podemos ver si se pueden usar el env del dsp 1 en el dsp2 y asi
 ademas no neesitmoas caucloar frecuencias deos veces
 
-mover el ensamblador dentro de make_s1cc.py a archivos externos incluibles
 ver si poner lfo y amp en ARM realmente mejora o quedan igual los dsp en cuanto  cntidad de operaciones
 
 activar solo las luces del panel de controles que esten usados por el kernel, s1cc debe generar esa parte para usar en el engine
 el build de make_s1cc.py: 8 voices do not fit (s1m0: 1597 instructions (with its sections), budget 703) debe calcularlo antes no ir iterando probando 
 
-el range del s1cc cuando esta en 4 suena como el original del sys1 cuando esta en 16, el 2 del s1cc es el 8 del sys1 y todo asi
+en mp_csaw2.c el range del s1cc cuando esta en 4 suena como el original del sys1 cuando esta en 16, el 2 del s1cc es el 8 del sys1 y todo asi
 mejorar el instalador para que acepte zip
+termina de portear todos los osciladores de mutable que estan en la carpeta git/eurorack

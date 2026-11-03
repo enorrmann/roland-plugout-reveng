@@ -161,7 +161,7 @@ static void hlfo_apply(int c)
         b6(1, B6_LAMPABS, lfo_ampabs_bits[k]);
         break;
     case C_PENV_AMT: b6(0, A6_PAMT, penv_amt_bits[k]); break;   /* PITCH ENV AMOUNT -> pitch (octaves) */
-    case C_RANGE1: b6(0, A6_RANGE1, range_bits[k > 5 ? 5 : k]); break;   /* OSC1 RANGE 64'..2' -> -3..+2 octaves */
+    case C_RANGE1: b6(0, A6_RANGE1, range_bits[k > 5 ? 5 : k]); break;   /* OSC1 RANGE 64'..2' -> -1..+4 octaves (make_s1cc.py RANGE_64FT) */
     case C_PENV_A: b6(M6_SEL, M6_PENV + 1, attack_bits[k]); break;
     case C_PENV_D: b6(M6_SEL, M6_PENV, decay_bits[k]); break;
     case C_COLOR0: case C_MOD0: hlfo_color(0); break;
