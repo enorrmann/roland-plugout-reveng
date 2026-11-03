@@ -1338,6 +1338,8 @@ struct Lowerer {
                 x.V = Range{-4, 4};
             if (n->name == "lfo_amp")                 // the host's LFO -> amp: a gain 0 .. 1
                 x.V = Range{0, 1};
+            if (n->name == "host_mix")                // fused: the host's SUB x sub + NOISE x noise, -2 .. 2
+                x.V = Range{-2, 2};
             return x;
         }
         case NK::Increment: {

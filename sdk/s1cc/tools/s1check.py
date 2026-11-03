@@ -31,13 +31,14 @@ PITCH, GATE, TRIG, A_OUT, EXP0, INB0, B_OUT = 0xA030, 0xA038, 0xA060, 0xA151, 0x
 DT, RDT = 0xA040, 0xA048     # s1_dt() = f / 96000, s1_rdt() = 1 / dt / 16384 (the host's per-note tables)
 COLOR = (0xA050, 0xA058)     # s1_color(i): the knob color0= / color1= (s1rt.c), as the host gives it with MOD = MANUAL
 LFO_FILTER, LFO_AMP = 0xA051, 0xA052   # s1_lfo_filter() = 0, s1_lfo_amp() = 1 (no LFO, as the reference)
+HOST_MIX = 0xA053                      # s1_host_mix() = 0 (fused: no SUB / NOISE, as the reference)
 STATE0, PARAM0, SCRATCH0, TRACE0 = 0x0100, 0x40, 0x0300, 0x0400
 
 
 def layout(k):
     addr = {'IN:pitch': PITCH, 'IN:gate': GATE, 'IN:trig': TRIG, 'IN:dt': DT, 'IN:rdt': RDT, 'XIN': A_OUT,
             'IN:color0': COLOR[0], 'IN:color1': COLOR[1],
-            'IN:lfo_filter': LFO_FILTER, 'IN:lfo_amp': LFO_AMP}
+            'IN:lfo_filter': LFO_FILTER, 'IN:lfo_amp': LFO_AMP, 'IN:host_mix': HOST_MIX}
     for s in k.states:
         addr[f'S{s["index"]}'] = STATE0 + 2 * s['index']
     i = PARAM0
@@ -105,7 +106,7 @@ def run_kernel(outdir, note, n, knobs, proven=True):
     b5[RDT & 0x3FF] = f32(f32(1.0 / dt) / 16384.0)
     b5[GATE & 0x3FF] = 1.0
     b5[TRIG & 0x3FF] = 1.0
-    b5[LFO_FILTER & 0x3FF], b5[LFO_AMP & 0x3FF] = 0.0, 1.0
+    b5[LFO_FILTER & 0x3FF], b5[LFO_AMP & 0x3FF], b5[HOST_MIX & 0x3FF] = 0.0, 1.0, 0.0
     for i, a in enumerate(COLOR):
         b5[a & 0x3FF] = f32(knobs.get(f'color{i}', 128) / 255.0)
     words = [(0, A_OUT)] + ([(1, B_OUT)] if 1 in progs else [])

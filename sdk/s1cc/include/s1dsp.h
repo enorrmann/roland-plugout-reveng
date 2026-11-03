@@ -120,6 +120,7 @@ S1_EXTERN S1_IN float s1_env(int i);
 S1_EXTERN S1_IN float s1_color(int i);
 S1_EXTERN S1_IN float s1_lfo_filter(void);
 S1_EXTERN S1_IN float s1_lfo_amp(void);
+S1_EXTERN S1_IN float s1_host_mix(void);      /* only s1cc fuse calls it: the host's SUB / NOISE between A and B */
 
 #define s1_param(name, i) s1_param_get(&s1_param_desc_##name, (i))
 

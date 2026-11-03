@@ -63,7 +63,8 @@ CASES = [
 class TestExamples(unittest.TestCase):
     def build(self, src, extra):
         out = os.path.join(S1CC, 'build', 'test_' + os.path.splitext(os.path.basename(src))[0])
-        cmd = [os.path.join(S1CC, 's1cc'), 'build', os.path.join(S1CC, 'examples', src)] + extra + ['-o', out]
+        # --no-fused: these cases check each DSP's program against the reference's A and B outputs
+        cmd = [os.path.join(S1CC, 's1cc'), 'build', os.path.join(S1CC, 'examples', src)] + extra + ['-o', out, '--no-fused']
         r = subprocess.run(cmd, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
         return out

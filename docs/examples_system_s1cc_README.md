@@ -89,7 +89,10 @@ KERNEL=sdk/s1cc/build/mp_csaw sh examples/system_s1cc/build.sh        # -> plugi
   `PARAMLOG` los lee `build.sh` (`PARAMLOG=0` lo apaga). `NAME` sin espacios.
 * **Voces.** No son una opción: `build.sh` siempre calcula la cantidad que entra (§1).
 
-### 1.3 Kernel fusionado: la voz entera en cualquiera de los dos DSP (`SPLIT`) [sim, 2026-11-03; sin probar en el equipo]
+### 1.3 Kernel fusionado: la voz entera en cualquiera de los dos DSP (`SPLIT`) [sim, 2026-11-03; en el equipo: MP-CSAW2-FE]
+
+**Por defecto** desde 2026-11-03: `s1cc build` fusiona, y `make_s1cc.py` usa `ARM_ENV=1 ARM_LFO=1` (§3.7). Con
+`s1cc build --no-fused`, `ARM_ENV=0`, `ARM_LFO=0` vuelve cada parte a lo de antes.
 
 Con un kernel compilado con `s1cc --fused` ([S1CC.md](S1CC.md) §3.4, marca `.fused`), `make_s1cc.py` corre la voz
 entera del kernel de las voces 0…NA−1 en el DSP A y la de NA…NV−1 en el DSP B. **El anfitrión no cambia**: su parte
@@ -118,20 +121,26 @@ ARM_ENV=1 ARM_LFO=1 KERNEL=sdk/s1cc/build/mp_csaw2 sh examples/system_s1cc/build
 * **`SPLIT=auto`** (por defecto). Con la estimación de `VOICES=auto`, `make_s1cc.py` prueba NA = 0…NV y se queda con
   el que deja menos cargado al DSP más cargado, para cada `MOD_DSP`. `SPLIT=n` lo fija (`SPLIT=0`: todas en B;
   `SPLIT=NV`: todas en A).
-* **Sin mezclador.** `MIX` (SUB / NOISE) queda apagado: iba entre `S1_DSP_A` y `S1_DSP_B`.
+* **Mezclador.** SUB / NOISE iba entre `S1_DSP_A` y `S1_DSP_B`. El kernel fusionado lo suma él mismo
+  (`s1_host_mix()`): el DSP A calcula por voz SUB × sub + NOISE × ruido en la palabra `hm` (`microcode/split.s
+  mix_term`, 0 con `MIX=0`), y para las voces en B se copia como las demás entradas.
 
 Medido con `mp_csaw2`, 8 voces, sumando el programa principal y sus secciones (instrucciones por muestra; budget A 703,
 B 708):
 
 | configuración | normal (`--regs-a 0,1,2,3 --regs-b 0,1,2,3`) | fusionado (`--regs 0,1,2,3 --fused`) |
 |---|---|---|
-| por defecto (`MOD_DSP=B`) | A 652, B 701 (el más cargado: 99,0 %) | NA = 6: A 648, B 685 (96,7 %) |
+| por defecto (`MOD_DSP=B`) | A 652, B 701 (el más cargado: 99,0 %) | NA = 6: A 648, B 685 (96,8 %) |
+| `ARM_ENV=1` | A 652, B 488 (92,7 %) | NA = 5: A 584, B 540 (83,1 %) |
+| `ARM_LFO=1` | A 652, B 588 (92,7 %) | NA = 6: A 648, B 566 (92,2 %) |
 | `ARM_ENV=1 ARM_LFO=1` | A 652, B 375 (92,7 %) | NA = 4: A 487, B 515 (72,7 %) |
+
+Cuánto cuestan en el DSP B: las envolventes 213 instrucciones, el LFO 113 (§3.7).
 
 * **Por defecto, la ganancia es chica.** El anfitrión del DSP B (envolventes, LFO, COLOR MOD) ya lo llena casi
   entero, y las copias por el banco 5 cuestan una instrucción cada una (un acceso al banco 5 por instrucción, R5).
-* **Con `ARM_ENV`/`ARM_LFO` la ganancia es grande.** El DSP B queda libre y el reparto equilibra los dos DSP: el más
-  cargado baja de 652 a 515 instrucciones (−21 %). Ese margen queda para kernels más caros.
+* **Con `ARM_ENV`/`ARM_LFO` la ganancia es grande:** el más cargado baja de 652 a 515 instrucciones (−21 %). Ese
+  margen queda para kernels más caros (§3.7).
 * **Correcto en el emulador.** `--sim` con `SPLIT=0`, `SPLIT=8` y auto da la misma envolvente, el mismo acorde de 8
   voces y el mismo silencio sin notas que el kernel normal.
 
@@ -406,39 +415,36 @@ barata que cualquier búsqueda.
 primera carga indexada del banco 5 en el SYSTEM-1: el S8 la tiene medida exacta, y en el S1 solo se probó `X28Y`
 (banco 0). Hay que oír las cuatro formas del LFO con TO AMP / TO PITCH y la curva al cuadrado en la amplitud.
 
-### 3.7 Envolventes y LFO en el ARM (`ARM_ENV`, `ARM_LFO`) [2026-10-30; instalado, sin oír todavía]
+### 3.7 Envolventes y LFO en el ARM (`ARM_ENV`, `ARM_LFO`) [medido en el equipo 2026-11-03]
 
-Las dos ADSR por voz y el LFO por voz corren en el ARM del esclavo (`engine.c arm_*`). Cada una es un parámetro
-del DSP B que el hardware lleva en rampa: envolvente i de la voz v en `C0C0 + 8 i + v`, lf (LFO × fade) en
-`C0D0 + v` y fade en `C0D8 + v`. **Los ids tienen que ser menores que `0x100`**: la interrupción da el id en 8 bits
-y la tabla de `FE3C` tiene 256 entradas. La primera build (ids `0x100`–`0x11F`) hizo solo la primera rampa: las
-notas quedaban sonando y el LFO no se movía (2026-10-30). El DSP B solo lee el parámetro (`ld` + `st`). Así funciona:
+**Por defecto** (`ARM_ENV=1`, `ARM_LFO=1`; `0` los vuelve al microcódigo del DSP B). `--sim` los modela
+(`make_s1cc.py ArmModel`: la misma aritmética Q24 que `engine.c`, un paso cada 96 muestras): la envolvente simulada
+coincide con la del DSP (pico 0,124 contra 0,123, MP-CSAW2).
 
-1. `FCE4(1, id, destino, y = 0, z = 1)` arma una rampa de 4,00 ms, dure lo que dure la distancia.
-2. Al terminar la rampa, la interrupción llama a `arm_cb(id)`, registrada con `FE3C`.
-3. `arm_cb` calcula el punto siguiente y lanza la rampa nueva.
+Las dos ADSR por voz y el LFO por voz corren en el ARM del esclavo (`engine.c arm_*`), cada 1 ms, enganchados al
+tick del OS ([S1_ARM_CLOCK.md](S1_ARM_CLOCK.md)). Cada una es un parámetro del DSP B que el ARM escribe con `FCEC`
+en cada tick: envolvente i de la voz v en `C080 + 8 i + v`, lf (LFO × fade) en `C090 + v`, fade en `C098 + v`
+(`ARM_P0`). El DSP B solo lee el parámetro (`ld` + `st`).
 
-El estado avanza cada 4 ms sin tick ([examples_system_1_ramp_README.md](examples_system_1_ramp_README.md) §2.1, medido).
-
-* **ADSR.** Es la de C-S1SY (ataque hacia 1,25 hasta 1, decay hacia S, release hacia 0). El factor del polo sobre
-  una rampa sale de tablas: `env_att_seg` / `env_dec_seg` = (1 − tasa)^384, en Q24. Al terminar el release, por
-  debajo de −84 dB, la cadena se detiene; la nota siguiente la vuelve a arrancar.
+* **ADSR.** La de C-S1SY (ataque hacia 1,25 hasta 1, decay hacia S, release hacia 0). El factor del polo por paso de
+  1 ms sale de tablas: `env_att_seg` / `env_dec_seg` = (1 − tasa)^96, en Q24. Al terminar el release, por debajo de
+  −84 dB, el nivel queda en 0.
 * **LFO.** Fase de 32 bits (reinicio en el note on), S&H en cada vuelta, S&G y las seis formas de la versión del
-  DSP. El fade sigue al gate (DELAY TIME). Corre siempre, desde `load`.
-* **Solo enteros.** El ARM del SYSTEM-1 no tiene FPU: los niveles van en Q24 y `q24_bits` arma el `float` IEEE.
-  El SYSTEM-8 sí tiene FPU en el ARM: al portarlo allá se puede usar `float`.
-* **Concurrencia.** Las notas llegan desde una tarea y la interrupción las puede cortar: `env_gate` desactiva las
-  interrupciones (`primask`) mientras cambia la etapa. `deinit` (`vt+0x04`) libera las funciones registradas
-  (`FE40`).
-* **Ahorro** (MP-CSAW2, 8 voces): DSP B de 701 a 375 instrucciones, todo en el programa principal.
+  DSP. El fade sigue al gate (DELAY TIME).
+* **Solo enteros.** El ARM del SYSTEM-1 no tiene FPU: niveles en Q24, `q24_bits` arma el `float` IEEE.
+* **Ahorro** (MP-CSAW2, 8 voces): DSP B de 701 a 375 instrucciones; con el kernel fusionado, el DSP más cargado al
+  73 % (§1.3).
+* **Medido** (sonda `arm_probe`, captura USB, [S1_ARM_CLOCK.md](S1_ARM_CLOCK.md) §3): ADSR y LFO completos y suaves,
+  release hasta 0.
 
-**Límites.**
-* El paso mínimo es de 4 ms: un ataque o un decay de menos de ~10 ms queda más lento que en el DSP.
-* La curva es una sucesión de rectas de 4 ms.
-* A más de ~40 Hz el LFO tiene pocos puntos por ciclo: 6 a 40 Hz.
-* `--sim` todavía no modela el ARM (los parámetros quedan en 0): la verificación es de oído en el equipo.
+**Límites.** La curva es una escalera de 1 ms. A más de ~100 Hz el LFO tiene pocos puntos por ciclo.
 
-Build: `ARM_ENV=1 ARM_LFO=1 KERNEL=... sh examples/system_s1cc/build.sh` → `plugins/MP-CSAW2-ARM` (8 voces).
+**Historia.** La versión del 2026-10-30 usaba rampas del hardware (`FCE4`, 4 ms) en `C100`…. En el equipo
+(2026-11-03, MP-CSAW2-FE) sonaba cortada, "como ametralladora", y las notas quedaban sonando. La telemetría mostró
+que el tick corría bien, pero el DSP no veía lo que el ARM escribía en `C100`…, y que las rampas a `C080`… no llegan.
+`ARM_RAMP=1 ARM_P0=0x100,0x110,0x118` rearma esa versión.
+
+Build: `ARM_ENV=1 ARM_LFO=1 KERNEL=... sh examples/system_s1cc/build.sh`.
 
 ## 4. Presupuesto
 

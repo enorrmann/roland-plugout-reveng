@@ -254,14 +254,16 @@ S1_COMPILE("--regs 0,1,2,3");                               /* opciones de s1cc 
 * Las opciones del driver (`-I`, `-o`, `--check`, `--no-auto`, `--debug`) no van en `S1_COMPILE`: se necesitan antes
   de compilar el C. La excepción es `--fused` (§3.4): el driver la busca en `S1_COMPILE` antes de perfilar.
 
-### 3.4 Voz fusionada (`--fused`) [sim, 2026-11-03]
+### 3.4 Voz fusionada (`--fused`, por defecto) [sim, 2026-11-03; en el equipo: MP-CSAW2-FE]
 
-`s1cc build ... --fused` (o `S1_COMPILE("--fused")`) compila la voz entera, `S1_DSP_B(S1_DSP_A())`, como **una sola
-función**. El kernel tiene un solo programa (`.dsp A`) y la marca `.fused` (§7.4). El anfitrión lo puede correr en
+`s1cc build` compila por defecto la voz entera, `S1_DSP_B(S1_DSP_A() + s1_host_mix())`, como **una sola función**.
+`--no-fused` (o `S1_COMPILE("--no-fused")`) da los dos programas de antes (MUTABLE-SYSTEM los necesita: `make_mutable.py`
+rechaza un kernel fusionado). La línea de comandos gana sobre `S1_COMPILE`. El kernel tiene un solo programa (`.dsp A`) y la marca `.fused` (§7.4). El anfitrión lo puede correr en
 cualquiera de los dos DSP: SYSTEM-S1CC reparte las voces entre A y B
 ([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §1.3).
 
-* **Paso del driver.** Después de los bucles (`voice.ll`), `s1cc fuse` crea `s1_dsp_a() { return s1_dsp_b(s1_dsp_a()); }`,
+* **Paso del driver.** Después de los bucles (`voice.ll`), `s1cc fuse` crea
+  `s1_dsp_a() { return s1_dsp_b(s1_dsp_a() + s1_host_mix()); }`,
   inline-a las dos, borra `s1_dsp_b` y marca el módulo (`__s1_fused`). Luego `opt -O2` otra vez. El perfilado, el
   lowering y `refdsp` usan el módulo fusionado; la referencia nativa (`ref`) sigue con las dos funciones.
 * **Qué cambia en el C.** Nada: el mismo fuente compila de las dos formas. En la función fusionada:
@@ -273,8 +275,8 @@ cualquiera de los dos DSP: SYSTEM-S1CC reparte las voces entre A y B
   entrada de B. `mp_csaw2` (`--regs 0,1,2,3`): 111 instrucciones contra 80 + 37 = 117 (−5 %), 6 palabras de
   derrame contra 6 + 5. `simple_saw_hostenv`: 12 contra 10 + 5. El SNR contra la referencia es el mismo (la salida
   B de `ref`, que es la que compara `check`).
-* **Lo que no puede hacer.** El anfitrión no puede meter nada entre A y B. En SYSTEM-S1CC el mezclador SUB / NOISE
-  (`MIX`) queda apagado.
+* **Entre A y B.** Lo que el anfitrión hacía entre los dos DSP (en SYSTEM-S1CC, el mezclador SUB / NOISE) entra
+  como `s1_host_mix()`: una entrada que vale 0 en la referencia nativa, rango −2…2, una suma en el kernel.
 
 ## 4. Del IR al grafo (`graph.cpp`)
 

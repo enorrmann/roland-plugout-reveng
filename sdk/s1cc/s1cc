@@ -9,7 +9,7 @@
 #       and first the list of C functions s1cc cannot compile and why (OUTDIR/diag.txt); S1CC_DEBUG=2 adds every node.
 #       --check: `check OUTDIR` at the end (instructions, SNR against the native reference; note 57, knobs at 128)
 #       --regs-a LIST / --regs-b LIST: the same for one DSP only (SYSTEM-S1CC PAIRS=1: --regs-a 0,1,2,3)
-#       --fused: S1_DSP_B(S1_DSP_A()) compiled as one function (.fused kernel: the host runs whole voices on either DSP)
+#       --fused (default) / --no-fused: S1_DSP_B(S1_DSP_A()) as one function (.fused: whole voices on either DSP), or two
 #       --regs LIST: the DSP registers the kernel may use (default 0,1,2,3,4,7: MUTABLE-SYSTEM's host keeps r5 / r6;
 #       SYSTEM-S1CC has no host: 0,1,2,3,4,5,6,7, fewer spills; docs/S1CC.md §1.1)
 #       Sources: the ones given, plus the source next to every header they include (saw.h -> saw.c,
@@ -32,7 +32,7 @@ usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 cmd=$1; shift
 case $cmd in
 build)
-    srcs=; incs=; out=; lower_opts=; debug=${S1CC_DEBUG:-0}; check=0; auto=1; fused=0
+    srcs=; incs=; out=; lower_opts=; debug=${S1CC_DEBUG:-0}; check=0; auto=1; fused=
     while [ $# -gt 0 ]; do
         case $1 in
             -I) incs="$incs -I$2"; shift ;;
@@ -41,6 +41,7 @@ build)
             --tol|--tollog|--maxdeg|--maxknots|--regs|--regs-a|--regs-b) lower_opts="$lower_opts $1 $2"; shift ;;
             --trace|--no-exact-init|--no-fold-branches|--no-recipseed|--no-fuse-mac) lower_opts="$lower_opts $1" ;;
             --fused) fused=1 ;;
+            --no-fused) fused=0 ;;
             --check) check=1 ;;
             --no-auto) auto=0 ;;
             --debug) [ "$debug" -ge 1 ] 2>/dev/null || debug=1 ;;
@@ -151,7 +152,11 @@ build)
         cp "$out/linked.ll" "$out/voice.ll"
     fi
     # --fused (or in S1_COMPILE): S1_DSP_B(S1_DSP_A()) as one function, before profiling (docs/S1CC.md §3.4)
-    grep -q '^@s1_compile_opts = .*--fused' "$out/linked.ll" && fused=1
+    # (fused by default since 2026-11-03; the command line wins over S1_COMPILE)
+    if [ -z "$fused" ]; then
+        fused=1
+        grep -q '^@s1_compile_opts = .*--no-fused' "$out/linked.ll" && fused=0
+    fi
     if [ "$fused" = 1 ]; then
         "$HERE/build/s1cc" fuse "$out/voice.ll" -o "$out/fused.ll"
         "$LLVM_BIN/opt" -S -passes='default<O2>' -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \

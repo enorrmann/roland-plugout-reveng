@@ -75,6 +75,8 @@ DSP, y se desconoce qué pasa si dos rampas terminan juntas.
   ninguna.
 * **Falta medir.** Otras `y`, varios parámetros encadenados a la vez (¿dos fines simultáneos?) y lo mismo en el
   esclavo, donde corre el motor. El código del esclavo es el mismo (§2.1).
+* **En el esclavo (2026-11-03).** Las rampas a `C080`… del DSP B no llegan al programa, y lo escrito en `C100`… el DSP
+  casi no lo ve. Lo que sí funciona allí: `FCEC` a `C080`–`C09F` desde el tick de 1 ms ([S1_ARM_CLOCK.md](S1_ARM_CLOCK.md)).
 
 ## 3. Resultados [M]
 

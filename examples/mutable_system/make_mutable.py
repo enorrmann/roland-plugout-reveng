@@ -459,6 +459,9 @@ if KERNEL:
     import s1kernel
     KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
     KTAB = s1kernel.read_tables(os.path.join(KERNEL, 'tables.txt'))
+    if KDEF.fused:                               # MUTABLE-SYSTEM runs S1_DSP_A on DSP A and S1_DSP_B on DSP B
+        raise SystemExit('make_mutable.py: the kernel is fused (s1cc builds fused by default): rebuild it with '
+                         's1cc build ... --no-fused')
 
 
 def kernel_layout():

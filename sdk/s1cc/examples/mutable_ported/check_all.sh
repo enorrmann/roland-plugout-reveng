@@ -12,7 +12,7 @@ mkdir -p "$OUT"
 for src in "$@"; do
     n=$(basename "$src" .c)
     log="$OUT/$n.log"
-    if ! "$ROOT/sdk/s1cc/s1cc" build "$src" --regs-a 0,1,2,3 --regs-b 0,1,2,3 -o "$OUT/$n" --check > "$log" 2>&1; then
+    if ! "$ROOT/sdk/s1cc/s1cc" build "$src" --regs-a 0,1,2,3 --regs-b 0,1,2,3 --no-fused -o "$OUT/$n" --check > "$log" 2>&1; then
         echo "$n: FAIL $(grep -oE 'error E[0-9]+.{0,100}' "$log" | head -1)"
         continue
     fi

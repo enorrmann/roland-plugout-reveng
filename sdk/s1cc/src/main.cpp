@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
             else if (a == "--no-fuse-mac") opt.fuseMac = false;
             else if (a == "--no-native") opt.native = false;
             else if (a == "--trace") opt.trace = true;
-            else if (a == "--fused") {}      // the driver's (s1cc fuse before profiling); allowed in S1_COMPILE
+            else if (a == "--fused" || a == "--no-fused") {}   // the driver's (s1cc fuse); allowed in S1_COMPILE
             else if (a == "--maxdeg") opt.maxDeg = std::stoi(next());
             else if (a == "--maxknots") opt.maxKnots = std::stoi(next());
             else if (a == "--regs" || a == "--regs-a" || a == "--regs-b") {
@@ -189,7 +189,7 @@ int main(int argc, char **argv) {
             s1::fail("E003", "cannot write " + path);
         M->print(os, nullptr);
     };
-    if (cmd == "fuse") {                // s1_dsp_a() := s1_dsp_b(s1_dsp_a()), both inlined; no s1_dsp_b (§3.4)
+    if (cmd == "fuse") {                // s1_dsp_a() := s1_dsp_b(s1_dsp_a() + s1_host_mix()), inlined; no s1_dsp_b (§3.4)
         Function *A = M->getFunction("s1_dsp_a"), *B = M->getFunction("s1_dsp_b");
         if (!A || A->isDeclaration())
             s1::fail("E008", "no S1_DSP_A (s1_dsp_a) in the module");
@@ -200,7 +200,9 @@ int main(int argc, char **argv) {
             Function *F = Function::Create(A->getFunctionType(), GlobalValue::ExternalLinkage, "s1_dsp_a", *M);
             IRBuilder<> b(BasicBlock::Create(C, "entry", F));
             CallInst *ca = b.CreateCall(A);
-            CallInst *cb = b.CreateCall(B, {ca});
+            // the host's mixer (SYSTEM-S1CC: SUB x sub + NOISE x noise) sat between A and B: s1_host_mix() keeps it
+            FunctionCallee mix = M->getOrInsertFunction("s1_host_mix", Type::getFloatTy(C));
+            CallInst *cb = b.CreateCall(B, {b.CreateFAdd(ca, b.CreateCall(mix))});
             b.CreateRet(cb);
             for (CallInst *call : {ca, cb}) {
                 InlineFunctionInfo ifi;

@@ -192,13 +192,13 @@ static void hlfo_all(void) {}
 #endif
 
 /* ---- ARM_ENV / ARM_LFO: the host's ADSRs and LFO on this ARM (docs/examples_system_s1cc_README.md §3.7) ---------
-   Each envelope and each voice's LFO is one DSP B parameter that the hardware ramps (FCE4 with y = 0: 4.00 ms per
-   ramp, whatever the distance, docs/examples_system_1_ramp_README.md). The time base is the slave OS's cyclic handler
-   (driver\cyclic_handle.c: the RTOS cyclic handler 0x01008983, period "1" (its time unit unknown), calls its only client, the function at
-   0x20002BFC): load puts tick() there, which calls the OS's function first, measures the time since the last step
-   with the cycle counter and advances every voice by that many ramps of 4 ms, with a ramp as long (2026-10-30: the end-of-ramp functions, FE3C, run on the master but
-   are never called on the slave; the cyclic hook was heard on the device). Integer only (no FPU on the SYSTEM-1's
-   ARM; the SYSTEM-8's has one): levels in Q24 (1 = 1 << 24), tables from make_s1cc.py. */
+   Each envelope and each voice's LFO is one DSP B parameter. The time base is the slave OS's cyclic handler
+   (docs/S1_ARM_CLOCK.md: client pointer 0x20002BFC, 1.00 ms measured): load puts tick() there, which calls the OS's
+   function first, measures the time since the last step with the cycle counter and advances every voice. ARM_RAMP=0
+   (default): FCEC at every 1 ms tick to C080.. (measured exact on DSP B, 2026-11-03); ARM_RAMP=1: one FCE4 ramp of
+   4 ms per step (the 2026-10-30 version: ramps to C080.. never reach DSP B, writes to C100.. are barely seen).
+   Integer only (no FPU on the SYSTEM-1's ARM; the SYSTEM-8's has one): levels in Q24 (1 = 1 << 24), tables from
+   make_s1cc.py. */
 
 #if ARM_ENV || ARM_LFO || ARM_TICK
 typedef void (*ramp_fn)(int sel, int id, uint32_t target, int y, int z);
@@ -237,7 +237,7 @@ enum { ST_IDLE, ST_ATT, ST_DEC, ST_REL };
 static volatile uint8_t env_st[2][NV];
 static int32_t env_lvl[2][NV];                         /* the level the running ramp ends at */
 
-static void env_step(int i, int v, int m)              /* m ramps of 4 ms at once (the time since the last step) */
+static void env_step(int i, int v, int m)              /* m steps at once (ARM_SEG_MS each: the time since the last) */
 {
     const uint8_t *k = &henv_knob[4 * i];              /* S, A, D, R */
     int32_t l = env_lvl[i][v], top = Q1 + Q1 / 4, sl = (int32_t)(((uint32_t)k[0] << 24) / 255u);
@@ -291,7 +291,7 @@ static int32_t lfo_shape(int sh, uint32_t ph, int v)
     }
 }
 
-static void lfo_step(int v, int m)                     /* m sixteenths of 4 ms at once */
+static void lfo_step(int v, int m)                     /* m sixteenths of a step (ARM_SEG_MS) at once */
 {
     int sh = hlfo_knob[C_LFO_SHAPE] > 5 ? 5 : hlfo_knob[C_LFO_SHAPE], r = hlfo_knob[C_LFO_RATE];
     if (lfo_restart[v]) {                              /* a note start: the phase from 0 (as on DSP B) */
@@ -347,6 +347,9 @@ static void tick(int i)                                /* the cyclic handler, ev
         CYC_CLIENT = tick;
     }
     uint32_t n = ++tick_n;
+#if ARM_PROBE && ARM_ENV
+    b6(1, P_ENV0 + NV - 1, q24_bits((int32_t)(n & 63) << 18));           /* telemetry: the calls of tick() */
+#endif
 #if ARM_TICK
     if ((n & 3) == 0)                                  /* diagnostic: a buzz on DSP B (ARM_DIAG adds C11F) */
         b6(1, 0x11F, (n & 4) ? F_ONE : F_ZERO);
@@ -373,18 +376,29 @@ static void tick(int i)                                /* the cyclic handler, ev
     uint32_t gap = now - step_last;
     step_last = now;
     step_min = gap < step_min ? gap : step_min + (step_min >> 5);
-    uint32_t lim = step_min / (seg_cycles / 400) * 85 / 100;   /* in 1/100 ms (32-bit division: no library) */
+    uint32_t lim = step_min / (seg_cycles / (100 * ARM_SEG_MS)) * 85 / 100;   /* in 1/100 ms (no 64-bit division) */
     int y = 0;
     while (y < 15 && y_cms[y + 1] <= lim)
         y++;
     ramp_y = y;
+#if ARM_ENV
+    static uint32_t env_acc;                           /* sixteenths of a step not yet given to the envelopes */
+    env_acc += (uint32_t)m;
+    int env_n = (int)(env_acc >> 4);
+    env_acc &= 15;
+#endif
+#if ARM_PROBE && ARM_ENV
+    static uint32_t step_n;
+    step_n++;
+    b6(1, P_ENV0 + 8 + NV - 1, q24_bits((int32_t)(step_n & 63) << 18));   /* telemetry: the envelope steps */
+#endif
     for (int v = 0; v < NV; v++) {
 #if ARM_LFO
         lfo_step(v, m);
 #endif
 #if ARM_ENV
-        env_step(0, v, (m + 8) >> 4);                  /* (whole ramps; envelope on the tick: next step) */
-        env_step(1, v, (m + 8) >> 4);
+        env_step(0, v, env_n);                         /* whole steps; the rest waits for the next tick */
+        env_step(1, v, env_n);
 #endif
     }
 }
@@ -409,7 +423,7 @@ static void arm_start(void)                            /* load: clear, hook the 
     DEMCR |= 1u << 24;                                 /* the cycle counter */
     DWT_CTRL |= 1u;
     uint32_t per_ms = (SYST_LOAD & 0xFFFFFFu) + 1;      /* SysTick at 1 kHz (the master: 156 000, 156 MHz) */
-    seg_cycles = 4 * (per_ms >= 10000 && per_ms <= 1000000 ? per_ms : 156000u);
+    seg_cycles = ARM_SEG_MS * (per_ms >= 10000 && per_ms <= 1000000 ? per_ms : 156000u);   /* one step */
     tick_last = step_last = CYCCNT;
     tick_acc = 0;
     step_min = seg_cycles;

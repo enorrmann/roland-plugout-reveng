@@ -80,7 +80,9 @@ static int color_arg(const char *name, int v) {     /* color0=K / color1=K: the 
 float s1_color(int i) { return g_color[i & 1]; }
 static float g_lfo_filter = 0.0f, g_lfo_amp = 1.0f;   /* the host's LFO: none in the reference; profiling sweeps */
 float s1_lfo_filter(void) { return g_lfo_filter; }
-float s1_lfo_amp(void) { return g_lfo_amp; }   /* COLOR: the knob (color0= / color1=); profiling sweeps 0..1 */
+float s1_lfo_amp(void) { return g_lfo_amp; }
+static float g_host_mix = 0.0f;                        /* fused: the host's SUB / NOISE (none in the reference) */
+float s1_host_mix(void) { return g_host_mix; }   /* COLOR: the knob (color0= / color1=); profiling sweeps 0..1 */
 float s1_param_get(const s1_param_desc *d, int i) {
     params_init();
     for (int k = 0; k < np; k++)
@@ -214,6 +216,7 @@ static void run(double note, long n, long off, FILE *out) {
             g_color[1] = 1.0f - g_color[0];
             g_lfo_filter = 8.0f * g_color[0] - 4.0f;
             g_lfo_amp = g_color[1];
+            g_host_mix = 4.0f * g_color[0] - 2.0f;
         }
         state_track();
         float a = s1_dsp_a(), b = a;

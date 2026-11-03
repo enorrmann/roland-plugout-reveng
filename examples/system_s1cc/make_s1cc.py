@@ -58,7 +58,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # the options a kernel may set with S1_BUILD("KEY=VALUE ...") (its .option lines): the defaults of these variables;
 # an environment variable wins (docs/examples_system_s1cc_README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
-           'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG',
+           'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0',
            'ARM_TICK', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
@@ -122,7 +122,7 @@ HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A)
 PENV = bool(PITCH_MOD or CMOD)
 # the host's mixer on DSP A, after the kernel: voice = kernel + SUB x a square one octave down + NOISE x the LFO's
 # noise, before DSP B's filter (SUB 0x176, NOISE 0x177; 0 until the knobs move). MIX=0 leaves it out
-HOST_MIX = HOST_LFO and opt('MIX', '1') == '1' and not FUSED   # FUSED: no host stage between S1_DSP_A and B
+HOST_MIX = HOST_LFO and opt('MIX', '1') == '1'   # FUSED: the kernel reads it as s1_host_mix() (s1cc fuse)
 # inputs of DSP B the host makes on DSP A (-> amp, -> filter, the modulated pitch): the host stores them straight to
 # their bank-5 word (INB), and the kernel's copy (ld IN / st INB, at the end of its DSP A code) goes away
 HOSTB = [n for n in KDEF.inputs_b if n in ('lfo_amp', 'lfo_filter') or (n == 'pitch' and 'pitch' in PITCH_MOD)]
@@ -200,7 +200,8 @@ KX0 = 0xA1A0                                   # FUSED: bank-5 slots of the copi
 KV0, KV_TOP = 0x0180, {'A': 0x0300, 'B': 0x0400}    # FUSED: the kernel's voice blocks in each DSP's bank 0, below the
                                                 # host's blocks (A 0x0300.., B 0x0400..; the OS has 0x0000..0x0017)
 NA = 0                                          # FUSED: voices 0..NA-1 run the kernel on DSP A (set_split)
-A_IN = ('IN:pitch', 'IN:gate', 'IN:trig', 'IN:dt', 'IN:rdt', 'IN:color0', 'IN:color1')   # made / written for DSP A
+A_IN = ('IN:pitch', 'IN:gate', 'IN:trig', 'IN:dt', 'IN:rdt', 'IN:color0', 'IN:color1',   # made / written for DSP A
+        'IN:host_mix')
 B_IN = ('IN:env0', 'IN:env1', 'IN:lfo_amp', 'IN:lfo_filter')                            # made on DSP B
 
 
@@ -310,23 +311,32 @@ def luts_all():
 # voice in a DSP B parameter that the hardware ramps (FCE4, 4.00 ms per ramp with y = 0 whatever the distance); a
 # hook in the slave OS's 1 ms cyclic handler advances each voice every 4 ms (docs/examples_system_s1cc_README.md
 # §3.7). DSP B only reads the parameter.
-ARM_ENV = opt('ARM_ENV', '0') == '1' and HOST_ENVS
-ARM_LFO = opt('ARM_LFO', '0') == '1' and HOST_LFO
+ARM_ENV = opt('ARM_ENV', '1') == '1' and HOST_ENVS   # default since 2026-11-03 (FCEC every 1 ms, measured)
+ARM_LFO = opt('ARM_LFO', '1') == '1' and HOST_LFO
 if ARM_LFO and LFO_LUT:
     raise SystemExit('make_s1cc.py: ARM_LFO and LFO_LUT together: the LFO is either on the ARM or on DSP B')
-ARM_SEG = 384                                   # samples per ramp (y = 0)
-ARM_RAMP = opt('ARM_RAMP', '1') == '1'   # 0: no ramps, the value written at every tick (FCEC)
+# ARM_RAMP=0 (default since 2026-11-03): the value written at every 1 ms tick (FCEC), one step per ms. Measured on the
+# device (ARM_PROBE): FCEC writes to C080.. reach DSP B exactly; hardware ramps (FCE4) to C080.. do not reach it, and
+# C100.. read back nearly constant. ARM_RAMP=1: one ramp of 4 ms per step (the 2026-10-30 version, C100..)
+ARM_RAMP = opt('ARM_RAMP', '0') == '1'
+ARM_SEG = 384 if ARM_RAMP else 96               # samples per step: a 4 ms ramp (y = 0), or the 1 ms tick
 ARM_FADE = opt('ARM_FADE', '1') == '1'   # 0: no DELAY TIME (the LFO's fade at 1)
 # diagnostics, heard on the device (2026-10-30): ARM_DIAG=1 DSP B adds 0.1 x C11F to the output and engine.c
 # toggles C11F at every note on / off (a click: the positive check); ARM_TICK=1 the 1 ms tick also toggles it every
 # 4 ticks (a 125 Hz buzz while the tick runs)
 ARM_DIAG = opt('ARM_DIAG', '0') == '1'
 ARM_TICK = opt('ARM_TICK', '0') == '1'
+# ARM_PROBE=1 (2026-11-03, with ARM_ENV and the kernel sdk/s1cc/examples/arm_probe): telemetry of the ARM's time base
+# through voice NV-1's envelope parameters, heard as tones: env 0 = (calls of tick() mod 64) / 64, env 1 = (envelope
+# steps mod 64) / 64. Leave voice NV-1 unplayed
+ARM_PROBE = opt('ARM_PROBE', '0') == '1'
 # DSP B parameters: envelope i of voice v at P_ENV0 + 8 i + v; lf, fade at P_LFO0 / P_FADE0 + v. 0x100..: on the
 # slave's DSP B the ramps of C0C0..C0DF never reached the program (2026-10-30: silent), those of C100.. did. The
 # end-of-ramp interrupt gives the id in 8 bits and FE3C's table has 256 entries: engine.c registers id & 0xFF and
 # puts 0x100 back in arm_cb
-P_ENV0, P_LFO0, P_FADE0 = 0x100, 0x110, 0x118
+P_ENV0, P_LFO0, P_FADE0 = [int(x, 0) for x in opt('ARM_P0', '0x80,0x90,0x98').split(',')]
+# (2026-11-03, ARM_PROBE telemetry on the device: a sawtooth written with FCEC to C107 read back nearly constant on
+# DSP B; written to C087 it read back exactly. ARM_P0=0x100,0x110,0x118 is the 2026-10-30 layout)
 
 
 H_ENV_STRIDE = 8 if CURVE else 6                # addresses of one host envelope: level, latch, last trigger (, curved)
@@ -400,7 +410,8 @@ def host_a_words():
     w = (['pt', 'pe', 'pf'] if PENV and not MOD_B else []) + [n + 'm' for n in PITCH_MOD if f'IN:{n}' in A_SELF]
     w += ['sp'] if CMOD or HOST_MIX else []
     w += [f'color{i}' for i in COLOR_USED] if not MOD_B else []
-    return w + (['xo'] if HOST_MIX else [])
+    # 'xo': the kernel's output for the mixer; FUSED: 'hm' = the mixer's SUB / NOISE term the kernel adds itself
+    return w + (['xo'] if HOST_MIX and not FUSED else []) + (['hm'] if FUSED else [])
 
 
 def host_b_words():
@@ -487,7 +498,7 @@ def check_arm_ids():
     """ARM_ENV / ARM_LFO: the kernel's DSP B parameters must end below P_ENV0"""
     if ARM_ENV or ARM_LFO:
         top = max([bb + cnt for cnt, ab, bb in layout().values() if bb is not None] + [0])
-        if top > 0x100:
+        if top > P_ENV0:
             raise SystemExit(f'make_s1cc.py: the kernel\'s DSP B parameters reach C{top:03x}, past P_ENV0 C{P_ENV0:03x}')
 
 
@@ -577,6 +588,7 @@ def host_view(v):
     """FUSED: where each input of voice v is, on the DSP that makes it -> {key: (dsp, address)}"""
     a = addresses('A', v)
     out = {k: ('A', a[k]) for k in A_IN if k in a}
+    out['IN:host_mix'] = ('A', host_a_block(v)['hm'])     # microcode/split.s mix_term
     if HOST_ENVS:
         for i in (0, 1):
             out[f'IN:env{i}'] = ('B', env_out(i, v) + int(CURVE))
@@ -803,8 +815,8 @@ def hlfo_voice(v):
 def voice_a(v):
     """DSP A code of voice v: the host's (four registers), the kernel's, and the host's mixer"""
     L = [f'; voice {v}'] + (hlfo_voice(v) if HOST_LFO else []) + \
-        (k_voice('A', v) if FUSED else KDEF.place('A', addresses('A', v)))
-    if HOST_MIX:                                # kernel (its output word xo) + SUB x sub + NOISE x noise -> x of DSP B
+        (frag('mix_term', v=v, h=host_a_block(v)) + k_voice('A', v) if FUSED else KDEF.place('A', addresses('A', v)))
+    if HOST_MIX and not FUSED:                  # kernel (its output word xo) + SUB x sub + NOISE x noise -> x of DSP B
         L += frag('mixer', v=v, h=host_a_block(v))
     if HOST_ENVS and not HOST_LFO:             # gate and trigger for the host's envelopes on DSP B (with the host LFO,
                                                 # hlfo_voice stores them from its loads)
@@ -1252,23 +1264,20 @@ def header(progs):
         out.append(table('half_bits', [v / 510.0 for v in range(256)]))
     check_arm_ids()
     out.append(f'#define ARM_ENV {int(ARM_ENV)}\n#define ARM_LFO {int(ARM_LFO)}\n'
-               f'#define ARM_DIAG {int(ARM_DIAG)}\n#define ARM_TICK {int(ARM_TICK)}\n'
-               f'#define ARM_RAMP {int(ARM_RAMP)}\n#define ARM_FADE {int(ARM_FADE)}')
+               f'#define ARM_DIAG {int(ARM_DIAG)}\n#define ARM_TICK {int(ARM_TICK)}\n#define ARM_PROBE {int(ARM_PROBE)}\n'
+               f'#define ARM_RAMP {int(ARM_RAMP)}\n#define ARM_FADE {int(ARM_FADE)}\n'
+               f'#define ARM_SEG_MS {ARM_SEG // 96}  /* one step: a 4 ms ramp or the 1 ms tick */')
     if ARM_ENV or ARM_LFO:
-        q24 = lambda x: max(0, min(1 << 24, round(x * (1 << 24))))  # noqa: E731
+        tabs = arm_tables()
         out.append(f'/* ARM_ENV / ARM_LFO: DSP B parameters (envelope i of voice v: P_ENV0 + 8 i + v; lf, fade: P_LFO0 /\n'
-                   f'   P_FADE0 + v); per ramp of {ARM_SEG} samples (y = 0, 4.00 ms), Q24 (1 = 1 << 24) */\n'
+                   f'   P_FADE0 + v); per step of {ARM_SEG} samples ({ARM_SEG // 96} ms), Q24 (1 = 1 << 24) */\n'
                    f'#define P_ENV0 0x{P_ENV0:03x}\n#define P_LFO0 0x{P_LFO0:03x}\n#define P_FADE0 0x{P_FADE0:03x}')
         itab = lambda name, vals, t='uint32_t': (f'static const {t} {name}[{len(vals)}] = {{\n    ' +  # noqa: E731
                                                   ',\n    '.join(', '.join(f'{x}u' for x in vals[i:i + 8])
                                                                  for i in range(0, len(vals), 8)) + '\n};')
-        if ARM_ENV:                                 # (1 - rate)^ARM_SEG: the one-pole's factor over one ramp
-            out.append(itab('env_att_seg', [q24((1 - attack_rate(v)) ** ARM_SEG) for v in range(256)]))
-            out.append(itab('env_dec_seg', [q24((1 - decay_rate(v)) ** ARM_SEG) for v in range(256)]))
-        if ARM_LFO:                                 # phase step per ramp (2^32 = one cycle), fade step, S&G factor
-            out.append(itab('lfo_seg_inc', [round(lfo_hz(v) * ARM_SEG / FS * 2 ** 32) & 0xFFFFFFFF for v in range(256)]))
-            out.append(itab('lfo_fade_seg', [q24(min(1.0, lfo_delay(v) * ARM_SEG)) for v in range(256)]))
-            out.append(itab('lfo_sg_seg', [q24(1 - (1 - lfo_sg(v)) ** ARM_SEG) for v in range(256)]))
+        for name in (('env_att_seg', 'env_dec_seg') if ARM_ENV else ()) + \
+                (('lfo_seg_inc', 'lfo_fade_seg', 'lfo_sg_seg') if ARM_LFO else ()):
+            out.append(itab(name, tabs[name]))
     lut, _ = lut_layout()
     out.append(f'/* LUT (LFO_LUT / ENV_CURVE): bank-5 tables from A000 + LUT0_IDX, written at load and refresh */\n'
                f'#define LUT_N {len(lut)}\n#define LUT0_IDX 0x{LUT0 & 0xFF:02x}')
@@ -1318,6 +1327,125 @@ def params(knobs):
     return pa, pb, pm
 
 
+def arm_tables():
+    """engine.c's ARM_ENV / ARM_LFO tables (Q24, per step of ARM_SEG samples): the one-pole's factor over a step
+    (1 - rate)^ARM_SEG, the LFO's phase step (2^32 = one cycle), fade step and S&G factor"""
+    q24 = lambda x: max(0, min(1 << 24, round(x * (1 << 24))))  # noqa: E731
+    return {'env_att_seg': [q24((1 - attack_rate(v)) ** ARM_SEG) for v in range(256)],
+            'env_dec_seg': [q24((1 - decay_rate(v)) ** ARM_SEG) for v in range(256)],
+            'lfo_seg_inc': [round(lfo_hz(v) * ARM_SEG / FS * 2 ** 32) & 0xFFFFFFFF for v in range(256)],
+            'lfo_fade_seg': [q24(min(1.0, lfo_delay(v) * ARM_SEG)) for v in range(256)],
+            'lfo_sg_seg': [q24(1 - (1 - lfo_sg(v)) ** ARM_SEG) for v in range(256)]}
+
+
+class ArmModel:
+    """engine.c's ARM_ENV / ARM_LFO (env_step, lfo_step) for --sim: the same Q24 integer arithmetic, one step per
+    ARM_SEG samples (ARM_RAMP=0: the 1 ms tick, a value written at once), into slave B's parameters"""
+    Q1 = 1 << 24
+
+    def __init__(self, params_b, knobs):
+        self.p, self.t = params_b, arm_tables()
+        self.env = [[255, 0, 128, 60], [0, 0, 128, 60]]          # S, A, D, R (henv_knob)
+        for i in range(2):
+            if f'env{i}' in knobs:
+                self.env[i] = list(knobs[f'env{i}'])
+            elif HOST_ENVS:
+                self.env[i] = list(H_ENV_DEFAULT[i])
+        k = dict(HLFO_DEFAULT, **{n: x for n, x in knobs.items() if n in HLFO_DEFAULT})
+        self.sh, self.rate, self.delay = min(k['lfo_shape'], 5), k['lfo_rate'], k['lfo_delay']
+        self.st = [[0] * NV for _ in range(2)]                 # 0 idle, 1 attack, 2 decay, 3 release
+        self.lvl = [[0] * NV for _ in range(2)]
+        self.ph, self.h, self.g, self.fade = [0] * NV, [0] * NV, [0] * NV, [0] * NV
+        self.on, self.restart, self.rnd = [0] * NV, [0] * NV, 0x12345678
+
+    @staticmethod
+    def qmul(a, b):
+        return (a * b) >> 24
+
+    @staticmethod
+    def s32(x):
+        x &= 0xFFFFFFFF
+        return x - (1 << 32) if x & 0x80000000 else x
+
+    def gate(self, v, on):
+        """arm_gate"""
+        if ARM_LFO:
+            if on:
+                self.restart[v] = 1
+            self.on[v] = on
+        if ARM_ENV:
+            for i in range(2):
+                self.st[i][v] = 1 if on else (0 if self.st[i][v] == 0 else 3)
+
+    def write(self, pid, q):
+        self.p[0xC000 + pid] = f32(q / self.Q1)
+
+    def env_step(self, i, v):
+        Q1, top = self.Q1, self.Q1 + self.Q1 // 4
+        S, A, D, Rl = self.env[i]
+        sl = (S << 24) // 255
+        l, st = self.lvl[i][v], self.st[i][v]
+        if st == 1:
+            l = top - self.qmul(top - l, self.t['env_att_seg'][A])
+            if l >= Q1:
+                l, self.st[i][v] = Q1, 2
+        elif st == 2:
+            l = sl + self.qmul(l - sl, self.t['env_dec_seg'][D])
+        elif st == 3:
+            l = self.qmul(l, self.t['env_dec_seg'][Rl])
+            if l < Q1 >> 14:
+                l, self.st[i][v] = 0, 0
+        else:
+            return
+        self.lvl[i][v] = l
+        self.write(P_ENV0 + 8 * i + v, l)
+
+    def lfo_shape(self, sh, ph, v):
+        Q1, p = self.Q1, self.s32(ph) >> 7
+        t = 2 * Q1 - 2 * p if p > Q1 // 2 else -2 * Q1 - 2 * p if p < -Q1 // 2 else 2 * p
+        if sh == 0:
+            return self.qmul(t, Q1 + Q1 // 2 - self.qmul(self.qmul(t, t), Q1 // 2))
+        if sh == 1:
+            return t
+        if sh == 2:
+            return p
+        if sh == 3:
+            return Q1 if p > 0 else -Q1 if p < 0 else 0
+        return self.g[v]
+
+    def lfo_step(self, v, m=16):
+        Q1, r = self.Q1, self.rate
+        if self.restart[v]:
+            self.restart[v], self.ph[v] = 0, 0
+        old = self.ph[v]
+        self.ph[v] = (old + (self.t['lfo_seg_inc'][r] >> 4) * m) & 0xFFFFFFFF
+        if self.s32(old) >= 0 and self.s32(self.ph[v]) < 0:
+            self.rnd = (self.rnd * 1664525 + 1013904223) & 0xFFFFFFFF
+            self.h[v] = self.s32(self.rnd) >> 7
+        if self.sh == 5:
+            self.g[v] = self.h[v]
+        else:
+            k = (self.t['lfo_sg_seg'][r] * m) >> 4
+            self.g[v] += self.qmul(self.h[v] - self.g[v], min(k, Q1))
+        if not ARM_FADE:
+            self.fade[v] = Q1
+        elif self.on[v]:
+            self.fade[v] = min(Q1, self.fade[v] + (self.t['lfo_fade_seg'][self.delay] >> 4) * m)
+        else:
+            self.fade[v] = 0
+        self.write(P_FADE0 + v, self.fade[v])
+        self.write(P_LFO0 + v, self.qmul(self.lfo_shape(self.sh, self.ph[v], v), self.fade[v]))
+
+    def step(self):
+        """one tick step (tick: lfo_step, then both envelopes, every voice)"""
+        for v in range(NV):
+            if ARM_LFO:
+                self.lfo_step(v)
+            if ARM_ENV:
+                self.env_step(0, v)
+                self.env_step(1, v)
+
+
 def simulate(progs, events, n, knobs=None, gate_lag=0):
     """events: {sample: [(voice, note or None for off)]}; returns master A118 per sample (emulator C core, one
     cchain.Slave: DSP 0 = slave A, 1 = slave B, 2 = master B; bank 5 shared by slave A and B; each DSP its own
@@ -1349,16 +1477,26 @@ def simulate(progs, events, n, knobs=None, gate_lag=0):
         events = ev
     else:
         events = {te: [(v, ('on', note) if note is not None else None) for v, note in lst] for te, lst in events.items()}
+    arm = ArmModel(sl.d[1].params, knobs or {}) if ARM_ENV or ARM_LFO else None
+    if arm and ARM_RAMP:
+        raise SystemExit('make_s1cc.py --sim: the ARM model is the ARM_RAMP=0 one (FCEC every 1 ms)')
     out, t, word = [], 0, (2, M_OUT[0])
     for te in sorted(e for e in events if e < n) + [n]:
-        if te > t:
-            out += sl.run(te - t, (word,))[word]
-            t = te
+        while te > t:                               # the ARM's tick every ARM_SEG samples (1 ms)
+            k = min(te, (t // ARM_SEG + 1) * ARM_SEG) - t
+            out += sl.run(k, (word,))[word]
+            t += k
+            if arm and t % ARM_SEG == 0:
+                arm.step()
         for v, note in events.get(te, []) if te < n else []:
             if note is None:
                 a5[GATE[v] & 0x3FF] = 0.0
+                if arm:
+                    arm.gate(v, 0)
             elif note == 'gate':
                 a5[GATE[v] & 0x3FF] = 1.0
+                if arm:
+                    arm.gate(v, 1)
             else:
                 trig[v] = 1.0 - trig[v]
                 a5[PITCH[v] & 0x3FF], a5[TRIG[v] & 0x3FF] = f32((note[1] - 12) / 12.0), trig[v]
@@ -1366,6 +1504,8 @@ def simulate(progs, events, n, knobs=None, gate_lag=0):
                 a5[RDT[v] & 0x3FF] = f32(1.0 / note_dt(note[1]) / 16384.0)
                 if not gate_lag:
                     a5[GATE[v] & 0x3FF] = 1.0
+                    if arm:
+                        arm.gate(v, 1)
     return out
 
 
