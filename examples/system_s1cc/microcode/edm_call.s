@@ -1,0 +1,48 @@
+;; EDM_CALL (docs/MUTABLE_MEMORY.md §3.3.3): our own tapreq inside the OS's master B effect at 0x0, which is the only
+;; program whose requests the delay memory serves (§3.3). Nothing is queued at 0x0 (system-1/WAVE_BUS.md §5.3): region
+;; 0 (model.c edm_call) writes these words live into master B's program memory (0x40170000 + byte address):
+;;   edm_call_block  at byte 0x0C00 (free: the effect ends at 0x552, our main starts at 0x1000), after the OS's own
+;;                   two instructions that the call replaces (copied there at run time from the DSP, not shipped)
+;;   edm_call_site   over those two instructions (the effect's second tapreq and the instruction after it, 5 halfwords
+;;                   at byte 0x164 in OS 1.30): the call to 0x0C00 (word 0x600) and a filler, 5 halfwords too
+;; At the site r4 = the effect's position counter p (its second tap computes its address the same way: f6 r2, -r4);
+;; r2 is free until the effect reloads it. The results go to h5 = 402E (x0, x1, fraction; the effect uses
+;; 4004..402D) and the main (edm.s master_edm, EDM_REQ 0) reads them one sample later.
+
+.fragment edm_call_block EDM_RES EDM_AGE
+mov r2, #{EDM_AGE}@0:24
+hset h4, #256@0:24
+hset h5, #{(EDM_RES[0] - 0x4000) / 16384}@0:16
+f6 r2, -r4
+tapreq r2, 0
+cond 0, 15, 8
+
+.fragment edm_call_site
+.slot @0 0600
+cond 0, 10, 0
+mov r2, r2
+
+;; EDM_CALL=write (probe): our own line. Left: the send 2000 (the main's, this sample) written to bank-2 word EDM_WR
+;; with base h4 = EDM_BASE (beyond the OS line: base 256, 35.15625 units), then read at EDM_AGE with the same base
+;; and the effect's position r4 (as its own taps). Right (control): the OS line (base 256) at EDM_AGE / 2. An echo on
+;; the left = a store to an even bank-2 word writes the EDM at base - p, as the OS delay's [4001].
+;; Probe 1 (EDM_RBASE = EDM_BASE = 296, 2026-11-03): left silent, right (OS line) echoed at 24006 samples.
+;; Probe 2: left read with the OS base (EDM_RBASE 256), right with ours; region 0 turns the OS delay's write off
+;; (C001 = 0, EDM_CALL_W in model.c), so the left hears only what our store wrote, at whatever age it landed.
+;; Probe 2 result: silence on both (14 s recorded). Probe 3 (EDM_BASE 256 EDM_RBASE 296 EDM_OSOFF 0): the OS line
+;; read with base 296 on the left, 256 on the right: is the base a plain address offset on one moving ring?
+.fragment edm_call_block_w EDM_RES EDM_AGE EDM_BASE EDM_WR EDM_RBASE
+ld r3, [2000]
+hset h4, #{EDM_BASE}@0:24
+mov r2, #{EDM_AGE}@0:24
+st r3, [{EDM_WR:04x}]
+hset h4, #{EDM_RBASE}@0:24
+hset h5, #{(EDM_RES[0] - 0x4000) / 16384}@0:16
+f6 r2, -r4
+tapreq r2, 0
+hset h4, #{EDM_BASE}@0:24
+mov r2, #{EDM_AGE / 2}@0:24
+hset h5, #{(EDM_RES[1] - 0x4000) / 16384}@0:16
+f6 r2, -r4
+tapreq r2, 0
+cond 0, 15, 8

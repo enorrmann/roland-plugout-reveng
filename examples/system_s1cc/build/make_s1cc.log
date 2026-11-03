@@ -1,10 +1,12 @@
+kernel options (S1_BUILD): NAME=MP-EDMKS (environment: MP-EDMECF) EDM_KS=1 (environment: )
 VOICES=auto: 8 voices by the estimate (budget A 703, B 708)
-MOD_DSP=auto: pitch envelope and COLOR MOD on DSP B
 fused kernel: voices 0..3 on DSP A, 4..7 on DSP B
-s1m0    520 instructions, 2704 halfwords
-s1m1    516 instructions, 2756 halfwords
-s1mm1     7 instructions, 44 halfwords
+warning: s1mm1: 2 x ld2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
+warning: s1mm1: 2 x st2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
+s1m0     66 instructions, 325 halfwords
+s1m1     68 instructions, 329 halfwords
+s1mm1    26 instructions, 76 halfwords
 s1c0      2 instructions, 7 halfwords
 s1c1      2 instructions, 7 halfwords
-kernel per voice: A 215 lines, 5 words; no DSP B
+kernel per voice: A 33 lines, 1 words; no DSP B
 A -> B x: one sample late (voices 0,1,2,3); - (voices 4,5,6,7)

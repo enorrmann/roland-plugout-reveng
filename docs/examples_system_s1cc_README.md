@@ -681,3 +681,24 @@ Ninguna regla se verificaba en la herramienta. Desde entonces el build cumple R2
 las zonas de memoria de los programas probados. La causa no está confirmada: R5 es inferida. Ese mismo día,
 `make_mutable.py` con `KERNEL=` también rompía R5 (en el código del anfitrión, `ld [a040] | st [a169]`) y R8 (sin
 lista blanca). Ahora usa la lista blanca y corre `s1rules`.
+
+## 9. Varios kernels en la perilla OSC1 WAVE (`build_multi.sh`)
+
+```sh
+KERNELS="sdk/s1cc/build/mp_saw sdk/s1cc/build/mp_square 2:sdk/s1cc/build/mp_phase_distortion" NAME=MP-MULTI-T \
+    sh examples/system_s1cc/build_multi.sh
+```
+
+* Cada posición de OSC1 WAVE (0…5) es un SYSTEM-S1CC entero: `make_s1cc.py` por kernel (sus programas, tablas y
+  anfitrión) y `engine.c` compilado con `-DS1_SUB=k<i>_engine`. `POS:DIR` pone un kernel en una posición; una
+  posición sin kernel toca el de la anterior.
+* Todos con las mismas voces (las menos de cualquiera, o `VOICES=n`): el asignador de voces de la región 0 es uno.
+  El programa del maestro tiene que ser el mismo en todos (se comprueba).
+* `multi.c` es el motor que ve el OS: reenvía todo al kernel elegido. Al mover OSC1 WAVE: `deinit` del anterior (saca
+  su tick), `load` del nuevo (apaga secciones, `FC30` / `FC34`, `FC40`, tablas), los valores del panel recibidos hasta
+  ahí, y `refresh` (notas).
+* **[medido 2026-11-03] MP-MULTI-T (sierra / cuadrada / phase distortion) no funciona bien en el equipo** (el usuario,
+  sin más detalle todavía); selección de ondas en pausa. Recargar programas con el PLUG-OUT en marcha queda abierto. El banco 0 no se limpia al cambiar: el kernel nuevo arranca con el estado del anterior.
+  Si el panel ya tiene OSC1 WAVE ≠ 0 al elegir el PLUG-OUT y el OS no lo manda, suena el kernel de la posición 0
+  hasta mover la perilla.
+

@@ -5,6 +5,11 @@ Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, m
     R3  bank 0: at most 2 loads and 2 stores per instruction
     R4  bank 6: at most 2 loads per instruction
     R5  one bank-5 access per instruction (load or store)                         [our rule, inferred]
+        Stricter than Roland (corpus count 2026-11-03, all 13845 SYSTEM-1 instructions of the OS and SH-101 / SH-2 /
+        PROMARS): 1 load + 1 store in one instruction 5 times (SH-2 master 0x100 / 0x1000, slave 0x100); 2 stores
+        11 times, all in the 0x0 frame headers (`cond !12, 1, 0 | st r0, [a00x]@0 | st r0, [a00x]@1`, code the OS
+        owns and a PLUG-OUT never queues); 2 loads never. R2 (measured) is what Roland follows; R5 stays until a
+        device test of the SH-2 form
     R6  at most 2 loads of banks 5 + 6 + IOMD per instruction (the S1 never has more)  [inferred]
     R7  a slave DSP stores to bank 5 only in A100..A1FF (A000..A0FF is what the ARM writes)
     R8  ops sharing an instruction: only the groups proven on the device (asm/proven_forms.txt)

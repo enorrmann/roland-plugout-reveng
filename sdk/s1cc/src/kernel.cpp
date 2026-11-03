@@ -226,6 +226,9 @@ KVal *Kernel::macOf(KOperand p, KOperand q, KOperand r, KOperand s) {
         std::swap(r, s);
     if (!p.v || !r.v || p.neg || q.neg || r.neg || s.neg)
         return nullptr;
+    if (!q.v && !s.v)                               // Y and K both immediates: a short Y immediate (2^-9) collides
+        return nullptr;                             // with K's byte in the assembler's placement (rD came out wrong,
+                                                    // 2026-11-03, mp_grainlet): two ops instead
     if (!q.v && s.v)                                // Y immediate with a register C (exact too, 2026-10-29): the register
                                                     // product first all the same
         std::swap(p, r), std::swap(q, s);

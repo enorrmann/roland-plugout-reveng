@@ -1,11 +1,5 @@
 https://korginc.github.io/logue-sdk/unit-index/
 
-se puede agregar una opcio para combinar los codigos de dsp a y b en el paso de makes1cc ? o conviene hacerlo explicitamente en el compilador ? es para agregar un modo de compilacion y engine que corra identico codigo en cada dsp con asignacion de voces mitad para cada uno tal vez asi se puede optimizar mas las instrucciones
-si ponemos osc + lfo y env en cada dsp se puede optimizar un poco mas, podemos ver si se pueden usar el env del dsp 1 en el dsp2 y asi
-ademas no neesitmoas caucloar frecuencias deos veces
-
-ver si poner lfo y amp en ARM realmente mejora o quedan igual los dsp en cuanto  cntidad de operaciones
-
 activar solo las luces del panel de controles que esten usados por el kernel, s1cc debe generar esa parte para usar en el engine
 
 
@@ -13,3 +7,9 @@ activar solo las luces del panel de controles que esten usados por el kernel, s1
 mejorar el instalador para que acepte zip
 termina de portear todos los osciladores de mutable que estan en la carpeta git/eurorack
 
+
+el lfo to filter deja de hacer efecto al soltar la nota por mas que este activa la etapa de release
+agregar una funcion en el kernel para escribir un sub osc personalizado sobreescribiendo el del host, asi se puede hacer un sub osc mas barato a partir de un osc actual por division de frecuencia o algo asi 
+
+continua con las pruebas que creas necesarias sin el equipo hasta verificar una hipotesis confiable, ademas 
+"reglas S1 rechazaron el doble acceso al banco 5, que es la forma estándar de los PLUG-OUTs de serie. " algo no me cierra aca por que estan esas reglas que lo prohiben si es la forma oficial algo no me cierra

@@ -161,8 +161,216 @@ static void a_note_off(struct assign *a, int note) { key_set(a, note, 0); key(a,
 /* VOLUME again at every note: m_load writes it right after queueing the master DSP B program, and the queued load can
    land later and leave C01C at 0 (silence until the knob moves, observed 2026-10-27). One FCEC write per note. */
 static void resend_volume(void);
+#ifdef EDM_KS
+/* EDM_KS (docs/MUTABLE_MEMORY.md §3.3): the OS's delay on master DSP B as a Karplus-Strong string. At every note:
+   the delay times the effect reads from its bank 5 (A001 left, A002 right; system-1/FX_CHAIN.md §3, program 0x0)
+   = the note's period (build.sh table, EDM_SCALE per sample), feedback C004 (the OS writes 0.6 with DELAY > 0),
+   C001 = 1 (delay on), C002 = 1 (delay level). The OS writes them again when DELAY / DELAY TIME move. */
+#include "edm_ks.h"
+/* The effect's delay times are bank-5 words A101 (left) / A102 (right) (A103 = 2 x A101 likely its second use),
+   in the shared A1xx page: FD6C(sel 1, idx). Measured 2026-11-03 with PARAMLOG (edm_dump): DELAY TIME at 0 reads
+   A101 = 0.05847 = 958 / 16384 and the echoes came every 961 samples (3 samples of loop latency). FD6C(0, ...)
+   (A0xx) and 0x4016A000 do nothing for the effect. */
+typedef void (*b5_fn)(int sel, const uint32_t *obj, uint32_t value);
+static void mb5(int idx, uint32_t bits)                       /* master bank 5 word A100 + idx (FD6C sel 1) */
+{
+    uint32_t obj[3] = { 0, 0, (uint32_t)idx };
+    ((b5_fn)SVC(0x16C))(1, obj, bits);
+}
+#ifdef PARAMLOG
+static void edm_dump(void);                                   /* below param_log */
+#endif
+static void edm_note(int note)
+{
+#ifdef PARAMLOG
+    edm_dump();
+#endif
+    typedef void (*fx_fn)(int sel, int id, uint32_t value);
+    mb5(1, edm_time_bits[note & 0x7F]);
+    mb5(2, edm_time_bits[note & 0x7F]);
+    ((fx_fn)SVC(0xEC))(1, 0x01, EDM_ONE_BITS);
+    ((fx_fn)SVC(0xEC))(1, 0x02, EDM_ONE_BITS);
+    ((fx_fn)SVC(0xEC))(1, 0x04, EDM_FB_BITS);
+}
+#endif
+#ifdef EDM_GLIDE
+/* EDM_GLIDE (docs/MUTABLE_MEMORY.md §3.3.2): the OS keeps its master-B program set in its own RAM and the effect
+   (program 0x0, 0x552 bytes at 0x60097364, OS 1.30) smooths the delay time with r7 -> 0.9998875 (`mov r6, #0.9998875`,
+   halfwords 2fff 8a00 in the word at 0x60097404). Patched to 0.5 (2800 0000, asm/asm.py) only if the word is the
+   expected one (another OS version: untouched); takes effect whenever the OS queues its set again. */
+#define EDM_GLIDE_WORD ((volatile uint32_t *)0x60097404)
+/* The OS queues that set only at boot, so the RAM patch alone changes nothing (measured 2026-11-03). Master DSP B's
+   program memory is mapped at 0x40170000 + byte address (read 2026-11-03: the effect at +0, our main at +0x1000), so
+   the same word is also patched there, live: 0x40170000 + 0xA0. */
+#define EDM_GLIDE_DSP ((volatile uint32_t *)0x401700A0)
+#ifndef EDM_GLIDE_NEW
+#define EDM_GLIDE_NEW 0x28000000u                             /* 0.5; 0x2fff8a00u = the same value (write test) */
+#endif
+static void edm_glide(void)
+{
+    if (*EDM_GLIDE_WORD == 0x2fff8a00u)
+        *EDM_GLIDE_WORD = 0x28000000u;
+    if (*EDM_GLIDE_DSP == 0x2fff8a00u)
+        *EDM_GLIDE_DSP = EDM_GLIDE_NEW;
+}
+#endif
+#ifdef EDM_TAP
+/* EDM_TAP (docs/MUTABLE_MEMORY.md §3.3): the OS's delay only writes the line (our master B main reads it): delay on
+   (C001 = 1), its own level C002 and feedback C004 at 0. At load and every note (the OS writes them again when
+   DELAY moves) */
+static void edm_writer(void)
+{
+    typedef void (*fx_fn)(int sel, int id, uint32_t value);
+#ifdef EDM_CALL_W
+    ((fx_fn)SVC(0xEC))(1, 0x01, 0);                           /* write probe: the OS delay writes nothing */
+#else
+    ((fx_fn)SVC(0xEC))(1, 0x01, 0x3f800000u);
+#endif
+    ((fx_fn)SVC(0xEC))(1, 0x02, 0);
+    ((fx_fn)SVC(0xEC))(1, 0x04, 0);
+}
+#endif
+#ifdef EDM_CALL
+/* EDM_CALL (docs/MUTABLE_MEMORY.md §3.3.3): our tapreq inside the OS effect at master B 0x0, the one program whose
+   requests the delay memory serves. Nothing is queued at 0x0: the words are written live into master B's program
+   memory (0x40170000 + byte address, read 2026-11-03), only if the site holds what OS 1.30 has there (FNV-1a of its 5
+   halfwords; any other content: untouched). The OS's two instructions at the site are copied from the DSP into the
+   block, ahead of ours (microcode/edm_call.s, make_s1cc.py edm_call.h); power off / on restores the effect. */
+#include "edm_call.h"
+#define MB_PROG 0x40170000u
+#define EDM_SITE 0x164u                                       /* byte address of the effect's second tapreq (1.30) */
+#define EDM_SITE_FNV 0x418f2347u
+#define EDM_BLOCK 0xC00u                                      /* free program memory (edm_call.s) */
+static unsigned prog_hw(unsigned b)                           /* halfword at byte b: the upper half comes first */
+{
+    uint32_t w = *(volatile uint32_t *)(MB_PROG + (b & ~3u));
+    return (b & 2) ? (w & 0xFFFF) : (w >> 16);
+}
+static void prog_word(unsigned b, unsigned hi, unsigned lo) { *(volatile uint32_t *)(MB_PROG + b) = (hi << 16) | lo; }
+static int edm_call_state;                                    /* 1 patched now, 2 already there, 3 site unknown */
+static void edm_call(void)
+{
+    uint16_t buf[5 + sizeof edm_call_block / 2 + 1];
+    uint32_t h = 0x811c9dc5u;
+    for (unsigned i = 0; i < 5; i++)
+        h = (h ^ prog_hw(EDM_SITE + 2 * i)) * 0x01000193u;
+    if (h != EDM_SITE_FNV) {
+        edm_call_state = prog_hw(EDM_SITE) == edm_call_site[0] && prog_hw(EDM_SITE + 2) == edm_call_site[1] ? 2 : 3;
+        return;
+    }
+    unsigned n = 0;
+    for (unsigned i = 0; i < 5; i++)
+        buf[n++] = (uint16_t)prog_hw(EDM_SITE + 2 * i);
+    for (unsigned i = 0; i < sizeof edm_call_block / 2; i++)
+        buf[n++] = edm_call_block[i];
+    if (n & 1)
+        buf[n++] = 0;
+    for (unsigned i = 0; i < n; i += 2)                       /* the block first: nothing runs it yet */
+        prog_word(EDM_BLOCK + 2 * i, buf[i], buf[i + 1]);
+    /* then the site, 5 halfwords at 0x164..0x16D (words 0x164, 0x168 and the upper half of 0x16C), back to back */
+    unsigned keep = prog_hw(EDM_SITE + 10);
+    __asm volatile ("cpsid i" ::: "memory");
+    prog_word(EDM_SITE, edm_call_site[0], edm_call_site[1]);
+    prog_word(EDM_SITE + 4, edm_call_site[2], edm_call_site[3]);
+    prog_word(EDM_SITE + 8, edm_call_site[4], keep);
+    __asm volatile ("cpsie i" ::: "memory");
+    edm_call_state = 1;
+}
+#endif
+#ifdef EDM_ECF
+/* EDM_ECF (docs/MUTABLE_MEMORY.md §3.3.4): our own delay-memory lines. Which bank-2 word a DSP's transfers move to
+   or from which delay-memory address is set by the DSP's map table, not by the program: master B's at 0x4016E000
+   (read 2026-11-03), 8 bytes per entry {bit 31 write | address, word << 16 | length}. OS 1.30 queues 34 entries
+   there at power on (its data set {0x0, 0x110 bytes} from 0x60097928: [4001] -> 0x400000 for the delay, [400a] and
+   the reverb's lines from 0x48CA00 up to 0x49B0DA) and a zero entry after them ({0x110, 8 bytes}); the free entries
+   hold {0x807FFFFF, 0x007FFFFF}. In the DSP the read entries have no length (low half 0) and their address moved
+   by a few samples from the OS's RAM copy (read 2026-11-03: 0049aa4c 002c23e9 -> 0049aa4a 002c0000). We add a
+   write and a read entry per line after the OS's (microcode/edm_ecf.s reads and writes the words); the table stays
+   until power off. Only if entries 0 and 33 are the OS's and 34..38 are zero, free or already ours. */
+#define ECF ((volatile uint32_t *)0x4016E000u)
+#define ECF_OS 34                                             /* the OS's entries */
+#define ECF_A1 0x440000u                                      /* inside the OS delay's span 0x400000..0x48CA00 */
+#define ECF_A2 0x460000u
+#define ECF_D1 48000u
+#define ECF_D2 24000u
+/* the entries as the OS writes its own (RAM format: a read entry carries its length in the low half), loaded by the
+   OS's data queue for master B (FC3C, the way it loads its table and the stock PLUG-OUTs load {0x110, 8 bytes}): a
+   direct ARM store into the table while the DSP ran switched the SYSTEM-1 off (2026-11-03) */
+static const uint32_t ecf_own[5][2] = {
+    { 0x80000000u | ECF_A1, 0x34u << 16 },                    /* [4034] -> A1 */
+    { ECF_A1 + ECF_D1, 0x35u << 16 | ECF_D1 },                /* [4035] <- A1 + D1 */
+    { 0x80000000u | ECF_A2, 0x36u << 16 },                    /* [4036] -> A2 */
+    { ECF_A2 + ECF_D2, 0x37u << 16 | ECF_D2 },                /* [4037] <- A2 + D2 */
+    { 0, 0 },                                                 /* the zero entry after them, as the OS's at 0x110 */
+};
+static struct s1_prog ecf_set[] = { { 0x110, sizeof ecf_own, ecf_own }, { 0, 0, 0 } };
+static int edm_ecf_state;                                     /* 1 queued now, 2 already there, 3 table unknown */
+static void edm_ecf(void)
+{
+    if (ECF[0] != 0x80400000u || ECF[1] != 0x00010000u || ECF[2 * 33] != 0x0049b0dau || ECF[2 * 33 + 1] != 0x002d0000u) {
+        edm_ecf_state = 3;
+        return;
+    }
+    int ours = 1;
+    for (int k = 0; k < 5; k++) {                             /* entries 34..38: zero, free or ours (low half 0) */
+        uint32_t a = ECF[2 * (ECF_OS + k)], b = ECF[2 * (ECF_OS + k) + 1];
+        int mine = a == ecf_own[k][0] && b == (ecf_own[k][1] & 0xFFFF0000u);
+        if (!mine)
+            ours = 0;
+        if (!mine && (a | b) && !(a == 0x807fffffu && b == 0x007fffffu)) {
+            edm_ecf_state = 3;
+            return;
+        }
+    }
+    if (ours) {
+        edm_ecf_state = 2;
+        return;
+    }
+    ((s1_queue_fn)SVC(0x3C))(ecf_set);
+    edm_ecf_state = 1;
+}
+#endif
+#if defined(PARAMLOG) && defined(EDM_ECF)
+static void param_log(int id, int flag, int value);
+static void edm_ecf_dump(void)                                /* id 0x3C00: state; 0x3C01 + k: entries 30..41, last 2 */
+{
+    param_log(0x3C00, 0, edm_ecf_state);
+    static const int at[] = { 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 100, 766, 767 };
+    for (unsigned i = 0; i < sizeof at / sizeof at[0]; i++) {
+        param_log(0x3C01 + (int)i, 0, (int)ECF[2 * at[i]]);
+        param_log(0x3C01 + (int)i, 1, (int)ECF[2 * at[i] + 1]);
+    }
+}
+#endif
+#if defined(PARAMLOG) && defined(EDM_CALL)
+static void param_log(int id, int flag, int value);
+static void edm_call_dump(void)                               /* id 0x3B00: state, site words, block words */
+{
+    param_log(0x3B00, 0, edm_call_state);
+    for (int i = 0; i < 4; i++)
+        param_log(0x3B01 + i, 0, (int)*(volatile uint32_t *)(MB_PROG + EDM_SITE + 4 * i));
+    for (int i = 0; i < 12; i++)
+        param_log(0x3B08 + i, 0, (int)*(volatile uint32_t *)(MB_PROG + EDM_BLOCK + 4 * i));
+}
+#endif
 static void a_note_on(struct assign *a, int note, int vel)
 {
+#if defined(PARAMLOG) && defined(EDM_CALL)
+    if (vel)
+        edm_call_dump();
+#endif
+#if defined(PARAMLOG) && defined(EDM_ECF)
+    if (vel)
+        edm_ecf_dump();
+#endif
+#ifdef EDM_TAP
+    if (vel)
+        edm_writer();
+#endif
+#ifdef EDM_KS
+    if (vel)
+        edm_note(note);
+#endif
     if (vel)
         resend_volume();
     key_set(a, note, vel != 0);
@@ -221,7 +429,19 @@ struct model { const void *const *vt; };
 /* master DSP B, section at 0x1000: slave 6006/6007 -> A118/A119 (the OS's output program on DSP A reads them;
    the OS queues its own PLUG-OUT-mode sets, with the section ends, just before calling load) */
 static struct s1_prog set_master_b[] = {
+#ifdef MC_S1MB0_BYTES
+    /* EDM_ENTRY: our 0x0 (microcode/edm.s edm_entry) in place of the OS effect, with the ends it calls, in the order
+       of the stock PLUG-OUTs' master B set (0x0, 0x5FF2, 0x6FF2, 0x1000, 0x7FF2) */
+    { 0x0000, MC_S1MB0_BYTES, mc_S1MB0 },
+#ifdef MC_S1MB5_BYTES
+    { 0x5FF2, MC_S1MB5_BYTES, mc_S1MB5 },
+    { 0x6FF2, MC_S1MB6_BYTES, mc_S1MB6 },
+#endif
+#endif
     { 0x1000, MC_S1MM1_BYTES, mc_S1MM1 },
+#ifdef MC_S1MB7_BYTES
+    { 0x7FF2, MC_S1MB7_BYTES, mc_S1MB7 },
+#endif
     { 0, 0, 0 },
 };
 
@@ -255,6 +475,41 @@ static void param_log(int id, int flag, int value)
                         (uint8_t)((v >> 28) & 0x0F), (uint8_t)((v >> 21) & 0x7F), (uint8_t)((v >> 14) & 0x7F),
                         (uint8_t)((v >> 7) & 0x7F), (uint8_t)(v & 0x7F), 0xF7 };
     ((void (*)(void *, const void *, int, int, int))0x600065B1u)((void *)0x605F20D4u, buf, 12, 3, 1);
+}
+#endif
+
+#if defined(PARAMLOG) && defined(EDM_KS)
+/* EDM_KS diagnostic: at every note, before our writes, the words where the effect's delay time may live: bank 5 of
+   master DSP A / B (blocks 0x40140000 / 0x40160000 + bank 5 x 0x2000, inferred), the FD6C window 0x40101000 and its
+   sel 1..3 pages: param_log(0x3800 + region, word index, word) */
+#ifdef EDM_GLIDE
+/* EDM_GLIDE diagnostic (id 0x3900 + k): the patched word, the effect's first words, the OS's set descriptor and the
+   copy of the four descriptors in its loader object (0x604BB3DC, built by 0x6001A316) */
+static void glide_dump(void)
+{
+    static const uint32_t at[] = { 0x401700A0u, 0x60097404u, 0x60097364u, 0x60097368u, 0x60060278u, 0x6006027Cu };
+    int k = 0;
+    for (unsigned i = 0; i < sizeof at / sizeof at[0]; i++)
+        param_log(0x3900 + k++, 0, (int)*(volatile uint32_t *)at[i]);
+    for (int i = 0; i < 12; i++)
+        param_log(0x3900 + k++, 0, (int)((volatile uint32_t *)0x604BB3DCu)[i]);
+    /* candidate DSP program windows (read only): 4 words at each (id 0x3A00 + 8 * window + word) */
+    static const uint32_t win[] = { 0x40170000u, 0x40171000u, 0x40172000u, 0x4016E000u, 0x40160000u, 0x40164000u,
+                                    0x40150000u, 0x40151000u, 0x4014E000u, 0x40140000u, 0x40144000u };
+    for (unsigned w = 0; w < sizeof win / sizeof win[0]; w++)
+        for (int i = 0; i < 4; i++)
+            param_log(0x3A00 + 8 * (int)w + i, 0, (int)((volatile uint32_t *)win[w])[i]);
+}
+#endif
+static void edm_dump(void)
+{
+#ifdef EDM_GLIDE
+    glide_dump();
+#endif
+    static const uint32_t base[6] = { 0x4016A000u, 0x4014A000u, 0x40101000u, 0x40101400u, 0x40101800u, 0x40101C00u };
+    for (int r = 0; r < 6; r++)
+        for (int k = 0; k < 6; k++)
+            param_log(0x3800 + r, k, (int)((volatile uint32_t *)base[r])[k]);
 }
 #endif
 
@@ -303,7 +558,24 @@ static void resend_panel(void)
 static void m_load(struct model *m)                           /* vt+0x08 */
 {
     (void)m;
+#ifdef EDM_GLIDE
+    edm_glide();
+#endif
     ((s1_queue_fn)SVC(0x34))(set_master_b);
+#ifdef EDM_KS
+    /* the line may hold anything (earlier programs, a loop saturated at full scale: MP-EDMKS hummed at 95 Hz after
+       the probes, 2026-11-03): feedback 0 until the first note empties it */
+    ((void (*)(int, int, uint32_t))SVC(0xEC))(1, 0x04, 0);
+#endif
+#ifdef EDM_TAP
+    edm_writer();
+#endif
+#ifdef EDM_CALL
+    edm_call();
+#endif
+#ifdef EDM_ECF
+    edm_ecf();
+#endif
     set_volume(volume);
     resend_panel();
 }
@@ -322,6 +594,9 @@ static int created;
 static void create(void)
 {
     if (!created) {
+#ifdef EDM_GLIDE
+        edm_glide();
+#endif
         clear_voices(&assigner);
         created = 1;
     }

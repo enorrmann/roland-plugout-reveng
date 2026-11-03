@@ -372,6 +372,7 @@ static void tick(int i)                                /* the cyclic handler, ev
         CYC_CLIENT = tick;
     }
     uint32_t n = ++tick_n;
+    (void)n;                                           /* only the diagnostics below read it */
 #if ARM_RAMPTEST
     ramp_test(n);
 #endif
@@ -656,6 +657,11 @@ static engine_t engine = { .vt = engine_vt };
 
 /* ---- exports ------------------------------------------------------------------------------------ */
 
+#ifdef S1_SUB
+/* build_multi.sh: this engine is one WAVE position of a multi-kernel PLUG-OUT (multi.c); no SYNINFO of its own, only
+   its engine object under the name S1_SUB (k0_engine, k1_engine, ...) */
+void *S1_SUB(void) { return &engine; }
+#else
 static void create(void) {}
 static void destroy(void) {}
 static void *get_none(void) { return 0; }
@@ -670,3 +676,4 @@ static void *get_engine(void) { return &engine; }
 
 __attribute__((section(".syninfo"), used))
 const struct syninfo1 syninfo = SYNINFO1(S1_NAME, S1_MODEL_ID, 0x0001, create, destroy, get_none, get_engine);
+#endif

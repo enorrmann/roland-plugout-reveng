@@ -135,6 +135,59 @@ en el DSP): se comparan las bandas, todas dentro de ±0,4 dB.
 | `mp_hihat` | hi-hat metálico (6 cuadradas del 808, B: pasa altos) | OSC1 COLOR ruido | — | 85 | 570 / 553+124 | 7 |
 | `mp_bell` | Braids STRUCK_BELL (4 parciales) | OSC1 COLOR decaimiento, OSC2 COLOR inarmonicidad | — | 105 | 596 / 398+289 | 7 |
 
+### 4.1 Agregados el 2026-11-03
+
+Todos los osciladores sin memoria de Braids, Plaits, Peaks y Tides que faltaban. Medidos con `check_all.sh` (kernel en
+r0…r3, A / voz; voces con el anfitrión completo). SNR contra la referencia nativa; en los de ruido, bandas (±1 dB
+salvo donde se dice). Los que necesitan memoria: [MUTABLE_MEMORY.md](MUTABLE_MEMORY.md).
+
+| kernel | origen | OSC1 COLOR / OSC2 COLOR | A / voz | SNR | voces |
+|---|---|---|---|---|---|
+| `mp_morph` | Braids MORPH | forma tri→saw→cuadrada→pulso / paso bajo + fuzz | 95 | 77,6 | 8 |
+| `mp_saw_square` | Braids SAW_SQUARE | ancho / balance | 39 | 73,3 | 8 |
+| `mp_sine_triangle` | Braids SINE_TRIANGLE | plegado / balance | 32 | 77,2 | 8 |
+| `mp_buzz` | Braids BUZZ (peine e^(k(c−1)) en vez de tablas) | brillo / desafinación | 104 | 79,6 | 7 |
+| `mp_square_sub` | Braids SQUARE_SUB | ancho / sub −2 / −1 oct | 71 | 72,2 | 8 |
+| `mp_square_sync` | Braids SQUARE_SYNC | relación / balance | 72 | 69,8 | 8 |
+| `mp_triple_square` | Braids TRIPLE_SQUARE | intervalos | 167 | 73,8 | 4 |
+| `mp_triple_triangle` | Braids TRIPLE_TRIANGLE | intervalos | 79 | 89,1 | 8 |
+| `mp_triple_ring_mod` | Braids TRIPLE_RING_MOD | alturas de los senos 2 y 3 | 71 | 82,4 | 8 |
+| `mp_digital_filter` | Braids DIGITAL_FILTER (`MP_DF_TYPE` 0–3) | resonancia / ventana | 37 | 81,3 | 8 |
+| `mp_chaotic_fm` | Braids CHAOTIC_FEEDBACK_FM | índice / altura del modulador | 43 | 86,5 | 8 |
+| `mp_struck_drum` | Braids STRUCK_DRUM | decaimiento / armónicos→ruido | 124 | 56,6 | 7 |
+| `mp_cymbal` | Braids CYMBAL (B: pasa altos) | pasa banda / metal→ruido | 116 | bandas −2,3…+0,8 | 4 |
+| `mp_twin_peaks` | Braids TWIN_PEAKS_NOISE (SVF en vez de resonadores de 2 polos) | resonancia / segundo pico | 67 | bandas −3…−5 | 8 |
+| `mp_granular` | Braids GRANULAR_CLOUD (ventanas libres, sin reinicio al azar) | largo / dispersión | 169 | 35,3 | 5 |
+| `mp_particle` | Braids PARTICLE_NOISE, Plaits particle | densidad / dispersión | 136 | bandas | 6 |
+| `mp_digital_mod` | Braids DIGITAL_MODULATION (símbolos al azar) | tasa de símbolos / — | 81 | 90,0 | 8 |
+| `mp_z` | Plaits ZOscillator | formante / modo | 103 | 74,9 | 8 |
+| `mp_grainlet` | Plaits GrainletOscillator | forma de la ventana / formante | 121 | 77,5 | 6 |
+| `mp_string_synth` | Plaits StringSynthOscillator (sin chorus) | registración (tabla) / — | 66 | 72,7 | 8 |
+| `mp_va` | Plaits virtual analog (2 osciladores) | forma / desafinación (tabla) | 80 | 71,2 | 8 |
+| `mp_variable_saw` | Plaits VariableSawOscillator | pw / forma | 46 | 68,7 | 8 |
+| `mp_waveshaping` | Plaits waveshaping | plegado / pendiente (tabla) | 27 | 78,5 | 8 |
+| `mp_wave_terrain` | Plaits wave terrain (terreno 0) | radio / desplazamiento | 57 | 78,1 | 8 |
+| `mp_modal` | Plaits modal (5 modos SVF) | rigidez (tabla) / amortiguación | 133 | bandas | 6 |
+| `mp_swarm` | Plaits swarm (4 sierras, ventanas libres) | velocidad de granos / desafinación | 102 | 59,0 | 6 |
+| `mp_synth_kick` | Plaits synthetic bass drum | FM / tono | 54 | 95,4 | 8 |
+| `mp_synth_snare` | Plaits synthetic snare (B: pasa altos) | tono / ruido, balance de modos | 54 | bandas ±1 | 8 |
+| `mp_fm_drum` | Peaks FM drum | índice / relación | 62 | 86,8 | 8 |
+| `mp_fm4` | Plaits six-op, 4 operadores en pila | índice / juego de relaciones (tabla) | 64 | 85,7 | 8 |
+| `mp_tides` | Tides 2, rampa a tasa de audio | forma / pendiente (tabla) | 54 | 88,5 | 8 |
+
+Sin port propio porque repiten otro: Stages / Warps / Edges (osciladores = `mp_variable_shape`, `mp_saw`,
+`mp_square`, `mp_nes_triangle`), Peaks bombo / caja / hat (= `mp_kick`, `mp_snare`, `mp_hihat`), Plaits noise /
+chiptune (= `mp_clocked_noise` + filtro, `mp_nes_triangle`). QUESTION_MARK de Braids (mensaje en morse de tablas) no.
+
+Lo aprendido en estos ports:
+* `s1_exp2(x)` sólo es exacto con x ≥ −19 (la semilla `expsplit` del equipo); limitar el argumento (`mp_buzz`, `mp_tides`).
+* Un resonador de dos polos con r ≈ 0,999 mete demasiado ruido de redondeo en la recursión: usar el SVF de
+  `mp_filter.h`. Y el coseno polinómico pasa de 1 cerca de 0: limitarlo (pondría los polos fuera del círculo).
+* Un evento raro (`if (ruido > 0,999)`) se pliega a constante (W909) y con `--no-fold-branches` cada comparación cuesta
+  ~8 ops: mejor ventanas que corren libres.
+* Bug corregido en s1cc (`kernel.cpp macOf`): una MAC con Y y K inmediatos daba mal cuando Y era chico (2⁻⁹; el
+  ensamblador encimaba Y con el byte de K). Ahora son dos ops. `mp_grainlet` −46 → 77 dB.
+
 La percusión reinicia su barrido / sus parciales en cada comienzo de nota (`s1_trig()`); el decaimiento del nivel es
 la envolvente AMP (DECAY / RELEASE cortos, SUSTAIN 0).
 
@@ -182,4 +235,4 @@ sospecha principal es `recipseed`. Los ports de esta carpeta no dividen.
   forma más barata, como `mp_phase_distortion` (rodilla con `s1_exp2` y un polinomio en lugar de la división).
 * `s1_dt` / `s1_rdt` son palabras nuevas del banco 5 (`A040+v`, `A048+v`, en el rango que C-S1SY usaba para notas):
   sin probar en el equipo.
-* Formas que faltan: tablas de ondas (índice calculado), cuerdas / guía de onda (retardo variable), granular.
+* Formas que faltan, todas con memoria: análisis en [MUTABLE_MEMORY.md](MUTABLE_MEMORY.md).

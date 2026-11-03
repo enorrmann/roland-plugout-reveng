@@ -1,0 +1,485 @@
+ld r0, [0383] | ld r2, [0381] | ld r3, [c049]
+add r0, #0.6184303127229214:32 | mul r2, r2, #7.31275 | ld r1, [0301]
+ph_wrap r0, r3, r0
+addxy r2, r2, r0 | st r0, [0382] | ld r0, [a060]
+ph_wrap r2, r3, r2 | st r0, [a168] | st r0, [0300]
+subxy r1, r1, r0 | st r2, [0380] | ld r2, [a038]
+mul r1, r1, r1 | st r2, [a160] | ld r2, [0305]
+mad r2, r2, -r1 | ld r0, [0303]
+addxy r1, r0, #-0.999
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+max r2, r2, r1 | ld r1, [c048]
+subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [0304]
+mul r2, r2, #256.0
+ph_clamp r2, r3, -r2
+mad r1, r2, r3 | mul r2, r2, #1.25
+subxy r2, r0, r2
+mad r0, r2, r1 | ld r1, [a120] | ld r2, [c04b]
+mul r1, r1, r2 | ld r2, [c05e]
+min r0, r0, #1.0
+mad r1, r0, r2 | mov r0, #0.041666666666666664 | ld r2, [c05f] | st r0, [0302]
+addxy r1, r1, r2 | ld r2, [a030]
+addxy r2, r2, r1
+mul r2, r1, #0.08664339756999316 | st r2, [a1b0]
+ymacd r0, r2, #0.16666666666666666
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a040]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | mov r0, #0.16666666666666666
+mul r2, r1, #-0.08664339756999316 | st r2, [0306] | ld r1, [030b]
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a048]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | ld r0, [0306]
+mov r3, r0 | st r2, [0308] | ld r2, [a040]
+addxy r2, r1, r2
+ph_wrap r1, r3, r2 | ld r2, [030f]
+mad r3, r2, #0.5 | mul r1, r1, #256.0 | st r1, [030a]
+mul r4, r3, #2.0
+ph_wrap r7, r3, r4
+addxy r2, r7, #1.0 | mul r4, r0, #2.0 | st r7, [030e]
+ph_wrap r3, r3, r2
+ph_clamp r1, r3, -r1
+min r7, r3, r4 | st r1, [a130] | ld r1, [0308]
+mul r2, r0, #-2.0
+max r4, r7, r2
+mul r0, r1, r4
+shl r7, r0, 13
+absadd r2, r7, #-2.0
+mul r1, r7, r2 | ld r0, [c070]
+addxy r4, r1, r3 | ld r1, [a130] | ld r2, [c056]
+mul r7, r0, r4 | ld r3, [c049]
+st r7, [030c]
+ld r0, [030c]
+mad r0, r1, r2 | ld r1, [0380] | ld r2, [c057]
+mad r0, r1, r2 | ld r1, [0311] | ld r2, [a039]
+st r0, [a151]
+ld r0, [a061]
+subxy r1, r1, r0 | st r2, [a161] | st r0, [0310] | ld r2, [0315]
+mul r1, r1, r1 | st r0, [a169] | ld r0, [0313]
+mad r2, r2, -r1 | addxy r1, r0, #-0.999
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+max r2, r2, r1 | ld r1, [c048]
+subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [0314]
+mul r2, r2, #256.0
+ph_clamp r2, r3, -r2
+mad r1, r2, r3 | mul r2, r2, #1.25
+subxy r2, r0, r2
+mad r0, r2, r1 | ld r1, [a121] | ld r2, [c04b]
+mul r1, r1, r2 | ld r2, [c05e]
+min r0, r0, #1.0
+mad r1, r0, r2 | mov r0, #0.041666666666666664 | ld r2, [c05f] | st r0, [0312]
+addxy r1, r1, r2 | ld r2, [a031]
+addxy r2, r2, r1
+mul r2, r1, #0.08664339756999316 | st r2, [a1b1]
+ymacd r0, r2, #0.16666666666666666
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a041]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | mov r0, #0.16666666666666666
+mul r2, r1, #-0.08664339756999316 | st r2, [0316] | ld r1, [031b]
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a049]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | ld r0, [0316]
+mov r3, r0 | st r2, [0318] | ld r2, [a041]
+addxy r2, r1, r2
+ph_wrap r1, r3, r2 | ld r2, [031f]
+mad r3, r2, #0.5 | mul r1, r1, #256.0 | st r1, [031a]
+mul r4, r3, #2.0
+ph_wrap r7, r3, r4
+addxy r2, r7, #1.0 | mul r4, r0, #2.0 | st r7, [031e]
+ph_wrap r3, r3, r2
+ph_clamp r1, r3, -r1
+min r7, r3, r4 | st r1, [a131] | ld r1, [0318]
+mul r2, r0, #-2.0
+max r4, r7, r2
+mul r0, r1, r4
+shl r7, r0, 13
+absadd r2, r7, #-2.0
+mul r1, r7, r2 | ld r0, [c070]
+addxy r4, r1, r3 | ld r1, [a131] | ld r2, [c056]
+mul r7, r0, r4 | ld r3, [c049]
+st r7, [031c]
+ld r0, [031c]
+mad r0, r1, r2 | ld r1, [0380] | ld r2, [c057]
+mad r0, r1, r2 | ld r1, [0321] | ld r2, [a03a]
+st r0, [a152]
+ld r0, [a062]
+subxy r1, r1, r0 | st r2, [a162] | st r0, [0320] | ld r2, [0325]
+mul r1, r1, r1 | st r0, [a16a] | ld r0, [0323]
+mad r2, r2, -r1 | addxy r1, r0, #-0.999
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+max r2, r2, r1 | ld r1, [c048]
+subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [0324]
+mul r2, r2, #256.0
+ph_clamp r2, r3, -r2
+mad r1, r2, r3 | mul r2, r2, #1.25
+subxy r2, r0, r2
+mad r0, r2, r1 | ld r1, [a122] | ld r2, [c04b]
+mul r1, r1, r2 | ld r2, [c05e]
+min r0, r0, #1.0
+mad r1, r0, r2 | mov r0, #0.041666666666666664 | ld r2, [c05f] | st r0, [0322]
+addxy r1, r1, r2 | ld r2, [a032]
+addxy r2, r2, r1
+mul r2, r1, #0.08664339756999316 | st r2, [a1b2]
+ymacd r0, r2, #0.16666666666666666
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a042]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | mov r0, #0.16666666666666666
+mul r2, r1, #-0.08664339756999316 | st r2, [0326] | ld r1, [032b]
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a04a]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | ld r0, [0326]
+mov r3, r0 | st r2, [0328] | ld r2, [a042]
+addxy r2, r1, r2
+ph_wrap r1, r3, r2 | ld r2, [032f]
+mad r3, r2, #0.5 | mul r1, r1, #256.0 | st r1, [032a]
+mul r4, r3, #2.0
+ph_wrap r7, r3, r4
+addxy r2, r7, #1.0 | mul r4, r0, #2.0 | st r7, [032e]
+ph_wrap r3, r3, r2
+ph_clamp r1, r3, -r1
+min r7, r3, r4 | st r1, [a132] | ld r1, [0328]
+mul r2, r0, #-2.0
+max r4, r7, r2
+mul r0, r1, r4
+shl r7, r0, 13
+absadd r2, r7, #-2.0
+mul r1, r7, r2 | ld r0, [c070]
+addxy r4, r1, r3 | ld r1, [a132] | ld r2, [c056]
+mul r7, r0, r4 | ld r3, [c049]
+st r7, [032c]
+ld r0, [032c]
+mad r0, r1, r2 | ld r1, [0380] | ld r2, [c057]
+mad r0, r1, r2 | ld r1, [0331] | ld r2, [a03b]
+st r0, [a153]
+ld r0, [a063]
+subxy r1, r1, r0 | st r2, [a163] | st r0, [0330] | ld r2, [0335]
+mul r1, r1, r1 | st r0, [a16b] | ld r0, [0333]
+mad r2, r2, -r1 | addxy r1, r0, #-0.999
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+max r2, r2, r1 | ld r1, [c048]
+subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [0334]
+mul r2, r2, #256.0
+ph_clamp r2, r3, -r2
+mad r1, r2, r3 | mul r2, r2, #1.25
+subxy r2, r0, r2
+mad r0, r2, r1 | ld r1, [a123] | ld r2, [c04b]
+mul r1, r1, r2 | ld r2, [c05e]
+min r0, r0, #1.0
+mad r1, r0, r2 | mov r0, #0.041666666666666664 | ld r2, [c05f] | st r0, [0332]
+addxy r1, r1, r2 | ld r2, [a033]
+addxy r2, r2, r1
+mul r2, r1, #0.08664339756999316 | st r2, [a1b3]
+ymacd r0, r2, #0.16666666666666666
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a043]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | mov r0, #0.16666666666666666
+mul r2, r1, #-0.08664339756999316 | st r2, [0336] | ld r1, [033b]
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a04b]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | ld r0, [0336]
+mov r3, r0 | st r2, [0338] | ld r2, [a043]
+addxy r2, r1, r2
+ph_wrap r1, r3, r2 | ld r2, [033f]
+mad r3, r2, #0.5 | mul r1, r1, #256.0 | st r1, [033a]
+mul r4, r3, #2.0
+ph_wrap r7, r3, r4
+addxy r2, r7, #1.0 | mul r4, r0, #2.0 | st r7, [033e]
+ph_wrap r3, r3, r2
+ph_clamp r1, r3, -r1
+min r7, r3, r4 | st r1, [a133] | ld r1, [0338]
+mul r2, r0, #-2.0
+max r4, r7, r2
+mul r0, r1, r4
+shl r7, r0, 13
+absadd r2, r7, #-2.0
+mul r1, r7, r2 | ld r0, [c070]
+addxy r4, r1, r3 | ld r1, [a133] | ld r2, [c056]
+mul r7, r0, r4 | ld r3, [c049]
+st r7, [033c]
+ld r0, [033c]
+mad r0, r1, r2 | ld r1, [0380] | ld r2, [c057]
+mad r0, r1, r2 | ld r1, [0341] | ld r2, [a03c]
+st r0, [a154]
+ld r0, [a064]
+subxy r1, r1, r0 | st r2, [a164] | st r0, [0340] | ld r2, [0345]
+mul r1, r1, r1 | st r0, [a16c] | ld r0, [0343]
+mad r2, r2, -r1 | addxy r1, r0, #-0.999
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+max r2, r2, r1 | ld r1, [c048]
+subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [0344]
+mul r2, r2, #256.0
+ph_clamp r2, r3, -r2
+mad r1, r2, r3 | mul r2, r2, #1.25
+subxy r2, r0, r2
+mad r0, r2, r1 | ld r1, [a124] | ld r2, [c04b]
+mul r1, r1, r2 | ld r2, [c05e]
+min r0, r0, #1.0
+mad r1, r0, r2 | mov r0, #0.041666666666666664 | ld r2, [c05f] | st r0, [0342]
+addxy r1, r1, r2 | ld r2, [a034]
+addxy r2, r2, r1
+mul r2, r1, #0.08664339756999316 | st r2, [a1b4]
+ymacd r0, r2, #0.16666666666666666
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a044]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | mov r0, #0.16666666666666666
+mul r2, r1, #-0.08664339756999316 | st r2, [0346] | ld r1, [034b]
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a04c]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | ld r0, [0346]
+mov r3, r0 | st r2, [0348] | ld r2, [a044]
+addxy r2, r1, r2
+ph_wrap r1, r3, r2 | ld r2, [034f]
+mad r3, r2, #0.5 | mul r1, r1, #256.0 | st r1, [034a]
+mul r4, r3, #2.0
+ph_wrap r7, r3, r4
+addxy r2, r7, #1.0 | mul r4, r0, #2.0 | st r7, [034e]
+ph_wrap r3, r3, r2
+ph_clamp r1, r3, -r1
+min r7, r3, r4 | st r1, [a134] | ld r1, [0348]
+mul r2, r0, #-2.0
+max r4, r7, r2
+mul r0, r1, r4
+shl r7, r0, 13
+absadd r2, r7, #-2.0
+mul r1, r7, r2 | ld r0, [c070]
+addxy r4, r1, r3 | ld r1, [a134] | ld r2, [c056]
+mul r7, r0, r4 | ld r3, [c049]
+st r7, [034c]
+ld r0, [034c]
+mad r0, r1, r2 | ld r1, [0380] | ld r2, [c057]
+mad r0, r1, r2 | ld r1, [0351] | ld r2, [a03d]
+st r0, [a155]
+ld r0, [a065]
+subxy r1, r1, r0 | st r2, [a165] | st r0, [0350] | ld r2, [0355]
+mul r1, r1, r1 | st r0, [a16d] | ld r0, [0353]
+mad r2, r2, -r1 | addxy r1, r0, #-0.999
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+max r2, r2, r1 | ld r1, [c048]
+subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [0354]
+mul r2, r2, #256.0
+ph_clamp r2, r3, -r2
+mad r1, r2, r3 | mul r2, r2, #1.25
+subxy r2, r0, r2
+mad r0, r2, r1 | ld r1, [a125] | ld r2, [c04b]
+mul r1, r1, r2 | ld r2, [c05e]
+min r0, r0, #1.0
+mad r1, r0, r2 | mov r0, #0.041666666666666664 | ld r2, [c05f] | st r0, [0352]
+addxy r1, r1, r2 | ld r2, [a035]
+addxy r2, r2, r1
+mul r2, r1, #0.08664339756999316 | st r2, [a1b5]
+ymacd r0, r2, #0.16666666666666666
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a045]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | mov r0, #0.16666666666666666
+mul r2, r1, #-0.08664339756999316 | st r2, [0356] | ld r1, [035b]
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a04d]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | ld r0, [0356]
+mov r3, r0 | st r2, [0358] | ld r2, [a045]
+addxy r2, r1, r2
+ph_wrap r1, r3, r2 | ld r2, [035f]
+mad r3, r2, #0.5 | mul r1, r1, #256.0 | st r1, [035a]
+mul r4, r3, #2.0
+ph_wrap r7, r3, r4
+addxy r2, r7, #1.0 | mul r4, r0, #2.0 | st r7, [035e]
+ph_wrap r3, r3, r2
+ph_clamp r1, r3, -r1
+min r7, r3, r4 | st r1, [a135] | ld r1, [0358]
+mul r2, r0, #-2.0
+max r4, r7, r2
+mul r0, r1, r4
+shl r7, r0, 13
+absadd r2, r7, #-2.0
+mul r1, r7, r2 | ld r0, [c070]
+addxy r4, r1, r3 | ld r1, [a135] | ld r2, [c056]
+mul r7, r0, r4 | ld r3, [c049]
+st r7, [035c]
+ld r0, [035c]
+mad r0, r1, r2 | ld r1, [0380] | ld r2, [c057]
+mad r0, r1, r2 | ld r1, [0361] | ld r2, [a03e]
+st r0, [a156]
+ld r0, [a066]
+subxy r1, r1, r0 | st r2, [a166] | st r0, [0360] | ld r2, [0365]
+mul r1, r1, r1 | st r0, [a16e] | ld r0, [0363]
+mad r2, r2, -r1 | addxy r1, r0, #-0.999
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+max r2, r2, r1 | ld r1, [c048]
+subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [0364]
+mul r2, r2, #256.0
+ph_clamp r2, r3, -r2
+mad r1, r2, r3 | mul r2, r2, #1.25
+subxy r2, r0, r2
+mad r0, r2, r1 | ld r1, [a126] | ld r2, [c04b]
+mul r1, r1, r2 | ld r2, [c05e]
+min r0, r0, #1.0
+mad r1, r0, r2 | mov r0, #0.041666666666666664 | ld r2, [c05f] | st r0, [0362]
+addxy r1, r1, r2 | ld r2, [a036]
+addxy r2, r2, r1
+mul r2, r1, #0.08664339756999316 | st r2, [a1b6]
+ymacd r0, r2, #0.16666666666666666
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a046]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | mov r0, #0.16666666666666666
+mul r2, r1, #-0.08664339756999316 | st r2, [0366] | ld r1, [036b]
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a04e]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | ld r0, [0366]
+mov r3, r0 | st r2, [0368] | ld r2, [a046]
+addxy r2, r1, r2
+ph_wrap r1, r3, r2 | ld r2, [036f]
+mad r3, r2, #0.5 | mul r1, r1, #256.0 | st r1, [036a]
+mul r4, r3, #2.0
+ph_wrap r7, r3, r4
+addxy r2, r7, #1.0 | mul r4, r0, #2.0 | st r7, [036e]
+ph_wrap r3, r3, r2
+ph_clamp r1, r3, -r1
+min r7, r3, r4 | st r1, [a136] | ld r1, [0368]
+mul r2, r0, #-2.0
+max r4, r7, r2
+mul r0, r1, r4
+shl r7, r0, 13
+absadd r2, r7, #-2.0
+mul r1, r7, r2 | ld r0, [c070]
+addxy r4, r1, r3 | ld r1, [a136] | ld r2, [c056]
+mul r7, r0, r4 | ld r3, [c049]
+st r7, [036c]
+ld r0, [036c]
+mad r0, r1, r2 | ld r1, [0380] | ld r2, [c057]
+mad r0, r1, r2 | ld r1, [0371] | ld r2, [a03f]
+st r0, [a157]
+ld r0, [a067]
+subxy r1, r1, r0 | st r2, [a167] | st r0, [0370] | ld r2, [0375]
+mul r1, r1, r1 | st r0, [a16f] | ld r0, [0373]
+mad r2, r2, -r1 | addxy r1, r0, #-0.999
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+mul r1, r1, #256.0
+ph_clamp r1, r3, -r1
+max r2, r2, r1 | ld r1, [c048]
+subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [0374]
+mul r2, r2, #256.0
+ph_clamp r2, r3, -r2
+mad r1, r2, r3 | mul r2, r2, #1.25
+subxy r2, r0, r2
+mad r0, r2, r1 | ld r1, [a127] | ld r2, [c04b]
+mul r1, r1, r2 | ld r2, [c05e]
+min r0, r0, #1.0
+mad r1, r0, r2 | mov r0, #0.041666666666666664 | ld r2, [c05f] | st r0, [0372]
+addxy r1, r1, r2 | ld r2, [a037]
+addxy r2, r2, r1
+mul r2, r1, #0.08664339756999316 | st r2, [a1b7]
+ymacd r0, r2, #0.16666666666666666
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a047]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | mov r0, #0.16666666666666666
+mul r2, r1, #-0.08664339756999316 | st r2, [0376] | ld r1, [037b]
+ymacd r0, r2, #0.5
+ymacd r0, r2, #1.0
+ymacd r0, r2, #1.0 | ld r2, [a04f]
+mul r0, r0, r0
+mul r0, r0, r0
+mul r0, r0, r0
+mul r2, r2, r0 | ld r0, [0376]
+mov r3, r0 | st r2, [0378] | ld r2, [a047]
+addxy r2, r1, r2
+ph_wrap r1, r3, r2 | ld r2, [037f]
+mad r3, r2, #0.5 | mul r1, r1, #256.0 | st r1, [037a]
+mul r4, r3, #2.0
+ph_wrap r7, r3, r4
+addxy r2, r7, #1.0 | mul r4, r0, #2.0 | st r7, [037e]
+ph_wrap r3, r3, r2
+ph_clamp r1, r3, -r1
+min r7, r3, r4 | st r1, [a137] | ld r1, [0378]
+mul r2, r0, #-2.0
+max r4, r7, r2
+mul r0, r1, r4
+shl r7, r0, 13
+absadd r2, r7, #-2.0
+mul r1, r7, r2 | ld r0, [c070]
+addxy r4, r1, r3 | ld r1, [a137] | ld r2, [c056]
+mul r7, r0, r4
+st r7, [037c]
+ld r0, [037c]
+mad r0, r1, r2 | ld r1, [0380] | ld r2, [c057]
+mad r0, r1, r2
+st r0, [a158]

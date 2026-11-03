@@ -1,0 +1,11 @@
+VOICES=auto: 8 voices by the estimate (budget A 703, B 708)
+MOD_DSP=auto: pitch envelope and COLOR MOD on DSP A
+fused kernel: voices 0..0 on DSP A, 1..7 on DSP B
+s1m0    519 instructions, 2241 halfwords
+s1m1    535 instructions, 2227 halfwords
+s1mm1     7 instructions, 44 halfwords
+s1c0      2 instructions, 7 halfwords
+s1c1      2 instructions, 7 halfwords
+kernel per voice: A 100 lines, 9 words; no DSP B
+A -> B x: one sample late (voices 0); - (voices 1,2,3,4,5,6,7)
+note: DSP A has 2 spill words and does not use r5 / r6: SYSTEM-S1CC has no host keeping them, build the kernel with --regs 0,1,2,3,4,5,6,7 (docs/S1CC.md §1.1)
