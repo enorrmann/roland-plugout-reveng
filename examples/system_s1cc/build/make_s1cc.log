@@ -1,3 +1,4 @@
+VOICES=auto: 8 voices by the estimate (budget A 703, B 708)
 MOD_DSP=auto: pitch envelope and COLOR MOD on DSP B
 s1m0    489 instructions, 2355 halfwords
 s1a2    163 instructions, 784 halfwords

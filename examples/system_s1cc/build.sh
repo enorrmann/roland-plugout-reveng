@@ -18,8 +18,9 @@ controls (docs/examples_system_s1cc_README.md §3.2); every other control does n
 
 Options (environment variables):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
-  (the number of voices is not an option: the build takes the most, 8 down to 1, whose slave programs fit the
-  measured limits, instructions per sample and the 6 KiB of the main program, and says how many at the end)
+  (the number of voices is not an option: make_s1cc.py VOICES=auto computes the most, 8 down to 1, whose slave
+  programs fit the measured limits, instructions per sample and the 6 KiB of the main program, before it builds,
+  and the build says how many at the end)
   BUDGET_A=n, BUDGET_B=n, MAIN_BYTES=n  the limits (default 703 / 708 instructions per sample, 6144 bytes: what ran
                 on the device; past them it hung), only to try more at your own risk
   NAME=...      plug-out name shown on the device and plugins/ folder (default SYSTEM-S1CC); max 16 characters
@@ -51,19 +52,10 @@ MODEL_ID=${MODEL_ID:-0x0010}
 case $KERNEL in /*) ;; *) KERNEL=$(pwd)/$KERNEL ;; esac
 export KERNEL
 mkdir -p "$B"
-unset VOICES
-NV=8                                       # the most voices that fit (make_s1cc.py exits 3 when they do not)
-while :; do
-    set +e
-    VOICES=$NV python3 "$HERE/make_s1cc.py" > "$B/make_s1cc.log" 2>&1
-    rc=$?
-    set -e
-    if [ $rc = 0 ]; then break; fi
-    if [ $rc != 3 ] || [ $NV = 1 ]; then cat "$B/make_s1cc.log"; exit 1; fi
-    grep 'do not fit' "$B/make_s1cc.log"
-    NV=$((NV - 1))
-done
+# the most voices that fit: make_s1cc.py VOICES=auto computes them before it builds (exit 3: not even 1 fits)
+VOICES=auto python3 "$HERE/make_s1cc.py" > "$B/make_s1cc.log" 2>&1 || { cat "$B/make_s1cc.log"; exit 1; }
 cat "$B/make_s1cc.log"
+NV=$(sed -n 's/^#define NV \([0-9]*\)$/\1/p' "$B/s1_programs.h")
 python3 "$ROOT/tools/check_optimized.py" "$HERE"/s1m0.s "$HERE"/s1m1.s $(ls "$HERE"/s1a?.s "$HERE"/s1b?.s 2>/dev/null) "$HERE"/s1mm1.s || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
  -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG}"

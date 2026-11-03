@@ -190,7 +190,7 @@ sdk/s1cc/s1cc build VOZ.cc ... --debug                             # qué funcio
 sdk/s1cc/s1cc build VOZ.cc ... --check                             # build + check (instrucciones, SNR)
 sdk/s1cc/s1cc check SALIDA [--note N] [--n MUESTRAS] [--all-forms] [nombre=perilla ...]
 KERNEL=SALIDA NAME=MUTABLE-S1CC sh examples/mutable_system/build.sh
-KERNEL=SALIDA [VOICES=1..8] sh examples/system_s1cc/build.sh           # SYSTEM-S1CC: solo el kernel (examples_system_s1cc_README.md)
+KERNEL=SALIDA sh examples/system_s1cc/build.sh                         # SYSTEM-S1CC: solo el kernel (examples_system_s1cc_README.md)
 python3 -m unittest discover -s sdk/s1cc/tests                     # ≈ 8 s
 ```
 
@@ -3598,8 +3598,9 @@ controls (docs/examples_system_s1cc_README.md §3.2); every other control does n
 
 Options (environment variables):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
-  (the number of voices is not an option: the build takes the most, 8 down to 1, whose slave programs fit the
-  measured limits, instructions per sample and the 6 KiB of the main program, and says how many at the end)
+  (the number of voices is not an option: make_s1cc.py VOICES=auto computes the most, 8 down to 1, whose slave
+  programs fit the measured limits, instructions per sample and the 6 KiB of the main program, before it builds,
+  and the build says how many at the end)
   BUDGET_A=n, BUDGET_B=n, MAIN_BYTES=n  the limits (default 703 / 708 instructions per sample, 6144 bytes: what ran
                 on the device; past them it hung), only to try more at your own risk
   NAME=...      plug-out name shown on the device and plugins/ folder (default SYSTEM-S1CC); max 16 characters
@@ -3638,7 +3639,10 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
     knobs                   the kernel's S1_PARAM tables, by panel id: DSP A parameters from C070, DSP B from C060
 
     KERNEL=dir (required)   an s1cc build directory (sdk/s1cc/s1cc build ... -o dir)
-    VOICES=n                1..8 (default 8). build.sh sets it: the most voices that fit (it tries 8, 7, ...)
+    VOICES=n|auto           1..8, or auto (default): the most voices that fit, computed before the build (choose_voices:
+                            each DSP's program scheduled whole, without assembly or sections, a lower bound of what
+                            the build counts; a binary search on it, then one build, and one voice less only if that
+                            build still does not fit)
     BUDGET_A=n, BUDGET_B=n  instructions per sample the slave's DSP A / DSP B may have, measured on the device
                             (docs/examples_system_1_synth_README.md §4): DSP A 703 ran (MP-CSAW 8 voices,
                             2026-10-28), 826 hung; DSP B 708 ran. Defaults 703 / 708. BUDGET=n sets both
@@ -3652,4 +3656,4 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                                       reference (sdk/s1cc refdsp), and the silence without notes
 ```
 
-Environment: `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `CMOD_IDX` (default '1'), `ENV_CURVE` (default 'none'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_LUT` (default '0'), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `MIX` (default '1'), `MOD_DSP` (default 'auto'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default '8')
+Environment: `ARM_DIAG` (default '0'), `ARM_ENV` (default '0'), `ARM_FADE` (default '1'), `ARM_LFO` (default '0'), `ARM_RAMP` (default '1'), `ARM_TICK` (default '0'), `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `CMOD_IDX` (default '1'), `ENV_CURVE` (default 'none'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_LUT` (default '0'), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `MIX` (default '1'), `MOD_DSP` (default 'auto'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default 'auto')

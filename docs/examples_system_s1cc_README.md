@@ -24,7 +24,7 @@ python3 tools/plugout_tool.py install plugins/SYSTEM-S1CC --slot 1 --force --no-
 | variable | qué hace |
 |---|---|
 | `KERNEL=dir` | obligatoria: la carpeta de salida de `s1cc build` |
-| (voces) | no es una opción: `build.sh` prueba 8, 7, … y se queda con la mayor cantidad que entra en los límites (instrucciones por muestra y los 6 KiB del principal), y la anuncia al final (`SYSTEM-S1CC: 6 voices`) |
+| (voces) | no es una opción: `make_s1cc.py` con `VOICES=auto` (el default) calcula antes de compilar la mayor cantidad que entra en los límites (instrucciones por muestra y los 6 KiB del principal), y `build.sh` la anuncia al final (`SYSTEM-S1CC: 6 voices`). Cálculo: el programa de cada DSP agendado entero, sin ensamblar ni secciones (cota inferior de lo que cuenta el build: una sección agrega su cabecera y corta la fusión), búsqueda binaria sobre 1..8, un solo build; si ese build igual no entra (las secciones), una voz menos. Verificado 2026-11-03 en 38 kernels de `sdk/s1cc/build`: la estimación coincide con el build en todos (N entra, N+1 no) |
 | `BUDGET_A=n`, `BUDGET_B=n`, `MAIN_BYTES=n` | los límites medidos: 703 instrucciones por muestra en el DSP A (826 se colgó), 708 en el DSP B, y 6144 bytes de cada programa principal, su región `0x0100`–`0x18FF` ([DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md) §3.1: 5854 bytes corrieron, 6534 y 6740 colgaron el equipo, 2026-10-28). Sólo para probar más, a riesgo propio |
 | `NAME=…` | nombre del PLUG-OUT (`SYSTEM-S1CC`) |
 | `MODEL_ID`, `PARAMLOG=1` | como en MUTABLE-SYSTEM |

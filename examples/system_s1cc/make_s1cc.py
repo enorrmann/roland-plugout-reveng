@@ -13,7 +13,10 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
     knobs                   the kernel's S1_PARAM tables, by panel id: DSP A parameters from C070, DSP B from C060
 
     KERNEL=dir (required)   an s1cc build directory (sdk/s1cc/s1cc build ... -o dir)
-    VOICES=n                1..8 (default 8). build.sh sets it: the most voices that fit (it tries 8, 7, ...)
+    VOICES=n|auto           1..8, or auto (default): the most voices that fit, computed before the build (choose_voices:
+                            each DSP's program scheduled whole, without assembly or sections, a lower bound of what
+                            the build counts; a binary search on it, then one build, and one voice less only if that
+                            build still does not fit)
     BUDGET_A=n, BUDGET_B=n  instructions per sample the slave's DSP A / DSP B may have, measured on the device
                             (docs/examples_system_1_synth_README.md §4): DSP A 703 ran (MP-CSAW 8 voices,
                             2026-10-28), 826 hung; DSP B 708 ran. Defaults 703 / 708. BUDGET=n sets both
@@ -45,9 +48,11 @@ import s1rules  # noqa: E402  (asm/s1rules.py: the SYSTEM-1 access rules)
 KERNEL = os.environ.get('KERNEL', '')
 if not KERNEL or not os.path.exists(os.path.join(KERNEL, 'voice.s1k')):
     raise SystemExit('make_s1cc.py: KERNEL=<s1cc build directory> (with voice.s1k) is required')
-NV = int(os.environ.get('VOICES', '8'))
-if not 1 <= NV <= 8:
-    raise SystemExit('make_s1cc.py: VOICES must be 1..8 (the OS hands notes to 8 voice ids at most)')
+NV_MAX = 8                                     # the OS hands notes to 8 voice ids at most
+VOICES = os.environ.get('VOICES', 'auto')
+NV = NV_MAX if VOICES == 'auto' else int(VOICES)   # set_voices() changes it (VOICES=auto: choose_voices)
+if not 1 <= NV <= NV_MAX:
+    raise SystemExit('make_s1cc.py: VOICES must be 1..8 or auto (the OS hands notes to 8 voice ids at most)')
 BUDGET = {'s1m0': int(os.environ.get('BUDGET_A', os.environ.get('BUDGET', '703'))),    # DSP A: 703 ran, 826 hung
           's1m1': int(os.environ.get('BUDGET_B', os.environ.get('BUDGET', '708')))}    # DSP B: 708 ran
 MAIN_BYTES = int(os.environ.get('MAIN_BYTES', '6144'))  # 0x0100..0x18FF: 5854 bytes ran, 6534 / 6740 hung
@@ -136,13 +141,13 @@ ENV_TMAX = float(os.environ.get('ENV_TMAX', '10.0'))     # seconds at fader 255;
 
 FS = 96000.0
 # bank 5 (shared by slave A and B): written by engine.c
-PITCH = [0xA030 + v for v in range(NV)]     # (note - 12) / 12 octaves (4.75 = A 440)
-GATE = [0xA038 + v for v in range(NV)]      # 1.0 / 0.0
-TRIG = [0xA060 + v for v in range(NV)]      # toggles 0 / 1 at every note start
-DT = [0xA040 + v for v in range(NV)]        # s1_dt(): f / 96000 of the note (engine.c, per-note table)
-RDT = [0xA048 + v for v in range(NV)]       # s1_rdt(): 96000 / f / 16384 (the DSP holds at most 512)
+PITCH = [0xA030 + v for v in range(NV_MAX)]     # (note - 12) / 12 octaves (4.75 = A 440)
+GATE = [0xA038 + v for v in range(NV_MAX)]      # 1.0 / 0.0
+TRIG = [0xA060 + v for v in range(NV_MAX)]      # toggles 0 / 1 at every note start
+DT = [0xA040 + v for v in range(NV_MAX)]        # s1_dt(): f / 96000 of the note (engine.c, per-note table)
+RDT = [0xA048 + v for v in range(NV_MAX)]       # s1_rdt(): 96000 / f / 16384 (the DSP holds at most 512)
 # bank 5, written by DSP A (a DSP stores only to A100..A1FF)
-XV = [0xA151 + v for v in range(NV)]        # DSP A output of voice v = the input x of DSP B
+XV = [0xA151 + v for v in range(NV_MAX)]        # DSP A output of voice v = the input x of DSP B
 X0, INB0 = 0xA188, 0xA1A0                   # exports i: X0 + 8 i + v; inputs B needs from A: INB0 + 8 j + v
 # bank 5 A100..A1FF (what a slave DSP may store): A151.. x, A160.. / A168.. gate / trigger copies, A188..A19F export
 # slots 0..2, A1A0..A1B7 the inputs for B (pitch, gate, trigger), A1B8..A1FF free: export slots 3..11
@@ -157,11 +162,11 @@ def export_addr(i, v):
 # bank 0 (ring, S / S+1): the voice blocks of the kernel, sized by what it needs, in the regions our device-proven
 # programs used (C-S1V8 / C-S1SY: slave A 0x0300.., slave B 0x0400..; MUTABLE-SYSTEM's kernel B: 0x0600..)
 A_BLOCK0, B_BLOCK0 = 0x0300, 0x0600
-B_OUT = [0x0400 + 2 * v for v in range(NV)]  # DSP B output of voice v (ring: read one sample later at S+1)
+B_OUT = [0x0400 + 2 * v for v in range(NV_MAX)]  # DSP B output of voice v (ring: read one sample later at S+1)
 K_A_PARAM0, K_B_PARAM0 = 0x70, 0x60         # the kernel's knob tables: DSP A C070.., DSP B C060..
 OUT_L, OUT_R = 0x6006, 0x6007               # slave B -> master (IOMD)
 OUT_ZERO = [0x6008, 0x6009, 0x600A, 0x600B, 0x600C, 0x600D]
-GAIN = 2.0 / (1.5 * NV)                     # the mix as C-S1SY13's (one voice at full scale: 1.33 / NV)
+GAIN = 2.0 / (1.5 * NV)                     # the mix as C-S1SY13's (one voice at full scale: 1.33 / NV); set_voices
 M_OUT = (0xA118, 0xA119)                    # master B -> the OS output program on master A
 M_ZERO = [0xA11A, 0xA11B, 0xA11C, 0xA11D]
 M_VOLUME = 0x1C                             # master B parameter C01C (model.c, VOLUME knob)
@@ -173,8 +178,8 @@ FX_RET = (0x2001, 0x2003)
 H6_ENV = (0x40, 0x44)
 H_ENV_PANEL = ((0x189, 0x187, 0x188, 0x18A), (0x184, 0x182, 0x183, 0x185))   # (S, A, D, R): AMP, FILTER
 H_ENV_DEFAULT = ((255, 0, 128, 60), (0, 0, 128, 60))
-GB = [0xA160 + v for v in range(NV)]
-TB = [0xA168 + v for v in range(NV)]
+GB = [0xA160 + v for v in range(NV_MAX)]
+TB = [0xA168 + v for v in range(NV_MAX)]
 # LUT (2026-10-29): fixed tables in bank 5 A080.. (engine.c writes them at load and refresh; the ARM writes A000..A0FF),
 # read by an indexed load (hset h6 + ldb5 at 0 and 1: linear interpolation between two points)
 #   LFO_LUT=1      the host LFO's shapes from tables (sine, triangle, saw, square; N = 16): lfo = w g + a T[phase]
@@ -284,7 +289,7 @@ B6_PENV, B6_COL = 0x52, (0x54, 0x5A)
 # envelope levels DSP B -> DSP A in bank 5 (ENVX: AMP A170+v, FILTER A178+v). MOD_DSP=auto (default): make_s1cc.py
 # takes B, and A when B does not fit or fits fewer voices (a kernel with a short DSP A: most of mutable_ported)
 A6_PENV, A6_COL = 0x48, (0x50, 0x58)
-ENVX = ([0xA170 + v for v in range(NV)], [0xA178 + v for v in range(NV)])
+ENVX = ([0xA170 + v for v in range(NV_MAX)], [0xA178 + v for v in range(NV_MAX)])
 MOD_DSP = os.environ.get('MOD_DSP', 'auto')
 if MOD_DSP not in ('A', 'B', 'auto'):
     raise SystemExit('make_s1cc.py: MOD_DSP must be A, B or auto')
@@ -308,9 +313,9 @@ def cmt(s, v):
 def cmod_idx():
     """COLOR MOD by an indexed load now (MOD_B can change in main())"""
     return bool(CMOD and MOD_B and CMOD_IDX and HOST_LFO)
-PEB = [0xA128 + v for v in range(NV)]
-SUBB = [0xA130 + v for v in range(NV)]
-COLB = ([0xA138 + v for v in range(NV)], [0xA140 + v for v in range(NV)])
+PEB = [0xA128 + v for v in range(NV_MAX)]
+SUBB = [0xA130 + v for v in range(NV_MAX)]
+COLB = ([0xA138 + v for v in range(NV_MAX)], [0xA140 + v for v in range(NV_MAX)])
 # LFO SHAPE -> C042..C045 (alpha, beta, K, w): lfo = t (alpha + beta t^2) + ph_clamp(K p) + w g, t the triangle of
 # the phase p, g the sample & glide value (C041 = its coefficient k; k = 1 is the sample & hold)
 LFO_SHAPES = [(1.5, -0.5, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0), (0.0, 0.0, 256.0, 0.0),
@@ -325,7 +330,7 @@ A6_LPITCH, A6_PAMT, A6_RANGE1 = 0x4B, 0x5E, 0x5F   # DSP A: LFO TO PITCH, PITCH 
 RANGE_64FT = -1.0
 # DSP B: the LFO (rate, S&G coefficient, shape alpha / beta / K / w, fade step, -> filter, -> amp M / |M|)
 B6_LRATE, B6_LSG, B6_LWAVE, B6_LDELAY, B6_LFILT, B6_LAMP, B6_LAMPABS = 0x48, 0x49, 0x4A, 0x4E, 0x4F, 0x50, 0x51
-LFB = [0xA120 + v for v in range(NV)]           # bank 5: lf of voice v, DSP B -> DSP A
+LFB = [0xA120 + v for v in range(NV_MAX)]           # bank 5: lf of voice v, DSP B -> DSP A
 A6_SUBMIX, A6_NOISEMIX = 0x56, 0x57             # the host mixer's SUB / NOISE levels
 # the host LFO's controls, in engine.c's order (hlfo_panel): names, panel ids, defaults until a control moves
 HLFO = [('lfo_shape', 0x160, 1), ('lfo_rate', 0x162, 128), ('lfo_delay', 0x161, 0), ('lfo_pitch', 0x163, 128),
@@ -360,6 +365,12 @@ def set_mod_dsp(on_b):
     global MOD_B, H_A_WORDS, H_B_WORDS
     MOD_B = on_b
     H_A_WORDS, H_B_WORDS = len(host_a_words()), len(host_b_words())
+
+
+def set_voices(n):
+    """build n voices (the address lists hold all NV_MAX, the programs use the first n)"""
+    global NV, GAIN
+    NV, GAIN = n, 2.0 / (1.5 * n)
 
 
 H_A_WORDS = len(host_a_words())
@@ -399,11 +410,15 @@ def words(dsp):
     return host + sum(1 for s in KDEF.states if s['dsp'] == dsp) + st.get('scratch', 0) + bool(st.get('initflag'))
 
 
+def bank0_top(dsp):
+    """the first bank-0 word after a DSP's voice blocks and its noise source (it must be <= 0x0800)"""
+    return (A_BLOCK0 if dsp == 'A' else B_BLOCK0) + 2 * words(dsp) * NV + 2 * LFO_WORDS
+
+
 def block(dsp, v):
     """bank-0 block of voice v (2 ring words per value: S and S+1)"""
     base = A_BLOCK0 if dsp == 'A' else B_BLOCK0
-    top = base + 2 * words(dsp) * NV + 2 * LFO_WORDS
-    if top > 0x0800:
+    if bank0_top(dsp) > 0x0800:
         raise SystemExit(f'kernel DSP {dsp}: {words(dsp)} words x {NV} voices do not fit in bank 0 '
                          f'(0x{base:04x}..0x07ff)')
     return base + 2 * words(dsp) * v
@@ -894,15 +909,20 @@ PAIRS_B = PAIRS and not any(re.search(r'\br[4-7]\b', x) for x in KDEF.dsps.get('
 TRIED = collections.Counter()                     # op groups not proven on the device that this build used
 
 
+def sched_setup():
+    """the scheduler as the SYSTEM-1 needs it -> (proven op groups, op groups it may use: None = all)"""
+    dspsched.Ins.one_bank5 = True                  # rule 5: one bank-5 access per instruction (load or store)
+    dspsched.Ins.shapes = [(collections.Counter(acc), ops) for acc, ops in s1rules.proven_shapes()]
+    proven = dspsched.load_proven()
+    return proven, None if TRY_FORMS == 'all' else proven | dspsched.parse_forms(TRY_FORMS)
+
+
 def section(name, lines, record=True):
     """a section program, scheduled with the op groups proven on the device only (asm/proven_forms.txt; with
     TRY_FORMS also those), one bank-5 access per instruction (rule 5) and only instruction shapes that are part of a
     proven program's; then checked against every SYSTEM-1 rule (asm/s1rules.py). SYSTEM-1 start marker (0a02 ff71),
     the code, end sequence"""
-    dspsched.Ins.one_bank5 = True                  # rule 5: one bank-5 access per instruction (load or store)
-    dspsched.Ins.shapes = [(collections.Counter(acc), ops) for acc, ops in s1rules.proven_shapes()]
-    proven = dspsched.load_proven()
-    allowed = None if TRY_FORMS == 'all' else proven | dspsched.parse_forms(TRY_FORMS)
+    proven, allowed = sched_setup()
     lines = dspsched.schedule(lines, allowed)
     new = {s: c for s, c in dspsched.signatures(lines).items() if s not in proven}
     if record:
@@ -1264,9 +1284,9 @@ def crossings(progs):
 
 def crossing_report(progs):
     c = crossings(progs)
-    names = [('x', XV)] + [(f'export {e}', [export_addr(e, v) for v in range(NV)]) for e in KDEF.exports] + \
+    names = [('x', XV[:NV])] + [(f'export {e}', [export_addr(e, v) for v in range(NV)]) for e in KDEF.exports] + \
             [(f'input {n}', [INB0 + 8 * j + v for v in range(NV)]) for j, n in enumerate(KDEF.inputs_b)] + \
-            ([('gate / trigger copies', GB)] if HOST_ENVS else [])
+            ([('gate / trigger copies', GB[:NV])] if HOST_ENVS else [])
     for name, addrs in names:
         per = [c.get(a, '-') for a in addrs]
         if all(p == '-' for p in per):
@@ -1313,24 +1333,77 @@ def overruns(progs):
     return over, load
 
 
-def main():
-    if '--forms' in sys.argv:
-        forms_report()
-        return
+def estimate():
+    """{program: instructions} of each slave DSP with NV voices, each scheduled whole (no assembly, no sections: a
+    section adds its head and the scheduler cannot fuse across its start, so the build counts as many or more), or
+    None when the voice blocks do not fit in bank 0. A fraction of a second, against seconds for sources()"""
+    if bank0_top('A') > 0x0800 or bank0_top('B') > 0x0800:
+        return None
+    _, allowed = sched_setup()
+    out = {}
+    for name, parts in (('s1m0', prog_a_parts), ('s1m1', prog_b_parts)):
+        head, units = parts()
+        out[name] = instr_count(dspsched.schedule(head + [x for u in units for x in u], allowed))
+    return out
+
+
+def fits_estimate(n):
+    """n voices may fit (estimate() within BUDGET, with some MOD_DSP placement) -> True / False"""
+    set_voices(n)
+    for on_b in ((True, False) if MOD_DSP == 'auto' and PENV else (MOD_B,)):
+        set_mod_dsp(on_b)
+        e = estimate()
+        if e and all(e[k] <= BUDGET[k] for k in BUDGET):
+            return True
+    return False
+
+
+def choose_voices():
+    """VOICES=auto: the most voices whose estimate fits, by binary search (estimate() grows with the voices)"""
+    lo, hi = 1, NV_MAX                              # the answer is in lo..hi; 1 even when nothing fits (the build says)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if fits_estimate(mid):
+            lo = mid
+        else:
+            hi = mid - 1
+    set_voices(lo)
+    return lo
+
+
+def build():
+    """sources() with the MOD_DSP placement -> (programs, the limits they break)"""
     if MOD_DSP == 'auto' and PENV:                  # the pitch envelope and COLOR MOD on the DSP with room for them
         tried = []
         for on_b in (True, False):
             set_mod_dsp(on_b)
-            progs = sources()
-            over, load = overruns(progs)
-            tried.append((bool(over), load, on_b, progs))
-        _, _, on_b, progs = min(tried, key=lambda t: (t[0], t[1]))
+            e = estimate()                          # a placement whose estimate is already over cannot fit
+            if e is None or any(e[k] > BUDGET[k] for k in BUDGET):
+                tried.append((True, max(e[k] / BUDGET[k] for k in BUDGET) if e else 99.0, on_b))
+                continue
+            over, load = overruns(sources())
+            tried.append((bool(over), load, on_b))
+        _, _, on_b = min(tried)
         set_mod_dsp(on_b)
-        progs = sources()                           # again: TRIED and the sections are this placement's
         print(f'MOD_DSP=auto: pitch envelope and COLOR MOD on DSP {"B" if on_b else "A"}')
+    progs = sources()                               # (again after auto: TRIED and the sections are this placement's)
+    return progs, overruns(progs)[0]
+
+
+def main():
+    if '--forms' in sys.argv:
+        forms_report()
+        return
+    if VOICES == 'auto':
+        n = choose_voices()
+        print(f'VOICES=auto: {n} voices by the estimate (budget A {BUDGET["s1m0"]}, B {BUDGET["s1m1"]})')
+        progs, over = build()
+        while over and NV > 1:                      # the estimate is a lower bound: the sections may cost one voice
+            print(f'make_s1cc.py: {NV} voices do not fit ({", ".join(over)}), one less')
+            set_voices(NV - 1)
+            progs, over = build()
     else:
-        progs = sources()
-    over = []
+        progs, over = build()
     for n in ['s1s0'] + list(SECTION_OF):             # sections this build does not use: no stale files
         if n not in progs:
             for ext in ('.s', '.hex'):
@@ -1342,16 +1415,6 @@ def main():
             f'# {name}, own SYSTEM-1 program (make_s1cc.py KERNEL={KERNEL} VOICES={NV})\n'
             + '\n'.join('%04x' % x for x in w) + '\n')
         print(f'{name:6s} {instr_count(lines):4d} instructions, {len(w)} halfwords')
-        if name in BUDGET:                             # a DSP's time: its main and its sections
-            parts = dsp_programs(progs, 'A' if name == 's1m0' else 'B')
-            n_ins = sum(instr_count(x[1][2]) for x in parts)
-            if n_ins > BUDGET[name]:
-                over.append(f'{name}: {n_ins} instructions{" (with its sections)" if len(parts) > 1 else ""}, '
-                            f'budget {BUDGET[name]}')
-            if 2 * len(w) > MAIN_BYTES:
-                over.append(f'{name}: {2 * len(w)} bytes, its region has {MAIN_BYTES}')
-        if name in SECTION_OF and 2 * len(w) > SECTION_OF[name][3] - SECTION_OF[name][2]:
-            over.append(f'{name}: {2 * len(w)} bytes, its section has {SECTION_OF[name][3] - SECTION_OF[name][2]}')
     print(f'kernel per voice: A {len(KDEF.dsps["A"]["lines"])} lines, {words("A")} words'
           + (f'; B {len(KDEF.dsps["B"]["lines"])} lines, {words("B")} words' if HAS_B else '; no DSP B'))
     crossing_report(progs)
