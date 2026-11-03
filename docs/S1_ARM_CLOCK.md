@@ -48,13 +48,22 @@ static void tick(int i)
 
 | servicio | qué hace | resultado en el DSP B del esclavo |
 |---|---|---|
-| `FCEC(sel, id, bits)` (`SVC 0xEC`), inmediato | `[+0] = 0xE0000000, [+4] = [+8] = valor, [+0xC] = 0` en el bloque `0x4016C000 + 16·id` | **`C080`–`C09F`: llega exacto**, 1000 escrituras por segundo sin perder ninguna (diente de sierra de 64 pasos, lineal de punta a punta) |
-| `FCEC` a `C100`… | lo mismo | **no sirve**: el DSP lee un valor casi fijo y el nuestro solo aparece unos ms después de un cambio grande |
-| `FCE4(sel, id, destino, y, z)` (`SVC 0xE4`), rampa del hardware | rampa lineal de 4–97 ms ([examples_system_1_ramp_README.md](examples_system_1_ramp_README.md)) | **a `C080`…: no llega** (el parámetro no se mueve); a `C0C0`… tampoco (2026-10-30). Medida solo en el maestro (`C030`) |
+| `FCEC(sel, id, bits)` (`SVC 0xEC`), inmediato | `[+0] = 0xE0000000, [+4] = [+8] = valor, [+0xC] = 0` en el bloque `0x4016C000 + 16·id` | **`C060`–`C0FF`: llega exacto**, 1000 escrituras por segundo sin perder ninguna |
+| `FCE4(sel, id, destino, y, z)` (`SVC 0xE4`), rampa del hardware | rampa lineal de 4–97 ms, pasos de 1/3 ms ([examples_system_1_ramp_README.md](examples_system_1_ramp_README.md)) | **solo ids < `0x80`**: `C061`–`C07F` sube en rampa hasta el destino; `C080`–`C0FF` no se mueve |
+| cualquier escritura a `C100`… | — | **no son parámetros**: `FCEC` a `C107` casi no se ve, y escribir `C100`–`C13F` (224 valores de una tabla al cargar) dejó el esclavo mudo hasta cambiar de PLUG-OUT |
 
-Uso recomendado: **un `FCEC` por parámetro por tick, en `C080`–`C09F`**. La curva queda en escalones de 1 ms
-(1000 puntos por segundo). Los parámetros `C040`–`C07F` del DSP B también los escribe el ARM sin problema (las
-perillas del anfitrión y del kernel, `b6`), pero solo cuando cambia una perilla.
+Barrido de ids (`ramp_probe.c`, `ARM_RAMPTEST=1`, captura `work/captures/ramp_probe4_*.wav`): un latido en `C060`
+cada 128 ms prueba que el ARM sigue vivo; cada ranura escribe 0,5 con `FCEC`, lanza `FCE4` a 1,0 (`y = 5`) y vuelve a
+0. El latido no se cortó en 22 s, y la rampa llegó exactamente en `C061`–`C07F`.
+
+Dos formas de usar el tick:
+
+| | `FCEC` cada 1 ms (`ARM_RAMP=0`) | `FCE4` cada 4 ms (`ARM_RAMP=1`) |
+|---|---|---|
+| resolución | 1 ms, escalones | rectas de 4 ms (pasos de 1/3 ms del hardware) |
+| retraso al cambiar | ≤ 1 ms | ~4 ms |
+| ids | `C060`–`C0FF` | solo `< 0x80` |
+| escrituras del ARM | 1 por parámetro por ms | 1 por parámetro cada 4 ms |
 
 ## 3. Cómo se midió: telemetría por audio
 
@@ -72,10 +81,13 @@ El ARM del esclavo no tiene salida al PC (no manda MIDI). La telemetría usa el 
 | `arm_probe_tele_*.wav` | `C107` / `C10F`, `FCEC` | tick 64,0 ms, pasos 256 ms; el DSP ve casi un valor fijo |
 | `arm_probe_c080_*.wav` | `C087` / `C08F`, `FCEC` | diente de sierra limpio 0…1 en los dos |
 | `arm_probe_fcec_*.wav` | `C080`…, envolventes y LFO con `FCEC` cada 1 ms | ADSR y LFO completos y suaves, release hasta 0 |
+| `ramp_probe4_*.wav` | barrido `C061`–`C0FF`, `FCEC` + `FCE4` | rampa solo en `C061`–`C07F` |
+| `arm_probe_ramp_*.wav` | `C060`…, envolventes y LFO con `FCE4` cada 4 ms | ADSR y LFO completos, release hasta 0 |
 
 ## 4. Abierto
 
-* Qué escribe en `C100`… (o a qué alias apunta ese bloque) y por qué `FCE4` no mueve `C080`… en el esclavo.
+* Qué hay en `0x4016C000 + 16·id` para `id ≥ 0x100` y por qué la rampa solo existe para `id < 0x80`.
+* Si las rampas funcionan en `C000`–`C05F` (no medido: el OS y el anfitrión usan parte de esa zona).
 * El tiempo que deja el tick: cuántas escrituras `FCEC` caben por ms antes de molestar al OS (probadas: ~33 por ms,
   8 voces × 2 envolventes + LFO + fade).
 * El mismo gancho en el maestro.

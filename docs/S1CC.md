@@ -246,7 +246,7 @@ S1_COMPILE("--regs 0,1,2,3");                               /* opciones de s1cc 
 | macro | qué hace |
 |---|---|
 | `S1_BUILD("CLAVE=VALOR ...")` | `s1cc lower` copia cada par a `voice.s1k` como `.option CLAVE VALOR` (§7.4), en el orden dado. `CLAVE`: `A`–`Z`, `0`–`9`, `_`; `VALOR` sin espacios, o entre comillas (`NAME=\"MY SYNTH\"`). s1cc no interpreta las claves: las valida el anfitrión. SYSTEM-S1CC las toma como valores por defecto de sus variables, y una variable de entorno gana ([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §1.2) |
-| `S1_COMPILE("--opción valor ...")` | opciones de `s1cc lower` (`--regs`, `--regs-a`, `--regs-b`, `--tol`, `--tollog`, `--maxdeg`, `--maxknots`, `--trace`, `--no-exact-init`, `--no-fold-branches`, `--no-recipseed`, `--no-fuse-mac`, `--no-native`). Se aplican antes que las de la línea de comandos: `s1cc build ... --regs 0,1,2,3,4,5,6,7` gana. `voice.s1k` las guarda en `.compile` |
+| `S1_COMPILE("--opción valor ...")` | opciones de `s1cc lower` (`--regs`, `--regs-a`, `--regs-b`, `--tol`, `--tollog`, `--maxdeg`, `--maxknots`, `--trace`, `--no-exact-init`, `--no-fold-branches`, `--no-recipseed`, `--no-fuse-mac`, `--no-native`, `--no-derive`; y `--fused` / `--no-fused`, §3.4). Se aplican antes que las de la línea de comandos: `s1cc build ... --regs 0,1,2,3,4,5,6,7` gana. `voice.s1k` las guarda en `.compile` |
 
 * Una de cada una por voz, a nivel de archivo (dos `S1_BUILD` son una redefinición: E010).
 * Son constantes del módulo (`s1_build_opts`, `s1_compile_opts`) que el driver deja públicas; `lower` las lee del IR.
@@ -369,6 +369,10 @@ sus 256 posiciones. `prof sweep` (`runtime/s1rt.c`) barre cada perilla 0…255 c
 los valores; `s1cc lower --sweep` convierte cada valor así que alimenta al resto de la voz (y cuesta ≥ 2 ops) en una
 tabla propia `perilla~id`, con el mismo `panel_id`, que el ARM escribe con la perilla. No hay ajuste ni trabajo en el
 DSP. `tables.txt` recibe esas tablas; `s1check` y `make_s1cc.py` les dan la posición de la perilla base.
+
+* **`--no-derive`** (también en `S1_COMPILE`) las apaga: cada `s1_param` se lee de su propio parámetro del DSP. Sirve
+  para sondas que miden los parámetros uno por uno (`examples/arm_probe/ramp_probe.c`: 160 valores de una tabla que,
+  derivados, quedaban en una sola columna).
 
 ### 4.7 Llamadas indirectas (`devirt.cpp`)
 

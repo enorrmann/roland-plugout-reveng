@@ -41,7 +41,7 @@ typedef struct { int id, root; double (*fn)(double); int isint; } isl_row;   /* 
 extern const isl_row __s1p_isl_tab[] __attribute__((weak));
 extern const int __s1p_isl_n __attribute__((weak));
 
-#define MAXP 64
+#define MAXP 512                     /* S1_PARAM tables of one voice */
 static int np;
 static const s1_param_desc *pd[MAXP];
 static float *ptab[MAXP];             /* 256 x count */
@@ -52,6 +52,10 @@ static void params_init(void) {
     if (np)
         return;
     for (const s1_param_desc *d = __start_s1_params; d && d < __stop_s1_params; d++) {
+        if (np == MAXP) {
+            fprintf(stderr, "s1rt: more than %d S1_PARAM tables\n", MAXP);
+            exit(1);
+        }
         pd[np] = d;
         ptab[np] = calloc(256 * (size_t)d->count, sizeof(float));
         for (int k = 0; k < 256; k++)

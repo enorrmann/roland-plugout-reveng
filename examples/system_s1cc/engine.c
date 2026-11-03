@@ -200,7 +200,7 @@ static void hlfo_all(void) {}
    Integer only (no FPU on the SYSTEM-1's ARM; the SYSTEM-8's has one): levels in Q24 (1 = 1 << 24), tables from
    make_s1cc.py. */
 
-#if ARM_ENV || ARM_LFO || ARM_TICK
+#if ARM_ENV || ARM_LFO || ARM_TICK || ARM_RAMPTEST
 typedef void (*ramp_fn)(int sel, int id, uint32_t target, int y, int z);
 typedef void (*cyc_fn)(int i);
 #define Q1 (1 << 24)
@@ -326,7 +326,7 @@ static void lfo_step(int v, int m)                     /* m sixteenths of a step
 }
 #endif
 
-#if ARM_ENV || ARM_LFO || ARM_TICK
+#if ARM_ENV || ARM_LFO || ARM_TICK || ARM_RAMPTEST
 static cyc_fn cyc_os;                                  /* the OS's client function, called first */
 static volatile uint32_t tick_n;
 #define DEMCR (*(volatile uint32_t *)0xE000EDFCu)
@@ -338,6 +338,31 @@ static uint32_t tick_last, tick_acc, seg_cycles, step_last, step_min;
 static const uint16_t y_cms[16] = { 398, 813, 1220, 1625, 2008, 2438, 2843, 3250, 3591, 4014, 4877, 5684, 6496, 7181,
                                     8025, 9744 };
 
+#if ARM_RAMPTEST
+/* which DSP B ids the hardware ramps reach (kernel sdk/s1cc/examples/arm_probe/ramp_probe.c, docs/S1_ARM_CLOCK.md).
+   Value 0 of the kernel's table is a heartbeat: 1 for the first 16 ms of every 128 ms slot (the ARM is alive).
+   Values 1.. one per slot: FCEC 0.5 at 0 ms, FCEC 0 at 96 ms; from slot RT_IMM_ONLY of the run on, also an FCE4 ramp
+   to 1.0 (y = 5, ~24 ms) at 32 ms (2026-11-03: the first runs went silent for good; is it the ramp?) */
+#define RT_IMM_ONLY 20
+static void ramp_test(uint32_t n)
+{
+    uint32_t slot = n >> 7, t = n & 127;
+    int top = kparam_b[0] + kparam_count[0] > 0x100 ? 0x100 : kparam_b[0] + kparam_count[0];   /* ids < 0x100 only:
+                                          the first pass with C100..C13F left DSP B silent, 2026-11-03 */
+    int k = 1 + (int)(slot % (uint32_t)(top - kparam_b[0] - 1)), id = kparam_b[0] + k;
+    if (t == 0)
+        b6(1, kparam_b[0], F_ONE);                     /* the heartbeat */
+    else if (t == 16)
+        b6(1, kparam_b[0], F_ZERO);
+    if (t == 0)
+        b6(1, id, 0x3F000000u);
+    else if (t == 32 && slot >= RT_IMM_ONLY)
+        ((ramp_fn)SVC(0xE4))(1, id, F_ONE, 5, 0);
+    else if (t == 96)
+        b6(1, id, F_ZERO);
+}
+#endif
+
 static void tick(int i)                                /* the cyclic handler, every period */
 {
     if (cyc_os)
@@ -347,6 +372,9 @@ static void tick(int i)                                /* the cyclic handler, ev
         CYC_CLIENT = tick;
     }
     uint32_t n = ++tick_n;
+#if ARM_RAMPTEST
+    ramp_test(n);
+#endif
 #if ARM_PROBE && ARM_ENV
     b6(1, P_ENV0 + NV - 1, q24_bits((int32_t)(n & 63) << 18));           /* telemetry: the calls of tick() */
 #endif

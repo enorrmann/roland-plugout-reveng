@@ -129,6 +129,7 @@ int main(int argc, char **argv) {
     std::string cmd = argv[1], in = argv[2], out, profile, tables, report, kernelPath, tripsPath, intoPath, remarksPath,
         sweepPath;
     s1::LowerOptions opt;
+    bool noDerive = false;
     // the lower options in `a` (the command line, or S1_COMPILE's tokens when onlyLower: no paths there, E013)
     auto parse = [&](const std::vector<std::string> &args, bool onlyLower) {
         for (size_t i = 0; i < args.size(); i++) {
@@ -163,6 +164,7 @@ int main(int argc, char **argv) {
             else if (a == "--no-fuse-mac") opt.fuseMac = false;
             else if (a == "--no-native") opt.native = false;
             else if (a == "--trace") opt.trace = true;
+            else if (a == "--no-derive") noDerive = true;   // no knob-derived columns (§4.6): every s1_param read stays
             else if (a == "--fused" || a == "--no-fused") {}   // the driver's (s1cc fuse); allowed in S1_COMPILE
             else if (a == "--maxdeg") opt.maxDeg = std::stoi(next());
             else if (a == "--maxknots") opt.maxKnots = std::stoi(next());
@@ -261,7 +263,10 @@ int main(int argc, char **argv) {
         return 0;
     }
     s1::Program P;
-    if (!sweepPath.empty()) {          // `prof sweep`: "w TABLE ID v0 .. v255" (knob-derived columns, §4.6)
+    if (cmd == "lower")                // S1_COMPILE's options count for --no-derive too
+        for (auto &w : splitWords(moduleString(*M, "s1_compile_opts")))
+            noDerive |= w == "--no-derive";
+    if (!sweepPath.empty() && !noDerive) {          // `prof sweep`: "w TABLE ID v0 .. v255" (knob-derived columns, §4.6)
         std::ifstream f(sweepPath);
         if (!f)
             s1::fail("E005", "cannot read the knob sweep " + sweepPath);

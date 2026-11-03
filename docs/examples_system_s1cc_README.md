@@ -421,13 +421,20 @@ primera carga indexada del banco 5 en el SYSTEM-1: el S8 la tiene medida exacta,
 (`make_s1cc.py ArmModel`: la misma aritmética Q24 que `engine.c`, un paso cada 96 muestras): la envolvente simulada
 coincide con la del DSP (pico 0,124 contra 0,123, MP-CSAW2).
 
-Las dos ADSR por voz y el LFO por voz corren en el ARM del esclavo (`engine.c arm_*`), cada 1 ms, enganchados al
-tick del OS ([S1_ARM_CLOCK.md](S1_ARM_CLOCK.md)). Cada una es un parámetro del DSP B que el ARM escribe con `FCEC`
-en cada tick: envolvente i de la voz v en `C080 + 8 i + v`, lf (LFO × fade) en `C090 + v`, fade en `C098 + v`
-(`ARM_P0`). El DSP B solo lee el parámetro (`ld` + `st`).
+Las dos ADSR por voz y el LFO por voz corren en el ARM del esclavo (`engine.c arm_*`), enganchados al tick de 1 ms
+del OS ([S1_ARM_CLOCK.md](S1_ARM_CLOCK.md)). Cada una es un parámetro del DSP B; el DSP B solo lo lee (`ld` + `st`).
 
-* **ADSR.** La de C-S1SY (ataque hacia 1,25 hasta 1, decay hacia S, release hacia 0). El factor del polo por paso de
-  1 ms sale de tablas: `env_att_seg` / `env_dec_seg` = (1 − tasa)^96, en Q24. Al terminar el release, por debajo de
+| `ARM_RAMP` | cómo escribe el ARM | parámetros (`ARM_P0`) | tablas del kernel en el DSP B |
+|---|---|---|---|
+| `1` | un punto cada 4 ms con `FCE4`; el hardware hace la recta | envolvente i de la voz v en `C060 + 8 i + v`, lf en `C070 + v`, fade en `C078 + v` (las rampas solo llegan a ids `< 0x80`) | desde `C080` |
+| `0` (por defecto) | el valor con `FCEC` en cada tick de 1 ms: más rápido (≤ 1 ms de retraso) y con ids para más de 8 voces | `C080 + 8 i + v`, `C090 + v`, `C098 + v` | desde `C060` |
+
+Ventajas de cada uno: [S1_ARM_CLOCK.md](S1_ARM_CLOCK.md) §2. Con rampas el arranque de la nota se atrasa ~4 ms y
+un ataque o decay de menos de ~8 ms queda suavizado; con `ARM_RAMP=0` la curva es una escalera de 1 ms (medida
+inaudible: bandas laterales a −79 dB).
+
+* **ADSR.** La de C-S1SY (ataque hacia 1,25 hasta 1, decay hacia S, release hacia 0). El factor del polo por paso sale
+  de tablas: `env_att_seg` / `env_dec_seg` = (1 − tasa)^N, en Q24 (N = 384 muestras con rampas, 96 sin). Al terminar el release, por debajo de
   −84 dB, el nivel queda en 0.
 * **LFO.** Fase de 32 bits (reinicio en el note on), S&H en cada vuelta, S&G y las seis formas de la versión del
   DSP. El fade sigue al gate (DELAY TIME).

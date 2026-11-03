@@ -58,7 +58,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # the options a kernel may set with S1_BUILD("KEY=VALUE ...") (its .option lines): the defaults of these variables;
 # an environment variable wins (docs/examples_system_s1cc_README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
-           'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0',
+           'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
            'ARM_TICK', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
@@ -315,9 +315,11 @@ ARM_ENV = opt('ARM_ENV', '1') == '1' and HOST_ENVS   # default since 2026-11-03 
 ARM_LFO = opt('ARM_LFO', '1') == '1' and HOST_LFO
 if ARM_LFO and LFO_LUT:
     raise SystemExit('make_s1cc.py: ARM_LFO and LFO_LUT together: the LFO is either on the ARM or on DSP B')
-# ARM_RAMP=0 (default since 2026-11-03): the value written at every 1 ms tick (FCEC), one step per ms. Measured on the
-# device (ARM_PROBE): FCEC writes to C080.. reach DSP B exactly; hardware ramps (FCE4) to C080.. do not reach it, and
-# C100.. read back nearly constant. ARM_RAMP=1: one ramp of 4 ms per step (the 2026-10-30 version, C100..)
+# ARM_RAMP=0 (default): the value written at every 1 ms tick (FCEC), steps of 1 ms: <= 1 ms late, attacks down to
+# ~1 ms, ids C080.. (room for more voices). ARM_RAMP=1: one point every 4 ms, the hardware ramps (FCE4) linearly
+# between points (its own steps of 1/3 ms), ~4 ms late. Measured on the slave's DSP B (2026-11-03, ramp_probe): ramps
+# reach the program only for ids below 0x80 (C061..C07F: yes; C080..C0FF: no); FCEC reaches C060..C0FF; ids from
+# 0x100 are not plain parameters (writing C100..C13F left the slave silent)
 ARM_RAMP = opt('ARM_RAMP', '0') == '1'
 ARM_SEG = 384 if ARM_RAMP else 96               # samples per step: a 4 ms ramp (y = 0), or the 1 ms tick
 ARM_FADE = opt('ARM_FADE', '1') == '1'   # 0: no DELAY TIME (the LFO's fade at 1)
@@ -330,13 +332,14 @@ ARM_TICK = opt('ARM_TICK', '0') == '1'
 # through voice NV-1's envelope parameters, heard as tones: env 0 = (calls of tick() mod 64) / 64, env 1 = (envelope
 # steps mod 64) / 64. Leave voice NV-1 unplayed
 ARM_PROBE = opt('ARM_PROBE', '0') == '1'
-# DSP B parameters: envelope i of voice v at P_ENV0 + 8 i + v; lf, fade at P_LFO0 / P_FADE0 + v. 0x100..: on the
-# slave's DSP B the ramps of C0C0..C0DF never reached the program (2026-10-30: silent), those of C100.. did. The
-# end-of-ramp interrupt gives the id in 8 bits and FE3C's table has 256 entries: engine.c registers id & 0xFF and
-# puts 0x100 back in arm_cb
-P_ENV0, P_LFO0, P_FADE0 = [int(x, 0) for x in opt('ARM_P0', '0x80,0x90,0x98').split(',')]
-# (2026-11-03, ARM_PROBE telemetry on the device: a sawtooth written with FCEC to C107 read back nearly constant on
-# DSP B; written to C087 it read back exactly. ARM_P0=0x100,0x110,0x118 is the 2026-10-30 layout)
+# ARM_RAMPTEST=1 (with sdk/s1cc/examples/arm_probe/ramp_probe.c): the ARM tests every kernel table of DSP B in turn,
+# an immediate write (FCEC) and a hardware ramp (FCE4) per 128 ms slot (docs/S1_ARM_CLOCK.md)
+ARM_RAMPTEST = opt('ARM_RAMPTEST', '0') == '1'
+# DSP B parameters: envelope i of voice v at P_ENV0 + 8 i + v; lf, fade at P_LFO0 / P_FADE0 + v. With ramps they must
+# be below 0x80: C060..C07F, and the kernel's DSP B tables move to C080.. (written with FCEC, on a knob move only)
+P_ENV0, P_LFO0, P_FADE0 = [int(x, 0) for x in opt('ARM_P0', '0x60,0x70,0x78' if ARM_RAMP else '0x80,0x90,0x98').split(',')]
+if (ARM_ENV or ARM_LFO) and P_ENV0 <= K_B_PARAM0 < P_FADE0 + NV_MAX:
+    K_B_PARAM0 = P_FADE0 + NV_MAX                   # the kernel's DSP B tables after the ARM's parameters
 
 
 H_ENV_STRIDE = 8 if CURVE else 6                # addresses of one host envelope: level, latch, last trigger (, curved)
@@ -495,11 +498,15 @@ def layout():
 
 
 def check_arm_ids():
-    """ARM_ENV / ARM_LFO: the kernel's DSP B parameters must end below P_ENV0"""
-    if ARM_ENV or ARM_LFO:
-        top = max([bb + cnt for cnt, ab, bb in layout().values() if bb is not None] + [0])
-        if top > P_ENV0:
-            raise SystemExit(f'make_s1cc.py: the kernel\'s DSP B parameters reach C{top:03x}, past P_ENV0 C{P_ENV0:03x}')
+    """the kernel's DSP B parameters: below 0x100 (ids from 0x100 are not plain parameters, 2026-11-03), and apart
+    from the ARM's (ARM_ENV / ARM_LFO, P_ENV0 .. P_FADE0 + NV_MAX)"""
+    used = [(bb, bb + cnt) for cnt, ab, bb in layout().values() if bb is not None]
+    top = max([b for _, b in used] + [0])
+    if top > 0x100:
+        raise SystemExit(f'make_s1cc.py: the kernel\'s DSP B parameters reach C{top:03x}, past C0FF')
+    if (ARM_ENV or ARM_LFO) and any(a < P_FADE0 + NV_MAX and b > P_ENV0 for a, b in used):
+        raise SystemExit(f'make_s1cc.py: the kernel\'s DSP B parameters overlap the ARM\'s C{P_ENV0:03x}..'
+                         f'C{P_FADE0 + NV_MAX - 1:03x}')
 
 
 def words(dsp):
@@ -1265,6 +1272,7 @@ def header(progs):
     check_arm_ids()
     out.append(f'#define ARM_ENV {int(ARM_ENV)}\n#define ARM_LFO {int(ARM_LFO)}\n'
                f'#define ARM_DIAG {int(ARM_DIAG)}\n#define ARM_TICK {int(ARM_TICK)}\n#define ARM_PROBE {int(ARM_PROBE)}\n'
+               f'#define ARM_RAMPTEST {int(ARM_RAMPTEST)}\n'
                f'#define ARM_RAMP {int(ARM_RAMP)}\n#define ARM_FADE {int(ARM_FADE)}\n'
                f'#define ARM_SEG_MS {ARM_SEG // 96}  /* one step: a 4 ms ramp or the 1 ms tick */')
     if ARM_ENV or ARM_LFO:
@@ -1357,6 +1365,7 @@ class ArmModel:
         self.lvl = [[0] * NV for _ in range(2)]
         self.ph, self.h, self.g, self.fade = [0] * NV, [0] * NV, [0] * NV, [0] * NV
         self.on, self.restart, self.rnd = [0] * NV, [0] * NV, 0x12345678
+        self.ramps = {}                                # parameter -> (start, end, steps done)
 
     @staticmethod
     def qmul(a, b):
@@ -1377,8 +1386,21 @@ class ArmModel:
             for i in range(2):
                 self.st[i][v] = 1 if on else (0 if self.st[i][v] == 0 else 3)
 
+    RAMP_STEPS = 12                                 # a 4 ms ramp of the hardware: steps of 1/3 ms (32 samples)
+
     def write(self, pid, q):
-        self.p[0xC000 + pid] = f32(q / self.Q1)
+        """FCEC: at once; ARM_RAMP: FCE4, a linear ramp from the parameter's value now to q over ARM_SEG samples"""
+        if ARM_RAMP:
+            self.ramps[pid] = (self.p[0xC000 + pid], q / self.Q1, 0)
+        else:
+            self.p[0xC000 + pid] = f32(q / self.Q1)
+
+    def sub(self):
+        """one hardware ramp step (every 32 samples)"""
+        for pid, (a, b, j) in list(self.ramps.items()):
+            j += 1
+            self.p[0xC000 + pid] = f32(a + (b - a) * min(1.0, j / self.RAMP_STEPS))
+            self.ramps[pid] = (a, b, j)
 
     def env_step(self, i, v):
         Q1, top = self.Q1, self.Q1 + self.Q1 // 4
@@ -1413,7 +1435,7 @@ class ArmModel:
             return Q1 if p > 0 else -Q1 if p < 0 else 0
         return self.g[v]
 
-    def lfo_step(self, v, m=16):
+    def lfo_step(self, v, m=16):    # m sixteenths of a step
         Q1, r = self.Q1, self.rate
         if self.restart[v]:
             self.restart[v], self.ph[v] = 0, 0
@@ -1478,14 +1500,15 @@ def simulate(progs, events, n, knobs=None, gate_lag=0):
     else:
         events = {te: [(v, ('on', note) if note is not None else None) for v, note in lst] for te, lst in events.items()}
     arm = ArmModel(sl.d[1].params, knobs or {}) if ARM_ENV or ARM_LFO else None
-    if arm and ARM_RAMP:
-        raise SystemExit('make_s1cc.py --sim: the ARM model is the ARM_RAMP=0 one (FCEC every 1 ms)')
+    grid = 32 if ARM_RAMP else ARM_SEG              # the hardware ramp's step, or the 1 ms tick
     out, t, word = [], 0, (2, M_OUT[0])
     for te in sorted(e for e in events if e < n) + [n]:
-        while te > t:                               # the ARM's tick every ARM_SEG samples (1 ms)
-            k = min(te, (t // ARM_SEG + 1) * ARM_SEG) - t
+        while te > t:                               # the ARM's step every ARM_SEG samples (4 ms ramps or 1 ms)
+            k = min(te, (t // grid + 1) * grid) - t
             out += sl.run(k, (word,))[word]
             t += k
+            if arm and ARM_RAMP and t % grid == 0:
+                arm.sub()
             if arm and t % ARM_SEG == 0:
                 arm.step()
         for v, note in events.get(te, []) if te < n else []:

@@ -1044,6 +1044,7 @@ static const uint32_t half_bits[256] = {
 #define ARM_DIAG 0
 #define ARM_TICK 0
 #define ARM_PROBE 0
+#define ARM_RAMPTEST 0
 #define ARM_RAMP 0
 #define ARM_FADE 1
 #define ARM_SEG_MS 1  /* one step: a 4 ms ramp or the 1 ms tick */
