@@ -23,9 +23,13 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
     MAIN_BYTES=n            the size each slave main program may have: 6144 bytes, its region 0x0100..0x18FF before
                             section 2 (docs/DSP_PROGRAM_MEMORY.md §3.1); 5854 bytes ran, 6534 and 6740 hung the
                             device (2026-10-28). Above a budget or the size the build stops (exit code 3)
-    OUTDIR=dir              where the programs and build/s1_programs.h go (default: this folder)
+    OUTDIR=dir              where everything generated goes: the programs (.s / .hex), s1_programs.h,
+                            try_forms.txt (default: build/ next to this file, build.sh's folder)
 
-    python3 make_s1cc.py           -> s1*.s / s1*.hex here, build/s1_programs.h
+    The other variables (BUDGET*, MAIN_BYTES, LFO_PITCH, ARM_ENV, ...: OPTIONS below) may also come from the kernel:
+    S1_BUILD("ARM_ENV=1 LFO_LUT=1") in its C source -> .option lines in voice.s1k. An environment variable wins.
+
+    python3 make_s1cc.py           -> build/s1*.s, build/s1*.hex, build/s1_programs.h
     python3 make_s1cc.py --sim     -> also the whole chain on the emulator (C core) against the kernel's native
                                       reference (sdk/s1cc refdsp), and the silence without notes
 """
@@ -48,16 +52,44 @@ import s1rules  # noqa: E402  (asm/s1rules.py: the SYSTEM-1 access rules)
 KERNEL = os.environ.get('KERNEL', '')
 if not KERNEL or not os.path.exists(os.path.join(KERNEL, 'voice.s1k')):
     raise SystemExit('make_s1cc.py: KERNEL=<s1cc build directory> (with voice.s1k) is required')
+KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
+# the options a kernel may set with S1_BUILD("KEY=VALUE ...") (its .option lines): the defaults of these variables;
+# an environment variable wins (docs/examples_system_s1cc_README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
+OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
+           'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG',
+           'ARM_TICK', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS')
+_bad = sorted(set(KDEF.options) - set(OPTIONS))
+if _bad:
+    raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
+if KDEF.options:
+    print('kernel options (S1_BUILD): ' + ' '.join(f'{k}={v}' + (f' (environment: {os.environ[k]})' if k in os.environ
+                                                                 else '') for k, v in KDEF.options.items()))
+
+
+def opt(name, default):
+    """an option: the environment variable, else the kernel's S1_BUILD value, else the default"""
+    return os.environ.get(name, KDEF.options.get(name, default))
+
+
 NV_MAX = 8                                     # the OS hands notes to 8 voice ids at most
 VOICES = os.environ.get('VOICES', 'auto')
 NV = NV_MAX if VOICES == 'auto' else int(VOICES)   # set_voices() changes it (VOICES=auto: choose_voices)
 if not 1 <= NV <= NV_MAX:
     raise SystemExit('make_s1cc.py: VOICES must be 1..8 or auto (the OS hands notes to 8 voice ids at most)')
-BUDGET = {'s1m0': int(os.environ.get('BUDGET_A', os.environ.get('BUDGET', '703'))),    # DSP A: 703 ran, 826 hung
-          's1m1': int(os.environ.get('BUDGET_B', os.environ.get('BUDGET', '708')))}    # DSP B: 708 ran
-MAIN_BYTES = int(os.environ.get('MAIN_BYTES', '6144'))  # 0x0100..0x18FF: 5854 bytes ran, 6534 / 6740 hung
-OUTDIR = os.environ.get('OUTDIR', HERE)        # where the .s / .hex and build/s1_programs.h go (tests: elsewhere)
-KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
+
+
+def _budget(name, default):
+    """BUDGET_A / BUDGET_B, else BUDGET: from the environment first, then from the kernel"""
+    for src in (os.environ, KDEF.options):
+        if name in src or 'BUDGET' in src:
+            return int(src.get(name, src.get('BUDGET')))
+    return default
+
+
+BUDGET = {'s1m0': _budget('BUDGET_A', 703),     # DSP A: 703 ran, 826 hung
+          's1m1': _budget('BUDGET_B', 708)}     # DSP B: 708 ran
+MAIN_BYTES = int(opt('MAIN_BYTES', '6144'))  # 0x0100..0x18FF: 5854 bytes ran, 6534 / 6740 hung
+OUTDIR = os.environ.get('OUTDIR', os.path.join(HERE, 'build'))   # everything generated (tests: a temporary folder)
 KTAB = s1kernel.read_tables(os.path.join(KERNEL, 'tables.txt'))
 HAS_B = 'B' in KDEF.dsps
 # the host's envelopes (s1_env(0) / s1_env(1) in S1_DSP_B): two ADSRs in assembly per voice on DSP B, C-S1SY's
@@ -71,7 +103,7 @@ CMOD = bool(COLOR_USED)
 # the host's LFO (per voice on DSP A, LFO SHAPE / RATE / DELAY TIME): -> PITCH modulates the pitch, s1_dt and s1_rdt
 # words the kernel reads (LFO_PITCH=0 leaves them as the ARM writes them); -> FILTER / -> AMP are s1_lfo_filter() /
 # s1_lfo_amp(), for the kernel's own filter and VCA; also the LFO source of COLOR MOD
-LFO_PITCH = os.environ.get('LFO_PITCH', '1') == '1'
+LFO_PITCH = opt('LFO_PITCH', '1') == '1'
 PITCH_MOD = [n for n in ('pitch', 'dt', 'rdt') if LFO_PITCH and f'IN:{n}' in A_READS]
 LFO_F, LFO_A = 'IN:lfo_filter' in A_READS, 'IN:lfo_amp' in A_READS
 HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A)
@@ -80,7 +112,7 @@ HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A)
 PENV = bool(PITCH_MOD or CMOD)
 # the host's mixer on DSP A, after the kernel: voice = kernel + SUB x a square one octave down + NOISE x the LFO's
 # noise, before DSP B's filter (SUB 0x176, NOISE 0x177; 0 until the knobs move). MIX=0 leaves it out
-HOST_MIX = HOST_LFO and os.environ.get('MIX', '1') == '1'
+HOST_MIX = HOST_LFO and opt('MIX', '1') == '1'
 # inputs of DSP B the host makes on DSP A (-> amp, -> filter, the modulated pitch): the host stores them straight to
 # their bank-5 word (INB), and the kernel's copy (ld IN / st INB, at the end of its DSP A code) goes away
 HOSTB = [n for n in KDEF.inputs_b if n in ('lfo_amp', 'lfo_filter') or (n == 'pitch' and 'pitch' in PITCH_MOD)]
@@ -136,8 +168,8 @@ if A_SELF & {'IN:lfo_amp', 'IN:lfo_filter'}:
 HOST_ENV_USED = [0, 1] if CMOD else HOST_ENV_KERNEL
 HOST_ENVS = bool(HOST_ENV_USED)
 GT_B = HOST_ENVS or HOST_LFO                  # DSP A copies gate and trigger for DSP B (its envelopes, its LFO)
-ENV_TMIN = float(os.environ.get('ENV_TMIN', '0.001'))    # seconds at fader 0 (attack, decay, release)
-ENV_TMAX = float(os.environ.get('ENV_TMAX', '10.0'))     # seconds at fader 255; exponential in between (C-S1SY's)
+ENV_TMIN = float(opt('ENV_TMIN', '0.001'))    # seconds at fader 0 (attack, decay, release)
+ENV_TMAX = float(opt('ENV_TMAX', '10.0'))     # seconds at fader 255; exponential in between (C-S1SY's)
 
 FS = 96000.0
 # bank 5 (shared by slave A and B): written by engine.c
@@ -185,8 +217,8 @@ TB = [0xA168 + v for v in range(NV_MAX)]
 #   LFO_LUT=1      the host LFO's shapes from tables (sine, triangle, saw, square; N = 16): lfo = w g + a T[phase]
 #   ENV_CURVE=...  one curve for every host envelope (sq, cube, sqrt, smooth, lin; N = 32): level = C(ADSR); the same
 #                  table for all of them, each envelope with its own state
-LFO_LUT = os.environ.get('LFO_LUT', '0') == '1'
-ENV_CURVE = os.environ.get('ENV_CURVE', 'none')
+LFO_LUT = opt('LFO_LUT', '0') == '1'
+ENV_CURVE = opt('ENV_CURVE', 'none')
 CURVES = {'lin': lambda x: x, 'sq': lambda x: x * x, 'cube': lambda x: x ** 3, 'sqrt': math.sqrt,
           'smooth': lambda x: x * x * (3 - 2 * x)}
 if ENV_CURVE != 'none' and ENV_CURVE not in CURVES:
@@ -259,18 +291,18 @@ def luts_all():
 # voice in a DSP B parameter that the hardware ramps (FCE4, 4.00 ms per ramp with y = 0 whatever the distance); a
 # hook in the slave OS's 1 ms cyclic handler advances each voice every 4 ms (docs/examples_system_s1cc_README.md
 # §3.7). DSP B only reads the parameter.
-ARM_ENV = os.environ.get('ARM_ENV', '0') == '1' and HOST_ENVS
-ARM_LFO = os.environ.get('ARM_LFO', '0') == '1' and HOST_LFO
+ARM_ENV = opt('ARM_ENV', '0') == '1' and HOST_ENVS
+ARM_LFO = opt('ARM_LFO', '0') == '1' and HOST_LFO
 if ARM_LFO and LFO_LUT:
     raise SystemExit('make_s1cc.py: ARM_LFO and LFO_LUT together: the LFO is either on the ARM or on DSP B')
 ARM_SEG = 384                                   # samples per ramp (y = 0)
-ARM_RAMP = os.environ.get('ARM_RAMP', '1') == '1'   # 0: no ramps, the value written at every tick (FCEC)
-ARM_FADE = os.environ.get('ARM_FADE', '1') == '1'   # 0: no DELAY TIME (the LFO's fade at 1)
+ARM_RAMP = opt('ARM_RAMP', '1') == '1'   # 0: no ramps, the value written at every tick (FCEC)
+ARM_FADE = opt('ARM_FADE', '1') == '1'   # 0: no DELAY TIME (the LFO's fade at 1)
 # diagnostics, heard on the device (2026-10-30): ARM_DIAG=1 DSP B adds 0.1 x C11F to the output and engine.c
 # toggles C11F at every note on / off (a click: the positive check); ARM_TICK=1 the 1 ms tick also toggles it every
 # 4 ticks (a 125 Hz buzz while the tick runs)
-ARM_DIAG = os.environ.get('ARM_DIAG', '0') == '1'
-ARM_TICK = os.environ.get('ARM_TICK', '0') == '1'
+ARM_DIAG = opt('ARM_DIAG', '0') == '1'
+ARM_TICK = opt('ARM_TICK', '0') == '1'
 # DSP B parameters: envelope i of voice v at P_ENV0 + 8 i + v; lf, fade at P_LFO0 / P_FADE0 + v. 0x100..: on the
 # slave's DSP B the ramps of C0C0..C0DF never reached the program (2026-10-30: silent), those of C100.. did. The
 # end-of-ramp interrupt gives the id in 8 bits and FE3C's table has 256 entries: engine.c registers id & 0xFF and
@@ -290,7 +322,7 @@ B6_PENV, B6_COL = 0x52, (0x54, 0x5A)
 # takes B, and A when B does not fit or fits fewer voices (a kernel with a short DSP A: most of mutable_ported)
 A6_PENV, A6_COL = 0x48, (0x50, 0x58)
 ENVX = ([0xA170 + v for v in range(NV_MAX)], [0xA178 + v for v in range(NV_MAX)])
-MOD_DSP = os.environ.get('MOD_DSP', 'auto')
+MOD_DSP = opt('MOD_DSP', 'auto')
 if MOD_DSP not in ('A', 'B', 'auto'):
     raise SystemExit('make_s1cc.py: MOD_DSP must be A, B or auto')
 MOD_B = MOD_DSP != 'A'                          # where the pitch envelope and COLOR MOD are now (main() may change it)
@@ -300,7 +332,7 @@ MOD_B = MOD_DSP != 'A'                          # where the pitch envelope and C
 # `ldidx` reads the source, color = w0 + w src. The LFO and the sub are copied into the voice block first (bank 0).
 # Indexed transfers: exact on the SYSTEM-8 master (re/dspverify.py --programs, 2026-10-29); none in Roland's
 # SYSTEM-1 programs (docs/NATIVE_OPS.md)
-CMOD_IDX = os.environ.get('CMOD_IDX', '1') == '1'
+CMOD_IDX = opt('CMOD_IDX', '1') == '1'
 CMT0 = 0x0500                                   # DSP B bank 0: the table of COLOR MOD sources (CMOD_IDX), free words
 
 
@@ -895,13 +927,13 @@ def assemble(lines):
 # TRY_FORMS: op groups to test on the device before they go into asm/proven_forms.txt (docs/examples_system_s1cc_README.md
 # §4.1): 'all' (every encodable group) or 'mad:reg + mul:imm; ...'; the build lists the ones it used in
 # build/try_forms.txt, and tools/proven_forms.py promote adds them to the list once the PLUG-OUT worked on the device
-TRY_FORMS = os.environ.get('TRY_FORMS', '').strip()
+TRY_FORMS = opt('TRY_FORMS', '').strip()
 # PAIRS: DSP A runs voices two at a time, the even one in r0..r3 and the odd one in r4..r7, interleaved, so the
 # scheduler can put the ops of both in one instruction (one voice is a chain of dependencies). On when the kernel is
 # built with --regs-a 0,1,2,3 (and DSP B too with --regs-b 0,1,2,3)
 # automatic (PAIRS=0 / 1 forces it): pairs when the kernel's DSP A code is in r0..r3
 _A_LOW = not any(re.search(r'\br[4-7]\b', x) for x in KDEF.dsps['A']['lines'])
-PAIRS = {'0': False, '1': True}.get(os.environ.get('PAIRS', ''), _A_LOW)
+PAIRS = {'0': False, '1': True}.get(opt('PAIRS', ''), _A_LOW)
 if PAIRS and not _A_LOW:
     raise SystemExit('make_s1cc.py: PAIRS=1 needs the kernel built with --regs-a 0,1,2,3 (its DSP A uses r4..r7)')
 # DSP B in pairs too when its kernel is in r0..r3 (--regs-b 0,1,2,3, or --regs 0,1,2,3); else one voice at a time
@@ -1404,6 +1436,7 @@ def main():
             progs, over = build()
     else:
         progs, over = build()
+    os.makedirs(OUTDIR, exist_ok=True)
     for n in ['s1s0'] + list(SECTION_OF):             # sections this build does not use: no stale files
         if n not in progs:
             for ext in ('.s', '.hex'):
@@ -1426,9 +1459,8 @@ def main():
     if over:
         print(f'make_s1cc.py: {NV} voices do not fit ({", ".join(over)})')
         sys.exit(3)
-    os.makedirs(os.path.join(OUTDIR, 'build'), exist_ok=True)
-    open(os.path.join(OUTDIR, 'build', 's1_programs.h'), 'w').write(header(progs))
-    tried = os.path.join(OUTDIR, 'build', 'try_forms.txt')
+    open(os.path.join(OUTDIR, 's1_programs.h'), 'w').write(header(progs))
+    tried = os.path.join(OUTDIR, 'try_forms.txt')
     if TRIED:                                      # what this build tests on the device (tools/proven_forms.py promote)
         open(tried, 'w').write(f'# op groups not proven on the device used by make_s1cc.py KERNEL={KERNEL} VOICES={NV}'
                                f' TRY_FORMS={TRY_FORMS}\n'

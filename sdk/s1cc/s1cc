@@ -121,13 +121,13 @@ build)
     # across sources (a wrapper calling a library's render function): inline everything into the voice functions
     if [ "$debug" != 0 ]; then
         # the inliner's reasons for every call it kept, then what s1cc cannot compile (before any later error)
-        "$LLVM_BIN/opt" -S -passes='internalize,default<O2>' -internalize-public-api-list=s1_dsp_a,s1_dsp_b,s1_init,s1_note_range -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
+        "$LLVM_BIN/opt" -S -passes='internalize,default<O2>' -internalize-public-api-list=s1_dsp_a,s1_dsp_b,s1_init,s1_note_range,s1_build_opts,s1_compile_opts -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
             -pass-remarks-missed=inline "$out/linked0.ll" -o "$out/linked.ll" 2> "$out/inline.txt" ||
             { cat "$out/inline.txt" >&2; exit 1; }
         "$HERE/build/s1cc" diag "$out/linked.ll" --remarks "$out/inline.txt" > "$out/diag.txt"
         sed 's/^/s1cc: debug: /' "$out/diag.txt" >&2
     else
-        "$LLVM_BIN/opt" -S -passes='internalize,default<O2>' -internalize-public-api-list=s1_dsp_a,s1_dsp_b,s1_init,s1_note_range -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
+        "$LLVM_BIN/opt" -S -passes='internalize,default<O2>' -internalize-public-api-list=s1_dsp_a,s1_dsp_b,s1_init,s1_note_range,s1_build_opts,s1_compile_opts -inline-threshold=100000 -jump-threading-threshold=0 -vectorize-loops=false -vectorize-slp=false \
             "$out/linked0.ll" -o "$out/linked.ll"
     fi
     # indirect calls whose targets are known (a member-function table at a mode a branch chose): direct calls,

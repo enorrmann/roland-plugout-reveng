@@ -12,3 +12,5 @@ activar solo las luces del panel de controles que esten usados por el kernel, s1
 
 mejorar el instalador para que acepte zip
 termina de portear todos los osciladores de mutable que estan en la carpeta git/eurorack
+
+build outdir son lo mismo ? elimina los archivos intermedios generados por el build de make_s1cc y agrega que el default de outdir no sea el actual sino la carpeta correspondiente

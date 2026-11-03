@@ -57,6 +57,61 @@ static std::map<std::string, std::vector<double>> readTables(const std::string &
     return t;
 }
 
+// a NUL-terminated string constant of the module (S1_BUILD / S1_COMPILE), "" when there is none
+static std::string moduleString(Module &M, const char *name) {
+    auto *gv = M.getGlobalVariable(name, true);
+    if (gv && gv->hasInitializer())
+        if (auto *a = dyn_cast<ConstantDataArray>(gv->getInitializer()))
+            if (a->isCString())
+                return a->getAsCString().str();
+    return "";
+}
+
+static std::vector<std::string> splitWords(const std::string &s) {
+    std::vector<std::string> w;
+    std::istringstream is(s);
+    std::string x;
+    while (is >> x)
+        w.push_back(x);
+    return w;
+}
+
+// S1_BUILD("KEY=VALUE KEY=\"A VALUE\" ...") -> ".option KEY VALUE" lines (E012: not KEY=VALUE, or a key twice)
+static std::string buildOptions(const std::string &s) {
+    std::string o;
+    std::set<std::string> seen;
+    size_t i = 0;
+    while (true) {
+        while (i < s.size() && isspace((unsigned char)s[i]))
+            i++;
+        if (i >= s.size())
+            break;
+        size_t eq = i;
+        while (eq < s.size() && (isupper((unsigned char)s[eq]) || isdigit((unsigned char)s[eq]) || s[eq] == '_'))
+            eq++;
+        if (eq == i || isdigit((unsigned char)s[i]) || eq >= s.size() || s[eq] != '=')
+            s1::fail("E012", "S1_BUILD: '" + s.substr(i, s.find(' ', i) - i) + "' is not KEY=VALUE (KEY in A-Z, 0-9, _)");
+        std::string key = s.substr(i, eq - i), val;
+        i = eq + 1;
+        if (i < s.size() && s[i] == '"') {
+            size_t end = s.find('"', i + 1);
+            if (end == std::string::npos)
+                s1::fail("E012", "S1_BUILD: " + key + ": the quote is not closed");
+            val = s.substr(i + 1, end - i - 1);
+            i = end + 1;
+        } else {
+            while (i < s.size() && !isspace((unsigned char)s[i]))
+                val += s[i++];
+        }
+        if (val.empty() || val.find('\n') != std::string::npos)
+            s1::fail("E012", "S1_BUILD: " + key + " has no value");
+        if (!seen.insert(key).second)
+            s1::fail("E012", "S1_BUILD: " + key + " given twice");
+        o += ".option " + key + " " + val + "\n";
+    }
+    return o;
+}
+
 static void usage() {
     fprintf(stderr, "usage: s1cc prof IN.ll -o OUT.ll\n"
                     "       s1cc lower IN.ll --profile P --tables T -o K.s1k [--report R] [--regs LIST] [--tol X] "
@@ -72,37 +127,56 @@ int main(int argc, char **argv) {
     std::string cmd = argv[1], in = argv[2], out, profile, tables, report, kernelPath, tripsPath, intoPath, remarksPath,
         sweepPath;
     s1::LowerOptions opt;
-    for (int i = 3; i < argc; i++) {
-        std::string a = argv[i];
-        auto next = [&]() -> std::string { if (i + 1 >= argc) usage(); return argv[++i]; };
-        if (a == "-o") out = next();
-        else if (a == "--profile") profile = next();
-        else if (a == "--tables") tables = next();
-        else if (a == "--sweep") sweepPath = next();
-        else if (a == "--report") report = next();
-        else if (a == "--kernel") kernelPath = next();
-        else if (a == "--trips") tripsPath = next();
-        else if (a == "--into") intoPath = next();
-        else if (a == "--remarks") remarksPath = next();
-        else if (a == "--tol") opt.fitTol = std::stod(next());
-        else if (a == "--tollog") opt.fitTolLog = std::stod(next());
-        else if (a == "--no-exact-init") opt.exactInit = false;
-        else if (a == "--no-fold-branches") opt.foldBranches = false;
-        else if (a == "--no-recipseed") opt.recipseed = false;
-        else if (a == "--no-fuse-mac") opt.fuseMac = false;
-        else if (a == "--no-native") opt.native = false;
-        else if (a == "--trace") opt.trace = true;
-        else if (a == "--maxdeg") opt.maxDeg = std::stoi(next());
-        else if (a == "--maxknots") opt.maxKnots = std::stoi(next());
-        else if (a == "--regs" || a == "--regs-a" || a == "--regs-b") {
-            std::vector<int> &dst = a == "--regs" ? opt.regs : a == "--regs-a" ? opt.regsA : opt.regsB;
-            dst.clear();
-            std::stringstream ss(next());
-            std::string r;
-            while (std::getline(ss, r, ','))
-                dst.push_back(std::stoi(r));
-        } else usage();
-    }
+    // the lower options in `a` (the command line, or S1_COMPILE's tokens when onlyLower: no paths there, E013)
+    auto parse = [&](const std::vector<std::string> &args, bool onlyLower) {
+        for (size_t i = 0; i < args.size(); i++) {
+            const std::string &a = args[i];
+            auto next = [&]() -> std::string {
+                if (i + 1 >= args.size()) {
+                    if (onlyLower)
+                        s1::fail("E013", "S1_COMPILE: " + a + " needs a value");
+                    usage();
+                }
+                return args[++i];
+            };
+            bool path = a == "-o" || a == "--profile" || a == "--tables" || a == "--sweep" || a == "--report" ||
+                        a == "--kernel" || a == "--trips" || a == "--into" || a == "--remarks";
+            if (path && onlyLower)
+                s1::fail("E013", "S1_COMPILE: " + a + " is not a compiler option (only --regs, --tol, ...: "
+                                 "docs/S1CC.md §3.3)");
+            if (a == "-o") out = next();
+            else if (a == "--profile") profile = next();
+            else if (a == "--tables") tables = next();
+            else if (a == "--sweep") sweepPath = next();
+            else if (a == "--report") report = next();
+            else if (a == "--kernel") kernelPath = next();
+            else if (a == "--trips") tripsPath = next();
+            else if (a == "--into") intoPath = next();
+            else if (a == "--remarks") remarksPath = next();
+            else if (a == "--tol") opt.fitTol = std::stod(next());
+            else if (a == "--tollog") opt.fitTolLog = std::stod(next());
+            else if (a == "--no-exact-init") opt.exactInit = false;
+            else if (a == "--no-fold-branches") opt.foldBranches = false;
+            else if (a == "--no-recipseed") opt.recipseed = false;
+            else if (a == "--no-fuse-mac") opt.fuseMac = false;
+            else if (a == "--no-native") opt.native = false;
+            else if (a == "--trace") opt.trace = true;
+            else if (a == "--maxdeg") opt.maxDeg = std::stoi(next());
+            else if (a == "--maxknots") opt.maxKnots = std::stoi(next());
+            else if (a == "--regs" || a == "--regs-a" || a == "--regs-b") {
+                std::vector<int> &dst = a == "--regs" ? opt.regs : a == "--regs-a" ? opt.regsA : opt.regsB;
+                dst.clear();
+                std::stringstream ss(next());
+                std::string r;
+                while (std::getline(ss, r, ','))
+                    dst.push_back(std::stoi(r));
+            } else if (onlyLower)
+                s1::fail("E013", "S1_COMPILE: unknown option " + a);
+            else usage();
+        }
+    };
+    std::vector<std::string> cmdline(argv + 3, argv + argc);
+    parse(cmdline, false);
     LLVMContext ctx;
     auto M = readIR(in, ctx);
     auto writeIR = [&](const std::string &path) {
@@ -286,8 +360,20 @@ int main(int argc, char **argv) {
         }
         prof.read(profile);
         auto tab = readTables(tables);
+        std::vector<std::string> compileOpts = splitWords(moduleString(*M, "s1_compile_opts"));
+        opt = s1::LowerOptions();
+        parse(compileOpts, true);
+        parse(cmdline, false);
+        std::string options = buildOptions(moduleString(*M, "s1_build_opts"));
+        if (!compileOpts.empty()) {
+            options += ".compile";
+            for (auto &w : compileOpts)
+                options += " " + w;
+            options += "\n";
+        }
         std::string rep;
         std::string k = s1::lower(P, prof, tab, opt, rep);
+        k.insert(k.find('\n') + 1, options);  // after the header comment
         {                                  // the tables file: the knobs' own tables, then the derived ones (§4.6)
             std::ifstream f(tables);
             std::ostringstream keep;

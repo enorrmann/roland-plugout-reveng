@@ -29,7 +29,7 @@ python3 tools/plugout_tool.py install plugins/SYSTEM-S1CC --slot 1 --force --no-
 | `NAME=…` | nombre del PLUG-OUT (`SYSTEM-S1CC`) |
 | `MODEL_ID`, `PARAMLOG=1` | como en MUTABLE-SYSTEM |
 | `ENV_TMIN=s`, `ENV_TMAX=s` | tiempos de las envolventes del anfitrión con el fader en 0 y en 255 (por defecto 0,001 y 10 s, exponencial entre medio, como C-S1SY). Solo si el kernel usa `s1_env` |
-| `OUTDIR=dir` | solo `make_s1cc.py`: dónde escribir los programas (los tests usan una carpeta temporal) |
+| `OUTDIR=dir` | solo `make_s1cc.py`: dónde escribir todo lo generado (por defecto `examples/system_s1cc/build/`, la misma carpeta que usa `build.sh`; los tests usan una carpeta temporal) |
 | `MOD_DSP=auto` / `A` / `B` | dónde corren la envolvente de pitch y la mezcla de COLOR MOD (§3.4). `auto` (por defecto): `make_s1cc.py` arma las dos y se queda con la que entra, o con la que deja más margen si entran las dos |
 | `MIX=0` | sin el mezclador del anfitrión (SUB / NOISE, §3.5) |
 
@@ -62,6 +62,32 @@ KERNEL=sdk/s1cc/build/simple_saw_hostenv NAME=S1CC-HOSTENV sh examples/system_s1
 ```
 
 Los tres usan el slot 1 y el mismo id de modelo: instalar uno reemplaza al anterior.
+
+### 1.2 Opciones en el fuente del kernel (`S1_BUILD`)
+
+Todas las variables de la tabla de arriba salvo `KERNEL`, `OUTDIR` y las voces, y también `LFO_PITCH`, `LFO_LUT`,
+`ENV_CURVE`, `ARM_ENV`, `ARM_LFO`, `ARM_RAMP`, `ARM_FADE`, `ARM_DIAG`, `ARM_TICK`, `CMOD_IDX`, `TRY_FORMS` y `PAIRS`,
+pueden ir en el C del kernel ([S1CC.md](S1CC.md) §3.3):
+
+```c
+S1_BUILD("NAME=MP-CSAW ARM_ENV=1 LFO_LUT=1");
+S1_COMPILE("--regs 0,1,2,3");          /* opciones de s1cc: no hace falta --regs en la línea de comandos */
+```
+
+Con esas dos líneas al final de un kernel (por ejemplo `mp_csaw.c`):
+
+```sh
+sdk/s1cc/s1cc build sdk/s1cc/examples/mutable_ported/mp_csaw.c
+KERNEL=sdk/s1cc/build/mp_csaw sh examples/system_s1cc/build.sh        # -> plugins/MP-CSAW, sin más variables
+```
+
+* **Precedencia.** Variable de entorno > `.option` del kernel > valor por defecto. `make_s1cc.py` imprime las del
+  kernel al empezar (`kernel options (S1_BUILD): ARM_ENV=1 ...`) y marca las que el entorno reemplaza
+  (`MOD_DSP=A (environment: B)`). `BUDGET_A` / `BUDGET_B`: primero el entorno (`BUDGET_A`, si no `BUDGET`), después
+  el kernel.
+* **Claves.** Una clave que `make_s1cc.py` no conoce (lista `OPTIONS`) detiene el build. `NAME`, `MODEL_ID` y
+  `PARAMLOG` los lee `build.sh` (`PARAMLOG=0` lo apaga). `NAME` sin espacios.
+* **Voces.** No son una opción: `build.sh` siempre calcula la cantidad que entra (§1).
 
 ## 2. Qué corre en cada DSP
 
@@ -550,7 +576,7 @@ corregido, §7). Para repetir la prueba:
 | `model.c` | región 0, ARM del maestro: el de MUTABLE-SYSTEM (asignador de `NV` voces, carga `s1mm1`, VOLUME, que reenvía en cada nota) |
 | `syninfo.h`, `link.ld` | copias de MUTABLE-SYSTEM |
 | `build.sh` | build completo → `plugins/<NAME>/Script/Code1.Dat` |
-| `s1m0.s`, `s1m1.s`, `s1mm1.s`, `s1c0.s`, `s1c1.s` (+ `.hex`) | los programas generados del último build |
+| `build/` | todo lo generado (`OUTDIR` de `make_s1cc.py`, la carpeta de `build.sh`): `s1m0.s`, `s1m1.s`, `s1mm1.s`, `s1c0.s`, `s1c1.s`, las secciones `s1a?` / `s1b?` (+ `.hex`), `s1_programs.h`, `try_forms.txt`, `make_s1cc.log`, `region0.elf` / `region1.elf` y `proj/` (las regiones y `plugout.json`). Los `.o` se borran después de enlazar |
 
 ## 7. Reglas del SYSTEM-1 en la herramienta (`asm/s1rules.py`)
 

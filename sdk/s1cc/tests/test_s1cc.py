@@ -153,7 +153,7 @@ class TestSystemS1cc(unittest.TestCase):
         # DSP with every pair swapped (the first SYSTEM-S1CC builds: the device hung when the PLUG-OUT was selected)
         r = subprocess.run([sys.executable, self.gen], env=self.env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        h = open(os.path.join(self.out, 'build', 's1_programs.h')).read()
+        h = open(os.path.join(self.out, 's1_programs.h')).read()
         for name in ('S1M0', 'S1M1', 'S1MM1'):
             m = re.search(r'static const uint32_t mc_%s\[\d+\] = \{\s*(0x[0-9a-f]{8})' % name, h)
             self.assertIsNotNone(m, name)
@@ -193,3 +193,55 @@ class TestSystemS1ccHostEnvelopes(unittest.TestCase):
             self.assertLess(seg[-1], 0.01 * top)                # and releases after the gate (at 50 ms)
         finally:
             shutil.rmtree(out, ignore_errors=True)
+
+
+@unittest.skipUnless(HAVE, 'needs clang and LLVM 19')
+class TestBuildOptions(unittest.TestCase):
+    """S1_BUILD / S1_COMPILE in the C source (docs/S1CC.md §3.3): .option / .compile lines in voice.s1k, the source's
+    compiler options under the command line's, E012 / E013, and SYSTEM-S1CC taking them under the environment"""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        shutil.copytree(os.path.join(S1CC, 'examples', 'simple_saw_wrapped'), os.path.join(self.tmp, 'src'))
+        self.src = os.path.join(self.tmp, 'src', 'simple_saw_hostenv.c')
+        self.base = open(self.src).read()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def build(self, tail, *extra):
+        with open(self.src, 'w') as f:
+            f.write(self.base + '\n' + tail + '\n')
+        out = os.path.join(self.tmp, 'k')
+        return subprocess.run([os.path.join(S1CC, 's1cc'), 'build', self.src, '-o', out] + list(extra),
+                              capture_output=True, text=True), out
+
+    def test_options(self):
+        r, out = self.build('S1_BUILD("NAME=\\"MY SYNTH\\" ENV_TMAX=5.0 MOD_DSP=A");\nS1_COMPILE("--regs 0,1,2,3");')
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        import s1kernel
+        k = s1kernel.Kernel.read(os.path.join(out, 'voice.s1k'))
+        self.assertEqual(k.options, {'NAME': 'MY SYNTH', 'ENV_TMAX': '5.0', 'MOD_DSP': 'A'})
+        self.assertEqual(k.compile, ['--regs', '0,1,2,3'])
+        code = [x for d in k.dsps.values() for x in d['lines']]
+        self.assertFalse(any(re.search(r'\br[4-7]\b', x) for x in code))            # S1_COMPILE's --regs
+        gen = os.path.join(ROOT, 'examples', 'system_s1cc', 'make_s1cc.py')
+        env = dict(os.environ, KERNEL=out, OUTDIR=self.tmp, VOICES='4')
+        r = subprocess.run([sys.executable, gen], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('kernel options (S1_BUILD): NAME=MY SYNTH ENV_TMAX=5.0 MOD_DSP=A\n', r.stdout)
+        r = subprocess.run([sys.executable, gen], env=dict(env, MOD_DSP='B'), capture_output=True, text=True)
+        self.assertIn('MOD_DSP=A (environment: B)', r.stdout)
+        # the command line after the source: all eight registers
+        r, out = self.build('S1_COMPILE("--regs 0,1,2,3");', '--regs', '0,1,2,3,4,5,6,7')
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        self.assertIn('\n.compile --regs 0,1,2,3\n', open(os.path.join(out, 'voice.s1k')).read())
+
+    def test_errors(self):
+        for tail, code in (('S1_BUILD("arm_env=1");', 'E012'), ('S1_BUILD("A=1 A=2");', 'E012'),
+                           ('S1_COMPILE("-o x");', 'E013'), ('S1_COMPILE("--bogus");', 'E013')):
+            with self.subTest(tail=tail):
+                r, _ = self.build(tail)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertIn('error ' + code, r.stderr)

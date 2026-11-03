@@ -3596,7 +3596,8 @@ moves); VOLUME, DELAY and REVERB as the OS does them. A kernel that calls s1_col
 COLOR MOD (manual, LFO, pitch env, filter env, amp env, sub osc) and the LFO SHAPE / RATE and PITCH ENV A / D
 controls (docs/examples_system_s1cc_README.md §3.2); every other control does nothing.
 
-Options (environment variables):
+Options (environment variables; every one but KERNEL may also come from the kernel's C source,
+S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment variable wins):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
   (the number of voices is not an option: make_s1cc.py VOICES=auto computes the most, 8 down to 1, whose slave
   programs fit the measured limits, instructions per sample and the 6 KiB of the main program, before it builds,
@@ -3649,11 +3650,15 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
     MAIN_BYTES=n            the size each slave main program may have: 6144 bytes, its region 0x0100..0x18FF before
                             section 2 (docs/DSP_PROGRAM_MEMORY.md §3.1); 5854 bytes ran, 6534 and 6740 hung the
                             device (2026-10-28). Above a budget or the size the build stops (exit code 3)
-    OUTDIR=dir              where the programs and build/s1_programs.h go (default: this folder)
+    OUTDIR=dir              where everything generated goes: the programs (.s / .hex), s1_programs.h,
+                            try_forms.txt (default: build/ next to this file, build.sh's folder)
 
-    python3 make_s1cc.py           -> s1*.s / s1*.hex here, build/s1_programs.h
+    The other variables (BUDGET*, MAIN_BYTES, LFO_PITCH, ARM_ENV, ...: OPTIONS below) may also come from the kernel:
+    S1_BUILD("ARM_ENV=1 LFO_LUT=1") in its C source -> .option lines in voice.s1k. An environment variable wins.
+
+    python3 make_s1cc.py           -> build/s1*.s, build/s1*.hex, build/s1_programs.h
     python3 make_s1cc.py --sim     -> also the whole chain on the emulator (C core) against the kernel's native
                                       reference (sdk/s1cc refdsp), and the silence without notes
 ```
 
-Environment: `ARM_DIAG` (default '0'), `ARM_ENV` (default '0'), `ARM_FADE` (default '1'), `ARM_LFO` (default '0'), `ARM_RAMP` (default '1'), `ARM_TICK` (default '0'), `BUDGET_A` (default os.environ.get('BUDGET', '703'), `BUDGET_B` (default os.environ.get('BUDGET', '708'), `CMOD_IDX` (default '1'), `ENV_CURVE` (default 'none'), `ENV_TMAX` (default '10.0'), `ENV_TMIN` (default '0.001'), `KERNEL` (default ''), `LFO_LUT` (default '0'), `LFO_PITCH` (default '1'), `MAIN_BYTES` (default '6144'), `MIX` (default '1'), `MOD_DSP` (default 'auto'), `OUTDIR` (default HERE), `PAIRS` (default ''), `SIM_N` (default '9600'), `TRY_FORMS` (default ''), `VOICES` (default 'auto')
+Environment: `KERNEL` (default ''), `OUTDIR` (default os.path.join(HERE, 'build'), `SIM_N` (default '9600'), `VOICES` (default 'auto')

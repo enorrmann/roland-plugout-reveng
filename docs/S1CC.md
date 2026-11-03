@@ -145,6 +145,7 @@ Intrínsecos:
 | `s1_sqrt(x)`, `s1_rsqrt(x)` | √x, 1/√x para x > 0 (E608): `sqrtsplit` + 2 pasos de Newton, 11 / 13 ops, 2·10⁻⁷ (§7.6) |
 | `s1_range(x, lo, hi)` | x, declarando su rango (cuando el perfilado no lo ve) |
 | `s1_dt()`, `s1_rdt()` | f/96000 de la nota (paso de una fase 0…1) y su inverso. El anfitrión los escribe por voz desde tablas por nota (SYSTEM-S1CC: `A040+v`, `A048+v`; `s1_rdt` guardado /16384): dos cargas, sin `exp2` ni división. Es la forma de tener `1/dt` (polyBLEP) sin dividir (`s1_recip` cuesta 4 ops, §7.6) |
+| `S1_BUILD("...")`, `S1_COMPILE("...")` | (declaraciones, a nivel de archivo) opciones del anfitrión y del compilador escritas en el fuente (§3.3) |
 | `S1_NOTE_RANGE(lo, hi)` | (declaración, a nivel de archivo) las notas MIDI a las que se toca la voz; el perfilado sólo usa esas (por defecto 0…127). Lo que sólo pasa fuera del rango (los dos bordes de un pulso en una muestra, un límite de altura) no se compila (W908 / W909) |
 | `s1_env(i)` | solo en `S1_DSP_B`: la envolvente `i` del anfitrión, 0…1 (SYSTEM-S1CC: 0 = AMP, 1 = FILTER; [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.1). En la referencia nativa y en `check`, la puerta |
 | `s1_color(i)` | solo en `S1_DSP_A`: OSC1 (0) / OSC2 (1) COLOR, 0…1, con su fuente COLOR MOD (manual = la perilla; LFO, PITCH ENV, FILTER ENV, AMP ENV, SUB OSC = perilla × fuente; SYSTEM-S1CC las arma en ensamblador, [examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3.2). Rango declarado 0…1 sea cual sea el perfil (el perfilado lo barre 0…1 en cada nota). En la referencia nativa y en `check`, la perilla: `color0=K` / `color1=K` (128 por defecto) |
@@ -234,6 +235,24 @@ Ejemplo comentado parte por parte: [examples_simple_saw_wrapped_README.md](examp
   toma no declara nada.
 * Ejemplos: [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) (mínimo),
   `saw_wrapper.c` (detección de nota con `s1_trig`, `s1_range`), `braids_wrapper_*.cc` (una clase C++ de Braids).
+
+### 3.3 Opciones en el fuente (`S1_BUILD`, `S1_COMPILE`)
+
+```c
+S1_BUILD("NAME=MP-CSAW ARM_ENV=1 LFO_LUT=1 ENV_CURVE=sq");   /* opciones del anfitrión -> .option en voice.s1k */
+S1_COMPILE("--regs 0,1,2,3");                               /* opciones de s1cc lower */
+```
+
+| macro | qué hace |
+|---|---|
+| `S1_BUILD("CLAVE=VALOR ...")` | `s1cc lower` copia cada par a `voice.s1k` como `.option CLAVE VALOR` (§7.4), en el orden dado. `CLAVE`: `A`–`Z`, `0`–`9`, `_`; `VALOR` sin espacios, o entre comillas (`NAME=\"MY SYNTH\"`). s1cc no interpreta las claves: las valida el anfitrión. SYSTEM-S1CC las toma como valores por defecto de sus variables, y una variable de entorno gana ([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §1.2) |
+| `S1_COMPILE("--opción valor ...")` | opciones de `s1cc lower` (`--regs`, `--regs-a`, `--regs-b`, `--tol`, `--tollog`, `--maxdeg`, `--maxknots`, `--trace`, `--no-exact-init`, `--no-fold-branches`, `--no-recipseed`, `--no-fuse-mac`, `--no-native`). Se aplican antes que las de la línea de comandos: `s1cc build ... --regs 0,1,2,3,4,5,6,7` gana. `voice.s1k` las guarda en `.compile` |
+
+* Una de cada una por voz, a nivel de archivo (dos `S1_BUILD` son una redefinición: E010).
+* Son constantes del módulo (`s1_build_opts`, `s1_compile_opts`) que el driver deja públicas; `lower` las lee del IR.
+* Errores: E012 (`S1_BUILD`), E013 (`S1_COMPILE`), §9.2.0.
+* Las opciones del driver (`-I`, `-o`, `--check`, `--no-auto`, `--debug`) no van en `S1_COMPILE`: se necesitan antes
+  de compilar el C.
 
 ## 4. Del IR al grafo (`graph.cpp`)
 
@@ -474,6 +493,8 @@ Cada valor V del programa vive en un registro r con una escala s y un desplazami
 ### 7.4 Kernel (`.s1k`)
 
 ```text
+.option <CLAVE> <valor>              S1_BUILD: una opción del anfitrión (§3.3); el valor es el resto de la línea
+.compile <opciones>                  S1_COMPILE: las opciones de lower que vinieron del fuente
 .state <i> <A|B> <s> <o> <nombre>    palabra de estado i: V = (r - o) s
 .param <nombre> <n> <escala>         tabla S1_PARAM (el ARM escribe valor / escala)
 .export <i> <s> <o>                  s1_export i y su representación
@@ -613,7 +634,8 @@ referencia nativa (`make_s1cc.py --sim`).
 2. `s1cc prof voice.ll -o prof.ll`.
 3. `clang voice.ll runtime/s1rt.c -o ref` y `clang prof.ll runtime/s1rt.c -o prof`, nativos.
 4. `ref tables tables.txt` (tablas `S1_PARAM`) y `prof prof profile.txt` (escenarios, rangos, desbordes, islas).
-5. `s1cc lower voice.ll --profile profile.txt --tables tables.txt -o voice.s1k --report report.txt`.
+5. `s1cc lower voice.ll --profile profile.txt --tables tables.txt -o voice.s1k --report report.txt`: primero
+   las opciones de `S1_COMPILE`, después las de la línea de comandos; `S1_BUILD` → `.option` (§3.3).
 6. `s1cc init voice.ll --kernel voice.s1k -o refdsp.ll` y `clang ... -o refdsp`: la referencia que arranca del
    estado del DSP.
 
@@ -731,6 +753,8 @@ Los códigos son estables: un código no cambia de significado; un caso nuevo re
 | `E003` | `cannot write F` | directorio de salida sin permisos o sin espacio | otro `-o` |
 | `E004` | `init: state 'v' not in ORIG.ll` | `voice.ll` y `linked.ll` no coinciden (archivos de builds distintos) | rehacer el build completo |
 | `E005` | `cannot read the profile` | el binario `prof` no corrió o falló | rehacer el build; si falla, correr `SALIDA/prof prof x.txt` y ver su error |
+| `E012` | `S1_BUILD: 'x' is not KEY=VALUE` / `K given twice` / `the quote is not closed` / `K has no value` | el texto de `S1_BUILD` no es una lista de `CLAVE=VALOR` (§3.3) | claves en mayúsculas (`ARM_ENV=1`), cada una una vez; un valor con espacios entre `\"…\"` |
+| `E013` | `S1_COMPILE: unknown option x` / `x is not a compiler option` / `x needs a value` | `S1_COMPILE` tiene algo que no es una opción de `lower` (una ruta, `--check`, un error de tipeo) | solo las opciones de §3.3; las del driver van en la línea de comandos |
 | `E007` | `pass pipeline: ...` | error interno de LLVM al preparar los bucles | informar |
 | `E008` | `no S1_DSP_A (s1_dsp_a) in the module` | falta `S1_DSP_A`, o se definió dentro de un `namespace` / sin `#include "s1dsp.h"` | definir `S1_DSP_A { ... }` a nivel de archivo |
 | `E009` | `s1_dsp_a returns nothing` | la voz nunca llega a un `return` con valor | devolver la muestra en todas las ramas |

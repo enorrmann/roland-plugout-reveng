@@ -35,6 +35,7 @@ def on_grid(x):
 class Kernel:
     def __init__(self):
         self.states, self.params, self.exports, self.inputs_b, self.dsps = [], [], {}, [], {}
+        self.options, self.compile = {}, []     # S1_BUILD (.option KEY VALUE), S1_COMPILE (.compile ...)
 
     @classmethod
     def read(cls, path):
@@ -50,6 +51,10 @@ class Kernel:
                 k.params.append({'name': p[1], 'count': int(p[2]), 'scale': float(p[3])})
             elif p[0] == '.export':
                 k.exports[int(p[1])] = (float(p[2]), float(p[3]))
+            elif p[0] == '.option' and cur is None:
+                k.options[p[1]] = line.split(None, 2)[2] if len(p) > 2 else ''
+            elif p[0] == '.compile' and cur is None:
+                k.compile = p[1:]
             elif p[0] == '.inputb':
                 k.inputs_b.append(p[1])
             elif p[0] == '.dsp':

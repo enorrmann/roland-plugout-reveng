@@ -134,6 +134,14 @@ S1_EXTERN S1_IN float s1_lfo_amp(void);
 #define S1_NOTE_RANGE(lo, hi) \
     S1_EXTERN __attribute__((used)) const int s1_note_range[2] = { (lo), (hi) }
 
+/* S1_BUILD("KEY=VALUE ..."): the host's build options, written to the kernel (.option KEY VALUE, docs/S1CC.md §3.3);
+ * SYSTEM-S1CC takes them as defaults of its variables (an environment variable wins). VALUE may be "quoted".
+ * S1_COMPILE("--regs 0,1,2,3 ..."): s1cc lower options, applied before the command line's. One of each per voice */
+#define S1_BUILD(opts) \
+    S1_EXTERN __attribute__((used)) const char s1_build_opts[] = opts
+#define S1_COMPILE(opts) \
+    S1_EXTERN __attribute__((used)) const char s1_compile_opts[] = opts
+
 #define S1_DSP_A S1_EXTERN float s1_dsp_a(void)
 #define S1_INIT S1_EXTERN void s1_init(void)
 #define S1_DSP_B S1_EXTERN float s1_dsp_b(float x)

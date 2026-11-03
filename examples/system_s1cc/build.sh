@@ -16,7 +16,8 @@ moves); VOLUME, DELAY and REVERB as the OS does them. A kernel that calls s1_col
 COLOR MOD (manual, LFO, pitch env, filter env, amp env, sub osc) and the LFO SHAPE / RATE and PITCH ENV A / D
 controls (docs/examples_system_s1cc_README.md §3.2); every other control does nothing.
 
-Options (environment variables):
+Options (environment variables; every one but KERNEL may also come from the kernel's C source,
+S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment variable wins):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
   (the number of voices is not an option: make_s1cc.py VOICES=auto computes the most, 8 down to 1, whose slave
   programs fit the measured limits, instructions per sample and the 6 KiB of the main program, before it builds,
@@ -46,17 +47,25 @@ set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 B=$HERE/build
-NAME=${NAME:-SYSTEM-S1CC}
-MODEL_ID=${MODEL_ID:-0x0010}
 [ -n "$KERNEL" ] || { usage >&2; exit 2; }
 case $KERNEL in /*) ;; *) KERNEL=$(pwd)/$KERNEL ;; esac
+[ -f "$KERNEL/voice.s1k" ] || { echo "build.sh: no $KERNEL/voice.s1k (KERNEL=<s1cc build directory>)" >&2; exit 2; }
+# S1_BUILD("NAME=... MODEL_ID=... PARAMLOG=1") in the kernel: the defaults; an environment variable wins
+kopt() { sed -n "s/^\.option $1 //p" "$KERNEL/voice.s1k"; }
+NAME=${NAME:-$(kopt NAME)}
+NAME=${NAME:-SYSTEM-S1CC}
+case $NAME in *" "*) echo "build.sh: NAME '$NAME' has a space (it goes into CFLAGS and the plugins/ folder)" >&2; exit 2 ;; esac
+MODEL_ID=${MODEL_ID:-$(kopt MODEL_ID)}
+MODEL_ID=${MODEL_ID:-0x0010}
+[ -n "${PARAMLOG+x}" ] || PARAMLOG=$(kopt PARAMLOG)
+[ "$PARAMLOG" = 0 ] && PARAMLOG=
 export KERNEL
 mkdir -p "$B"
 # the most voices that fit: make_s1cc.py VOICES=auto computes them before it builds (exit 3: not even 1 fits)
-VOICES=auto python3 "$HERE/make_s1cc.py" > "$B/make_s1cc.log" 2>&1 || { cat "$B/make_s1cc.log"; exit 1; }
+VOICES=auto OUTDIR="$B" python3 "$HERE/make_s1cc.py" > "$B/make_s1cc.log" 2>&1 || { cat "$B/make_s1cc.log"; exit 1; }
 cat "$B/make_s1cc.log"
 NV=$(sed -n 's/^#define NV \([0-9]*\)$/\1/p' "$B/s1_programs.h")
-python3 "$ROOT/tools/check_optimized.py" "$HERE"/s1m0.s "$HERE"/s1m1.s $(ls "$HERE"/s1a?.s "$HERE"/s1b?.s 2>/dev/null) "$HERE"/s1mm1.s || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
+python3 "$ROOT/tools/check_optimized.py" "$B"/s1m0.s "$B"/s1m1.s $(ls "$B"/s1a?.s "$B"/s1b?.s 2>/dev/null) "$B"/s1mm1.s || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
  -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG}"
 for r in 0 1; do
@@ -64,6 +73,7 @@ for r in 0 1; do
     arm-none-eabi-gcc $CFLAGS -c "$HERE/$SRC" -o "$B/region$r.o"
     arm-none-eabi-ld -T "$HERE/link.ld" --defsym BASE=$BASE --defsym CODE=$CODE "$B/region$r.o" -o "$B/region$r.elf"
     arm-none-eabi-objcopy -O binary "$B/region$r.elf" "$B/region$r.bin"
+    rm -f "$B/region$r.o"
     arm-none-eabi-size "$B/region$r.elf"
 done
 python3 - "$B" "$NAME" "$MODEL_ID" <<'PY'
@@ -79,7 +89,7 @@ for r, base in ((0, 0x60800000), (1, 0x60200000)):
 # every DSP program must be in the ARM image exactly as the OS loader reads it: 32-bit little-endian words, the
 # first halfword of each pair in the high half (2026-10-27: a uint16_t array reached the DSP with every pair
 # swapped and hung the device when the PLUG-OUT was selected; the emulator, which runs the .hex words, cannot see it)
-here = os.path.dirname(b)
+here = b                                       # make_s1cc.py OUTDIR: the programs are in build/ too
 sects = tuple(n for n in ('s1a2', 's1a3', 's1a4', 's1a5', 's1b2', 's1b3', 's1b4', 's1b5')
               if os.path.exists(os.path.join(here, n + '.hex')))
 for r, names in ((1, ('s1m0', 's1m1', 's1c0', 's1c1') + sects), (0, ('s1mm1',))):
