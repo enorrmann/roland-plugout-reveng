@@ -78,6 +78,8 @@ def run_kernel(outdir, note, n, knobs, proven=True):
         for j in range(k.dsps[st]['scratch']):
             addr[f'T{j}'] = SCRATCH0 + 2 * j
         addr['I'] = SCRATCH0 - 2
+        if k.fused:                                         # the whole voice on DSP A: its envelopes too
+            addr['IN:env0'] = addr['IN:env1'] = GATE
         if st == 'B':
             for j, name in enumerate(k.inputs_b):
                 addr[f'IN:{name}'] = INB0 + j
@@ -218,6 +220,8 @@ def main(argv=None):
             raise SystemExit('the kernel has no trace words: rebuild with s1cc build ... --trace')
         trace_report(a.outdir, a.note, min(a.n, a.trace_n), knobs, info, a.trace_tol, a.trace_count)
     w = min(960, a.n)
+    if Kernel.read(os.path.join(a.outdir, 'voice.s1k')).fused:   # one function: the voice's output is the reference's B
+        ra = rb
     for st, p, r in (('A', pa, ra), ('B', pb, rb)):
         if p is None:
             continue

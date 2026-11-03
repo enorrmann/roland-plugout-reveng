@@ -871,7 +871,7 @@ struct Builder {
             return;
         }
         if (fn == "s1_env") {                             // the host's envelopes: inputs of DSP B only
-            if (S.name != "B")
+            if (S.name != "B" && !P.fused)
                 fail("E117", "s1_env in S1_DSP_A " + where(CI) + ": the host's envelopes run on DSP B");
             long i = constArg(0);
             if (i < 0 || i > 1)
@@ -932,6 +932,15 @@ struct Builder {
             return;
         }
         if (fn == "s1_import") {
+            if (P.fused) {                                // one function: the value s1_export gave, in a register
+                int i = (int)constArg(0);
+                auto it = S.exports.find(i);
+                if (it == S.exports.end())
+                    fail("E116", "s1_import(" + std::to_string(i) + ") without an s1_export(" + std::to_string(i) +
+                                     ") before it " + where(CI));
+                vmap[CI] = it->second;
+                return;
+            }
             if (S.name != "B")
                 fail("E115", "s1_import in S1_DSP_A " + where(CI));
             Node *n = mk(NK::Import, "import", {}, CI);
@@ -1912,6 +1921,9 @@ void build(Program &P, Module &M) {
         fail("E008", "no S1_DSP_A (s1_dsp_a) in the module");
     if (P.B.fn && P.B.fn->isDeclaration())
         P.B.fn = nullptr;
+    P.fused = M.getNamedGlobal("__s1_fused") != nullptr;
+    if (P.fused && P.B.fn)
+        fail("E014", "fused module with an s1_dsp_b: run s1cc fuse on the module before the other steps");
     for (Dsp *S : {&P.A, &P.B}) {
         if (!S->fn)
             continue;
@@ -1921,6 +1933,8 @@ void build(Program &P, Module &M) {
             fprintf(stderr, "graph %s: %zu nodes\n", S->name.c_str(), S->nodes.size());
         if (!S->ret)
             fail("E009", S->fn->getName().str() + " returns nothing");
+        if (P.fused)                     // the imports took the exported values: no bank-5 slot is written
+            S->exports.clear();
         affineSimplify(*S);
         {   // demanded bits: LLVM narrows `(int16_t)(t + 32768)` to `sext(t) ^ 0x7fff8000` when only the low bits
             // matter; the lowering computes in reals and needs the small representative (Node::demand)

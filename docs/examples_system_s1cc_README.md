@@ -66,7 +66,7 @@ Los tres usan el slot 1 y el mismo id de modelo: instalar uno reemplaza al anter
 ### 1.2 Opciones en el fuente del kernel (`S1_BUILD`)
 
 Todas las variables de la tabla de arriba salvo `KERNEL`, `OUTDIR` y las voces, y también `LFO_PITCH`, `LFO_LUT`,
-`ENV_CURVE`, `ARM_ENV`, `ARM_LFO`, `ARM_RAMP`, `ARM_FADE`, `ARM_DIAG`, `ARM_TICK`, `CMOD_IDX`, `TRY_FORMS` y `PAIRS`,
+`ENV_CURVE`, `ARM_ENV`, `ARM_LFO`, `ARM_RAMP`, `ARM_FADE`, `ARM_DIAG`, `ARM_TICK`, `CMOD_IDX`, `TRY_FORMS`, `PAIRS` y `SPLIT` (§1.3),
 pueden ir en el C del kernel ([S1CC.md](S1CC.md) §3.3):
 
 ```c
@@ -88,6 +88,52 @@ KERNEL=sdk/s1cc/build/mp_csaw sh examples/system_s1cc/build.sh        # -> plugi
 * **Claves.** Una clave que `make_s1cc.py` no conoce (lista `OPTIONS`) detiene el build. `NAME`, `MODEL_ID` y
   `PARAMLOG` los lee `build.sh` (`PARAMLOG=0` lo apaga). `NAME` sin espacios.
 * **Voces.** No son una opción: `build.sh` siempre calcula la cantidad que entra (§1).
+
+### 1.3 Kernel fusionado: la voz entera en cualquiera de los dos DSP (`SPLIT`) [sim, 2026-11-03; sin probar en el equipo]
+
+Con un kernel compilado con `s1cc --fused` ([S1CC.md](S1CC.md) §3.4, marca `.fused`), `make_s1cc.py` corre la voz
+entera del kernel de las voces 0…NA−1 en el DSP A y la de NA…NV−1 en el DSP B. **El anfitrión no cambia**: su parte
+del DSP A (LFO → tono, COLOR, sub, copias de puerta) sigue en A para todas las voces, y su parte del DSP B
+(envolventes, LFO, COLOR MOD) sigue en B. Lo único que cambia de lugar es el kernel.
+
+```sh
+sdk/s1cc/s1cc build sdk/s1cc/examples/mutable_ported/mp_csaw2.c --regs 0,1,2,3 --fused
+ARM_ENV=1 ARM_LFO=1 KERNEL=sdk/s1cc/build/mp_csaw2 sh examples/system_s1cc/build.sh
+```
+
+* **Entradas del otro DSP.** Lo que el kernel de una voz lee y el anfitrión hace en el otro DSP llega por el banco 5:
+  el otro DSP lo copia, después de hacerlo, a `KX0 + 8 j + v` (`A1A0`…`A1FF`, libre porque un kernel fusionado no
+  tiene exports ni `INB`; `microcode/split.s kcopy`). Para una voz en A: `env0`, `env1`, `lfo_amp`, `lfo_filter`.
+  Para una voz en B: tono, `dt`, `rdt` y los colores con `MOD_DSP=A`. B no lee las palabras que escribe el ARM
+  (C-S1SY paso 3), así que esas también se copian. La puerta y el disparo usan las copias que ya existen
+  (`A160`/`A168`). Los colores con `MOD_DSP=B` están en el banco 5 (`COLB`) y los leen los dos. Los dos DSP corren a
+  la vez: una copia llega en la misma muestra o en la anterior.
+* **Estado del kernel.** Su bloque por voz va en el banco 0 del DSP que lo corre, en `0x0180`… (hasta `0x02FF` en A
+  y hasta `0x03FF` en B). Esa zona no la usó ningún programa nuestro probado en el equipo; está por encima de la del
+  OS (`0x0000`–`0x0017`). [sin probar en el equipo]
+* **Salida.** Una voz en A deja su salida en `A151+v` (`XV`); una en B, en su palabra de salida del banco 0. La mezcla
+  del DSP B lee cada una de donde está (`mix_src`).
+* **Parámetros.** Las tablas `S1_PARAM` del kernel van a los dos DSP (`C070`… en A y `C060`… en B), y `engine.c` las
+  escribe en los dos como siempre (`kparam_a` / `kparam_b`).
+* **`SPLIT=auto`** (por defecto). Con la estimación de `VOICES=auto`, `make_s1cc.py` prueba NA = 0…NV y se queda con
+  el que deja menos cargado al DSP más cargado, para cada `MOD_DSP`. `SPLIT=n` lo fija (`SPLIT=0`: todas en B;
+  `SPLIT=NV`: todas en A).
+* **Sin mezclador.** `MIX` (SUB / NOISE) queda apagado: iba entre `S1_DSP_A` y `S1_DSP_B`.
+
+Medido con `mp_csaw2`, 8 voces, sumando el programa principal y sus secciones (instrucciones por muestra; budget A 703,
+B 708):
+
+| configuración | normal (`--regs-a 0,1,2,3 --regs-b 0,1,2,3`) | fusionado (`--regs 0,1,2,3 --fused`) |
+|---|---|---|
+| por defecto (`MOD_DSP=B`) | A 652, B 701 (el más cargado: 99,0 %) | NA = 6: A 648, B 685 (96,7 %) |
+| `ARM_ENV=1 ARM_LFO=1` | A 652, B 375 (92,7 %) | NA = 4: A 487, B 515 (72,7 %) |
+
+* **Por defecto, la ganancia es chica.** El anfitrión del DSP B (envolventes, LFO, COLOR MOD) ya lo llena casi
+  entero, y las copias por el banco 5 cuestan una instrucción cada una (un acceso al banco 5 por instrucción, R5).
+* **Con `ARM_ENV`/`ARM_LFO` la ganancia es grande.** El DSP B queda libre y el reparto equilibra los dos DSP: el más
+  cargado baja de 652 a 515 instrucciones (−21 %). Ese margen queda para kernels más caros.
+* **Correcto en el emulador.** `--sim` con `SPLIT=0`, `SPLIT=8` y auto da la misma envolvente, el mismo acorde de 8
+  voces y el mismo silencio sin notas que el kernel normal.
 
 ## 2. Qué corre en cada DSP
 
@@ -575,6 +621,7 @@ corregido, §7). Para repetir la prueba:
 | `engine.c` | región 1, ARM del esclavo: el de MUTABLE-SYSTEM sin el panel de C-S1SY. Carga los programas; notas → banco 5; perillas → tablas del kernel |
 | `model.c` | región 0, ARM del maestro: el de MUTABLE-SYSTEM (asignador de `NV` voces, carga `s1mm1`, VOLUME, que reenvía en cada nota) |
 | `syninfo.h`, `link.ld` | copias de MUTABLE-SYSTEM |
+| `microcode/split.s` | `kcopy`: las copias por el banco 5 de las entradas de un kernel fusionado (§1.3) |
 | `build.sh` | build completo → `plugins/<NAME>/Script/Code1.Dat` |
 | `build/` | todo lo generado (`OUTDIR` de `make_s1cc.py`, la carpeta de `build.sh`): `s1m0.s`, `s1m1.s`, `s1mm1.s`, `s1c0.s`, `s1c1.s`, las secciones `s1a?` / `s1b?` (+ `.hex`), `s1_programs.h`, `try_forms.txt`, `make_s1cc.log`, `region0.elf` / `region1.elf` y `proj/` (las regiones y `plugout.json`). Los `.o` se borran después de enlazar |
 

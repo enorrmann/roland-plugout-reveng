@@ -2030,6 +2030,8 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
     std::string b = P.B.fn ? L.run(P.B, report) : "";
     std::ostringstream o;
     o << "; s1cc kernel (docs/S1CC.md §8): V = (r - o) s for every scaled word\n";
+    if (P.fused)
+        o << ".fused\n";                // one voice function: the host may run it on either DSP (§3.4)
     for (auto &s : P.states) {
         auto sr = L.stateRep.at(s.index);
         o << ".state " << s.index << " " << s.dsp << " " << fmtImm(sr.first).substr(1) << " "

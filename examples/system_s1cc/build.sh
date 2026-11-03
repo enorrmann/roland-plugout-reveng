@@ -33,6 +33,8 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
   LFO_PITCH=0   the host LFO does not modulate the pitch / s1_dt / s1_rdt words (saves ~18 instructions per voice)
   LFO_LUT=1     the host LFO's shapes from bank-5 tables (sine, triangle, saw; square = clamp(256 saw)): ~3 more
                 DSP B instructions per voice; the sine is a true sine (docs/examples_system_s1cc_README.md §3.6)
+  SPLIT=auto|n  a kernel built with s1cc --fused: voices 0..n-1 run the whole voice on DSP A, the rest on DSP B;
+                auto (default) balances the two DSPs (docs/examples_system_s1cc_README.md §1.3)
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
 

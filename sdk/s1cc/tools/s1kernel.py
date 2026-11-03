@@ -36,6 +36,7 @@ class Kernel:
     def __init__(self):
         self.states, self.params, self.exports, self.inputs_b, self.dsps = [], [], {}, [], {}
         self.options, self.compile = {}, []     # S1_BUILD (.option KEY VALUE), S1_COMPILE (.compile ...)
+        self.fused = False                      # .fused: dsps['A'] is the whole voice, S1_DSP_B(S1_DSP_A())
 
     @classmethod
     def read(cls, path):
@@ -53,6 +54,8 @@ class Kernel:
                 k.exports[int(p[1])] = (float(p[2]), float(p[3]))
             elif p[0] == '.option' and cur is None:
                 k.options[p[1]] = line.split(None, 2)[2] if len(p) > 2 else ''
+            elif p[0] == '.fused' and cur is None:
+                k.fused = True
             elif p[0] == '.compile' and cur is None:
                 k.compile = p[1:]
             elif p[0] == '.inputb':

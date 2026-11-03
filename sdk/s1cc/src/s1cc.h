@@ -112,6 +112,7 @@ struct Program {
     llvm::Module *M = nullptr;
     std::vector<StateVar> states;
     Dsp A, B;                    // B.fn == nullptr: no S1_DSP_B
+    bool fused = false;          // s1cc fuse: A is S1_DSP_B(S1_DSP_A()) in one function (__s1_fused, docs/S1CC.md §3.4)
     std::map<std::string, llvm::GlobalVariable *> params;   // name -> descriptor
     std::map<std::string, int> paramCount;
     // knob-derived columns (§4.6): `prof sweep` values, record id -> knob table -> value at knob 0..255; build() turns

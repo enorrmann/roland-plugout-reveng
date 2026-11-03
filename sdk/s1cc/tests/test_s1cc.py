@@ -245,3 +245,41 @@ class TestBuildOptions(unittest.TestCase):
                 r, _ = self.build(tail)
                 self.assertNotEqual(r.returncode, 0)
                 self.assertIn('error ' + code, r.stderr)
+
+
+@unittest.skipUnless(HAVE, 'needs clang and LLVM 19')
+class TestFused(unittest.TestCase):
+    """s1cc --fused (docs/S1CC.md §3.4): S1_DSP_B(S1_DSP_A()) as one function against the reference's B output, and
+    SYSTEM-S1CC running the whole voice on DSP A (SPLIT=n: all voices), on DSP B (SPLIT=0) and split (auto)"""
+
+    def test_fused(self):
+        import tempfile
+        out = tempfile.mkdtemp()
+        try:
+            kernel = os.path.join(out, 'k')
+            r = subprocess.run([os.path.join(S1CC, 's1cc'), 'build',
+                                os.path.join(S1CC, 'examples', 'simple_saw_wrapped', 'simple_saw_hostenv.c'),
+                                '-o', kernel, '--regs', '0,1,2,3,4,5,6,7', '--fused'], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+            import s1kernel
+            k = s1kernel.Kernel.read(os.path.join(kernel, 'voice.s1k'))
+            self.assertTrue(k.fused)
+            self.assertEqual(list(k.dsps), ['A'])
+            pa, _, _ = s1check.run_kernel(kernel, 57, 4800, {})
+            _, rb = s1check.run_ref(kernel, 57, 4800, {})
+            self.assertGreater(s1check.snr(pa[:960], rb[:960]), 90)
+            gen = os.path.join(ROOT, 'examples', 'system_s1cc', 'make_s1cc.py')
+            for split in ('4', '0', 'auto'):
+                with self.subTest(split=split):
+                    r = subprocess.run([sys.executable, gen, '--sim'], capture_output=True, text=True,
+                                       env=dict(os.environ, KERNEL=kernel, OUTDIR=os.path.join(out, 'p'), VOICES='4',
+                                                SPLIT=split))
+                    self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                    self.assertIn('fused kernel:', r.stdout)
+                    self.assertNotIn('warning', r.stdout)
+                    self.assertIn('no notes: peak 0.000000', r.stdout)
+                    seg = [float(x) for x in re.search(r'peak per 5 ms: ([0-9. ]+)', r.stdout).group(1).split()]
+                    self.assertGreater(max(seg), 0.03)                  # attacks
+                    self.assertLess(seg[-1], 0.01 * max(seg))           # releases after the gate
+        finally:
+            shutil.rmtree(out, ignore_errors=True)

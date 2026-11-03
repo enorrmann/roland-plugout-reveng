@@ -23,6 +23,8 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
     MAIN_BYTES=n            the size each slave main program may have: 6144 bytes, its region 0x0100..0x18FF before
                             section 2 (docs/DSP_PROGRAM_MEMORY.md §3.1); 5854 bytes ran, 6534 and 6740 hung the
                             device (2026-10-28). Above a budget or the size the build stops (exit code 3)
+    SPLIT=auto|n            a fused kernel (s1cc --fused): the kernel of voices 0..n-1 on DSP A, the rest on DSP B;
+                            auto: the n that leaves the busier DSP least loaded (docs/examples_system_s1cc_README.md §1.3)
     OUTDIR=dir              where everything generated goes: the programs (.s / .hex), s1_programs.h,
                             try_forms.txt (default: build/ next to this file, build.sh's folder)
 
@@ -57,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (docs/examples_system_s1cc_README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG',
-           'ARM_TICK', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS')
+           'ARM_TICK', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -69,6 +71,9 @@ if KDEF.options:
 def opt(name, default):
     """an option: the environment variable, else the kernel's S1_BUILD value, else the default"""
     return os.environ.get(name, KDEF.options.get(name, default))
+
+
+SPLIT_FIXED = None if opt('SPLIT', 'auto') == 'auto' else int(opt('SPLIT', 'auto'))   # FUSED: NA by hand
 
 
 NV_MAX = 8                                     # the OS hands notes to 8 voice ids at most
@@ -92,8 +97,13 @@ MAIN_BYTES = int(opt('MAIN_BYTES', '6144'))  # 0x0100..0x18FF: 5854 bytes ran, 6
 OUTDIR = os.environ.get('OUTDIR', os.path.join(HERE, 'build'))   # everything generated (tests: a temporary folder)
 KTAB = s1kernel.read_tables(os.path.join(KERNEL, 'tables.txt'))
 HAS_B = 'B' in KDEF.dsps
+# FUSED (a kernel built with s1cc --fused, .fused): dsps['A'] is the whole voice, S1_DSP_B(S1_DSP_A()). The host
+# stays as it is (its DSP A part on DSP A, its DSP B part on DSP B, for every voice); the kernel of voices 0..NA-1
+# runs on DSP A, that of NA..NV-1 on DSP B, and the inputs it reads on the other DSP come through bank 5 (KX)
+FUSED = KDEF.fused
+K_DSP = 'A' if FUSED else 'B'                  # the kernel code that reads s1_env / s1_lfo_*
 # the host's envelopes (s1_env(0) / s1_env(1) in S1_DSP_B): two ADSRs in assembly per voice on DSP B, C-S1SY's
-HOST_ENV_KERNEL = [i for i in (0, 1) if HAS_B and f'IN:env{i}' in KDEF.placeholders('B')]   # the ones it reads
+HOST_ENV_KERNEL = [i for i in (0, 1) if K_DSP in KDEF.dsps and f'IN:env{i}' in KDEF.placeholders(K_DSP)]
 # s1_color(i) in S1_DSP_A: OSC1 / OSC2 COLOR with its COLOR MOD source, made on DSP A (hlfo_voice):
 # MANUAL = the knob, else knob x source (0..1): an LFO, a pitch envelope (AD) and a sub oscillator per voice on
 # DSP A, the AMP and FILTER envelopes (the host's ADSRs on DSP B, then both are built) copied to bank 5 by DSP B
@@ -112,7 +122,7 @@ HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A)
 PENV = bool(PITCH_MOD or CMOD)
 # the host's mixer on DSP A, after the kernel: voice = kernel + SUB x a square one octave down + NOISE x the LFO's
 # noise, before DSP B's filter (SUB 0x176, NOISE 0x177; 0 until the knobs move). MIX=0 leaves it out
-HOST_MIX = HOST_LFO and opt('MIX', '1') == '1'
+HOST_MIX = HOST_LFO and opt('MIX', '1') == '1' and not FUSED   # FUSED: no host stage between S1_DSP_A and B
 # inputs of DSP B the host makes on DSP A (-> amp, -> filter, the modulated pitch): the host stores them straight to
 # their bank-5 word (INB), and the kernel's copy (ld IN / st INB, at the end of its DSP A code) goes away
 HOSTB = [n for n in KDEF.inputs_b if n in ('lfo_amp', 'lfo_filter') or (n == 'pitch' and 'pitch' in PITCH_MOD)]
@@ -162,7 +172,7 @@ def _strip_copies(lines):
 if HOSTB:
     KDEF.dsps['A']['lines'] = _strip_copies(KDEF.dsps['A']['lines'])
 A_SELF = set(KDEF.placeholders('A'))           # what the kernel's DSP A code itself reads, after the copies went
-if A_SELF & {'IN:lfo_amp', 'IN:lfo_filter'}:
+if A_SELF & {'IN:lfo_amp', 'IN:lfo_filter'} and not FUSED:
     raise SystemExit('make_s1cc.py: s1_lfo_amp / s1_lfo_filter in S1_DSP_A: the host LFO runs on DSP B (use them in '
                      'S1_DSP_B)')
 HOST_ENV_USED = [0, 1] if CMOD else HOST_ENV_KERNEL
@@ -183,6 +193,15 @@ XV = [0xA151 + v for v in range(NV_MAX)]        # DSP A output of voice v = the 
 X0, INB0 = 0xA188, 0xA1A0                   # exports i: X0 + 8 i + v; inputs B needs from A: INB0 + 8 j + v
 # bank 5 A100..A1FF (what a slave DSP may store): A151.. x, A160.. / A168.. gate / trigger copies, A188..A19F export
 # slots 0..2, A1A0..A1B7 the inputs for B (pitch, gate, trigger), A1B8..A1FF free: export slots 3..11
+
+
+KX0 = 0xA1A0                                   # FUSED: bank-5 slots of the copied inputs, KX0 + 8 j + v (no exports,
+                                                # no INB in a fused kernel: A1A0..A1FF are free), 12 slots
+KV0, KV_TOP = 0x0180, {'A': 0x0300, 'B': 0x0400}    # FUSED: the kernel's voice blocks in each DSP's bank 0, below the
+                                                # host's blocks (A 0x0300.., B 0x0400..; the OS has 0x0000..0x0017)
+NA = 0                                          # FUSED: voices 0..NA-1 run the kernel on DSP A (set_split)
+A_IN = ('IN:pitch', 'IN:gate', 'IN:trig', 'IN:dt', 'IN:rdt', 'IN:color0', 'IN:color1')   # made / written for DSP A
+B_IN = ('IN:env0', 'IN:env1', 'IN:lfo_amp', 'IN:lfo_filter')                            # made on DSP B
 
 
 def export_addr(i, v):
@@ -403,6 +422,43 @@ def set_voices(n):
     """build n voices (the address lists hold all NV_MAX, the programs use the first n)"""
     global NV, GAIN
     NV, GAIN = n, 2.0 / (1.5 * n)
+    set_split(min(NA, n))
+
+
+def set_split(na):
+    """FUSED: the kernel of voices 0..na-1 on DSP A, the others on DSP B"""
+    global NA
+    NA = na
+
+
+def kdsp(v):
+    """FUSED: the DSP that runs the kernel of voice v"""
+    return 'A' if v < NA else 'B'
+
+
+def kv_words():
+    """FUSED: bank-0 words of the kernel per voice: state, scratch, the first-sample flag"""
+    st = KDEF.dsps['A']
+    return len(KDEF.states) + st.get('scratch', 0) + bool(st.get('initflag'))
+
+
+def kv_fits():
+    return all(KV0 + 2 * kv_words() * n <= KV_TOP[d] for d, n in (('A', NA), ('B', NV - NA)))
+
+
+def kv_block(v):
+    """FUSED: the kernel's bank-0 block of voice v on its DSP"""
+    if not kv_fits():
+        raise SystemExit(f'make_s1cc.py: fused kernel: {kv_words()} words x {max(NA, NV - NA)} voices do not fit in '
+                         f'bank 0 0x{KV0:04x}..')
+    return KV0 + 2 * kv_words() * (v if v < NA else v - NA)
+
+
+def mix_src(v):
+    """the word DSP B's mix reads for voice v: its DSP B output (ring S+1), or DSP A's output"""
+    if FUSED:
+        return B_OUT[v] + 1 if kdsp(v) == 'B' else XV[v]
+    return B_OUT[v] + 1 if HAS_B else XV[v]
 
 
 H_A_WORDS = len(host_a_words())
@@ -414,6 +470,8 @@ LFO_WORDS = 2                                   # after the voice blocks: a nois
 def layout():
     """{param name: (count, A base or None, B base or None)}: a table used by one DSP only gets no slot on the other"""
     used = {st: {m.split(':')[1] for m in KDEF.placeholders(st) if m.startswith('P:')} for st in KDEF.dsps}
+    if FUSED:                                    # the whole voice may run on either DSP
+        used['B'] = used['A']
     out, a, b = {}, K_A_PARAM0, K_B_PARAM0
     for p in KDEF.params:
         ab = bb = None
@@ -436,7 +494,7 @@ def check_arm_ids():
 def words(dsp):
     """bank-0 words a voice of this DSP needs: state, scratch (spills), the first-sample flag"""
     host = H_ENV_WORDS + H_B_WORDS if dsp == 'B' else H_A_WORDS
-    if dsp not in KDEF.dsps:                   # no S1_DSP_B: only the host's envelopes (COLOR MOD)
+    if dsp not in KDEF.dsps or FUSED:          # FUSED: the kernel's words are in kv_block                   # no S1_DSP_B: only the host's envelopes (COLOR MOD)
         return host
     st = KDEF.dsps[dsp]
     return host + sum(1 for s in KDEF.states if s['dsp'] == dsp) + st.get('scratch', 0) + bool(st.get('initflag'))
@@ -508,6 +566,72 @@ def addresses(dsp, v):
         if HOST_LFO:
             addr.update({'IN:lfo_amp': hb['lfa'], 'IN:lfo_filter': hb['lff']})
     return addr
+
+
+def k_inputs():
+    """FUSED: the inputs the kernel reads"""
+    return [k for k in KDEF.placeholders('A') if k in A_IN + B_IN]
+
+
+def host_view(v):
+    """FUSED: where each input of voice v is, on the DSP that makes it -> {key: (dsp, address)}"""
+    a = addresses('A', v)
+    out = {k: ('A', a[k]) for k in A_IN if k in a}
+    if HOST_ENVS:
+        for i in (0, 1):
+            out[f'IN:env{i}'] = ('B', env_out(i, v) + int(CURVE))
+    if HOST_LFO:
+        hb = host_b_block(v)
+        out.update({'IN:lfo_amp': ('B', hb['lfa']), 'IN:lfo_filter': ('B', hb['lff'])})
+    if CMOD and MOD_B:                          # the colors are made on DSP B (COLB, bank 5): both DSPs read them
+        for i in COLOR_USED:
+            out[f'IN:color{i}'] = ('AB', COLB[i][v])
+    if GT_B:                                    # DSP A's copies of gate and trigger, for DSP B
+        out['IN:gate'], out['IN:trig'] = ('AB', GB[v]), ('AB', TB[v])
+    return out
+
+
+def k_copies(dsp, v):
+    """FUSED: the (source, bank-5 slot) copies DSP dsp makes for voice v's kernel on the other DSP"""
+    if kdsp(v) == dsp:
+        return []
+    view = host_view(v)
+    return [(view[k][1], KX0 + 8 * j + v) for j, k in enumerate(k_inputs()) if view[k][0] == dsp]
+
+
+def kaddr(v):
+    """FUSED: the kernel's addresses for voice v on its DSP"""
+    dsp, view = kdsp(v), host_view(v)
+    addr = {}
+    for j, k in enumerate(k_inputs()):
+        if k not in view:
+            raise SystemExit(f'make_s1cc.py: fused kernel reads {k}, which the host does not make')
+        where, a = view[k]
+        addr[k] = a if dsp in where else KX0 + 8 * j + v
+    if KX0 + 8 * len(k_inputs()) > 0xA200:
+        raise SystemExit('make_s1cc.py: fused kernel: more inputs than bank-5 slots A1A0..A1FF')
+    base, k = kv_block(v), 0
+    for s in KDEF.states:
+        addr[f'S{s["index"]}'] = base + 2 * k
+        k += 1
+    for j in range(KDEF.dsps['A'].get('scratch', 0)):
+        addr[f'T{j}'] = base + 2 * k
+        k += 1
+    if KDEF.dsps['A'].get('initflag'):
+        addr['I'] = base + 2 * k
+    for name, (cnt, ab, bb) in layout().items():
+        pb = ab if dsp == 'A' else bb
+        for i in range(cnt):
+            addr[f'P:{name}:{i}'] = 0xC000 + pb + i
+    addr['OUT'] = XV[v] if dsp == 'A' else B_OUT[v]
+    return addr
+
+
+def k_voice(dsp, v):
+    """FUSED: what DSP dsp runs for voice v's kernel: the copies for the other DSP, or the kernel itself"""
+    cp = k_copies(dsp, v)
+    L = frag('kcopy', v=v, pairs=cp) if cp else []
+    return L + (KDEF.place('A', kaddr(v)) if kdsp(v) == dsp else [])
 
 
 # ---- microcode templates --------------------------------------------------------------------------------------------
@@ -678,7 +802,8 @@ def hlfo_voice(v):
 
 def voice_a(v):
     """DSP A code of voice v: the host's (four registers), the kernel's, and the host's mixer"""
-    L = [f'; voice {v}'] + (hlfo_voice(v) if HOST_LFO else []) + KDEF.place('A', addresses('A', v))
+    L = [f'; voice {v}'] + (hlfo_voice(v) if HOST_LFO else []) + \
+        (k_voice('A', v) if FUSED else KDEF.place('A', addresses('A', v)))
     if HOST_MIX:                                # kernel (its output word xo) + SUB x sub + NOISE x noise -> x of DSP B
         L += frag('mixer', v=v, h=host_a_block(v))
     if HOST_ENVS and not HOST_LFO:             # gate and trigger for the host's envelopes on DSP B (with the host LFO,
@@ -758,7 +883,7 @@ def prog_b_parts():
     """DSP B as (the head: the mix, microcode/host_b.s head_b; [the code of each voice pair, or voice])"""
     L = frag('head_b')
     units = []
-    if HAS_B or HOST_ENVS or HOST_LFO:
+    if HAS_B or HOST_ENVS or HOST_LFO or FUSED:
         v = 0
         while v < NV:
             if PAIRS_B and v + 1 < NV:          # two voices, independent registers (as DSP A, PAIRS=1)
@@ -787,7 +912,9 @@ def voice_b(v):
         L += colors_b(v)
     if cmod_idx():                                  # the sub square into the COLOR MOD table
         L += frag('sub_to_cmt', v=v)
-    if HAS_B:
+    if FUSED:
+        L += k_voice('B', v)
+    elif HAS_B:
         L += KDEF.place('B', addresses('B', v))
     return L
 
@@ -1256,7 +1383,7 @@ def sim_report(progs):
     for note in (45, 69) if not HOST_ENV_KERNEL else ():
         out = np.array(simulate(progs, {0: [(0, note)]}, n))
         ra, rb = s1check.run_ref(KERNEL, note, n, {})
-        ref = (rb if HAS_B else ra) * GAIN
+        ref = (rb if HAS_B or FUSED else ra) * GAIN
         best = None
         for lag in range(0, 6):                    # the chain's latency in samples (ring words, IOMD, master)
             e = np.mean((out[lag:] - ref[:n - lag]) ** 2)
@@ -1369,7 +1496,7 @@ def estimate():
     """{program: instructions} of each slave DSP with NV voices, each scheduled whole (no assembly, no sections: a
     section adds its head and the scheduler cannot fuse across its start, so the build counts as many or more), or
     None when the voice blocks do not fit in bank 0. A fraction of a second, against seconds for sources()"""
-    if bank0_top('A') > 0x0800 or bank0_top('B') > 0x0800:
+    if bank0_top('A') > 0x0800 or bank0_top('B') > 0x0800 or (FUSED and not kv_fits()):
         return None
     _, allowed = sched_setup()
     out = {}
@@ -1384,10 +1511,29 @@ def fits_estimate(n):
     set_voices(n)
     for on_b in ((True, False) if MOD_DSP == 'auto' and PENV else (MOD_B,)):
         set_mod_dsp(on_b)
+        choose_split()
         e = estimate()
         if e and all(e[k] <= BUDGET[k] for k in BUDGET):
             return True
     return False
+
+
+def choose_split():
+    """FUSED: NA (voices whose kernel runs on DSP A) with the lowest load of the busier DSP, by the estimate;
+    SPLIT=n fixes it"""
+    if not FUSED:
+        return
+    if SPLIT_FIXED is not None:
+        set_split(min(SPLIT_FIXED, NV))
+        return
+    best = None
+    for na in range(NV + 1):
+        set_split(na)
+        e = estimate()
+        load = max(e[k] / BUDGET[k] for k in BUDGET) if e else 99.0
+        if best is None or load < best[0]:
+            best = (load, na)
+    set_split(best[1])
 
 
 def choose_voices():
@@ -1409,6 +1555,7 @@ def build():
         tried = []
         for on_b in (True, False):
             set_mod_dsp(on_b)
+            choose_split()
             e = estimate()                          # a placement whose estimate is already over cannot fit
             if e is None or any(e[k] > BUDGET[k] for k in BUDGET):
                 tried.append((True, max(e[k] / BUDGET[k] for k in BUDGET) if e else 99.0, on_b))
@@ -1418,6 +1565,10 @@ def build():
         _, _, on_b = min(tried)
         set_mod_dsp(on_b)
         print(f'MOD_DSP=auto: pitch envelope and COLOR MOD on DSP {"B" if on_b else "A"}')
+    choose_split()
+    if FUSED:
+        print(f'fused kernel: voices 0..{NA - 1} on DSP A, {NA}..{NV - 1} on DSP B' if 0 < NA < NV else
+              f'fused kernel: all {NV} voices on DSP {"A" if NA else "B"}')
     progs = sources()                               # (again after auto: TRIED and the sections are this placement's)
     return progs, overruns(progs)[0]
 

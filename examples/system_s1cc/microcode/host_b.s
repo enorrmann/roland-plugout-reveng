@@ -3,10 +3,10 @@
 .fragment head_b
 ;; the mix of the sample before's voice outputs (B outputs: ring S+1; A outputs as they are) x GAIN x C000 (the
 ;; volume) -> 6006 / 6007, the other outputs 0; then the noise of the host LFOs' sample & hold
-; s1m1: slave DSP B main @0x0100: mix of {NV} voices x {GAIN!r} x C000 -> 6006 / 6007{"; per voice s1cc kernel DSP B" if HAS_B else ""}
+; s1m1: slave DSP B main @0x0100: mix of {NV} voices x {GAIN!r} x C000 -> 6006 / 6007{"; per voice s1cc kernel DSP B" if HAS_B else ""}{f"; fused kernel of voices {NA}..{NV - 1}" if FUSED and NA < NV else ""}
 mov r7, #0.0
 .for v in range(NV)
-    ld r{v & 1}, [{(B_OUT[v] + 1) if HAS_B else XV[v]:04x}]
+    ld r{v & 1}, [{mix_src(v):04x}]
     addxy r7, r7, r{v & 1}
 .endfor
 .if ARM_DIAG

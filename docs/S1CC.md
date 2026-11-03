@@ -252,7 +252,29 @@ S1_COMPILE("--regs 0,1,2,3");                               /* opciones de s1cc 
 * Son constantes del módulo (`s1_build_opts`, `s1_compile_opts`) que el driver deja públicas; `lower` las lee del IR.
 * Errores: E012 (`S1_BUILD`), E013 (`S1_COMPILE`), §9.2.0.
 * Las opciones del driver (`-I`, `-o`, `--check`, `--no-auto`, `--debug`) no van en `S1_COMPILE`: se necesitan antes
-  de compilar el C.
+  de compilar el C. La excepción es `--fused` (§3.4): el driver la busca en `S1_COMPILE` antes de perfilar.
+
+### 3.4 Voz fusionada (`--fused`) [sim, 2026-11-03]
+
+`s1cc build ... --fused` (o `S1_COMPILE("--fused")`) compila la voz entera, `S1_DSP_B(S1_DSP_A())`, como **una sola
+función**. El kernel tiene un solo programa (`.dsp A`) y la marca `.fused` (§7.4). El anfitrión lo puede correr en
+cualquiera de los dos DSP: SYSTEM-S1CC reparte las voces entre A y B
+([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §1.3).
+
+* **Paso del driver.** Después de los bucles (`voice.ll`), `s1cc fuse` crea `s1_dsp_a() { return s1_dsp_b(s1_dsp_a()); }`,
+  inline-a las dos, borra `s1_dsp_b` y marca el módulo (`__s1_fused`). Luego `opt -O2` otra vez. El perfilado, el
+  lowering y `refdsp` usan el módulo fusionado; la referencia nativa (`ref`) sigue con las dos funciones.
+* **Qué cambia en el C.** Nada: el mismo fuente compila de las dos formas. En la función fusionada:
+  * `s1_import(i)` es el valor que dio `s1_export(i)` antes, en un registro (sin palabra del banco 5). Un import
+    sin export antes: E116;
+  * `s1_env` y `s1_lfo_*` se pueden leer en toda la voz (no hay E117);
+  * una variable de estado puede usarla todo el código (no hay E302 entre A y B).
+* **Qué se gana.** Una sola planificación y una sola asignación de registros sobre la voz, sin la salida de A ni la
+  entrada de B. `mp_csaw2` (`--regs 0,1,2,3`): 111 instrucciones contra 80 + 37 = 117 (−5 %), 6 palabras de
+  derrame contra 6 + 5. `simple_saw_hostenv`: 12 contra 10 + 5. El SNR contra la referencia es el mismo (la salida
+  B de `ref`, que es la que compara `check`).
+* **Lo que no puede hacer.** El anfitrión no puede meter nada entre A y B. En SYSTEM-S1CC el mezclador SUB / NOISE
+  (`MIX`) queda apagado.
 
 ## 4. Del IR al grafo (`graph.cpp`)
 
@@ -493,6 +515,7 @@ Cada valor V del programa vive en un registro r con una escala s y un desplazami
 ### 7.4 Kernel (`.s1k`)
 
 ```text
+.fused                               --fused: solo .dsp A, que es la voz entera S1_DSP_B(S1_DSP_A()) (§3.4)
 .option <CLAVE> <valor>              S1_BUILD: una opción del anfitrión (§3.3); el valor es el resto de la línea
 .compile <opciones>                  S1_COMPILE: las opciones de lower que vinieron del fuente
 .state <i> <A|B> <s> <o> <nombre>    palabra de estado i: V = (r - o) s
@@ -631,7 +654,7 @@ referencia nativa (`make_s1cc.py --sim`).
    * **Comprobado** [sim, 2026-10-27]: `simple_saw_wrapped`, `saw_wrapper`, `va_saw_svf`, `braids_saw_swarm` y
      `braids_saw_swarm_s1` dan el mismo kernel con fuentes automáticas que con las fuentes dadas a mano.
 1. `clang(++) -O2 -S -emit-llvm -fno-math-errno -I include ...` de cada fuente, y `llvm-link` → `voice.ll`.
-2. `s1cc prof voice.ll -o prof.ll`.
+2. `s1cc prof voice.ll -o prof.ll`. Antes, con `--fused`: `s1cc fuse voice.ll` y `opt -O2` (§3.4).
 3. `clang voice.ll runtime/s1rt.c -o ref` y `clang prof.ll runtime/s1rt.c -o prof`, nativos.
 4. `ref tables tables.txt` (tablas `S1_PARAM`) y `prof prof profile.txt` (escenarios, rangos, desbordes, islas).
 5. `s1cc lower voice.ll --profile profile.txt --tables tables.txt -o voice.s1k --report report.txt`: primero
@@ -755,6 +778,7 @@ Los códigos son estables: un código no cambia de significado; un caso nuevo re
 | `E005` | `cannot read the profile` | el binario `prof` no corrió o falló | rehacer el build; si falla, correr `SALIDA/prof prof x.txt` y ver su error |
 | `E012` | `S1_BUILD: 'x' is not KEY=VALUE` / `K given twice` / `the quote is not closed` / `K has no value` | el texto de `S1_BUILD` no es una lista de `CLAVE=VALOR` (§3.3) | claves en mayúsculas (`ARM_ENV=1`), cada una una vez; un valor con espacios entre `\"…\"` |
 | `E013` | `S1_COMPILE: unknown option x` / `x is not a compiler option` / `x needs a value` | `S1_COMPILE` tiene algo que no es una opción de `lower` (una ruta, `--check`, un error de tipeo) | solo las opciones de §3.3; las del driver van en la línea de comandos |
+| `E014` | `fused module with an s1_dsp_b` / `s1cc fuse: could not inline f` | el módulo fusionado conserva `s1_dsp_b`, o LLVM no pudo inline-ar una de las dos funciones | correr `s1cc build --fused`, no los subcomandos a mano; si persiste, informar |
 | `E007` | `pass pipeline: ...` | error interno de LLVM al preparar los bucles | informar |
 | `E008` | `no S1_DSP_A (s1_dsp_a) in the module` | falta `S1_DSP_A`, o se definió dentro de un `namespace` / sin `#include "s1dsp.h"` | definir `S1_DSP_A { ... }` a nivel de archivo |
 | `E009` | `s1_dsp_a returns nothing` | la voz nunca llega a un `return` con valor | devolver la muestra en todas las ramas |
