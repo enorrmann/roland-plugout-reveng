@@ -68,3 +68,42 @@ f6 r2, -r2
 tapreq r2, 0
 hset h4, #256@0:24
 cond 0, 15, 8
+
+;; EDM_STR with STR_TAP (docs/MUTABLE_MEMORY.md §3.3.5): the strings' reads by tapreq instead of map-table reads (the
+;; table cannot change at run time: the data queue drains only when the PLUG-OUT is selected, a live ARM store hung
+;; the device, 2026-11-04). Per voice v two requests on its own line (base (STR_A0 + v STR_DA) / 16384, the OS's form
+;; age - p, measured on our line by MP-EDMIDX: 48000 -> 48001): age d_v (C030 + v, written by region 0 at every note)
+;; -> results STR_RES + 8v (y0, y1, fraction), age d_v + 2 (C038 + v) -> STR_RES + 8v + 3 (y2, y3); the main reads
+;; them one sample later (microcode/edm_str.s). h4 back to the OS's 256 before the return; only r2 is used.
+.fragment edm_str_block
+.for v in range(str_nv())
+    ld r2, [c{STR_PAGE0 + v:03x}]
+    hset h4, #{(STR_A0 + STR_DA * v) // 16384}@0:24
+    hset h5, #{(STR_RES + 8 * v - 0x4000) / 16384}@0:16
+    f6 r2, -r4
+    tapreq r2, 0
+    ld r2, [c{STR_PAGE2 + v:03x}]
+    hset h4, #{(STR_A0 + STR_DA * v) // 16384}@0:24
+    hset h5, #{(STR_RES + 8 * v + 3 - 0x4000) / 16384}@0:16
+    f6 r2, -r4
+    tapreq r2, 0
+.endfor
+hset h4, #256@0:24
+cond 0, 15, 8
+;; EDM_STR_PAD=n (bisection 2026-11-04): n filler instructions after the return, never run: the block's size alone
+.for _ in range(STR_PAD)
+    mov r2, r2
+.endfor
+
+;; EDM_STR_ONE: one request per line (6 of ours per sample ran on the device, 8 hung: 2026-11-04); a line per voice,
+;; two for BOWED / FLUTED (str_lines)
+.fragment edm_str_block1
+.for v in range(str_lines())
+    ld r2, [c{STR_PAGE0 + v:03x}]
+    hset h4, #{(STR_A0 + STR_DA * v) // 16384}@0:24
+    hset h5, #{(STR_RES + 8 * v - 0x4000) / 16384}@0:16
+    f6 r2, -r4
+    tapreq r2, 0
+.endfor
+hset h4, #256@0:24
+cond 0, 15, 8

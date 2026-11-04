@@ -1,4 +1,4 @@
-# `sdk/s1cc/examples/casio_cz`: CASIO-CZ, una voz de Casio CZ (distorsión de fase) para SYSTEM-S1CC
+# `sdk/s1cc/examples/casio_cz`: CZ-SYSTEM, una voz de Casio CZ (distorsión de fase) para SYSTEM-S1CC
 
 Kernel de s1cc ([S1CC.md](S1CC.md)) para el PLUG-OUT SYSTEM-S1CC
 ([examples_system_s1cc_README.md](examples_system_s1cc_README.md)). Reproduce la síntesis por distorsión de fase de
@@ -16,8 +16,8 @@ Estado (2026-11-03): verificado contra su referencia nativa (`s1cc check`) y en 
 
 ```sh
 sdk/s1cc/s1cc build sdk/s1cc/examples/casio_cz/cz.c --check          # S1_COMPILE ya pone --regs 0,1,2,3
-KERNEL=sdk/s1cc/build/cz sh examples/system_s1cc/build.sh            # -> plugins/CASIO-CZ (S1_BUILD: NAME, MIX=0)
-python3 tools/plugout_tool.py install plugins/CASIO-CZ --slot 1 --force --no-patches -y
+KERNEL=sdk/s1cc/build/cz sh examples/system_s1cc/build.sh            # -> plugins/CZ-SYSTEM (S1_BUILD: NAME, MIX=0)
+python3 tools/plugout_tool.py install plugins/CZ-SYSTEM --slot 1 --force --no-patches -y
 ```
 
 Mismo slot e id de modelo que los demás armados de SYSTEM-S1CC: instalarlo reemplaza al anterior.
@@ -161,4 +161,4 @@ línea 1 (sierra, cuadrada, resonancia) y la línea 2 (sierra-pulso) contra la r
 | archivo | qué es |
 |---|---|
 | `sdk/s1cc/examples/casio_cz/cz.c` | el kernel: tablas de formas, `cz_osc`, líneas, ring / noise; DSP B de `mutable_ported/include/mp_dsp_b.h` (SVF + VCA) |
-| `plugins/CASIO-CZ/` | el PLUG-OUT armado por `build.sh` |
+| `plugins/CZ-SYSTEM/` | el PLUG-OUT armado por `build.sh` |

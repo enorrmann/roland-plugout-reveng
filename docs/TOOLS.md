@@ -911,6 +911,11 @@ Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, m
     R3  bank 0: at most 2 loads and 2 stores per instruction
     R4  bank 6: at most 2 loads per instruction
     R5  one bank-5 access per instruction (load or store)                         [our rule, inferred]
+        Stricter than Roland (corpus count 2026-11-03, all 13845 SYSTEM-1 instructions of the OS and SH-101 / SH-2 /
+        PROMARS): 1 load + 1 store in one instruction 5 times (SH-2 master 0x100 / 0x1000, slave 0x100); 2 stores
+        11 times, all in the 0x0 frame headers (`cond !12, 1, 0 | st r0, [a00x]@0 | st r0, [a00x]@1`, code the OS
+        owns and a PLUG-OUT never queues); 2 loads never. R2 (measured) is what Roland follows; R5 stays until a
+        device test of the SH-2 form
     R6  at most 2 loads of banks 5 + 6 + IOMD per instruction (the S1 never has more)  [inferred]
     R7  a slave DSP stores to bank 5 only in A100..A1FF (A000..A0FF is what the ARM writes)
     R8  ops sharing an instruction: only the groups proven on the device (asm/proven_forms.txt)
@@ -3615,6 +3620,12 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
                 DSP B instructions per voice; the sine is a true sine (docs/examples_system_s1cc_README.md §3.6)
   SPLIT=auto|n  a kernel built with s1cc --fused: voices 0..n-1 run the whole voice on DSP A, the rest on DSP B;
                 auto (default) balances the two DSPs (docs/examples_system_s1cc_README.md §1.3)
+  EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.5):
+                the kernel makes the excitation; AMP DECAY / AMP RELEASE = feedback held / released, FILTER CUTOFF =
+                brightness (sdk/s1cc/examples/edm/edm_string.c)
+  EDM_PORT=r|w  probe of the ARM's indirect port to the delay memory (docs/MUTABLE_MEMORY.md §3.3.7), needs
+                PARAMLOG=1: at every note region 0 reads 64 words over 4M + a test block and logs them; w: also
+                writes 64 words at the first note (EDM_PORT_W0=n, default 0x380000) and reads them back
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
 
@@ -3622,6 +3633,27 @@ Examples:
   sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c
   KERNEL=sdk/s1cc/build/simple_saw_env sh examples/system_s1cc/build.sh          (-> plugins/SYSTEM-S1CC)
   KERNEL=sdk/s1cc/build/simple_saw_env python3 examples/system_s1cc/make_s1cc.py --sim   (programs + emulator)
+```
+
+### `examples/system_s1cc/build_multi.sh`
+
+```
+usage: KERNELS="[POS:]DIR ..." [VAR=value ...] sh examples/system_s1cc/build_multi.sh [--help]
+
+Each kernel is built as SYSTEM-S1CC builds it alone (make_s1cc.py: its programs, knob tables, host), all with the
+same number of voices (the fewest any of them fits, or VOICES=n). Region 1 holds one engine per kernel (engine.c
+with -DS1_SUB) and multi.c, which forwards the OS's calls to the selected one; moving OSC1 WAVE reloads the DSP
+programs of the kernel of that position and replays the panel to it.
+
+  KERNELS   s1cc build directories in WAVE order; POS:DIR puts one at a position (0..5). A position with no
+            kernel plays the one of the position before it (position 0: the first kernel given)
+            KERNELS="sdk/s1cc/build/mp_saw sdk/s1cc/build/mp_square 2:sdk/s1cc/build/mp_phase_distortion"
+  VOICES=n  the voices of every kernel (default: the fewest of their VOICES=auto)
+  NAME=...  plug-out name (default S1CC-MULTI), MODEL_ID=0x.. (default 0x0011), PARAMLOG=1
+  The other make_s1cc.py variables (BUDGET_*, LFO_PITCH, ARM_ENV, ...) apply to every kernel; each kernel's own
+  S1_BUILD options stay its own.
+
+Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force --no-patches -y
 ```
 
 ### `examples/system_s1cc/make_s1cc.py`

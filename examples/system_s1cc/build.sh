@@ -38,6 +38,10 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
   EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.5):
                 the kernel makes the excitation; AMP DECAY / AMP RELEASE = feedback held / released, FILTER CUTOFF =
                 brightness (sdk/s1cc/examples/edm/edm_string.c)
+  EDM_PORT=r|w|d  probe of the ARM's indirect port to the delay memory (docs/MUTABLE_MEMORY.md §3.3.7), needs
+                PARAMLOG=1: at every note region 0 reads 64 words over 4M + a test block and logs them; w: also
+                writes 64 words at the first note (EDM_PORT_W0=n, default 0x380000) and reads them back;
+                d: the port registers before / after one read, restored after it; p: only the counter +0x48
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
 
@@ -89,6 +93,9 @@ EDM_FB=${EDM_FB:-0.975}
 # EDM_GLIDE=1 (with EDM_KS): region 0 patches the effect's delay-time smoothing in the OS's copy of its master-B set
 [ -n "${EDM_GLIDE+x}" ] || EDM_GLIDE=$(kopt EDM_GLIDE)
 [ "$EDM_GLIDE" = 0 ] && EDM_GLIDE=
+# EDM_PORT=r|w (model.c edm_port_probe): read / write probe of the delay memory through the ARM's port
+case "${EDM_PORT:-}" in ""|0) EDM_PORT= ;; r) ;; w) ;; d) ;; p) ;; *) echo "build.sh: EDM_PORT is r, w, d or p" >&2; exit 2 ;; esac
+[ -z "$EDM_PORT" ] || [ -n "$PARAMLOG" ] || { echo "build.sh: EDM_PORT needs PARAMLOG=1" >&2; exit 2; }
 export KERNEL
 mkdir -p "$B"
 # the most voices that fit: make_s1cc.py VOICES=auto computes them before it builds (exit 3: not even 1 fits)
@@ -112,7 +119,7 @@ with open(out, 'w') as f:
 PY
 fi
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
- -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_STR:+-DEDM_STR} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW}"
+ -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_STR:+-DEDM_STR} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
 for r in 0 1; do
     if [ $r = 0 ]; then SRC=model.c; BASE=0x60800000; CODE=0x9000; else SRC=engine.c; BASE=0x60200000; CODE=0x1000; fi
     arm-none-eabi-gcc $CFLAGS -c "$HERE/$SRC" -o "$B/region$r.o"

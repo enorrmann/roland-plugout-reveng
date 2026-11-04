@@ -27,6 +27,9 @@ for v in range(NV):
 n=[0]
 rng=np.random.default_rng(2)
 def acc(op,addr,val):
+    if 0x4080<=addr<0x40C0 and op=='r':    # STR_TAP: tapreq results x0, x1 at d and at d + 2 (measured: as the table reads)
+        v,k=divmod(addr-0x4080,8); j={0:0,1:1,3:2,4:3}[k]; d,_=per(notes[v]); i=n[0]-d-1-j
+        return w[v,i] if i>=0 else 0.0
     if 0x4040<=addr<0x4080:
         v,k=divmod(addr-0x4040,8)
         if op=='w':

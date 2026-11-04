@@ -10,3 +10,8 @@ termina de portear todos los osciladores de mutable que estan en la carpeta git/
 el lfo to filter deja de hacer efecto al soltar la nota por mas que este activa la etapa de release
 agregar una funcion en el kernel para escribir un sub osc personalizado sobreescribiendo el del host, asi se puede hacer un sub osc mas barato a partir de un osc actual por division de frecuencia o algo asi 
 
+en el ejemplo cz sytem la env pitch no modula bien el color para algunas notas
+
+usando lo aprendido em memoria trabaja en un ejemplo para system-s1cc que use tabls de ondas como osciladores, el color de cada osc debe modular la posicion denrto de la tabla
+wavetables con 
+/home/emilio/PRODUCCION/samples/THE_REST/wavetables/Echo Sound Works Core Tables/Analog/

@@ -16,6 +16,10 @@
 #include <stdint.h>
 #include "syninfo.h"
 #include "s1_programs.h"
+#if defined(EDM_STR) && defined(STR_NV) && STR_NV < NV
+#undef NV
+#define NV STR_NV                                             /* EDM_STR_NV: the assigner plays only the strings */
+#endif
 
 #ifndef NV
 #define NV 4
@@ -265,13 +269,30 @@ static void edm_call(void)
     uint32_t h = 0x811c9dc5u;
     for (unsigned i = 0; i < 5; i++)
         h = (h ^ prog_hw(EDM_SITE + 2 * i)) * 0x01000193u;
-    if (h != EDM_SITE_FNV) {
-        edm_call_state = prog_hw(EDM_SITE) == edm_call_site[0] && prog_hw(EDM_SITE + 2) == edm_call_site[1] ? 2 : 3;
-        return;
-    }
     unsigned n = 0;
-    for (unsigned i = 0; i < 5; i++)
-        buf[n++] = (uint16_t)prog_hw(EDM_SITE + 2 * i);
+    if (h != EDM_SITE_FNV) {
+        int ours = prog_hw(EDM_SITE) == edm_call_site[0] && prog_hw(EDM_SITE + 2) == edm_call_site[1];
+        uint32_t g = 0x811c9dc5u;                             /* the OS's words, kept at the head of the old block */
+        for (unsigned i = 0; i < 5; i++)
+            g = (g ^ prog_hw(EDM_BLOCK + 2 * i)) * 0x01000193u;
+        if (!ours || g != EDM_SITE_FNV) {
+            edm_call_state = 3;
+            return;
+        }
+        /* another build's call already there (power on since): the OS's words back at the site first, so that
+           nothing calls the block while it is rewritten (2026-11-04: MP-EDMIDX then MP-EDMSTRT without power off) */
+        for (unsigned i = 0; i < 5; i++)
+            buf[i] = (uint16_t)prog_hw(EDM_BLOCK + 2 * i);
+        unsigned keep0 = prog_hw(EDM_SITE + 10);
+        __asm volatile ("cpsid i" ::: "memory");
+        prog_word(EDM_SITE, buf[0], buf[1]);
+        prog_word(EDM_SITE + 4, buf[2], buf[3]);
+        prog_word(EDM_SITE + 8, buf[4], keep0);
+        __asm volatile ("cpsie i" ::: "memory");
+        n = 5;
+    } else
+        for (unsigned i = 0; i < 5; i++)
+            buf[n++] = (uint16_t)prog_hw(EDM_SITE + 2 * i);
     for (unsigned i = 0; i < sizeof edm_call_block / 2; i++)
         buf[n++] = edm_call_block[i];
     if (n & 1)
@@ -366,12 +387,85 @@ static void str_reads(int v, int note)                        /* voice v's read 
         str_rd[v][k][1] = (STR_W + 8u * (uint32_t)v + 1u + 2u * k) << 16 | (d + k);
     }
 }
+#ifdef STR_COMB
+static uint8_t comb_knob[2] = { 128, 192 };                   /* OSC1 COLOR, OSC2 COLOR */
+static void str_fb(int v) { str_prm(STR_PFB + v, str_res_bits[comb_knob[1]]); }
+#else
 static void str_fb(int v) { str_prm(STR_PFB + v, str_gate[v] ? str_hold_bits[str_knob[0]] : str_rel_bits[str_knob[1]]); }
+#endif
+#ifdef STR_ONE
+/* EDM_STR_ONE: one request per voice; the request's age and g of each voice's note for the CUTOFF step (the one-pole's
+   phase delay is in the table: a new step retunes the voices) */
+static int8_t str_note[NV];
+#ifdef STR_BOWED
+/* EDM_STR_BOWED (Braids BOWED, master_bowed): lines 2v (neck) and 2v + 1 (bridge) of voice v: their ages and g for
+   the note and the bow position (OSC2 COLOR, 8 steps); the friction slope s from OSC1 COLOR (Braids' TIMBRE) */
+static uint8_t bow_knob[2] = { 128, 128 };                    /* OSC1 COLOR, OSC2 COLOR */
+static void str_tune(int v)
+{
+    unsigned i = (unsigned)(bow_knob[1] >> 5) * 128u + (unsigned)(str_note[v] & 0x7F);
+    str_prm(STR_PAGE0 + 2 * v, bow_na_bits[i]);
+    str_prm(STR_PF + 2 * v, bow_ng_bits[i]);
+    str_prm(STR_PAGE0 + 2 * v + 1, bow_ba_bits[i]);
+    str_prm(STR_PF + 2 * v + 1, bow_bg_bits[i]);
+    str_prm(STR_PB + v, bow_s_bits[bow_knob[0]]);
+}
+static void str_bright(void) {}
+#elif defined(STR_BLOWN)
+/* EDM_STR_BLOWN (Braids BLOWN + a bore loss, master_blown): per voice the bore's age, g and loss b of its note and
+   OSC2 COLOR step, and the body filter's coefficient at the note; no feedback parameter (the reed) */
+static uint8_t blown_color = 128;                             /* OSC2 COLOR */
+static void str_tune(int v)
+{
+    unsigned n = (unsigned)(str_note[v] & 0x7F), i = (unsigned)(blown_color >> 5) * 128u + n;
+    str_prm(STR_PAGE0 + v, blown_age_bits[i]);
+    str_prm(STR_PF + v, blown_g_bits[i]);
+    str_prm(STR_PAP + v, blown_b_bits[i]);
+    str_prm(STR_PB + v, blown_c_bits[n]);
+}
+static void str_bright(void) {}
+#elif defined(STR_PL)
+/* EDM_STR_PL (Plaits' string, master_pstr): per voice the request's age, g, the damping one-poles' b and the
+   allpasses' a of its note, FILTER CUTOFF step (8) and OSC2 COLOR dispersion step (8), from make_s1cc.py pl_tables */
+static uint8_t pl_disp = 0;                                   /* OSC2 COLOR */
+static void str_tune(int v)
+{
+    unsigned i = (((unsigned)(pl_disp >> 5) * PL_CSTEPS) + (unsigned)(str_knob[2] >> 5)) * 128u
+                 + (unsigned)(str_note[v] & 0x7F);
+    str_prm(STR_PAGE0 + v, pl_age_bits[i]);
+    str_prm(STR_PF + v, pl_g_bits[i]);
+    str_prm(STR_PB + v, pl_b_bits[i]);
+    str_prm(STR_PAP + v, pl_a_bits[i]);
+}
+static void str_bright(void) {}
+#elif defined(STR_COMB)
+/* EDM_STR_COMB: the comb's delay = the period of note + OSC1 COLOR ((knob - 128) / 2 semitones), no loop filter (the
+   last CUTOFF step, b = 1); OSC2 COLOR = the feedback, the same for every voice and whatever the gate */
+static void str_tune(int v)
+{
+    int n = str_note[v] + ((comb_knob[0] - 128) >> 1);
+    n = n < 0 ? 0 : n > 127 ? 127 : n;
+    unsigned i = (STR1_STEPS - 1u) * 128u + (unsigned)n;
+    str_prm(STR_PAGE0 + v, str1_age_bits[i]);
+    str_prm(STR_PF + v, str1_g_bits[i]);
+}
+static void str_bright(void) { str_prm(STR_PA, str1_b_bits[STR1_STEPS - 1]); }
+#else
+static void str_tune(int v)
+{
+    unsigned i = (unsigned)(str_knob[2] >> 4) * 128u + (unsigned)(str_note[v] & 0x7F);
+    str_prm(STR_PAGE0 + v, str1_age_bits[i]);
+    str_prm(STR_PF + v, str1_g_bits[i]);
+}
+static void str_bright(void) { str_prm(STR_PA, str1_b_bits[str_knob[2] >> 4]); }
+#endif
+#else
 static void str_bright(void)
 {
     str_prm(STR_PA, str_a_bits[str_knob[2]]);
     str_prm(STR_PC, str_c_bits[str_knob[2]]);
 }
+#endif
 
 static void edm_str(void)                                     /* m_load */
 {
@@ -385,17 +479,38 @@ static void edm_str(void)                                     /* m_load */
         str_prm(STR_PFB + v, 0);
         str_prm(STR_PF + v, 0);
         str_reads(v, 60);
+#if STR_TAP
+        /* STR_TAP: only the write entries (entries STR_SLOT0 + k, a line k per voice, two with STR_LPV 2); the
+           reads are the OS effect's tapreq block */
+        for (int k = STR_LPV * v; k < STR_LPV * (v + 1); k++) {
+            str_map[k][0] = 0x80000000u | (STR_A0 + (uint32_t)k * STR_DA);
+            str_map[k][1] = (STR_W + 8u * (uint32_t)k) << 16;
+        }
+#ifdef STR_ONE
+        str_note[v] = 60;
+        str_tune(v);
+#else
+        str_prm(STR_PAGE0 + v, str_age_bits[60]);
+        str_prm(STR_PAGE2 + v, str_age2_bits[60]);
+#endif
+#else
         str_map[5 * v][0] = 0x80000000u | (STR_A0 + (uint32_t)v * STR_DA);
         str_map[5 * v][1] = (STR_W + 8u * (uint32_t)v) << 16;
         for (int k = 0; k < 4; k++) {
             str_map[5 * v + 1 + k][0] = str_rd[v][k][0];
             str_map[5 * v + 1 + k][1] = str_rd[v][k][1];
         }
+#endif
         str_rd_set[v][0].addr = 8u * (STR_SLOT0 + 5u * (uint32_t)v + 1u);
         str_rd_set[v][0].bytes = sizeof str_rd[v];
         str_rd_set[v][0].src = str_rd[v];
     }
+#if STR_TAP
+    str_map[STR_LPV * NV][0] = str_map[STR_LPV * NV][1] = 0;
+    str_set[0].bytes = 8 * (STR_LPV * NV + 1);
+#else
     str_map[5 * NV][0] = str_map[5 * NV][1] = 0;
+#endif
     ((s1_queue_fn)SVC(0x3C))(str_set);
     str_bright();
     edm_str_state = 1;
@@ -404,9 +519,27 @@ static void edm_str_note(int v, int note)                     /* gate on, note: 
 {
     if (edm_str_state != 1 || v < 0 || v >= NV)
         return;
+#ifdef STR_ONE
+    str_note[v] = (int8_t)(note & 0x7F);
+    str_tune(v);
+#elif STR_TAP
+    str_prm(STR_PAGE0 + v, str_age_bits[note & 0x7F]);   /* the tapreq ages: plain parameters, written live */
+    str_prm(STR_PAGE2 + v, str_age2_bits[note & 0x7F]);
+#elif defined(EDM_STR_DIRECT)
+    str_reads(v, note);
+    /* the data queue is drained only when the PLUG-OUT is selected (OS 1.30 0x6001ECA2 empties the queues, queues its
+       own sets, calls load, then loads them all): a set queued at a note is never applied (measured 2026-11-04,
+       MP-EDMSTRL). Instead the address word of the voice's four read entries, stored directly: one 32-bit store
+       per entry, the word / length half untouched, addresses inside the span the load mapped */
+    for (int k = 0; k < 4; k++)
+        ECF_T[2 * (STR_SLOT0 + 5 * v + 1 + k)] = str_rd[v][k][0];
+#else
     str_reads(v, note);
     ((s1_queue_fn)SVC(0x3C))(str_rd_set[v]);
+#endif
+#ifndef STR_ONE
     str_prm(STR_PF + v, str_f_bits[note & 0x7F]);
+#endif
     str_bright();                                             /* again: the queued program may land after load */
     str_gate[v] = 1;
     str_fb(v);
@@ -420,15 +553,75 @@ static void edm_str_off(int v)
 }
 static void edm_str_param(int id, int value)                  /* m_param: the three knobs */
 {
+#ifdef STR_BOWED
+    if ((id == 0x168 || id == 0x16D) && (unsigned)value <= 255) {    /* OSC1 COLOR: pressure, OSC2 COLOR: position */
+        int k = id == 0x16D, old = bow_knob[k];
+        bow_knob[k] = (uint8_t)value;
+        if (edm_str_state == 1 && (k == 0 ? value != old : value >> 5 != old >> 5))
+            for (int v = 0; v < NV; v++)
+                str_tune(v);
+    }
+    return;
+#endif
+#ifdef STR_BLOWN
+    if (id == 0x16D && (unsigned)value <= 255) {                     /* OSC2 COLOR: the bore's loss, 8 steps */
+        int old = blown_color >> 5;
+        blown_color = (uint8_t)value;
+        if (edm_str_state == 1 && value >> 5 != old)
+            for (int v = 0; v < NV; v++)
+                str_tune(v);
+    }
+    return;
+#endif
+#ifdef STR_PL
+    if (id == 0x16D && (unsigned)value <= 255) {                     /* OSC2 COLOR: dispersion */
+        int old = pl_disp >> 5;
+        pl_disp = (uint8_t)value;
+        if (edm_str_state == 1 && value >> 5 != old)
+            for (int v = 0; v < NV; v++)
+                str_tune(v);
+        return;
+    }
+    if (id == 0x17D && (unsigned)value <= 255) {                     /* FILTER CUTOFF: 8 steps */
+        int old = str_knob[2] >> 5;
+        str_knob[2] = (uint8_t)value;
+        if (edm_str_state == 1 && value >> 5 != old)
+            for (int v = 0; v < NV; v++)
+                str_tune(v);
+        return;
+    }
+#endif
+#ifdef STR_COMB
+    if ((id == 0x168 || id == 0x16D) && (unsigned)value <= 255) {     /* OSC1 COLOR: comb pitch, OSC2 COLOR: feedback */
+        comb_knob[id == 0x16D] = (uint8_t)value;
+        if (edm_str_state == 1)
+            for (int v = 0; v < NV; v++) {
+                if (id == 0x168)
+                    str_tune(v);
+                else
+                    str_fb(v);
+            }
+        return;
+    }
+#endif
     int k = id == 0x188 ? 0 : id == 0x18A ? 1 : id == 0x17D ? 2 : -1;
     if (k < 0 || (unsigned)value > 255)
         return;
+    int step = str_knob[2] >> 4;
     str_knob[k] = (uint8_t)value;
     if (edm_str_state != 1)
         return;
-    if (k == 2)
+    if (k == 2) {
+#ifdef STR_ONE
+        if (value >> 4 == step)                               /* the same tuning step: nothing to write */
+            return;
+        for (int v = 0; v < NV; v++)
+            str_tune(v);
+#else
+        (void)step;
+#endif
         str_bright();
-    else
+    } else
         for (int v = 0; v < NV; v++)
             str_fb(v);
 }
@@ -468,8 +661,128 @@ static void edm_call_dump(void)                               /* id 0x3B00: stat
         param_log(0x3B08 + i, 0, (int)*(volatile uint32_t *)(MB_PROG + EDM_BLOCK + 4 * i));
 }
 #endif
+#if defined(PARAMLOG) && defined(EDM_PORT)
+/* EDM_PORT (docs/MUTABLE_MEMORY.md §3.3.7): the ARM's indirect port to the delay memory, the sequence of the OS 1.30
+   boot self-test 0x6001D51A (disassembled 2026-11-04), here WITHOUT its framing (it parks the 4 DSP maps and the 24
+   routes first, 0x0100A211 / 0x01008BDF): the DSPs keep running. Word n: [0x40100050] = 0x01000000 + 4n,
+   [0x4010007C] |= 0x100, wait [0x40100008] bit 30 = 0; write: [0x40100800] = data; read: [0x40100054] |= 0x20000000,
+   wait [0x40100054] bit 31 = 0, data = [0x40100800]; then [0x4010007C] &= ~0x100, wait bit 30 again. Every wait is
+   bounded (a stuck port counts a timeout instead of hanging the ARM).
+   Log at every note: 0x3E00 state (flag 0 notes, 1 timeouts); 0x3E40 + k: word k * 0x10000 (k = 0..63, 4M words:
+   the self-test checks address lines up to n = 2^21); 0x3E80 + i: the test block EDM_PORT_W0 + i (16 words).
+   EDM_PORT_WRITE (EDM_PORT=w): at the first note, 64 words value 0x5A0000 + i at EDM_PORT_W0 + i, read back at once
+   (0x3EC0 + i) */
+static void param_log(int id, int flag, int value);
+#define EP ((volatile uint32_t *)0x40100000u)
+#define EP_DATA (*(volatile uint32_t *)0x40100800u)
+#ifndef EDM_PORT_W0
+#define EDM_PORT_W0 0x380000u                                 /* far from the OS lines if the port counts from 0 */
+#endif
+#define EP_SPIN 200000
+static int ep_notes, ep_timeouts;
+static void ep_wait(volatile uint32_t *r, uint32_t bit)
+{
+    for (int i = 0; i < EP_SPIN; i++)
+        if (!(*r & bit))
+            return;
+    ep_timeouts++;
+}
+static void ep_open(uint32_t n)
+{
+    EP[0x50 / 4] = 0x01000000u + 4u * n;
+    EP[0x7C / 4] |= 0x100u;
+    ep_wait(&EP[0x08 / 4], 1u << 30);
+}
+static void ep_close(void)
+{
+    EP[0x7C / 4] &= ~0x100u;
+    ep_wait(&EP[0x08 / 4], 1u << 30);
+}
+static uint32_t ep_read(uint32_t n)
+{
+    ep_open(n);
+    EP[0x54 / 4] |= 0x20000000u;
+    ep_wait(&EP[0x54 / 4], 1u << 31);
+    uint32_t d = EP_DATA;
+    ep_close();
+    return d;
+}
+#ifdef EDM_PORT_WRITE
+static void ep_write(uint32_t n, uint32_t d)
+{
+    ep_open(n);
+    EP_DATA = d;
+    ep_close();
+}
+#endif
+#ifdef EDM_PORT_P
+/* EDM_PORT=p (§3.3.7): only the controller word +0x48 (the counter that moved at 96 kHz in MP-EDMPORTD), no port
+   access: is reading it harmless, how fast does it move, which way. Per note: +0x48 (0x3F60), again after ~10 ms of
+   the ARM's cycle counter (0x3F61), the cycles elapsed (0x3F62; DWT CYCCNT, 156 MHz measured on the S1) */
+#define DEMCR_M (*(volatile uint32_t *)0xE000EDFCu)
+#define DWT_CTRL_M (*(volatile uint32_t *)0xE0001000u)
+#define CYCCNT_M (*(volatile uint32_t *)0xE0001004u)
+static void edm_port_probe(void)
+{
+    DEMCR_M |= 1u << 24;
+    DWT_CTRL_M |= 1u;
+    uint32_t c0 = CYCCNT_M, p0 = EP[0x48 / 4];
+    while (CYCCNT_M - c0 < 1560000u)
+        ;
+    uint32_t p1 = EP[0x48 / 4], c1 = CYCCNT_M;
+    param_log(0x3F60, 0, (int)p0);
+    param_log(0x3F61, 0, (int)p1);
+    param_log(0x3F62, 0, (int)(c1 - c0));
+    ep_notes++;
+    param_log(0x3E00, 0, ep_notes);
+}
+#elif defined(EDM_PORT_DIAG)
+/* EDM_PORT=d (§3.3.7): MP-EDMPORTR silenced the device until power off (2026-11-04). Diagnostic: the controller's 32
+   words 0x40100000..0x4010007C before (0x3F00 + i) and after (0x3F20 + i) ONE read of word 0 (0x3F40), with 0x50, 0x54,
+   0x7C put back to their values before the read */
+static void edm_port_probe(void)
+{
+    uint32_t r50 = EP[0x50 / 4], r54 = EP[0x54 / 4], r7c = EP[0x7C / 4];
+    for (int i = 0; i < 32; i++)
+        param_log(0x3F00 + i, 0, (int)EP[i]);
+    uint32_t d = ep_read(0);
+    EP[0x50 / 4] = r50;
+    EP[0x54 / 4] = r54;
+    EP[0x7C / 4] = r7c;
+    for (int i = 0; i < 32; i++)
+        param_log(0x3F20 + i, 0, (int)EP[i]);
+    param_log(0x3F40, 0, (int)d);
+    ep_notes++;
+    param_log(0x3E00, 0, ep_notes);
+    param_log(0x3E00, 1, ep_timeouts);
+}
+#else
+static void edm_port_probe(void)
+{
+#ifdef EDM_PORT_WRITE
+    if (ep_notes == 0) {
+        for (uint32_t i = 0; i < 64; i++)
+            ep_write(EDM_PORT_W0 + i, 0x5A0000u + i);
+        for (int i = 0; i < 64; i++)
+            param_log(0x3EC0 + i, 0, (int)ep_read(EDM_PORT_W0 + (uint32_t)i));
+    }
+#endif
+    ep_notes++;
+    for (int k = 0; k < 64; k++)
+        param_log(0x3E40 + k, 0, (int)ep_read((uint32_t)k * 0x10000u));
+    for (int i = 0; i < 16; i++)
+        param_log(0x3E80 + i, 0, (int)ep_read(EDM_PORT_W0 + (uint32_t)i));
+    param_log(0x3E00, 0, ep_notes);
+    param_log(0x3E00, 1, ep_timeouts);
+}
+#endif
+#endif
 static void a_note_on(struct assign *a, int note, int vel)
 {
+#if defined(PARAMLOG) && defined(EDM_PORT)
+    if (vel)
+        edm_port_probe();
+#endif
 #if defined(PARAMLOG) && defined(EDM_CALL)
     if (vel)
         edm_call_dump();

@@ -133,5 +133,5 @@ S1_DSP_A {
   return l1 * s1_param(level1, 0) + l2 * s1_param(level2, 0);
 }
 
-S1_BUILD("NAME=CASIO-CZ MIX=0");
+S1_BUILD("NAME=CZ-SYSTEM MIX=0");
 S1_COMPILE("--regs 0,1,2,3");

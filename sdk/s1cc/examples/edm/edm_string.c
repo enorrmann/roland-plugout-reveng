@@ -2,10 +2,11 @@
  * a short burst of noise, nothing else. Built with EDM_STR=1 (examples/system_s1cc/build.sh), the slave sends voice
  * v's burst to master B on IOMD 6006 + v and master B rings it in voice v's own line in the delay memory at the
  * note's period (microcode/edm_str.s). OSC1 COLOR = burst length (1 .. 16 ms), OSC1 MIX = level; on the master:
- * AMP DECAY / AMP RELEASE = how long the string rings while held / after, FILTER CUTOFF = brightness. */
+ * AMP DECAY / AMP RELEASE = how long the string rings while held / after, FILTER CUTOFF = brightness.
+ * EDM_STR_ONE: 6 voices, one tapreq each (works on the device, 2026-11-04). */
 #include "../mutable_ported/include/mp_dsp_a.h"
 
-S1_BUILD("NAME=MP-EDMSTR EDM_STR=1");
+S1_BUILD("NAME=MP-EDMSTR EDM_STR=1 EDM_STR_ONE=1");
 S1_PARAM(level, S1_OSC1_MIX, 1) { out[0] = 0.75f * knob / 255.0f; }
 S1_PARAM(decay, S1_OSC1_COLOR, 1) {                 /* per-sample factor of a 1 .. 16 ms burst */
   float ms = 1.0f + 15.0f * knob / 255.0f;

@@ -343,10 +343,114 @@ Consecuencias:
   fue la que apagó el equipo, junto con la escritura directa).
 
 
-#### 3.3.5 Una cuerda Karplus-Strong por voz (MP-EDMSTR, 2026-11-03, sin probar en el equipo)
+#### 3.3.5 Una cuerda Karplus-Strong por voz (MP-EDMSTR: **funciona, 6 voces**, 2026-11-04)
 
-Build: `sdk/s1cc/s1cc build sdk/s1cc/examples/edm/edm_string.c && KERNEL=sdk/s1cc/build/edm_string sh
-examples/system_s1cc/build.sh` (`EDM_STR=1` viene del `S1_BUILD` del kernel) → `plugins/MP-EDMSTR`, 8 voces.
+**Estado (2026-11-04): funciona en el equipo, 6 voces, «suena muy lindo» (usuario).** Build:
+`sdk/s1cc/s1cc build sdk/s1cc/examples/edm/edm_string.c && KERNEL=sdk/s1cc/build/edm_string sh
+examples/system_s1cc/build.sh` (`EDM_STR=1 EDM_STR_ONE=1` vienen del `S1_BUILD` del kernel) → `plugins/MP-EDMSTR`
+(el build dice «8 voces»: las del esclavo; el asignador de la región 0 usa las 6 cuerdas).
+
+La forma que funciona (`EDM_STR_ONE`, la última de la tabla de pruebas de abajo):
+
+| pieza | qué |
+|---|---|
+| tabla de mapas | sólo las escrituras, una por voz (`[4040 + 8v]` → `0x440000 + 0x4000 v`), encoladas con `FC3C` en `load`: la tabla **no cambia después** |
+| lecturas | un `tapreq` por voz en el bloque del trampolín (`edm_call.s edm_str_block1`, §3.3.3): `ld r2, [C030 + v]` (la edad, que la región 0 escribe con `FCEC` en cada nota), `hset h4` = base de la línea, `hset h5` → `4080 + 8v`, `f6 r2, -r4`, `tapreq` |
+| lazo | `edm_str.s master_str1`: `z = x0 + g (x1 − x0)` (`g` en `C020 + v`), `s += b (z − s)` (estado en el banco 0 `0300 + 2v`), `w = x + fb s` |
+| afinación | `make_s1cc.py str1_tune`: `d` y `g` tales que `d + 1` + el retardo de fase de los dos filtros en la nota = el período; tablas por 16 pasos de FILTER CUTOFF (`b` 0,25 … 1); mover CUTOFF reafina las voces |
+| verificación sin el equipo | `sdk/s1cc/examples/edm/str1_sim.py`: ±0,5 cents (la nota 91 con `b` 0,25 se apaga antes de medirse) |
+
+Pruebas en el equipo (2026-11-04), en orden:
+
+| build | qué cambia | resultado |
+|---|---|---|
+| MP-EDMSTR | 4 lecturas por tabla por voz, retoque por `FC3C` en cada nota | suena, **altura fija**: la cola sólo se vacía al elegir el PLUG-OUT |
+| MP-EDMSTRL | ídem + volcado PARAMLOG de la tabla | confirma: las entradas no cambian después de `load` |
+| MP-EDMSTRW | dirección de lectura escrita directo en la tabla en cada nota | **colgado** en la primera nota |
+| MP-EDMSTRT | lecturas por `tapreq` (2 por voz), 8 voces: 16 pedidos | **colgado** al elegirlo |
+| MP-EDMSTR1 | ídem, 1 voz (2 pedidos) | funciona |
+| MP-EDMSTR4 | 4 voces (8 pedidos) | **colgado** al elegirlo |
+| MP-EDMSTR1P | 1 voz + el bloque rellenado (sin ejecutar) al tamaño del de 4 voces | funciona: el tamaño no es |
+| MP-EDMSTR2 | 2 voces (4 pedidos, bases 272 / 273) | funciona |
+| MP-EDMSTR3 | 3 voces (6 pedidos) | funciona |
+| MP-EDMSTR6 | `EDM_STR_ONE`: 6 voces, 1 pedido cada una | **funciona** |
+
+El DELAY del panel (el efecto del OS, su línea en `0x400000`) **sigue funcionando junto con las cuerdas** [medido
+2026-11-04, usuario]: nuestras líneas (`0x440000`–`0x454000`) y su toma conviven.
+
+**Límite medido: 6 `tapreq` nuestros por muestra en el maestro B funcionan, 8 cuelgan** (más los 2 del delay del
+OS). `make_s1cc.py` rechaza más de 6. Bajo el límite, las opciones `EDM_STR_TAP`, `EDM_STR_NV` y `EDM_STR_PAD`
+quedan para repetir las pruebas.
+
+**SAW_COMB (MP-SAWCOMB, `EDM_STR_COMB=1`): funciona en el equipo** (2026-11-04, «suena bien»). Kernel
+`sdk/s1cc/examples/edm/edm_sawcomb.c`: la sierra de `mp_saw.c` con el filtro y el VCA de `mp_dsp_b.h` en el esclavo;
+en el maestro B el peine de Braids (`digital_oscillator.cc RenderComb`) sobre las mismas líneas: retardo = período
+de la nota + OSC1 COLOR (±64 semitonos, el TIMBRE de Braids), realimentación = OSC2 COLOR (bipolar, curva
+`0,97 tanh(2x)/tanh 2` en lugar de `ws_moderate_overdrive`), sin filtro en el lazo (`b` = 1), salida `x + z`
+(`master_str1` con `.if STR_COMB`). Emulador: impulso 0,5 → ecos 0,5, 0,4, 0,32 al período (366,94 muestras, nota 60).
+Los dos COLOR los escribe la región 0 desde la perilla: **no se modulan** (COLOR MOD no llega al maestro).
+
+**Cuerda de Plaits (MP-PLSTRING, `EDM_STR_PL=1`): funciona en el equipo** (2026-11-04, «suena hermoso»). Kernel
+`edm_plstring.c` (golpe de ruido de 5 ms por un polo: OSC1 COLOR = brillo de la excitación, el TIMBRE del motor de
+cuerdas de Plaits); maestro `edm_str.s master_pstr`, 6 voces:
+
+| pieza | qué | por qué |
+|---|---|---|
+| amortiguación | dos polos iguales `b` en serie a 24 … 84 semitonos sobre la nota (FILTER CUTOFF, 8 pasos) | el SVF de Plaits con Q 0,5 es eso; con 12 semitonos (el mínimo de Plaits) sólo se oía el golpe |
+| dispersión | tres allpass de primer orden `y = a (u − y1) + x1` (OSC2 COLOR, 8 pasos) | Plaits usa un allpass sobre otra línea: otro `tapreq` por voz, más que los 6 por muestra. Con `a` fijo el estiramiento iba de nada (graves) a semitonos (agudos): `a` por nota para que el 8º parcial suba `300 amt³` cents (medio: +60, ¾: +236, máximo: +420, igual en todas las notas) |
+| salida | la cuerda sola, sin el golpe | como Plaits |
+| afinación | `make_s1cc.py pl_loop`: bisección con la fase de cada etapa sumada (sin vuelta de 2π) | emulador `pl_sim.py`: ±2,5 cents (resolución) |
+
+Medido en el equipo (OSC2 COLOR, nota 48, `disp.wav`): mínimo, parciales a +1 cent; máximo de la versión de 50
+cents: 2º +5, 4º +18, 8º +55 (lo calculado) → poco audible; de ahí la curva `300 amt³`.
+
+**BLOWN (MP-BLOWN, `EDM_STR_BLOWN=1`): funciona** (2026-11-04, «suena bien»). Braids `RenderBlown` (caña + tubo, 6
+voces) en `master_blown`; el soplo se hace en el esclavo (`edm_blown.c`). Cambios contra Braids, medidos:
+
+| qué | Braids | aquí | por qué |
+|---|---|---|---|
+| presión | 0,8 fija | OSC1 MIX 0,35 … 0,9 | |
+| ruido del soplo | ±0,68 … 0,29 de la presión | OSC1 COLOR 0 … 0,25 | Braids en el equipo: «cuadrado con ruido», ruido a −30 dB entre armónicos |
+| pérdida del tubo | ninguna (el promedio de dos muestras) | un polo en la reflexión a 18 … 66 semitonos sobre la nota (OSC2 COLOR, 8 pasos) | sin ella la caña da una cuadrada a cualquier presión (H3 −10, H5 −16, H7 −15 dB, medido); con ella: H3 −20 / H5 −38 (suave) … −11 / −18 (clarinete) … −10 / −14 (cuadrada) |
+| cuerpo | `lut_flute_body_filter` por nota + COLOR | la misma tabla (`30 · 2^(i/12) / 4096`) en la nota | |
+
+Afinación: el lazo (línea + promedio + polo) = medio período (la reflexión invierte), `blown_loop`; emulador
+`blown_sim.py`: ±4 cents, armónicos pares a −45 … −68 dB.
+
+**BOWED (MP-BOWED, `EDM_STR_BOWED=1`): funciona** (2026-11-04, 3 voces: **dos líneas por voz**, mástil y puente =
+6 `tapreq`, el límite). Braids `RenderBowed` en `master_bowed`: el arco (`edm_bowed.c`: 0,16 × OSC1 MIX × la
+envolvente AMP) contra la velocidad de la cuerda; fricción `min(1, (|Δv| s + 0,75)^−4)` (`lut_bowing_friction` es
+la tabla de STK, ajustada exacta) con `1/y` por semilla cuadrática + 2 pasos de Newton (error 7·10⁻⁴); `absadd`
+(`|x| + Y`) en una op. OSC1 COLOR = presión del arco (`s = p0/32`), OSC2 COLOR = posición (parte del puente
+`(6 … 69)/256`, 8 pasos).
+
+| medido en el equipo | qué | arreglo |
+|---|---|---|
+| «metálico, como ring mod» | el cuerpo de Braids (bicuadrático a 493 Hz, `out = t − y1`: pasabanda) dejaba la fundamental de C3 15 dB bajo el 7º armónico | los mismos polos como pasabajos de ganancia 1 (`gin = 1 − p1 − p2`): la fundamental arriba |
+| período 2 muestras largo en todas las notas | una muestra más de latencia por línea que la del modelo (`a + 1 + g`) | `bowed_loop` resta 2: C2 +0,8, C3 0,0, C4 +1,2, C5 +0,6 cents |
+| pico 1,0 con ganancia 2,4 | | 1,2: pico 0,62 |
+
+El 6º armónico muy bajo con OSC2 COLOR al centro es el de la cuerda real frotada a 1/6. Pendiente: medir si las
+formas de una línea (MP-EDMSTR, MP-PLSTRING, MP-BLOWN) también quedan una muestra largas (lo calculado con el
+emulador era exacto; en el equipo no se midió la afinación fina).
+
+Plan para COLOR MOD en el maestro (sin implementar, 2026-11-04):
+* Transporte: el esclavo manda al maestro B 8 palabras probadas, `6006`–`600D`; 6 ya llevan el audio de las voces.
+  `6026`–`602D` las lee el **maestro A** en los sintes de serie ([../system-1/WAVE_BUS.md](../system-1/WAVE_BUS.md)),
+  no sirven para el B. Quedan `600C` / `600D`: **multiplexar** los 12 colores (6 voces × 2) en ellas, `600C` =
+  valor, `600D` = número de ranura / 16; cada color se renueva cada 12 muestras (8 kHz).
+* Esclavo (DSP B, `host_b.s`): los colores de cada voz (`s1_color(0/1)` del kernel por `s1_export`, o las palabras
+  de COLOR MOD del anfitrión) en un bloque del banco 0; un contador de ranura en el estado; `hset h6` desde el
+  registro + `ldidx` (la forma de `color.s colors_idx`, medida en el S1) → `600C`, el contador → `600D`.
+* Maestro B (`edm_str.s`): por ranura j, `sel = max(0, 1 − K |tag − j/16|)`, `c_j += sel (valor − c_j)` (estado en
+  el banco 0, ~8 instrucciones × 12); por voz `edad = base_v · 2^(−10,67 (c0 − 0,5))` (`base_v` = período / 16384 por
+  `FCEC` en cada nota; la división exponencial del SFU como la emite s1cc `exp2split`), recortada a
+  `[0, 0,9997]` (las líneas están a 16 384 muestras), y la fracción del propio `tapreq` (`R + 2`, 1/64) en lugar de
+  `g`; `fb = 0,97 r (1,5 − 0,5 r²)`, `r = 2 c1 − 1`. El bloque del trampolín lee la edad del banco 0 (escrita por
+  el principal en la misma muestra) en lugar de `C030 + v`. Unas 190 instrucciones más en el maestro B (el SH-2
+  tiene 406 en el mismo lugar).
+
+Lo que sigue de esta sección describe el primer diseño (lecturas por tabla), que quedó como registro.
 Variante con volcado de la tabla en cada nota: `NAME=MP-EDMSTRL PARAMLOG=1` (id `0x3D00` estado, `0x3D01 + k`
 entradas 33–44, 73–75; `examples/system_1/paramlog.py`).
 
@@ -367,6 +471,20 @@ Verificado sin el equipo: `sdk/s1cc/examples/edm/str_sim.py` corre `build/s1mm1.
 de la tabla (las lecturas como arriba): 8 cuerdas a la vez (notas 48 … 84), alturas a ±0,9 cents (resolución de la
 FFT). Prueba en el equipo: `sdk/s1cc/examples/edm/str_probe.sh` (seis notas de a una, cada una en otra voz, y un
 acorde de tres; imprime la altura de cada una).
+
+**Medido 2026-11-04: no cambia de altura.** Todas las notas suenan igual y un acorde suena como una nota. MP-EDMSTRL
+(volcado de la tabla en cada nota): las entradas cargadas en `load` están (estado 1, `[4041]` ← `0x44016C` = `0x440000`
++ 364, la nota 60), pero **después de cada nota siguen iguales**: la cola de datos `FC3C` sólo se vacía al elegir el
+PLUG-OUT. Leído en el OS 1.30: `0x6001ECA2` vacía las cuatro colas (`FC30`–`FC3C`, vectores `{capacidad, cantidad,
+lectura, datos}` en `0x604C0C70`–`0x604C0CA0`), encola los sets del OS para el modo PLUG-OUT, llama a `load` (vt+0x08) y
+después el OS carga todo; durante la ejecución nada vacía las colas [código + medido].
+
+**MP-EDMSTRW** (`EDM_STR_DIRECT=1`): en cada nota, la palabra de dirección de las cuatro lecturas de la voz escrita
+directo en la tabla (un `str` de 32 bits por entrada, dentro del tramo cargado): **el equipo se colgó en la primera
+nota** (2026-11-04; hubo que apagarlo). Con la escritura directa de §3.3.4 (apagado) son dos fallas: **la tabla no se
+escribe desde el ARM con el DSP corriendo**, ni una palabra. Queda: la altura por `tapreq` desde el trampolín (§3.3.3),
+con la tabla fija (sólo las escrituras de cada voz) y dos pedidos por voz (edad y edad + 2: `y0`…`y3` + `f` como ahora),
+que depende de que `tapreq` sirva sobre una línea propia (MP-EDMIDX, §3.3.6).
 
 Qué puede fallar en el equipo (cada punto es una pregunta de la prueba):
 1. **La cola `FC3C` en medio de la ejecución**: §3.3.4 sólo la usó en `load`. Si las colas de cada nota no se
@@ -421,7 +539,7 @@ la máquina de estados del arranque `0x60019FB0`, caso que también inicializa e
 
 | paso | qué hace |
 |---|---|
-| antes | servicio del ROM `0x01008BDF(0x20003534, 1, i, 0x17, 0)` para i = 0…23 (24 rutas a `0x17`), `0x0100A211(0x20003534, k, 0)` para k = 0…3 (**los 4 mapas**: las ventanas de los DSP, guardadas en el objeto `+8…+0x14`), modo del controlador `0x01009F13(0x20003534, 0x40000000)` |
+| antes | servicio del ROM `0x01008BDF(0x20003534, 1, i, 0x17, 0)` para i = 0…23 (24 rutas a `0x17`), `0x0100A211(0x20003534, k, 0)` para k = 0…3 (**los 4 mapas**: las ventanas de los DSP, guardadas en el objeto `+8…+0x14`), `0x01009F13(0x20003534, 0x40000000)` (el argumento es un float, 2,0: ver §3.3.7) |
 | escritura de la palabra n | `[0x40100050] = 0x01000000 + 4n`; `[0x4010007C] \|= 0x100`; esperar `[0x40100008]` bit 30 en 0; `[0x40100800] = dato`; `[0x4010007C] &= ~0x100`; esperar otra vez |
 | entre las dos pasadas | modo `0x41200000` |
 | lectura de la palabra n | `[0x40100050] = 0x01000000 + 4n`; `[0x4010007C] \|= 0x100`; esperar; `[0x40100054] \|= 0x20000000`; esperar `[0x40100054]` bit 31 en 0; dato = `[0x40100800]`; `[0x4010007C] &= ~0x100`; esperar |
@@ -448,6 +566,76 @@ Lectura del resultado: izquierda con eco a ~48 007 = la convención del OS vale 
 Derecha − izquierda antes del eco: **escalones lentos** (cambian una vez por vuelta) = el pedido es absoluto, y
 entonces una posición fija o que avanza a cualquier velocidad lee un búfer quieto (la base de wavetable / WAV);
 **una copia del golpe a pocas muestras** = el pedido es relativo a la posición de escritura.
+
+#### 3.3.7 El puerto del ARM a la EDM: sonda MP-EDMPORT (2026-11-04: el puerto con los DSP corriendo **mata el audio**)
+
+Pregunta: ¿puede la región 0 (el ARM del maestro) **escribir una tabla o un sample entero en la EDM** con los DSP
+corriendo, y que dure (≥ 1 s) para leerla después desde el DSP? Es el camino para samples y wavetables grandes sin
+reducirlos (una tabla de Analog de 92 frames = 188 416 muestras; la EDM tiene ≥ 2^21 palabras).
+
+Lectura del autotest `0x6001D51A` desensamblado (OS 1.30, 2026-11-04) [código], que corrige el cuadro de §3.3.6:
+* `0x01009F13(obj, x)` (veneer `0x6003CD0E`) recibe un **float**: 2,0 antes de escribir, 10,0 entre las pasadas,
+  2,0 al final; en otras partes del OS 1,0, 3,0 y 40,0. No es un "modo del controlador"; probablemente un tiempo
+  (espera) [inferido, el ROM `0x01000000` del S1 no está volcado].
+* La prueba recorre n = 0 y n = 2^k para k = 0…21 (`lsl r6=4, i−1` con i < 0x17): **22 líneas de dirección**. Si la
+  prueba pasa en el arranque, la EDM tiene **≥ 2^22 = 4 194 304 palabras (43,7 s)**, no 2^21 [inferido: no se vio qué
+  hace el OS si falla, `0x60040D5A(obj, 0x40, 0)` sólo apaga un bit de estado].
+* Los mapas se restauran con `0x0100A211(obj, k, [0x604BB40C + 8 + 4k])` (`0x6001D4E4` con 0) y las rutas con
+  `0x01008BDF(obj, 1, i, i, 0)`.
+
+Sonda (`model.c edm_port_probe`, opción `EDM_PORT` de `build.sh`, requiere `PARAMLOG=1`). Escalón 1: la secuencia del
+puerto **sin** desconectar mapas ni rutas (los DSP siguen sonando); toda espera tiene un límite (cuenta un
+*timeout* en lugar de colgar el ARM).
+
+| build | qué hace en cada nota | ids de PARAMLOG |
+|---|---|---|
+| MP-EDMPORTR (`EDM_PORT=r`) | lee 64 palabras `k · 0x10000` (k = 0…63: 4M palabras) y 16 palabras de `EDM_PORT_W0` (por defecto `0x380000`) | `0x3E00` (flag 0: notas, 1: timeouts), `0x3E40 + k`, `0x3E80 + i` |
+| MP-EDMPORTW (`EDM_PORT=w`) | lo mismo; en la **primera** nota escribe 64 palabras `0x5A0000 + i` en `EDM_PORT_W0 + i` y las relee en el acto | además `0x3EC0 + i` |
+
+Builds: `KERNEL=sdk/s1cc/build/mp_saw NAME=MP-EDMPORTR PARAMLOG=1 EDM_PORT=r sh examples/system_s1cc/build.sh`
+(ídem `NAME=MP-EDMPORTW EDM_PORT=w`). Captura: `python3 examples/system_1/paramlog.py -t 20` mientras se tocan
+notas (con DELAY del panel arriba, para que el delay del OS escriba la EDM).
+
+Cómo se lee el resultado:
+
+| observación | significa |
+|---|---|
+| timeouts > 0 | el puerto no responde con los DSP corriendo: escalón 2 = el marco del autotest (mapas y rutas desconectados durante el acceso, corte de audio) |
+| R: palabras distintas de 0 que cambian de nota a nota en unos `k` | ahí escribe el delay / la reverb del OS: el tramo que barren los escritores y la relación entre `n` del puerto y las direcciones de la tabla de mapas (`0x400000`…) |
+| R: el resto en 0 y fijo | memoria que nadie escribe: el lugar de una tabla persistente |
+| W: `0x3EC0 + i` = `0x5A0000 + i` | **el ARM escribe la EDM** |
+| W: `0x3E80 + i` sigue igual en las notas siguientes (segundos después) | la tabla **dura**; si se borra, un escritor del OS pasa por ahí (se ve en R cuál) |
+
+**Medido 2026-11-04** (captura PARAMLOG, notas por MIDI canal 5):
+
+| build | resultado |
+|---|---|
+| MP-EDMPORTR (80 lecturas por nota, sin restaurar registros) | sin timeouts, **todas las lecturas 0**; después de la primera nota **el equipo queda mudo** (PLUG-OUT y modo SYSTEM-1) hasta apagar |
+| MP-EDMPORT0 (control: el mismo build sin la sonda) | suena, después de apagar y encender |
+| MP-EDMPORTD (`EDM_PORT=d`: **una** lectura de la palabra 0, con `0x50` / `0x54` / `0x7C` restaurados) | lectura 0, sin timeouts; **mudo igual** (todo el equipo, hasta apagar) |
+
+Conclusión: **el acceso del ARM a la EDM por el puerto con el DMA de los DSP activo traba la EDM y el audio**; es la
+razón del marco del autotest (rutas y mapas desconectados) y coincide con las escrituras que nunca llegaron en el S8
+(NOTES.md «Muestras largas»). No se intenta W en esta forma.
+
+Registros del controlador `0x40100000` (32 palabras, antes / después de la lectura) [medido]:
+
+| palabra | valor | interpretación |
+|---|---|---|
+| `+0x00` | `0x45534D39` («ESM9» en ASCII), fijo | identificador del chip [inferido] |
+| `+0x48` | ~7 000 000 … 7 570 000, **decrece a 96 kHz** (−386 en ~4 ms entre antes y después; −69 749 entre dos notas a ~0,73 s) | contador de muestras hacia atrás: probablemente **P**, la posición que mueve la EDM (§3.3.6); su rango (< 2^23) coincide con las direcciones `0x4xxxxx` de la tabla de mapas [inferido] |
+| `+0x4C`, `+0x60`, `+0x78` | cambian solos (123…713, ~1250, 256…135 185) | estado del DMA [abierto] |
+| `+0x50` | `0x01000000` antes de la lectura | el registro de dirección del puerto (palabra 0) |
+| `+0x64` | `0x5FF`, fijo | [abierto] |
+| `+0x7C` | `0x11` (a veces `0x10011`) | control; bit 8 (`0x100`) = el pedido del ARM |
+| el resto | 0 | — |
+
+Escalón 2 (sin armar): el marco completo del autotest en `load` (rutas a `0x17`, mapas a 0, el valor de cada mapa
+guardado en `0x604BB40C + 8 + 4k`, espera; acceso; mapas y rutas restaurados), primero una sola palabra.
+
+Siguiente escalón si W funciona: la tabla del WAV desde la región 0 (16 bits, ~0,94 MB por región) en el tramo libre,
+y la lectura desde el DSP con `tapreq` en el trampolín (§3.3.3) a una dirección fija (la forma del pedido derecho de
+MP-EDMIDX, §3.3.6), hasta 6 pedidos por muestra (§3.3.5).
 
 ## 4. Tablas de datos (wavetables)
 
@@ -479,7 +667,7 @@ Bloqueo: la carga indexada del banco 5 (`ldb5` / `ldb5h7`) no está probada en e
 1. **Probar `MP-CSAW2-LUT` en el equipo** (banco 5 indexado en el S1). Si funciona: `S1_TABLE` y las wavetables de
    Braids / Plaits (WAVETABLES, WAVE_MAP, WAVE_LINE, motor *wavetable*), 8 voces.
 2. **`s1_delay_*` en el banco 0**: PLUCKED, SAW_COMB y la cuerda de Plaits con 4 voces (≥ 250 Hz), 2 voces (≥ 110 Hz), o el doble de alcance a media tasa [estimado].
-3. **Cuerdas por voz en el maestro B**: MP-EDMSTR (§3.3.5) armado; probar con `str_probe.sh`. Después MP-EDMIDX
+3. **Cuerdas por voz en el maestro B**: MP-EDMSTR (§3.3.5) **funciona con 6 voces** (2026-11-04). Después MP-EDMIDX
    (§3.3.6) para saber si `tapreq` es absoluto: de eso dependen wavetable y granular en la EDM.
    Antes: **`tapreq` en el maestro B** (§3.3, la prueba del eco de 0,5 s): si funciona, PLUCKED / cuerdas a cualquier altura
    con 6 voces (excitación por `6008`–`600D`), chorus del *string machine*, búfer granular. Después, `tapreq` en un

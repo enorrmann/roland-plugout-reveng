@@ -1,13 +1,10 @@
-kernel options (S1_BUILD): NAME=CASIO-CZ MIX=0
+kernel options (S1_BUILD): NAME=MP-EDMKS EDM_KS=1
 VOICES=auto: 8 voices by the estimate (budget A 703, B 708)
-MOD_DSP=auto: pitch envelope and COLOR MOD on DSP B
 fused kernel: voices 0..3 on DSP A, 4..7 on DSP B
-s1m0    284 instructions, 1579 halfwords
-s1a2    373 instructions, 2084 halfwords
-s1m1    387 instructions, 2143 halfwords
-s1b2    311 instructions, 1796 halfwords
+s1m0     66 instructions, 325 halfwords
+s1m1     68 instructions, 329 halfwords
 s1mm1     7 instructions, 44 halfwords
 s1c0      2 instructions, 7 halfwords
 s1c1      2 instructions, 7 halfwords
-kernel per voice: A 354 lines, 5 words; no DSP B
-A -> B x: one sample late (voices 0,1); - (voices 2,3,4,5,6,7)
+kernel per voice: A 33 lines, 1 words; no DSP B
+A -> B x: one sample late (voices 0,1,2,3); - (voices 4,5,6,7)

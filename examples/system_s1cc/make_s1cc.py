@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (docs/examples_system_s1cc_README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
+           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -122,7 +122,9 @@ HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A)
 PENV = bool(PITCH_MOD or CMOD)
 # the host's mixer on DSP A, after the kernel: voice = kernel + SUB x a square one octave down + NOISE x the LFO's
 # noise, before DSP B's filter (SUB 0x176, NOISE 0x177; 0 until the knobs move). MIX=0 leaves it out
-HOST_MIX = HOST_LFO and opt('MIX', '1') == '1'   # FUSED: the kernel reads it as s1_host_mix() (s1cc fuse)
+# EDM_STR: never (the voice's output is the excitation of the master's string / bore: SUB made a "ring mod" of the
+# bowed string and a metallic tone in every EDM_STR form on the device, 2026-11-04)
+HOST_MIX = HOST_LFO and opt('MIX', '1') == '1' and opt('EDM_STR', '0') != '1'   # FUSED: s1_host_mix() (s1cc fuse)
 # inputs of DSP B the host makes on DSP A (-> amp, -> filter, the modulated pitch): the host stores them straight to
 # their bank-5 word (INB), and the kernel's copy (ld IN / st INB, at the end of its DSP A code) goes away
 HOSTB = [n for n in KDEF.inputs_b if n in ('lfo_amp', 'lfo_filter') or (n == 'pitch' and 'pitch' in PITCH_MOD)]
@@ -1089,6 +1091,75 @@ STR_A0, STR_DA = 0x440000, 0x4000             # line v writes at 0x440000 + 0x40
 STR_SLOT0 = 34                                # map-table entries 34.. (the OS has 0..33), 5 per voice, then one 0
 STR_PA, STR_PC, STR_PF, STR_PFB = 0x1D, 0x1E, 0x20, 0x28   # master B C01D a, C01E 1 - 2a, C020 + v f, C028 + v fb
 STR_GAIN = 0.5                                # the strings' sum -> the send (x VOLUME)
+# STR_TAP=1 (EDM_STR_TAP): the four reads by tapreq from the OS effect (edm_call.s edm_str_block, model.c edm_call)
+# with the ages in C030 + v / C038 + v; the map table only has the write entries (it cannot change after load)
+STR_TAP = opt('EDM_STR_TAP', '0') == '1'
+STR_RES = 0x4080                              # tapreq results 4080..40BF (8 per voice: 3 + 3)
+STR_PAGE0, STR_PAGE2 = 0x30, 0x38
+# EDM_STR_NV=n: strings only for voices 0..n-1 (the key assigner of region 0 uses only those); a bisection of the
+# STR_TAP hang (2026-11-04: 16 requests in the block hung, MP-EDMIDX's 2 ran)
+STR_NV_OPT = int(opt('EDM_STR_NV', '0'))
+STR_PAD = int(opt('EDM_STR_PAD', '0'))
+# EDM_STR_ONE=1: one tapreq per voice (edm_str_block1 / master_str1): 6 voices by default (the measured limit: 6 of
+# our requests per sample ran, 8 hung, 2026-11-04); brightness by a one-pole in the main, tuned per CUTOFF step
+STR_ONE = opt('EDM_STR_ONE', '0') == '1'
+# EDM_STR_COMB=1 (with EDM_STR_ONE): Braids SAW_COMB on the same lines: delay = the period of note + OSC1 COLOR
+# (+-64 semitones), feedback = OSC2 COLOR (bipolar, -0.97 .. 0.97), no loop filter, output x + z
+STR_COMB = opt('EDM_STR_COMB', '0') == '1'
+if STR_COMB:
+    STR_ONE = True
+# EDM_STR_PL=1: Plaits' string (physical_modelling/string.cc) on the same lines: damping = two one-poles at
+# f0 x 2^(c / 12), c = 24 .. 84 semitones (FILTER CUTOFF, 8 steps), dispersion = 3 first-order allpasses
+# per note: the 8th partial PL_STRETCH amt^2 cents sharp (OSC2 COLOR, 8 steps); master_pstr; the tables tune the whole loop; output = the string alone
+STR_PL = opt('EDM_STR_PL', '0') == '1'
+if STR_PL:
+    STR_ONE = True
+# EDM_STR_BLOWN=1: Braids BLOWN (the reed and the bore, master_blown) on the same lines; the slave makes the breath
+STR_BLOWN = opt('EDM_STR_BLOWN', '0') == '1'
+if STR_BLOWN:
+    STR_ONE = True
+# EDM_STR_BOWED=1: Braids BOWED (master_bowed): two lines per voice (neck, bridge), 3 voices
+STR_BOWED = opt('EDM_STR_BOWED', '0') == '1'
+STR_LPV = 2 if STR_BOWED else 1               # lines (tapreq) per voice
+if STR_BOWED:
+    STR_ONE = True
+BOW_SEED = (1.56749685, -0.65660134, 0.07958208)   # 1 / y on [0.75, 4.75]: c0 + c1 y + c2 y^2 (16 %), 2 Newton: 7e-4
+_r = math.sqrt(2959 / 4096)                        # Braids' body biquad (kBiquadPole1 / 2 at 48 kHz) at 96 kHz
+_th = math.acos(6948 / 4096 / (2 * _r)) / 2
+BOW_P1, BOW_P2 = 2 * math.sqrt(_r) * math.cos(_th), -_r
+# the bridge one-pole: Braids renders BOWED at 48 kHz; the same coefficients at 96 kHz doubled its cutoff (3.4 ->
+# 6.9 kHz) and the string sat in its second mode (an octave up: emulator and hw, 2026-11-04)
+BOW_LPP = math.sqrt(18022 / 32768)
+BOW_LPG = (14008 / 32768) / (1 - 18022 / 32768) * (1 - BOW_LPP)   # the same DC gain (0.95)
+BOW_GIN = 1 - BOW_P1 - BOW_P2                     # the body as a resonant low pass with unity gain (master_bowed)
+BOW_GAIN = 1.2                                     # the low-pass body (2.4 clipped on hw, 1 voice 0.46 rms)
+BOW_DIAG = opt('BOW_DIAG', '0') == '1'            # right send = voice 0's nut value (master_bowed, a probe)
+BOW_STEPS = 8                                      # OSC2 COLOR steps of the bow position
+STR_PB, STR_PAP = 0x40, 0x48                  # master B C040 + v b, C048 + v a (EDM_STR_PL)
+PL_CSTEPS, PL_DSTEPS = 8, 8
+PL_STRETCH = 300.0                            # cents of the 8th partial at full OSC2 COLOR: x amt^3 (EDM_STR_PL; 50 x amt^2 was too subtle on hw)
+if STR_ONE:
+    STR_TAP = True
+    if not STR_NV_OPT:
+        STR_NV_OPT = 6 // STR_LPV
+if EDM_STR and STR_TAP and STR_NV_OPT and STR_NV_OPT * (STR_LPV if STR_ONE else 2) > 6:
+    raise SystemExit('make_s1cc.py: EDM_STR: more than 6 of our tapreq per sample (8 hung the device, 6 ran, '
+                     '2026-11-04, docs/MUTABLE_MEMORY.md §3.3.5): fewer EDM_STR_NV or EDM_STR_ONE=1')
+STR1_S = 0x0300                               # master B bank 0: the one-pole states (the OS effect uses 0000..0033)
+STR1_STEPS = 16                               # FILTER CUTOFF steps of the tuning tables
+
+
+def str_nv():
+    n = min(STR_NV_OPT, NV) if STR_NV_OPT else NV
+    per = STR_LPV if STR_ONE else 2
+    if STR_TAP and n * per > 6:                              # the measured limit (the check above, for VOICES=auto)
+        n = 6 // per
+    return n
+
+
+def str_lines():
+    """EDM_STR_ONE: delay-memory lines (one tapreq each): STR_LPV per voice"""
+    return str_nv() * STR_LPV
 if EDM_STR:
     EDM_TAP = True                            # the main as written, one line per instruction (section())
     if EDM_ECF or EDM_CALL or opt('EDM_KS', '0') == '1':
@@ -1117,12 +1188,13 @@ def edm_call_header(path):
                                              EDM_RBASE=int(opt('EDM_RBASE', '256'))))
              if EDM_CALL_MODE == 'write' else
              ('edm_call_block_idx', dict(EDM_RES=EDM_RES, EDM_AGE=EDM_ARGS['EDM_AGE'], EDM_HB=0x440000 // 16384))
-             if EDM_CALL_MODE == 'idx' else ('edm_call_block', dict(EDM_RES=EDM_RES, EDM_AGE=EDM_ARGS['EDM_AGE'])))
+             if EDM_CALL_MODE == 'idx' else ('edm_str_block1', {}) if STR_ONE else ('edm_str_block', {}) if STR_TAP else
+             ('edm_call_block', dict(EDM_RES=EDM_RES, EDM_AGE=EDM_ARGS['EDM_AGE'])))
     for name, kw in (block, ('edm_call_site', {})):
         r = asm.assemble('\n'.join(frag(name, **kw)) + '\n', _ISA[0] if _ISA else None)
         if not r.ok:
             raise SystemExit(r.errors)
-        name = 'edm_call_block' if name.startswith('edm_call_block') else name
+        name = 'edm_call_block' if name.startswith('edm_call_block') or name.startswith('edm_str_block') else name
         out.append(f'static const uint16_t {name}[{len(r.words)}] = {{ ' + ', '.join('0x%04x' % w for w in r.words) + ' };')
     open(path, 'w').write('\n'.join(out) + '\n')
 
@@ -1131,7 +1203,7 @@ def prog_master():
     """C-S1SY13's master B (microcode/master.s master), or with EDM_TAP its taps of the delay memory (microcode/edm.s),
     or with EDM_ECF its own delay-memory lines (microcode/edm_ecf.s)"""
     if EDM_STR:
-        return frag('master_str')
+        return frag('master_bowed' if STR_BOWED else 'master_blown' if STR_BLOWN else 'master_pstr' if STR_PL else 'master_str1' if STR_ONE else 'master_str')
     if EDM_ECF and EDM_CALL_MODE == 'idx':
         return frag('master_edm', **EDM_ARGS)
     if EDM_ECF:
@@ -1287,6 +1359,191 @@ def str_period(n):
     return int(p), p - int(p)
 
 
+def str1_b(k):
+    """EDM_STR_ONE: the one-pole coefficient of FILTER CUTOFF step k (0 dark .. STR1_STEPS - 1: no filter)"""
+    return 0.25 + 0.75 * k / (STR1_STEPS - 1)
+
+
+def str1_tune(n, b):
+    """EDM_STR_ONE: (d, g) with d + 1 + the phase delay of lerp(g) and the one-pole b at note n = its period
+    (bisection on the delay t = d + g)"""
+    p = 96000.0 / (440.0 * 2 ** ((n - 69) / 12))
+    w = 2 * math.pi / p
+    z = complex(math.cos(-w), math.sin(-w))
+    lo, hi = 0.0, p
+    for _ in range(60):
+        t = (lo + hi) / 2
+        d, g = int(t), t - int(t)
+        h = ((1 - g) + g * z) * b / (1 - (1 - b) * z)
+        if d + 1 + (-math.atan2(h.imag, h.real)) % (2 * math.pi) / w > p:
+            hi = t
+        else:
+            lo = t
+    t = (lo + hi) / 2
+    return int(t), t - int(t)
+
+
+def pl_cut(k):
+    """EDM_STR_PL: the damping cutoff of FILTER CUTOFF step k, in semitones above f0 (Plaits: 12 .. 84)"""
+    return 24.0 + 60.0 * k / (PL_CSTEPS - 1)      # 12 (Plaits' lowest) left only the burst audible on hw
+
+
+def pl_amt(j):
+    return j / (PL_DSTEPS - 1)
+
+
+def pl_loop(n, k, j):
+    """EDM_STR_PL: (d, g, b, a) of note n, cutoff step k, dispersion step j: the whole loop (lerp g, two one-poles b,
+    three allpasses a) tuned to the period by bisection; a smaller dispersion when the allpasses alone are longer
+    than the period allows"""
+    p = 96000.0 / (440.0 * 2 ** ((n - 69) / 12))
+    w = 2 * math.pi / p
+    z = complex(math.cos(-w), math.sin(-w))
+    fc = 440.0 * 2 ** ((n - 69) / 12) * 2 ** (pl_cut(k) / 12)
+    b = min(1.0, 1.0 - math.exp(-2 * math.pi * fc / 96000.0))
+    amt = pl_amt(j)
+    # the allpasses' coefficient for this note: the 8th partial stretched by PL_STRETCH x amt^2 cents on every note
+    # (a fixed a stretched the high notes by semitones and the low ones not at all: the stretch is the allpasses'
+    # delay at f0 minus at 8 f0, over the period)
+    ph = lambda h: -math.atan2(h.imag, h.real)              # noqa: E731  (each stage: 0 .. pi, no wrap)
+    def ap_delay(a, f):
+        ww = 2 * math.pi * f / 96000.0
+        return 3 * ph((a + complex(math.cos(-ww), math.sin(-ww))) / (1 + a * complex(math.cos(-ww), math.sin(-ww)))) / ww
+    f0 = 440.0 * 2 ** ((n - 69) / 12)
+    want = PL_STRETCH * amt ** 3
+    for _ in range(20):
+        a, lo_a, hi_a = 0.0, -0.995, 0.0
+        if want > 0 and 8 * f0 < 48000.0:
+            for _ in range(50):
+                a = (lo_a + hi_a) / 2
+                if 1200 * math.log2(1 + (ap_delay(a, f0) - ap_delay(a, 8 * f0)) / p) > want:
+                    lo_a = a
+                else:
+                    hi_a = a
+        fil = 2 * ph(b / (1 - (1 - b) * z)) + 3 * ph((a + z) / (1 + a * z))
+        def total(t):
+            d, g = int(t), t - int(t)
+            return d + 1 + (ph((1 - g) + g * z) + fil) / w
+        lo, hi = 0.0, p
+        if total(0.0) > p:                                  # the filters alone are longer than the period
+            want *= 0.5
+            continue
+        for _ in range(60):
+            t = (lo + hi) / 2
+            if total(t) > p:
+                hi = t
+            else:
+                lo = t
+        t = (lo + hi) / 2
+        return int(t), t - int(t), b, a
+    return max(int(p - 1), 0), 0.0, b, 0.0
+
+
+BLOWN_STEPS = 8                               # OSC2 COLOR steps of the bore's loss (EDM_STR_BLOWN)
+
+
+def blown_loop(n, k):
+    """EDM_STR_BLOWN: (d, g, b) of note n, loss step k: the one-pole b at 18 .. 66 semitones above the note; the round
+    trip line (d + 1 + lerp g) + the average (0.5) + the one-pole's phase delay at the note = half the period"""
+    f0 = 440.0 * 2 ** ((n - 69) / 12)
+    p = 96000.0 / f0
+    w = 2 * math.pi / p
+    z = complex(math.cos(-w), math.sin(-w))
+    b = min(1.0, 1.0 - math.exp(-2 * math.pi * f0 * 2 ** ((18.0 + 48.0 * k / (BLOWN_STEPS - 1)) / 12) / 96000.0))
+    ph = lambda h: -math.atan2(h.imag, h.real)              # noqa: E731
+    fil = 0.5 * w + ph(b / (1 - (1 - b) * z))
+    lo, hi = 0.0, p / 2
+    for _ in range(60):
+        t = (lo + hi) / 2
+        d, g = int(t), t - int(t)
+        if (d + 1) * w + ph((1 - g) + g * z) + fil > math.pi:
+            hi = t
+        else:
+            lo = t
+    t = (lo + hi) / 2
+    return int(t), t - int(t), b
+
+
+def bowed_loop(n, k, share=None):
+    """EDM_STR_BOWED: (aN, gN, aB, gB) of note n, bow position step k: Braids' bridge share p1 / 256, p1 = 6 .. 69;
+    neck + bridge (each age + 1 + g) + the bridge one-pole's phase delay at the note = the period"""
+    f0 = 440.0 * 2 ** ((n - 69) / 12)
+    p = 96000.0 / f0
+    w = 2 * math.pi / p
+    z = complex(math.cos(-w), math.sin(-w))
+    h = BOW_LPG / (1 - BOW_LPP * z)
+    tau = -math.atan2(h.imag, h.real) / w
+    dd = p - tau - 2.0                     # measured on hw 2026-11-04: 2 samples long on every note (+1 per line)
+    br = dd * (share if share is not None else bow_share(k))
+    nk = dd - br
+    a_n, a_b = max(nk - 1, 0.0), max(br - 1, 0.0)
+    return int(a_n), a_n - int(a_n), int(a_b), a_b - int(a_b)
+
+
+def bow_share(k):
+    """EDM_STR_BOWED: the bridge's share of the string at bow position step k: 0.30 .. 0.34. Braids' (6 .. 69) / 256
+    put the string in its second mode (an octave up) at most positions; the emulator swept share x pressure x
+    velocity x notes (bowed_sim.py, 2026-11-04): 0.28 .. 0.32 kept the fundamental everywhere, but at 0.28 the 3rd
+    harmonic was the strongest (also on hw: H3 7 dB over H1); 0.30 .. 0.34: H1 the strongest in every case"""
+    return 0.30 + 0.04 * k / (BOW_STEPS - 1)
+
+
+def bowed_tables():
+    loops = [bowed_loop(n, k) for k in range(BOW_STEPS) for n in range(128)]
+    return '\n'.join(['#define STR_BOWED 1\n#define BOW_STEPS %d\n#define STR_PB 0x%02x' % (BOW_STEPS, STR_PB),
+                      '/* EDM_STR_BOWED: [bow position step][note]: neck age, g, bridge age, g; OSC1 COLOR -> s */',
+                      table('bow_na_bits', [a / 16384 for a, _, _, _ in loops]),
+                      table('bow_ng_bits', [g for _, g, _, _ in loops]),
+                      table('bow_ba_bits', [a / 16384 for _, _, a, _ in loops]),
+                      table('bow_bg_bits', [g for _, _, _, g in loops]),
+                      # OSC1 COLOR = bow pressure: the friction slope s 1.4 .. 0.4 (Braids' p0 / 32 = 5.4 .. 1.4 left
+                      # the fundamental at low pressure: the stable range, bowed_sim.py)
+                      table('bow_s_bits', [1.4 - v / 255 for v in range(256)])])
+
+
+def blown_tables():
+    """EDM_STR_BLOWN: [loss step][note] the request's age, g and the loss b; per note the body filter's coefficient
+    (Braids lut_flute_body_filter at the note = 30 x 2^(note / 12) / 4096)"""
+    loops = [blown_loop(n, k) for k in range(BLOWN_STEPS) for n in range(128)]
+    return '\n'.join(['#define STR_BLOWN 1\n#define BLOWN_STEPS %d\n#define STR_PB 0x%02x\n#define STR_PAP 0x%02x'
+                      % (BLOWN_STEPS, STR_PB, STR_PAP),
+                      table('blown_age_bits', [d / 16384 for d, _, _ in loops]),
+                      table('blown_g_bits', [g for _, g, _ in loops]),
+                      table('blown_b_bits', [b for _, _, b in loops]),
+                      table('blown_c_bits', [min(30.0 * 2 ** (i / 12) / 4096, 0.98) for i in range(128)])])
+
+
+def pl_tables():
+    loops = [[[pl_loop(n, k, j) for n in range(128)] for k in range(PL_CSTEPS)] for j in range(PL_DSTEPS)]
+    flat = [x for jj in loops for kk in jj for x in kk]
+    return '\n'.join([f'#define STR_PL 1\n#define PL_CSTEPS {PL_CSTEPS}\n#define PL_DSTEPS {PL_DSTEPS}\n'
+                      f'#define STR_PB 0x{STR_PB:02x}\n#define STR_PAP 0x{STR_PAP:02x}',
+                      '/* EDM_STR_PL: [dispersion step][cutoff step][note]: age d / 16384, g, b, a */',
+                      table('pl_age_bits', [d / 16384 for d, _, _, _ in flat]),
+                      table('pl_g_bits', [g for _, g, _, _ in flat]),
+                      table('pl_b_bits', [b for _, _, b, _ in flat]),
+                      table('pl_a_bits', [a for _, _, _, a in flat])])
+
+
+def str1_tables():
+    """EDM_STR_ONE: per CUTOFF step k and note: the request's age d / 16384 and g; the one-pole b per step"""
+    tune = [[str1_tune(n, str1_b(k)) for n in range(128)] for k in range(STR1_STEPS)]
+    comb = []
+    if STR_COMB:                                # Braids warps COLOR with ws_moderate_overdrive: finer at the ends
+        comb = ['#define STR_COMB 1', table('str_res_bits', [0.97 * math.tanh(2.0 * (2 * v / 255 - 1)) / math.tanh(2.0)
+                                                            for v in range(256)])]
+    if STR_PL:
+        comb = [pl_tables()]
+    if STR_BLOWN:
+        comb = [blown_tables()]
+    if STR_BOWED:
+        comb = [bowed_tables()]
+    return '\n'.join(comb + [f'#define STR_ONE 1\n#define STR1_STEPS {STR1_STEPS}',
+                      table('str1_b_bits', [str1_b(k) for k in range(STR1_STEPS)]),
+                      table('str1_age_bits', [d / 16384 for row in tune for d, _ in row]),
+                      table('str1_g_bits', [g for row in tune for _, g in row])])
+
+
 def str_header():
     """EDM_STR: model.c edm_str's addresses and tables"""
     per = [str_period(n) for n in range(128)]
@@ -1300,6 +1557,12 @@ def str_header():
            'static const uint16_t str_d[128] = {\n    ' + ',\n    '.join(
                ', '.join(str(d) for d, _ in per[i:i + 16]) for i in range(0, 128, 16)) + '\n};',
            table('str_f_bits', [f for _, f in per]),
+           f'#define STR_NV {str_nv()}\n#define STR_LPV {STR_LPV}\n#define STR_TAP {int(STR_TAP)}\n#define STR_PAGE0 0x{STR_PAGE0:02x}\n#define STR_PAGE2 0x{STR_PAGE2:02x}'
+           + ('\n#ifndef EDM_CALL\n#define EDM_CALL 1   /* the tapreq block in the OS effect (edm_call.h) */\n#endif' if STR_TAP else ''),
+           (str1_tables() if STR_ONE else ''),
+           '/* STR_TAP: the tapreq ages of the two requests, d / 16384 and (d + 2) / 16384 */',
+           table('str_age_bits', [d / 16384 for d, _ in per]),
+           table('str_age2_bits', [(d + 2) / 16384 for d, _ in per]),
            '/* AMP DECAY -> feedback per pass while the key is held, AMP RELEASE -> after it; FILTER CUTOFF -> a, 1 - 2a */',
            table('str_hold_bits', [1.0 - 10 ** -(1.0 + 3.0 * v / 255) for v in range(256)]),
            table('str_rel_bits', [1.0 - 10 ** -(0.3 + 3.0 * v / 255) for v in range(256)]),
@@ -1901,7 +2164,7 @@ def main():
         print(f'make_s1cc.py: {NV} voices do not fit ({", ".join(over)})')
         sys.exit(3)
     open(os.path.join(OUTDIR, 's1_programs.h'), 'w').write(header(progs))
-    if EDM_CALL:
+    if EDM_CALL or (EDM_STR and STR_TAP):
         edm_call_header(os.path.join(OUTDIR, 'edm_call.h'))
     tried = os.path.join(OUTDIR, 'try_forms.txt')
     if TRIED:                                      # what this build tests on the device (tools/proven_forms.py promote)
