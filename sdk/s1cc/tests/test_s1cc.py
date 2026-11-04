@@ -45,6 +45,12 @@ CASES = [
     # cutoff open: with the filter at 128 the 1-4 kHz band of B is ~100 dB down, where only the filter's noise floor is
     ('mutable_ported/mp_harmonic.c', ['--regs', '0,1,2,3,4,5,6,7'], [(57, {'color0': 200, 'cutoff': 255}, 75, 50)], (92, 45)),
     ('mutable_ported/mp_filter_ladder.c', ['--regs', '0,1,2,3,4,5,6,7'], [(45, {'reso': 200}, 65, 60)], (27, 46)),
+    # Casio CZ (docs/examples_casio_cz_README.md): line 1 alone (saw at full DCW, square, resonance), then line 2
+    # alone (saw-pulse): line 2's step is dt x ratio, its phase drifts from the float reference as MP-CSAW2's does
+    ('casio_cz/cz.c', [], [(45, {'level2': 0, 'cutoff': 255, 'color0': 255}, 75, 75),
+                           (45, {'level2': 0, 'cutoff': 255, 'wave1': 1, 'color0': 200}, 75, 75),
+                           (45, {'level2': 0, 'cutoff': 255, 'wave1': 5, 'color0': 200}, 65, 65),
+                           (45, {'level1': 0, 'cutoff': 255, 'wave2': 4, 'color1': 255}, 40, 38)], (155, 40)),
     # s1_export / s1_import: DSP A's note frequency to DSP B's key-tracked low-pass
     ('simple_saw_wrapped/simple_saw_export.c', ['--regs', '0,1,2,3,4,5,6,7'],
      [(45, {'track': 100}, 90, 85), (69, {'track': 200}, 90, 85)], (31, 17)),

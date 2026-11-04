@@ -63,6 +63,10 @@ KERNEL=sdk/s1cc/build/simple_saw_hostenv NAME=S1CC-HOSTENV sh examples/system_s1
 
 Los tres usan el slot 1 y el mismo id de modelo: instalar uno reemplaza al anterior.
 
+Opciones de la memoria de retardo del maestro B (`EDM_KS`, `EDM_CALL`, `EDM_ECF`, `EDM_STR`: cuerdas Karplus,
+`tapreq` propio, líneas propias, una cuerda por voz) y sus PLUG-OUTs de prueba: [MUTABLE_MEMORY.md](MUTABLE_MEMORY.md)
+§3.3. Con `EDM_STR` el esclavo no mezcla: cada voz sale por su palabra `6006 + v` y el maestro B hace la cuerda.
+
 ### 1.2 Opciones en el fuente del kernel (`S1_BUILD`)
 
 Todas las variables de la tabla de arriba salvo `KERNEL`, `OUTDIR` y las voces, y también `LFO_PITCH`, `LFO_LUT`,

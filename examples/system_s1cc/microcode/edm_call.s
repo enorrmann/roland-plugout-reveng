@@ -46,3 +46,25 @@ hset h5, #{(EDM_RES[1] - 0x4000) / 16384}@0:16
 f6 r2, -r4
 tapreq r2, 0
 cond 0, 15, 8
+
+;; EDM_CALL=idx (probe, docs/MUTABLE_MEMORY.md §3.3.6): is a tapreq address absolute? With EDM_ECF our writer
+;; [4034] -> 0x440000 (h4 units: 272) gets the left send (master_edm EDM_WR). Two requests on that line:
+;;   left  (EDM_RES[0]): the OS's form, base 272 + age - p (r4 = the effect's position counter): an echo at EDM_AGE
+;;                       if the OS's convention carries over to a line of ours
+;;   right (EDM_RES[1]): base 272 alone (r2 = 0, f6 r2, -r2): one fixed address. Absolute addressing: a value that
+;;                       changes once per lap of the ring (a step, near silence); relative to the write position: the
+;;                       send itself one or two samples late (the dry signal doubled on the right)
+;; h4 back to the OS's 256 before the return.
+.fragment edm_call_block_idx EDM_RES EDM_AGE EDM_HB
+mov r2, #{EDM_AGE}@0:24
+hset h4, #{EDM_HB}@0:24
+hset h5, #{(EDM_RES[0] - 0x4000) / 16384}@0:16
+f6 r2, -r4
+tapreq r2, 0
+mov r2, #0@0:24
+hset h5, #{(EDM_RES[1] - 0x4000) / 16384}@0:16
+mov r7, r7
+f6 r2, -r2
+tapreq r2, 0
+hset h4, #256@0:24
+cond 0, 15, 8

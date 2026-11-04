@@ -35,6 +35,9 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
                 DSP B instructions per voice; the sine is a true sine (docs/examples_system_s1cc_README.md §3.6)
   SPLIT=auto|n  a kernel built with s1cc --fused: voices 0..n-1 run the whole voice on DSP A, the rest on DSP B;
                 auto (default) balances the two DSPs (docs/examples_system_s1cc_README.md §1.3)
+  EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.5):
+                the kernel makes the excitation; AMP DECAY / AMP RELEASE = feedback held / released, FILTER CUTOFF =
+                brightness (sdk/s1cc/examples/edm/edm_string.c)
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
 
@@ -79,6 +82,10 @@ EDM_FB=${EDM_FB:-0.975}
 # master B's map table (model.c edm_ecf, docs/MUTABLE_MEMORY.md §3.3.4)
 [ -n "${EDM_ECF+x}" ] || EDM_ECF=$(kopt EDM_ECF)
 [ "$EDM_ECF" = 0 ] && EDM_ECF=
+# EDM_STR=1 (make_s1cc.py option): a Karplus string per voice in its own delay-memory line (model.c edm_str,
+# microcode/edm_str.s, docs/MUTABLE_MEMORY.md §3.3.5)
+[ -n "${EDM_STR+x}" ] || EDM_STR=$(kopt EDM_STR)
+[ "$EDM_STR" = 0 ] && EDM_STR=
 # EDM_GLIDE=1 (with EDM_KS): region 0 patches the effect's delay-time smoothing in the OS's copy of its master-B set
 [ -n "${EDM_GLIDE+x}" ] || EDM_GLIDE=$(kopt EDM_GLIDE)
 [ "$EDM_GLIDE" = 0 ] && EDM_GLIDE=
@@ -105,7 +112,7 @@ with open(out, 'w') as f:
 PY
 fi
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
- -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW}"
+ -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_STR:+-DEDM_STR} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW}"
 for r in 0 1; do
     if [ $r = 0 ]; then SRC=model.c; BASE=0x60800000; CODE=0x9000; else SRC=engine.c; BASE=0x60200000; CODE=0x1000; fi
     arm-none-eabi-gcc $CFLAGS -c "$HERE/$SRC" -o "$B/region$r.o"

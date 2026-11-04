@@ -7,9 +7,6 @@ activar solo las luces del panel de controles que esten usados por el kernel, s1
 mejorar el instalador para que acepte zip
 termina de portear todos los osciladores de mutable que estan en la carpeta git/eurorack
 
-
 el lfo to filter deja de hacer efecto al soltar la nota por mas que este activa la etapa de release
 agregar una funcion en el kernel para escribir un sub osc personalizado sobreescribiendo el del host, asi se puede hacer un sub osc mas barato a partir de un osc actual por division de frecuencia o algo asi 
 
-continua con las pruebas que creas necesarias sin el equipo hasta verificar una hipotesis confiable, ademas 
-"reglas S1 rechazaron el doble acceso al banco 5, que es la forma estándar de los PLUG-OUTs de serie. " algo no me cierra aca por que estan esas reglas que lo prohiben si es la forma oficial algo no me cierra

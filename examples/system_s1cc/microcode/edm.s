@@ -12,7 +12,7 @@
 ;; here gives its 10 ms echo (bank-2 loads from this main work), our request (counter, 0.5 s, results 402E): none;
 ;; (3) this: both requests at the OS's own time A101 (10 ms with DELAY TIME at 0)
 
-.fragment master_edm EDM_RES EDM_POS EDM_AGE EDM_LEN EDM_GAIN EDM_REQ
+.fragment master_edm EDM_RES EDM_POS EDM_AGE EDM_LEN EDM_GAIN EDM_REQ EDM_WR
 ld r0, [{OUT_L:04x}]
 ld r1, [{OUT_R:04x}]
 ld r7, [c{M_VOLUME:03x}]
@@ -22,6 +22,10 @@ mul r1, r1, r7
 mov r4, r4
 st r0, [{FX_SEND[0]:04x}]
 st r1, [{FX_SEND[1]:04x}]
+.if EDM_WR
+;; EDM_CALL=idx: the left send also into our own line (write word EDM_WR, mapped by model.c edm_ecf)
+st r0, [{EDM_WR:04x}]
+.endif
 ld r2, [{FX_RET[0]:04x}]
 ld r3, [{FX_RET[1]:04x}]
 ;; last sample's left tap: x0 + (x1 - x0) f

@@ -49,8 +49,15 @@ struct assign {
 
 static void vset(int id, int v) { p_set(G_VOICE, id, v); }
 
+#ifdef EDM_STR
+static void edm_str_note(int v, int note);
+static void edm_str_off(int v);
+#endif
 static void gate_off(struct assign *a, int v)
 {
+#ifdef EDM_STR
+    edm_str_off(v);
+#endif
     if (a->v[v].vel)
         vset(ID_VEL + v, 0);
     a->v[v].vel = 0;
@@ -59,6 +66,10 @@ static void gate_off(struct assign *a, int v)
 static void play(struct assign *a, int v, int note, int vel)
 {
     struct voice *x = &a->v[v];
+#ifdef EDM_STR
+    if (vel)
+        edm_str_note(v, note);
+#endif
     if (x->note != note)
         vset(ID_NOTE + v, note);
     if (!(x->vel == vel && vel))
@@ -330,6 +341,110 @@ static void edm_ecf(void)
     edm_ecf_state = 1;
 }
 #endif
+#ifdef EDM_STR
+/* EDM_STR (docs/MUTABLE_MEMORY.md §3.3.5): a Karplus-Strong string per voice on master B (microcode/edm_str.s), each
+   in its own delay-memory line mapped the way EDM_ECF maps its two (above): voice v's write entry [STR_W + 8v] ->
+   STR_A0 + v STR_DA and four read entries [STR_W + 8v + 1, 3, 5, 7] <- that address + d .. d + 3, table entries
+   STR_SLOT0 + 5v .. + 4, a zero entry after the last voice. All queued at load with FC3C; at every note the four
+   read entries of the voice again (d of the note, the period's whole part) and its f (C020 + v) by FCEC. The
+   feedback C028 + v: AMP DECAY's while the gate is on, AMP RELEASE's after; FILTER CUTOFF -> a / 1 - 2a. */
+#define ECF_T ((volatile uint32_t *)0x4016E000u)
+static uint32_t str_map[5 * NV + 1][2];
+static struct s1_prog str_set[] = { { 8 * STR_SLOT0, sizeof str_map, str_map }, { 0, 0, 0 } };
+static uint32_t str_rd[NV][4][2];                             /* per voice: its read entries, queued at every note */
+static struct s1_prog str_rd_set[NV][2];
+static uint8_t str_gate[NV], str_knob[3] = { 200, 100, 160 }; /* AMP DECAY, AMP RELEASE, FILTER CUTOFF */
+static int edm_str_state;                                     /* 1 queued, 3 table unknown (not OS 1.30's) */
+typedef void (*str_fcec_fn)(int sel, int id, uint32_t value);
+static void str_prm(int id, uint32_t bits) { ((str_fcec_fn)SVC(0xEC))(1, id, bits); }
+
+static void str_reads(int v, int note)                        /* voice v's read entries for note */
+{
+    uint32_t d = str_d[note & 0x7F], a = STR_A0 + (uint32_t)v * STR_DA;
+    for (uint32_t k = 0; k < 4; k++) {
+        str_rd[v][k][0] = a + d + k;
+        str_rd[v][k][1] = (STR_W + 8u * (uint32_t)v + 1u + 2u * k) << 16 | (d + k);
+    }
+}
+static void str_fb(int v) { str_prm(STR_PFB + v, str_gate[v] ? str_hold_bits[str_knob[0]] : str_rel_bits[str_knob[1]]); }
+static void str_bright(void)
+{
+    str_prm(STR_PA, str_a_bits[str_knob[2]]);
+    str_prm(STR_PC, str_c_bits[str_knob[2]]);
+}
+
+static void edm_str(void)                                     /* m_load */
+{
+    if (ECF_T[0] != 0x80400000u || ECF_T[1] != 0x00010000u || ECF_T[2 * 33] != 0x0049b0dau
+        || ECF_T[2 * 33 + 1] != 0x002d0000u) {
+        edm_str_state = 3;
+        return;
+    }
+    for (int v = 0; v < NV; v++) {                            /* feedback 0 first: whatever the lines hold dies */
+        str_gate[v] = 0;
+        str_prm(STR_PFB + v, 0);
+        str_prm(STR_PF + v, 0);
+        str_reads(v, 60);
+        str_map[5 * v][0] = 0x80000000u | (STR_A0 + (uint32_t)v * STR_DA);
+        str_map[5 * v][1] = (STR_W + 8u * (uint32_t)v) << 16;
+        for (int k = 0; k < 4; k++) {
+            str_map[5 * v + 1 + k][0] = str_rd[v][k][0];
+            str_map[5 * v + 1 + k][1] = str_rd[v][k][1];
+        }
+        str_rd_set[v][0].addr = 8u * (STR_SLOT0 + 5u * (uint32_t)v + 1u);
+        str_rd_set[v][0].bytes = sizeof str_rd[v];
+        str_rd_set[v][0].src = str_rd[v];
+    }
+    str_map[5 * NV][0] = str_map[5 * NV][1] = 0;
+    ((s1_queue_fn)SVC(0x3C))(str_set);
+    str_bright();
+    edm_str_state = 1;
+}
+static void edm_str_note(int v, int note)                     /* gate on, note: retune voice v */
+{
+    if (edm_str_state != 1 || v < 0 || v >= NV)
+        return;
+    str_reads(v, note);
+    ((s1_queue_fn)SVC(0x3C))(str_rd_set[v]);
+    str_prm(STR_PF + v, str_f_bits[note & 0x7F]);
+    str_bright();                                             /* again: the queued program may land after load */
+    str_gate[v] = 1;
+    str_fb(v);
+}
+static void edm_str_off(int v)
+{
+    if (edm_str_state != 1 || v < 0 || v >= NV || !str_gate[v])
+        return;
+    str_gate[v] = 0;
+    str_fb(v);
+}
+static void edm_str_param(int id, int value)                  /* m_param: the three knobs */
+{
+    int k = id == 0x188 ? 0 : id == 0x18A ? 1 : id == 0x17D ? 2 : -1;
+    if (k < 0 || (unsigned)value > 255)
+        return;
+    str_knob[k] = (uint8_t)value;
+    if (edm_str_state != 1)
+        return;
+    if (k == 2)
+        str_bright();
+    else
+        for (int v = 0; v < NV; v++)
+            str_fb(v);
+}
+#endif
+#if defined(PARAMLOG) && defined(EDM_STR)
+static void param_log(int id, int flag, int value);
+static void edm_str_dump(void)                                /* id 0x3D00: state; 0x3D01 + k: entries 33..44, 73..75 */
+{
+    param_log(0x3D00, 0, edm_str_state);
+    static const int at[] = { 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 73, 74, 75 };
+    for (unsigned i = 0; i < sizeof at / sizeof at[0]; i++) {
+        param_log(0x3D01 + (int)i, 0, (int)ECF_T[2 * at[i]]);
+        param_log(0x3D01 + (int)i, 1, (int)ECF_T[2 * at[i] + 1]);
+    }
+}
+#endif
 #if defined(PARAMLOG) && defined(EDM_ECF)
 static void param_log(int id, int flag, int value);
 static void edm_ecf_dump(void)                                /* id 0x3C00: state; 0x3C01 + k: entries 30..41, last 2 */
@@ -362,6 +477,10 @@ static void a_note_on(struct assign *a, int note, int vel)
 #if defined(PARAMLOG) && defined(EDM_ECF)
     if (vel)
         edm_ecf_dump();
+#endif
+#if defined(PARAMLOG) && defined(EDM_STR)
+    if (vel)
+        edm_str_dump();
 #endif
 #ifdef EDM_TAP
     if (vel)
@@ -540,6 +659,9 @@ static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x
 #endif
     if (id == ID_VOLUME)
         set_volume(value);
+#ifdef EDM_STR
+    edm_str_param(id, value);
+#endif
 }
 /* the panel's current values for the engine: the OS sends a control to the slave's engine (vt+0x30) only when it
    moves, so on entering the PLUG-OUT the kernel's tables, envelopes and LFO kept their defaults (CUTOFF and
@@ -575,6 +697,9 @@ static void m_load(struct model *m)                           /* vt+0x08 */
 #endif
 #ifdef EDM_ECF
     edm_ecf();
+#endif
+#ifdef EDM_STR
+    edm_str();
 #endif
     set_volume(volume);
     resend_panel();

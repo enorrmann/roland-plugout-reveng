@@ -68,6 +68,7 @@ Status of each item is in the document itself; the scope of the project is in th
 | Document | Experiment |
 |---|---|
 | [examples_system_s1cc_README.md](examples_system_s1cc_README.md) | SYSTEM-S1CC: a SYSTEM-1 PLUG-OUT that is only an s1cc kernel, configurable voices, instruction budget guard; host ADSRs (s1_env) and OSC1 / OSC2 COLOR with COLOR MOD (s1_color: per-voice LFO, pitch env, sub osc, envelopes) only when the kernel uses them. Spanish. |
+| [examples_casio_cz_README.md](examples_casio_cz_README.md) | CASIO-CZ (`sdk/s1cc/examples/casio_cz/cz.c`, SYSTEM-S1CC): Casio CZ phase distortion after kasploosh.com; OSC1 / OSC2 WAVE = CZ WAVE 1..5 + a resonance wave, DCW = COLOR with COLOR MOD (FILTER ENV = DCW envelope), line 2 RANGE / FINE, ring / noise mod on SUB / NOISE, host ADSRs + SVF; one PD formula with 6-word coefficient tables; 8 voices; emulator-verified, not yet on hw. Spanish. |
 | [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) | s1cc: the minimal example of a plain C library (a naive saw) and its wrapper for an S1 voice. Spanish. |
 | [examples_sys8_lab_README.md](examples_sys8_lab_README.md) | S8LAB: the SYSTEM-8 image in PLG1 used as a lab, with its tests. |
 | [PLAN.md](PLAN.md) | Plan and results of the S8LAB lab (`examples/sys8_lab/`). |

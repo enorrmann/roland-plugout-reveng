@@ -342,6 +342,113 @@ Consecuencias:
   leerían nuestras líneas. Falta medir cuánto mide la EDM del S1 más allá de `0x49B0DA` (la prueba en `0x4A0000`
   fue la que apagó el equipo, junto con la escritura directa).
 
+
+#### 3.3.5 Una cuerda Karplus-Strong por voz (MP-EDMSTR, 2026-11-03, sin probar en el equipo)
+
+Build: `sdk/s1cc/s1cc build sdk/s1cc/examples/edm/edm_string.c && KERNEL=sdk/s1cc/build/edm_string sh
+examples/system_s1cc/build.sh` (`EDM_STR=1` viene del `S1_BUILD` del kernel) → `plugins/MP-EDMSTR`, 8 voces.
+Variante con volcado de la tabla en cada nota: `NAME=MP-EDMSTRL PARAMLOG=1` (id `0x3D00` estado, `0x3D01 + k`
+entradas 33–44, 73–75; `examples/system_1/paramlog.py`).
+
+| pieza | dónde | qué |
+|---|---|---|
+| excitación | `edm_string.c` (esclavo, DSP A del kernel) | golpe de ruido de 1–16 ms (OSC1 COLOR) × OSC1 MIX en cada nota, como `edm_pluck.c` |
+| transporte | `host_b.s head_b`, `.if EDM_STR` | sin mezcla: la salida de la voz v × `C000` → IOMD `6006 + v` (8 palabras, las que el mezclador de serie del OS lee en el maestro: [código], §1 de [../system-1/WAVE_BUS.md](../system-1/WAVE_BUS.md)) |
+| líneas | `model.c edm_str`, en `load` | una cola de datos `FC3C` `{0x110, 41 × 8 bytes}`: por voz una escritura `[4040 + 8v]` → `0x440000 + 0x4000 v` y cuatro lecturas `[4041/43/45/47 + 8v]` ← esa dirección `+ d … + d + 3`; una entrada en cero detrás (entradas 34–74 de la tabla). Palabras pares escriben, impares leen (la convención del OS) |
+| altura | `model.c edm_str_note`, en cada nota | otra cola `FC3C` con las cuatro lecturas de la voz (`d` de la nota) y `f` en `C020 + v` (`FCEC`) |
+| lazo | `microcode/edm_str.s master_str` (principal del maestro B, 220 instrucciones, una por línea como `edm_ecf.s`) | `F0 = a (y0 + y2) + c y1`, `F1 = a (y1 + y3) + c y2` (filtro de fase lineal `[a, 1 − 2a, a]`, 1 muestra), `z = F0 + f (F1 − F0)`, `w = x + fb z` → `[4040 + 8v]`; la suma × 0,5 × VOLUME → envío del efecto |
+| panel (región 0) | `edm_str_param` | AMP DECAY → `fb` con la tecla apretada (`1 − 10^−(1 + 3v/255)`, 0,9 … 0,9999 por vuelta), AMP RELEASE → `fb` suelta (`1 − 10^−(0,3 + 3v/255)`), FILTER CUTOFF → `a = 0,25 (1 − v/255)` (`C01D`, `1 − 2a` en `C01E`) |
+
+Período: las lecturas dan `y_k = w[n − d − 1 − k]` (la lectura llega una muestra después de su entrada: 48 001 para
+48 000, §3.3.4), el filtro está centrado en `y1` y la interpolación suma `f`: **período = d + 2 + f**
+(`make_s1cc.py str_period`; nota 0: d = 11 739, cada línea tiene 16 384 muestras de lugar).
+
+Verificado sin el equipo: `sdk/s1cc/examples/edm/str_sim.py` corre `build/s1mm1.s` en el emulador C con un modelo
+de la tabla (las lecturas como arriba): 8 cuerdas a la vez (notas 48 … 84), alturas a ±0,9 cents (resolución de la
+FFT). Prueba en el equipo: `sdk/s1cc/examples/edm/str_probe.sh` (seis notas de a una, cada una en otra voz, y un
+acorde de tres; imprime la altura de cada una).
+
+Qué puede fallar en el equipo (cada punto es una pregunta de la prueba):
+1. **La cola `FC3C` en medio de la ejecución**: §3.3.4 sólo la usó en `load`. Si las colas de cada nota no se
+   aplican, todas las voces quedan en la nota 60 (la carga) y sólo cambia `f`: suena casi la misma altura. MP-EDMSTRL
+   lo muestra (las entradas 35–38 deben cambiar de una nota a la siguiente).
+2. **Cuántas entradas atiende la tabla por muestra**: el OS usa 34; con 8 voces son 75. Si el DMA no llega, se
+   oirán líneas mudas o ruido en las voces altas (las entradas que pasan del límite).
+3. `6008`–`600D` desde nuestro esclavo hasta nuestro maestro: leído en el OS, no medido con un PLUG-OUT propio.
+4. Presupuesto del maestro B: efecto del OS (107) + 220 nuestras; el SH-2 tiene 406 en el mismo lugar.
+
+Límites: la flexión de altura (bend) no mueve la cuerda (sólo la nota); las entradas quedan hasta apagar y siguen
+escribiendo `0x440000`–`0x460000` con otro PLUG-OUT (el delay del OS las lee sólo con más de 2,7 s).
+
+#### 3.3.6 ¿La memoria de retardo como memoria indexada? (WAV, wavetable, granular; análisis 2026-11-03)
+
+Pregunta: cargar un WAV en la EDM y leerlo avanzando la posición (wavetable, granular). Modelo de la memoria que
+sale de §3.3.3 / §3.3.4 [medido salvo donde dice]:
+
+* Las entradas de la tabla están en coordenadas de una **posición que el hardware mueve sola** (P): la escritura en
+  `A` cae cada muestra en la dirección absoluta `P(t) + A`, y la lectura en `A + d` trae lo escrito `d` muestras
+  antes. Es decir, **cada entrada de escritura recorre toda la EDM una vez por vuelta** de P (largo de la vuelta sin
+  medir: ≥ 635 098 muestras, `0x400000`–`0x49B0DA`; la EDM entera son 2 097 152 palabras, abajo).
+* `tapreq` del OS pide `base + edad − p`, con `p` su propio contador (`+[E013]` por muestra, vuelta a 576 000). Si el
+  pedido fuera relativo a P como las entradas, `p` sobraría: lo más probable es que **el pedido sea una dirección
+  absoluta** y `p` la copia por software de P [inferido; en el S8 `f5c` es la posición de escritura y las tomas
+  restan esa posición, [DSP_USOS.md](DSP_USOS.md) §5]. Prueba MP-EDMIDX (abajo).
+* `tapreq` sólo se atiende en el programa de `0x0`: los pedidos van en el bloque del trampolín (§3.3.3), que puede
+  cargar la dirección de memoria (`ld r2, [...]` que nuestro principal escribió; en el sitio sólo `r2` está libre),
+  ~5 instrucciones por pedido. Resultado una muestra después, dos muestras vecinas + fracción (en el S8 1/64,
+  truncada; ≥ 24 pedidos por muestra).
+
+| uso | qué necesita | estado |
+|---|---|---|
+| lectura en una posición calculada: granular, *scrub*, velocidad variable, lectura de una wavetable | `tapreq` con la dirección de un registro, en el trampolín | **posible**: el pedido con edad inmediata funciona (§3.3.3); de un registro es la misma instrucción. Sobre una línea propia, sin medir (MP-EDMIDX) |
+| búfer grabado en vivo (Clouds / Beads, looper, granular sobre lo que se toca) | una escritura propia (§3.3.4) + pedidos con la edad de cada grano | **posible ya** con las piezas medidas: la edad crece una muestra por muestra con P; un grano que avanza a velocidad r pide `edad₀ + (1 − r) t` |
+| congelar el búfer (*freeze*) | dejar de escribirlo: reencolar su entrada de escritura con otra dirección (`FC3C`) | sin probar. Dura hasta que pase el escritor siguiente de dirección menor: con la línea en `0x440000`, el del delay del OS (`0x400000`) llega a los 262 144 muestras (**2,73 s**) |
+| **WAV fijo cargado desde el PLUG-OUT** | (1) escribirlo: por el puerto indirecto del ARM (`0x40100050` / `+0x54` / `+0x800`, lo usa el autotest de arranque; sin probar en el S1, en el S8 la escritura no se logró) o grabarlo por el DSP en tiempo real con datos que el ARM entrega a 96 palabras por ms (`FCEC` no da: ~33 por ms); (2) que **ningún escritor lo pise**: todos barren la EDM entera por vuelta, así que hay que sacar las escrituras del delay y la reverb del OS (reencolar sus entradas como libres, y volver a poner las de la RAM del OS, `0x60097928`, al salir) y no tener líneas propias | **abierto**: la parte más difícil; además el WAV entra en ~0,94 MB por región del PLUG-OUT (16 bits: ~4,9 s a 96 kHz) |
+| wavetable chica (≤ 1024 palabras) | banco 5 + `ldb5` (§4) | más simple que la EDM; la EDM sólo para tablas grandes (Plaits: 4 × 64 × 132 = 33 792 palabras) |
+
+Conclusión: **granular y lectura variable sobre un búfer que se graba en vivo sí** (falta medir el pedido sobre una
+línea propia); **un WAV fijo todavía no**: hace falta escribir la EDM desde el ARM y apagar los escritores del OS.
+Sin el puerto del ARM queda un llenado lento por el DSP [estimado, sin probar]: una entrada de escritura en `A` y
+una de lectura en `A + V` (V = largo de la vuelta: la misma dirección absoluta una vuelta antes) hacen una línea que
+se recircula a sí misma; el principal escribe la muestra del WAV que el ARM dejó en el banco 5 cuando le toca a esa
+dirección y si no la que leyó (`ld` + `st`). El ARM entrega ~30 palabras por ms, así que cada vuelta llena ~1/3 de
+las posiciones: el WAV entero en ~3–4 vueltas (≥ 20 s), con los escritores del OS apagados mientras dure. Falta
+medir V (la vuelta de P) antes de intentarlo.
+
+**El puerto del ARM a la EDM, leído del autotest de arranque** (`0x6001D51A`, OS 1.30; llamado una sola vez desde
+la máquina de estados del arranque `0x60019FB0`, caso que también inicializa el objeto de la EDM `0x604BB40C`)
+[código, sin medir]:
+
+| paso | qué hace |
+|---|---|
+| antes | servicio del ROM `0x01008BDF(0x20003534, 1, i, 0x17, 0)` para i = 0…23 (24 rutas a `0x17`), `0x0100A211(0x20003534, k, 0)` para k = 0…3 (**los 4 mapas**: las ventanas de los DSP, guardadas en el objeto `+8…+0x14`), modo del controlador `0x01009F13(0x20003534, 0x40000000)` |
+| escritura de la palabra n | `[0x40100050] = 0x01000000 + 4n`; `[0x4010007C] \|= 0x100`; esperar `[0x40100008]` bit 30 en 0; `[0x40100800] = dato`; `[0x4010007C] &= ~0x100`; esperar otra vez |
+| entre las dos pasadas | modo `0x41200000` |
+| lectura de la palabra n | `[0x40100050] = 0x01000000 + 4n`; `[0x4010007C] \|= 0x100`; esperar; `[0x40100054] \|= 0x20000000`; esperar `[0x40100054]` bit 31 en 0; dato = `[0x40100800]`; `[0x4010007C] &= ~0x100`; esperar |
+| datos | n = 0 y n = 2^k para k = 0…21, dato = n (prueba de las líneas de dirección y de datos) |
+| después | los 4 mapas desde el objeto, las 24 rutas a `i → i`, modo `0x40000000` |
+
+Consecuencias: **la EDM del S1 tiene 2^21 = 2 097 152 palabras** (21,8 s a 96 kHz, como un BMC del S8); el ARM la
+escribe palabra por palabra con espera de ocupado, pero el OS lo hace **con los mapas de los DSP y las 24 rutas
+desconectados**. Usarlo con el audio corriendo (en `load`, para cargar un WAV) significa repetir ese marco: un corte
+del audio mientras dura y el riesgo de apagado que ya dio la escritura directa de la tabla (§3.3.4). Prueba a hacer
+antes de cualquier escritura: una lectura de pocas palabras con el marco completo en un build PARAMLOG.
+
+**Sonda MP-EDMIDX** (armada, sin probar): `KERNEL=sdk/s1cc/build/edm_pluck NAME=MP-EDMIDX EDM_KS=0 EDM_ECF=1
+EDM_CALL=idx sh examples/system_s1cc/build.sh`; captura `sdk/s1cc/examples/edm/idx_probe.sh`.
+
+| pieza | qué |
+|---|---|
+| escritura | `EDM_ECF`: `[4034]` → `0x440000` (unidades de `h4`: 272) recibe el envío izquierdo (`master_edm` con `EDM_WR`) |
+| pedido izquierdo | `edm_call.s edm_call_block_idx`: `h4 = 272`, `r2 = 48000/16384`, `f6 r2, -r4`, `tapreq` → `402E` |
+| pedido derecho | `h4 = 272`, `r2 = 0`, `f6 r2, -r2` (la base sola: **una dirección fija**), `tapreq` → `4031`; `h4` vuelve a 256 antes del retorno |
+| salida | seco + 0,7 × cada toma, izquierda / derecha |
+
+Lectura del resultado: izquierda con eco a ~48 007 = la convención del OS vale para una línea propia (edad − p).
+Derecha − izquierda antes del eco: **escalones lentos** (cambian una vez por vuelta) = el pedido es absoluto, y
+entonces una posición fija o que avanza a cualquier velocidad lee un búfer quieto (la base de wavetable / WAV);
+**una copia del golpe a pocas muestras** = el pedido es relativo a la posición de escritura.
+
 ## 4. Tablas de datos (wavetables)
 
 No son retardos: son datos fijos leídos por fase. El banco 0 no sirve (el anillo los movería, y una tabla fija del
@@ -372,7 +479,9 @@ Bloqueo: la carga indexada del banco 5 (`ldb5` / `ldb5h7`) no está probada en e
 1. **Probar `MP-CSAW2-LUT` en el equipo** (banco 5 indexado en el S1). Si funciona: `S1_TABLE` y las wavetables de
    Braids / Plaits (WAVETABLES, WAVE_MAP, WAVE_LINE, motor *wavetable*), 8 voces.
 2. **`s1_delay_*` en el banco 0**: PLUCKED, SAW_COMB y la cuerda de Plaits con 4 voces (≥ 250 Hz), 2 voces (≥ 110 Hz), o el doble de alcance a media tasa [estimado].
-3. **`tapreq` en el maestro B** (§3.3, la prueba del eco de 0,5 s): si funciona, PLUCKED / cuerdas a cualquier altura
+3. **Cuerdas por voz en el maestro B**: MP-EDMSTR (§3.3.5) armado; probar con `str_probe.sh`. Después MP-EDMIDX
+   (§3.3.6) para saber si `tapreq` es absoluto: de eso dependen wavetable y granular en la EDM.
+   Antes: **`tapreq` en el maestro B** (§3.3, la prueba del eco de 0,5 s): si funciona, PLUCKED / cuerdas a cualquier altura
    con 6 voces (excitación por `6008`–`600D`), chorus del *string machine*, búfer granular. Después, `tapreq` en un
    esclavo (§3.2) para BOWED / BLOWN / FLUTED.
 4. **Tramas por el tick**: el motor *speech* de Plaits (LPC) con `S1_FRAMES`.
