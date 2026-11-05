@@ -19,6 +19,12 @@
 #include <stdint.h>
 #include "syninfo.h"
 #include "s1_programs.h"
+#if SL_WT
+#include "sl_wt.h"
+#if SL_B0
+static void sl_tick(void);
+#endif
+#endif
 
 typedef int (*get_fn)(int group, int id);
 typedef void (*slot_fn)(int index, int on);
@@ -200,7 +206,7 @@ static void hlfo_all(void) {}
    Integer only (no FPU on the SYSTEM-1's ARM; the SYSTEM-8's has one): levels in Q24 (1 = 1 << 24), tables from
    make_s1cc.py. */
 
-#if ARM_ENV || ARM_LFO || ARM_TICK || ARM_RAMPTEST
+#if ARM_ENV || ARM_LFO || ARM_TICK || ARM_RAMPTEST || SL_B0
 typedef void (*ramp_fn)(int sel, int id, uint32_t target, int y, int z);
 typedef void (*cyc_fn)(int i);
 #define Q1 (1 << 24)
@@ -326,7 +332,7 @@ static void lfo_step(int v, int m)                     /* m sixteenths of a step
 }
 #endif
 
-#if ARM_ENV || ARM_LFO || ARM_TICK || ARM_RAMPTEST
+#if ARM_ENV || ARM_LFO || ARM_TICK || ARM_RAMPTEST || SL_B0
 static cyc_fn cyc_os;                                  /* the OS's client function, called first */
 static volatile uint32_t tick_n;
 #define DEMCR (*(volatile uint32_t *)0xE000EDFCu)
@@ -371,6 +377,9 @@ static void tick(int i)                                /* the cyclic handler, ev
         cyc_os = CYC_CLIENT;
         CYC_CLIENT = tick;
     }
+#if SL_B0
+    sl_tick();                                         /* SL_WT=b0: the next staged block of the frame */
+#endif
     uint32_t n = ++tick_n;
     (void)n;                                           /* only the diagnostics below read it */
 #if ARM_RAMPTEST
@@ -580,6 +589,94 @@ static void lut_all(void)       /* LFO_LUT / ENV_CURVE: the bank-5 tables the DS
 static void lut_all(void) {}
 #endif
 
+#if SL_WT
+/* SL_WT=b5 (docs/MUTABLE_MEMORY.md §4.1): the frame OSC1 COLOR picks, two neighbours of the whole table (sl_wt.h, all
+   the WAV's frames) mixed, written into bank 5 SL_STG.. (FD6C sel 0; DSP A reads it with ldb5, microcode/sl_wt.s)
+   at load and whenever COLOR moves */
+static int sl_color;
+static uint32_t sl_bits(int32_t x)                     /* x 2^-15 (Q15) -> IEEE float bits */
+{
+    if (!x)
+        return 0;
+    uint32_t sg = x < 0 ? 0x80000000u : 0, a = x < 0 ? (uint32_t)-x : (uint32_t)x;
+    int e = 31 - __builtin_clz(a);
+    return sg | (uint32_t)(e - 15 + 127) << 23 | ((a << (23 - e)) & 0x7FFFFFu);
+}
+#if SL_B0
+/* SL_WT=b0 (docs/MUTABLE_MEMORY.md §4.1): DSP A's bank-0 loop (SL_LOOP words) holds two frames interleaved, data
+   d = 2k (set 0, "E") and 2k + 1 (set 1, "O") for point k, slot j = data SL_LOOP - 1 - j. Every SL_HOLD ms (> one lap)
+   the next block of SL_B slots goes into bank 5 SL_STG.. and its first slot into SL_BLK (units); the DSP's one ldb5
+   per sample copies it in. COLOR's position x (0 .. SL_NF - 1) between the two frames is the weight w of set 1, in
+   bank 5 SL_W5 every 1 ms; when x leaves the two frames, the set farther from it is given the frame on the other side
+   and w stays on the other set until a full round of blocks has rewritten it (no half-written frame is heard) */
+#define SL_HOLD 12
+#define SL_NBLK (SL_LOOP / SL_B)
+static unsigned sl_blk, sl_hold, sl_pend_n;
+static int sl_set[2] = { 0, 1 }, sl_pend = -1;
+static void sl_tick(void)
+{
+    int32_t xq = (int32_t)((uint32_t)sl_color * (SL_NF - 1u) * 256u / 255u);     /* x in 1/256 frames */
+    if (sl_pend < 0) {
+        int lo = sl_set[0] < sl_set[1] ? 0 : 1, flo = sl_set[lo], fhi = sl_set[1 - lo];
+        if (xq < flo * 256 && flo > 0) {
+            sl_pend = 1 - lo;
+            sl_set[sl_pend] = flo - 1;
+            sl_pend_n = 0;
+        } else if (xq > fhi * 256 && fhi < (int)SL_NF - 1) {
+            sl_pend = lo;
+            sl_set[sl_pend] = fhi + 1;
+            sl_pend_n = 0;
+        }
+    }
+    int32_t w;                                         /* Q15 weight of set 1 */
+    if (sl_pend >= 0)
+        w = sl_pend == 1 ? 0 : 32768;
+    else {
+        int32_t d = (sl_set[1] - sl_set[0]) * 256;
+        w = (xq - sl_set[0] * 256) * 32768 / d;
+        w = w < 0 ? 0 : w > 32768 ? 32768 : w;
+    }
+    b5(SL_W5_IDX, sl_bits(w));
+    if (++sl_hold < SL_HOLD)
+        return;
+    sl_hold = 0;
+    sl_blk = (sl_blk + 1) % SL_NBLK;
+    b5(SL_BLK_IDX, 0x3F800000u);                      /* 1.0: past every slot while the block is rewritten */
+    for (int i = 0; i < SL_B; i++) {
+        int dd = SL_LOOP - 1 - ((int)sl_blk * SL_B + i);
+        b5(SL_STG_IDX + i, sl_bits(sl_frames[sl_set[dd & 1]][dd >> 1]));
+    }
+    b5(SL_BLK_IDX, sl_bits((int32_t)(sl_blk * SL_B) << 1));   /* slot / 16384 = (slot << 1) 2^-15 */
+    if (sl_pend >= 0 && ++sl_pend_n > SL_NBLK)         /* a full round (and the block that was half done) */
+        sl_pend = -1;
+}
+static void sl_frame(void) {}                          /* the tick does it */
+#else
+static void sl_frame(void)
+{
+    uint32_t q = (uint32_t)sl_color * (SL_NF - 1u), f = q / 255u, r = q % 255u;
+    if (f >= SL_NF - 1u) {
+        f = SL_NF - 2u;
+        r = 255u;
+    }
+    for (int i = 0; i < SL_W; i++)
+        b5(SL_STG_IDX + i, sl_bits(((int32_t)(255u - r) * sl_frames[f][i] + (int32_t)r * sl_frames[f + 1][i]) / 255));
+}
+#endif
+#endif
+
+#if IDX_PROBE
+/* IDX_PROBE (microcode/idx_probe.s): bank 5 A080 + i = (i + 1) / 128, the values the probe's indexed loads read */
+static void idxp_table(void)
+{
+    for (int i = 0; i < 128; i++) {
+        uint32_t a = (uint32_t)i + 1u;                 /* (i + 1) 2^-7 as IEEE bits */
+        int e = 31 - __builtin_clz(a);
+        b5(0x80 + i, (uint32_t)(e - 7 + 127) << 23 | ((a << (23 - e)) & 0x7FFFFFu));
+    }
+}
+#endif
+
 static void e_load(engine_t *e)                                  /* vt+0x08 */
 {
     for (int i = 0; i < 8; i++)
@@ -597,6 +694,13 @@ static void e_load(engine_t *e)                                  /* vt+0x08 */
     kparam_all();
     henv_all();
     hlfo_all();
+#if IDX_PROBE
+    idxp_table();
+#endif
+#if SL_WT
+    sl_color = os_get(3, 0x168);
+    sl_frame();
+#endif
     arm_start();
 }
 
@@ -634,6 +738,12 @@ static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
         voice_gate(e, id - 0x120, value);
         return;
     }
+#if SL_WT
+    if (id == 0x168 && value != sl_color) {    /* OSC1 COLOR: the frame */
+        sl_color = value;
+        sl_frame();
+    }
+#endif
     kparam_set(id, value);
     henv_set(id, value);                       /* a fader may drive both (a kernel table and a host envelope) */
     hlfo_set(id, value);                       /* COLOR: a kernel table too, if the kernel has one on it */

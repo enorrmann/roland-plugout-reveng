@@ -1,0 +1,22 @@
+# single op forms (mnemonic:operand kind, as asm/dspsched.py op_signature: reg / imm / i32) that ran in a main program
+# of the SYSTEM-1's master DSP B (0x1000, written one op per instruction) on the device. asm/proven_forms.txt and
+# asm/bad_forms.txt are about the SLAVES' op groups sharing an instruction; this list is about master B, where a form
+# is new until a build with it ran. make_s1cc.py warns for any other form in s1mm1 (2026-11-05: MP-EDMWT used
+# `add rD, #x:32`, in none of these; the whole device stayed silent, the form is the first suspect, not proven).
+# Evidence: C-S1SY13 (master.s master), MP-EDMTAP / MP-EDMCALL (edm.s master_edm), MP-EDMECF (edm_ecf.s master_ecf),
+# MP-EDMSTR / MP-PLSTRING / MP-BLOWN / MP-BOWED / MP-SAWCOMB (edm_str.s master_str1 / master_pstr / master_blown /
+# master_bowed), all ran on the device 2026-10-23 .. 2026-11-04 (docs/MUTABLE_MEMORY.md §3.3).
+# Transfers (ld / st), hset, f6, tapreq, cond are not listed: rules for them in system-1/WAVE_BUS.md §7.
+addxy:imm
+addxy:reg
+max:reg
+min:imm
+mov:imm
+mov:reg
+mul:imm
+mul:reg
+sign:reg
+# sign: ONLY as `sign rX, rX` (the same register, the form that ran). `sign r3, r6` in MP-EDMWT9 (2026-11-05) gave
+# 0 for negative r6: the age wrap added half the table, the voice jumped by 46 frames every half lap (USB capture)
+subxy:imm
+subxy:reg

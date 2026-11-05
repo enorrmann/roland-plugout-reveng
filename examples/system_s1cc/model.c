@@ -172,7 +172,17 @@ static void a_reset(struct assign *a)
     clear_voices(a);
 }
 static void a_changed(struct assign *a, int group) { (void)a; (void)group; }
-static void a_note_off(struct assign *a, int note) { key_set(a, note, 0); key(a, note, 0); }
+#ifdef EDM_WT
+static void wt_note_on(int note, int vel);
+#endif
+static void a_note_off(struct assign *a, int note)
+{
+#ifdef EDM_WT
+    wt_note_on(note, 0);                                      /* note offs come here, not as a velocity 0 */
+#endif
+    key_set(a, note, 0);
+    key(a, note, 0);
+}
 /* VOLUME again at every note: m_load writes it right after queueing the master DSP B program, and the queued load can
    land later and leave C01C at 0 (silence until the knob moves, observed 2026-10-27). One FCEC write per note. */
 static void resend_volume(void);
@@ -777,8 +787,217 @@ static void edm_port_probe(void)
 }
 #endif
 #endif
+#if defined(PARAMLOG) && defined(EDM_WT)
+static void param_log(int id, int flag, int value);
+#endif
+#ifdef EDM_WT
+/* EDM_WT (docs/MUTABLE_MEMORY.md §3.3.8): a wavetable stored whole (WT_LEN samples, s1_programs.h wt_table) in the
+   delay memory of master B, in one own line that loops on itself (microcode/edm_wt.s). At load: the line's write and
+   re-circulation read entries in the map table (FC3C, after the OS's 34, as EDM_ECF) and the request block in the OS
+   effect (edm_call). At the first note region 0 fills the loop: it follows the delay memory's sample counter
+   (controller word 0x40100048, -1 per sample; only READ: the port itself mutes the device, §3.3.7) and, sample by
+   sample, puts table sample k in master B parameter WT_PSTG (FCEC; our main reads master bank 5 as 0, §3.3.8),
+   k = samples since it changed WT_PSYNC; a sample it missed
+   (interrupts) is put on a later lap, when its place comes round again. The OS stays blocked while it fills (one lap =
+   WT_LEN / 96000 s, at most WT_LAPS laps). */
+#define WT_CTR (*(volatile uint32_t *)0x40100048u)
+#define WT_MAP ((volatile uint32_t *)0x4016E000u)
+#define WT_LAPS 8u
+#ifndef WT_BLOCK_MS
+#define WT_BLOCK_MS 500u                                      /* the most one note blocks the OS while filling */
+#endif
+#define WT_CYC (*(volatile uint32_t *)0xE0001004u)
+static const uint32_t wt_map[3][2] = {
+    { 0x80000000u | WT_A, WT_W << 16 },                       /* [WT_W] -> WT_A */
+    { WT_A + WT_RDIST, WT_R << 16 },                          /* [WT_R] <- WT_A + WT_LEN - 1: a loop of WT_LEN */
+    { 0, 0 },
+};
+static struct s1_prog wt_set[] = { { 8 * WT_SLOT0, sizeof wt_map, wt_map }, { 0, 0, 0 } };
+static uint8_t wt_done[(WT_LEN + 7u) / 8u];
+static int wt_state;                                          /* 0 loaded, 1 filled, 3 map table unknown */
+#ifdef WT_POLL
+static uint32_t wt_filled, wt_span, wt_cycles;
+#endif
+typedef void (*wt_fn)(int sel, int id, uint32_t value);
+static void wt_b5(int idx, uint32_t bits)                     /* master bank 5 A100 + idx (FD6C sel 1) */
+{
+    uint32_t obj[3] = { 0, 0, (uint32_t)idx };
+    ((void (*)(int, const uint32_t *, uint32_t))SVC(0x16C))(1, obj, bits);
+}
+static void wt_prm(int id, uint32_t bits) { ((wt_fn)SVC(0xEC))(1, id, bits); }
+static uint32_t wt_i2f(int32_t x, int sh)                     /* x 2^-sh as IEEE-754 bits, |x| < 2^24 */
+{
+    if (!x)
+        return 0;
+    uint32_t sg = x < 0 ? 0x80000000u : 0, a = x < 0 ? (uint32_t)-x : (uint32_t)x;
+    int e = 31 - __builtin_clz(a);
+    return sg | (uint32_t)(e - sh + 127) << 23 | ((a << (23 - e)) & 0x7FFFFFu);
+}
+static void wt_color(int knob)                                /* OSC1 COLOR: frame f (0 .. FRAMES - 2) and the mix */
+{
+    uint32_t q = (uint32_t)knob * (WT_FRAMES - 1u), f = q / 255u, r = q % 255u;
+    if (f > WT_FRAMES - 2u) {
+        f = WT_FRAMES - 2u;
+        r = 255u;
+    }
+    wt_prm(WT_PFRAME, wt_i2f((int32_t)(f * WT_F), 14));
+    wt_prm(WT_PMIX, wt_i2f((int32_t)(r * 65536u / 255u), 16));
+}
+static void wt_load(void)                                     /* m_load */
+{
+    for (int v = 0; v < WT_NV; v++) {
+        wt_prm(WT_PGAIN0 + v, 0);
+        wt_prm(WT_PDT0 + v, wt_dt_bits[60]);
+    }
+#if WT_DIAG == 4
+    wt_prm(WT_PSTG, 0x3F800000u);                             /* the main reads it (edm_wt.s WT_DIAG=4); no fill */
+    wt_state = 1;
+    return;
+#endif
+    wt_color(0);
+    if (WT_MAP[0] != 0x80400000u || WT_MAP[1] != 0x00010000u || WT_MAP[2 * 33] != 0x0049b0dau
+        || WT_MAP[2 * 33 + 1] != 0x002d0000u) {
+        wt_state = 3;
+        return;
+    }
+    ((s1_queue_fn)SVC(0x3C))(wt_set);
+    wt_state = 0;
+}
+#ifndef WT_POLL
+/* WT_POLL undefined (default since MP-EDMWT hung at its first note, 2026-11-05, polling the counter word without a
+   pause): the time from the ARM's cycle counter, 1625 cycles per sample (156 MHz / 96 kHz), the delay-memory counter
+   read only at the start and at the end (0x3F84: its samples minus the cycle counter's, the drift). One lap per note
+   at most: the fill goes on at the next notes (the DSP's c keeps counting, k = samples since the sync) */
+static uint32_t wt_c0, wt_p0, wt_filled_all;
+static void wt_fill(void)
+{
+    *(volatile uint32_t *)0xE000EDFCu |= 1u << 24;
+    *(volatile uint32_t *)0xE0001000u |= 1u;
+    if (!wt_filled_all && !wt_c0) {                           /* the first note: the sync */
+        for (unsigned i = 0; i < sizeof wt_done; i++)
+            wt_done[i] = 0;
+        static uint32_t sync;
+        sync ^= 0x3F800000u;
+        wt_prm(WT_PSYNC, sync);
+        wt_c0 = WT_CYC;
+        wt_p0 = WT_CTR;
+        if (!wt_c0)
+            wt_c0 = 1;
+    }
+    /* the time base again from the delay memory's counter (one read): the two clocks drift ~3 ppm (58 samples in
+       20 s, 2026-11-05); then the cycle counter for at most WT_BLOCK_MS (the OS is blocked meanwhile) */
+    uint32_t cref = WT_CYC, tref = (wt_p0 - WT_CTR) & 0x7FFFFFu;
+    uint32_t start = cref, last = 0xFFFFFFFFu, filled = 0, par = 0;
+    while (WT_CYC - start < WT_BLOCK_MS * 156000u && wt_filled_all < WT_LEN) {
+        uint32_t t = tref + (WT_CYC - cref) / 1625u;          /* samples since the sync */
+        if (t == last)
+            continue;
+        last = t;
+        uint32_t k = t % WT_LEN;
+        if (wt_done[k >> 3] & (1u << (k & 7)))
+            continue;
+        par ^= 1u;
+        wt_prm(WT_PSTG, wt_i2f(32 * (int32_t)wt_table[k] + (par ? 1 : -1), 21));
+        wt_done[k >> 3] |= (uint8_t)(1u << (k & 7));
+        filled++;
+        wt_filled_all++;
+    }
+    uint32_t t = tref + (WT_CYC - cref) / 1625u, ps = (wt_p0 - WT_CTR) & 0x7FFFFFu;
+    if (wt_filled_all >= WT_LEN)
+        wt_state = 1;
+#ifdef PARAMLOG
+    param_log(0x3F80, 0, (int)filled);                        /* table samples written this note */
+    param_log(0x3F81, 0, (int)wt_filled_all);                 /* in all */
+    param_log(0x3F82, 0, (int)t);                             /* samples since the sync, by the cycle counter */
+    param_log(0x3F84, 0, (int)(ps - t));                      /* the delay memory's counter minus that */
+    param_log(0x3F83, 0, (int)WT_LEN);
+#endif
+}
+#else
+static void wt_fill(void)                                     /* first note: the table into the loop */
+{
+    for (unsigned i = 0; i < sizeof wt_done; i++)
+        wt_done[i] = 0;
+    *(volatile uint32_t *)0xE000EDFCu |= 1u << 24;            /* DWT CYCCNT on (only for the report) */
+    *(volatile uint32_t *)0xE0001000u |= 1u;
+    uint32_t c0 = WT_CYC, p = WT_CTR, guard = 0;
+    while (WT_CTR == p && ++guard < 100000u)                  /* right after the counter moves */
+        ;
+    static uint32_t sync;
+    sync ^= 0x3F800000u;
+    wt_b5(WT_SYNC, sync);                                     /* the DSP's c restarts at 0 here */
+    uint32_t ps = WT_CTR, last = ps, filled = 0, par = 0, span = 0;
+    while (filled < WT_LEN) {
+        uint32_t q = WT_CTR;
+        if (q == last) {
+            if (++guard > 400000000u)                         /* the counter stopped: give up */
+                break;
+            continue;
+        }
+        last = q;
+        span = (ps - q) & 0x7FFFFFu;                          /* samples since the sync (23-bit counter) */
+        if (span >= WT_LAPS * WT_LEN)
+            break;
+        uint32_t k = span % WT_LEN;
+        if (wt_done[k >> 3] & (1u << (k & 7)))
+            continue;
+        par ^= 1u;                                            /* a change every write, even for equal samples */
+        wt_b5(WT_STG, wt_i2f(32 * (int32_t)wt_table[k] + (par ? 1 : -1), 21));
+        wt_done[k >> 3] |= (uint8_t)(1u << (k & 7));
+        filled++;
+    }
+    wt_filled = filled;
+    wt_span = span;
+    wt_cycles = WT_CYC - c0;
+    wt_state = 1;
+#ifdef PARAMLOG
+    param_log(0x3F80, 0, (int)wt_filled);                     /* table samples written */
+    param_log(0x3F81, 0, (int)wt_span);                       /* samples the fill took */
+    param_log(0x3F82, 0, (int)wt_cycles);
+    param_log(0x3F83, 0, (int)WT_LEN);
+#endif
+}
+#endif
+static int8_t wt_vnote[WT_NV] = { -1, -1, -1 };
+static unsigned wt_next;
+static void wt_note_on(int note, int vel)                     /* the voice of a note: a free one, else the oldest */
+{
+#ifdef PARAMLOG
+    if (vel) {                                                /* 0x3F90 state; 0x3F91 + 2i: map entries 33..36 */
+        param_log(0x3F90, 0, wt_state);
+        for (int i = 0; i < 4; i++) {
+            param_log(0x3F91 + 2 * i, 0, (int)WT_MAP[2 * (33 + i)]);
+            param_log(0x3F92 + 2 * i, 0, (int)WT_MAP[2 * (33 + i) + 1]);
+        }
+    }
+#endif
+    if (!vel) {
+        for (int v = 0; v < WT_NV; v++)
+            if (wt_vnote[v] == note) {
+                wt_vnote[v] = -1;
+                wt_prm(WT_PGAIN0 + v, 0);
+            }
+        return;
+    }
+    if (wt_state == 0)
+        wt_fill();
+    int v = -1;
+    for (int i = 0; i < WT_NV && v < 0; i++)
+        if (wt_vnote[(wt_next + (unsigned)i) % WT_NV] < 0)
+            v = (int)((wt_next + (unsigned)i) % WT_NV);
+    if (v < 0)
+        v = (int)(wt_next % WT_NV);
+    wt_next = (unsigned)v + 1u;
+    wt_vnote[v] = (int8_t)note;
+    wt_prm(WT_PDT0 + v, wt_dt_bits[note & 0x7F]);
+    wt_prm(WT_PGAIN0 + v, 0x3ECCCCCDu);                       /* 0.4 */
+}
+#endif
 static void a_note_on(struct assign *a, int note, int vel)
 {
+#ifdef EDM_WT
+    wt_note_on(note, vel);
+#endif
 #if defined(PARAMLOG) && defined(EDM_PORT)
     if (vel)
         edm_port_probe();
@@ -892,6 +1111,12 @@ static void set_volume(int v)
     ((env_fn)SVC(0xEC))(1, M_VOLUME, volume_bits[volume]);
 }
 static void resend_volume(void) { set_volume(volume); }
+/* m_load's write of C01C lands before the OS loads the master-B program, which leaves it 0: silent until the VOLUME
+   knob moved (2026-11-05, IDX-PROBE: no notes, so the note-on resend never ran). The panel values that m_load asks
+   for (resend_panel) come back through m_param after the load: the volume goes again with the first VOL_AGAIN of
+   them */
+#define VOL_AGAIN 64
+static int vol_again;
 
 #ifdef PARAMLOG
 /* Diagnostic build (PARAMLOG=1 build.sh, examples/system_1/paramlog.py): every parameter the OS hands to the model
@@ -963,6 +1188,10 @@ static void fx_dump(void)
 static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x30 */
 {
     (void)m; (void)flag;
+    if (vol_again > 0) {
+        vol_again--;
+        resend_volume();
+    }
 #ifdef PARAMLOG
     param_log(id, flag, value);
     /* every control except the notes / velocities, the synth's own panel and the LFO ids */
@@ -972,6 +1201,10 @@ static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x
 #endif
     if (id == ID_VOLUME)
         set_volume(value);
+#ifdef EDM_WT
+    if (id == 0x168)                                          /* OSC1 COLOR: the position in the table */
+        wt_color(value);
+#endif
 #ifdef EDM_STR
     edm_str_param(id, value);
 #endif
@@ -1014,7 +1247,11 @@ static void m_load(struct model *m)                           /* vt+0x08 */
 #ifdef EDM_STR
     edm_str();
 #endif
+#ifdef EDM_WT
+    wt_load();                                                /* (the request block: edm_call above, EDM_CALL) */
+#endif
     set_volume(volume);
+    vol_again = VOL_AGAIN;
     resend_panel();
 }
 

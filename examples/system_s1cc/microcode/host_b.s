@@ -18,11 +18,16 @@
         st r0, [{0x6006 + v:04x}]
     .endfor
 .else
+.if IDX_PROBE
+;; IDX_PROBE (idx_probe.s): DSP A's tones instead of the voices
+ld r7, [a1f0]
+.else
 mov r7, #0.0
 .for v in range(NV)
     ld r{v & 1}, [{mix_src(v):04x}]
     addxy r7, r7, r{v & 1}
 .endfor
+.endif
 .if ARM_DIAG
     ;; the ARM's callback toggle, audible
     ld r6, [c11f]

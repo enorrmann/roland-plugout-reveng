@@ -43,6 +43,13 @@ XFER = re.compile(r'^(ld|st) r(\d), \[([0-9a-f]{4})\]$')
 IDX = re.compile(r'^ldidx r(\d), (\d+)$')            # bank 0 [h6 + Y] (X28Y): after a hset h6 with one instruction between
 IDX5 = re.compile(r'^ldb5(?:h7)? r(\d), (\d+)$')    # bank 5 [h6 / h7 + Y] (XdaY / XdbY): the same, a fixed table
 HSET = re.compile(r'^hset h(\d), r(\d)$')
+# instructions from a hset to the indexed loads that use it: 2 measured on the SYSTEM-8 master (dspverify); the
+# environment's HSET_DIST overrides it (SYSTEM-1 ldb5 probe, docs/MUTABLE_MEMORY.md §4.1)
+HSET_DIST = int(os.environ.get('HSET_DIST', '2'))
+# instructions between a hset and the next write of the register it reads (SYSTEM-1, IDX-PROBE 2026-11-05: a write in
+# the very next instruction reached the hset); the environment's HSET_HOLD overrides it
+HSET_HOLD = int(os.environ.get('HSET_HOLD', '2'))
+LAT2 = os.environ.get('LAT2', '0') == '1'      # probe: loads and SFU results two instructions later (S1 wavetable)
 FILLER = re.compile(r'^mov r(\d), r\1$')
 REG = re.compile(r'\br(\d)\b')
 OPS = {'mul', 'mad', 'addxy', 'subxy', 'add', 'min', 'max', 'mov', 'ph_wrap', 'ph_tri', 'ph_clamp', 'ymacd'}
@@ -180,6 +187,7 @@ def dependencies(units):
     last_store, loads_since = {}, {}
     barrier = None
     last_hset, any_store, idx_since = {}, None, {}      # per hidden register h6 / h7
+    hset_src = {}                                        # h -> (the register its last hset read, that hset)
     for j, u in enumerate(units):
         dep = {}
 
@@ -194,11 +202,22 @@ def dependencies(units):
         elif barrier is not None:
             need(barrier, 1)
         for r in u.reads:
-            need(last_write.get(r), 1)
+            lw = last_write.get(r)
+            # LAT2 (probe): a load's or an SFU op's result used two instructions later, not the next one
+            need(lw, 2 if LAT2 and lw is not None and (units[lw].kind == 'ld' or
+                                                      units[lw].text.split()[0] in NATIVE) else 1)
         for w in u.dests:
             need(last_write.get(w), 1)
             for i in reads_since.get(w, ()):
-                need(i, 0)
+                need(i, HSET_HOLD if units[i].hset else 0)
+            # SYSTEM-1 (IDX-PROBE / WT-SLAVE5, 2026-11-05, docs/MUTABLE_MEMORY.md §4.2): an indexed load uses the
+            # register its hset named AS IT IS when the load runs: that register is not written before the last
+            # indexed load of the hset (same instruction included)
+            for h, (src, hj) in hset_src.items():
+                if src == w:
+                    need(hj, HSET_HOLD)
+                    for i in idx_since.get(h, ()):
+                        need(i, 1)
         if u.addr is not None:
             k = mem_key(u.addr)
             if u.kind == 'ld':
@@ -210,7 +229,7 @@ def dependencies(units):
         if u.idx:                              # any bank-0 word: after every bank-0 store, two after the hset
             if not u.b5:                       # (bank 5: a table nobody stores into)
                 need(any_store, 1)
-            need(last_hset.get(u.h), 2)
+            need(last_hset.get(u.h), HSET_DIST)
         if u.kind == 'st' and u.addr >> 13 == 0:   # a bank-0 store after an indexed load of bank 0
             for i in idx_since.get(6, []):
                 if not units[i].b5:
@@ -231,6 +250,10 @@ def dependencies(units):
             any_store = j
         if u.hset:
             last_hset[u.h], idx_since[u.h] = j, []
+            hset_src[u.h] = (next(iter(u.reads)), j)
+        for w in u.dests:                      # its register written: the hset's loads are all before (above)
+            for h in [h for h, (src, _) in hset_src.items() if src == w and not u.hset]:
+                del hset_src[h]
         if u.barrier:
             barrier = j
             for r in range(8):
@@ -412,6 +435,8 @@ class Ins:
             return True
         if len(self.xf) >= MAX_XFER:
             return False
+        if u.idx and any(x.idx for x in self.xf):  # one indexed load per instruction: two in one (ldidx 0 | ldidx 1)
+            return False                       # both read the second's word on the SYSTEM-1 (IDX-PROBE, §4.2)
         if u.b5:                               # an indexed bank-5 load: no other bank-5 access in the instruction
             return not any(x.b5 or (not x.idx and x.addr >> 13 == 5) for x in self.xf)
         if u.idx:                              # a bank-0 load: at most 2 per instruction with the literal ones
