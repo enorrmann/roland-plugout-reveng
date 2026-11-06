@@ -29,7 +29,11 @@ typedef struct Dsp {
     double bank0[RING];
     double bank1_own[RING];
     double *bank1;
-    double bank5_own[0x400];
+    double bank5_own[0x400];       /* bank 5 low half: the chip holds 1024 words, but on the SYSTEM-1 SLAVE only
+                                    * A000..A1FF (offset < 0x200) is reliably addressable by ldb5 / FD6C -- a static
+                                    * frame at A200.. read corrupt on the device at 127 and 256 points (measured
+                                    * 2026-11-06, docs/MUTABLE_MEMORY.md §4.1, asm/s1rules.py R10). This model reads
+                                    * 0x200..0x3FF as plain memory, so a slave sim that uses them will NOT match hw. */
     double bank2[2][0x2000];      /* bank 2: two pages alternating by sample (a store is read back 2 samples later);
                                    * the delay line's DMA window: [4300] -> EDM, tap results [h5 ..] (DSP_HARDWARE §8.4) */
     double *bank5;                /* bank5_own, or the partner's (Model.shared5: one bank 5 for two DSPs) */

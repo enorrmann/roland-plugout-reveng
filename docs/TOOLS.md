@@ -704,6 +704,47 @@ block at their top or their usage() text.
 
 Environment: `NAME` (default default)
 
+### `tools/wt_load.py`
+
+```
+Load a wavetable frame into a running SYSTEM-S1CC bank-5 PLUG-OUT over USB -- no reinstall (docs/MUTABLE_MEMORY.md
+§4.5). The plug-out must be built with SL_LOAD_TEST=1 (a SL_WT=b5 kernel, e.g. sdk/s1cc/examples/wavetable/jp8_saw.c):
+
+    SL_LOAD_TEST=1 WT_WAV=".../Jupiter 8 Saw.wav" KERNEL=sdk/s1cc/build/jp8_saw sh examples/system_s1cc/build.sh
+    python3 tools/plugout_tool.py install plugins/JP8-SAW5 --slot 1 --force --no-patches -y   # then select it
+
+Then, while it plays:
+    python3 tools/wt_load.py --saw                       # a band-limited saw (a built-in test shape)
+    python3 tools/wt_load.py --sine                      # or --square / --tri / --pulse 0.25
+    python3 tools/wt_load.py mywave.wav                  # one frame of a WAV (--frame K, --frame-size N)
+    python3 tools/wt_load.py --revert                    # hand the frame back to OSC1 COLOR
+
+Transport (re/dsplive.py's live-poke protocol, ported to the SYSTEM-1; engine.c wt_load.h): per word a pitch bend
+carries 14 data bits and a CC1 (modulation) carries the 7-bit command. Our region 0 forwards pitch bend -> voice
+parameter 0x130 and CC1 -> 0x131, and both reach region 1, which writes bank 5 A080.. with FD6C. One MIDI client at
+a time ([[one-device-client]]): do not run another SYSTEM-1 tool meanwhile.
+
+UNPROVEN on hardware as of 2026-11-06 (that bend / CC1 reach region 1). Uses only the kernel `wave` module and numpy.
+```
+
+| option | help | default |
+|---|---|---|
+| `wav` | a WAV file (one frame of it) |  |
+| `--sine` |  |  |
+| `--saw` |  |  |
+| `--square` |  |  |
+| `--tri` |  |  |
+| `--pulse` | a pulse of this duty (0..1) |  |
+| `--revert` | hand the frame back to OSC1 COLOR (clear the load) |  |
+| `--frame` | which frame of the WAV (default 0) | `0` |
+| `--frame-size` | samples per frame (default: 2048 if it divides, else all) | `0` |
+| `--harmonics` | band-limit to this many harmonics (default 63) |  |
+| `--peak` | normalize the frame to this peak (default 0.8) | `0.8` |
+| `--port` | raw MIDI device (default: the SYSTEM-1, from amidi -l) |  |
+| `--channel` | MIDI channel 0..15 (default 0) | `0` |
+| `--delay` | seconds between messages (default 0.010) | `0.01` |
+| `--dry-run` | build the frame and print it, send nothing |  |
+
 ## DSP assembler and disassembler (`asm/`)
 
 ### `asm/asm.py`
@@ -920,6 +961,9 @@ Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, m
         device test of the SH-2 form
     R6  at most 2 loads of banks 5 + 6 + IOMD per instruction (the S1 never has more)  [inferred]
     R7  a slave DSP stores to bank 5 only in A100..A1FF (A000..A0FF is what the ARM writes)
+    R10 a slave DSP never accesses bank 5 at A200 or above: ldb5/FD6C reach only A000..A1FF reliably on the device
+        (measured 2026-11-06, docs/MUTABLE_MEMORY.md §4.1; a static frame at A200 came out corrupt at 127 and 256
+        points). The emulator declares bank 5 as 1024 words (bank5_own[0x400]) but only A000..A1FF is reliable
     R8  ops sharing an instruction: only the groups proven on the device (asm/proven_forms.txt)
     R9  never a group asm/bad_forms.txt forbids (signatures and patterns: `family:minmax + family:minmax`, `mac_*:*`)
 and, as a warning: an instruction shape (accesses per bank, number of ops) that is not part of a shape of a program
@@ -3633,6 +3677,9 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
                 PARAMLOG=1: at every note region 0 reads 64 words over 4M + a test block and logs them; w: also
                 writes 64 words at the first note (EDM_PORT_W0=n, default 0x380000) and reads them back;
                 d: the port registers before / after one read, restored after it; p: only the counter +0x48
+  SL_LOAD_TEST=1  (SL_WT=b5) load a new bank-5 frame over USB without reinstalling: the PC (tools/wt_load.py) sends
+                the 127 samples, region 1 writes them into A080.. with FD6C (engine.c wt_load.h, docs/MUTABLE_MEMORY.md
+                §4.5). UNPROVEN on hardware (2026-11-06); _TEST until it is
   MA_MAIN=0     do not load our (empty) master DSP A main at 0x0100 (default 1: load it, as the stock PLUG-OUTs do;
                 without it master A runs what an earlier mode left there, which overwrites the master -> slave words
                 600E..6021: docs/MUTABLE_MEMORY.md §4.3)

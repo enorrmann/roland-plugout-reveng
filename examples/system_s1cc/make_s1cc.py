@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (docs/examples_system_s1cc_README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
+           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -1392,6 +1392,10 @@ if SL_WT not in ('0', 'b5', 'b0', 'm'):
     raise SystemExit('make_s1cc.py: SL_WT is 0, b5, b0 or m')
 if SL_WT == 'm' and not (EDM_WT and WT_SLAVE):
     raise SystemExit('make_s1cc.py: SL_WT=m needs EDM_WT=1 WT_SLAVE=1 (the master sends the voices)')
+# SL_STG: the frame in bank 5 A080..A0FF (128 words = 127 points + a guard). The only window free for it: the host uses
+# A000..A07F (per-voice control) and A100..A1FF (DSP stores), and A200.. is NOT reliably addressable by ldb5/FD6C on the
+# device (MEASURED 2026-11-06: a static frame there came out corrupt at 127 and 256 points; docs/MUTABLE_MEMORY.md §4.1,
+# s1rules.py R10). So the frame is fixed at A080 and 127 points.
 SL_STG = 0xA080                               # bank 5 A080..A0FF: written by region 1 (FD6C sel 0), read by DSP A
 SL_L = int(opt('SL_L', '1024'))               # SL_WT=b0: the loop's length (bank 0 words)
 # SL_MORPH=1 (WT-SLAVE0I): the loop holds two frames interleaved, COLOR mixes them (sounded worse, slow set changes);

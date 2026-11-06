@@ -687,6 +687,43 @@ static void sl_frame(void)
         b5(SL_STG_IDX + i, sl_bits(((int32_t)(255u - r) * sl_frames[f][i] + (int32_t)r * sl_frames[f + 1][i]) / 255));
 }
 #endif
+#if defined(SL_LOAD) && !SL_B0
+/* SL_LOAD (docs/MUTABLE_MEMORY.md §4.5): load a new frame over USB into bank 5 without reinstalling. The frame is
+   received into ARM RAM (wt_load.h, wtl_buf) and committed with the same b5() / FD6C (sel 0) sl_frame() uses, into
+   SL_STG.. (A080..). Once a frame is loaded sl_loaded freezes it (COLOR no longer overwrites it) until a clear (CTRL
+   ext 2) hands control back to COLOR. Only the static b5 frame, not the b0 loop (SL_B0: the tick owns SL_STG). */
+static int sl_loaded;
+static void sl_commit(const int32_t *buf, int n)
+{
+    for (int i = 0; i < n && i < SL_W; i++)
+        b5(SL_STG_IDX + i, sl_bits(buf[i]));
+    sl_loaded = 1;
+}
+#define WTL_MAX SL_W
+#define WTL_COMMIT(buf, n) sl_commit((buf), (n))
+#define WTL_REVERT() do { sl_loaded = 0; sl_frame(); } while (0)
+#include "wt_load.h"
+#ifdef WTL_WITNESS_TEST
+/* WTL_WITNESS_TEST (diagnostic, docs/MUTABLE_MEMORY.md §4.5): does a transport parameter reach region 1 at all?
+   Writes an unmistakable frame the instant the id arrives, ignoring the data -- CC1 (0x131) a square, pitch bend
+   (0x130) a triangle. Move the panel's MOD wheel / PITCH BEND, or run tools/wt_load.py: square -> the command
+   channel reaches region 1; triangle (no square) -> only bend does; still a saw -> neither does. */
+static void sl_witness(int shape)
+{
+    int h = SL_W / 2;
+    for (int i = 0; i < SL_W; i++) {
+        int32_t v;
+        if (shape == 0)
+            v = i < h ? 26214 : -26214;                /* square */
+        else
+            v = i < h ? -26214 + 2 * 26214 * i / h     /* triangle */
+                      : 26214 - 2 * 26214 * (i - h) / (SL_W - h);
+        b5(SL_STG_IDX + i, sl_bits(v));
+    }
+    sl_loaded = 1;
+}
+#endif
+#endif
 #endif
 
 #if IDX_PROBE
@@ -723,6 +760,11 @@ static void e_load(engine_t *e)                                  /* vt+0x08 */
 #endif
 #if SL_WT
     sl_color = os_get(3, 0x168);
+#if defined(SL_LOAD) && !SL_B0
+    if (sl_loaded)
+        sl_commit(wtl_buf, wtl_n);                     /* a USB-loaded frame survives a reselect */
+    else
+#endif
     sl_frame();
 #endif
     arm_start();
@@ -754,6 +796,14 @@ static void e_refresh(engine_t *e, int all)                      /* vt+0x24 */
 static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
 {
     (void)flag;
+#if defined(SL_LOAD) && !SL_B0
+#ifdef WTL_WITNESS_TEST
+    if (id == WTL_DATA_ID) { sl_witness(1); return; }  /* bend -> triangle (does 0x130 reach region 1?) */
+    if (id == WTL_CMD_ID) { sl_witness(0); return; }   /* CC1  -> square   (does 0x131 reach region 1?) */
+#endif
+    if (wtl_param(id, value))                          /* a frame-load command (wt_load.h): consumed here */
+        return;
+#endif
     if (id >= 0x110 && id < 0x110 + NV) {
         voice_pitch(e, id - 0x110, value);
         return;
@@ -765,6 +815,9 @@ static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
 #if SL_WT
     if (id == 0x168 && value != sl_color) {    /* OSC1 COLOR: the frame */
         sl_color = value;
+#if defined(SL_LOAD) && !SL_B0
+        if (!sl_loaded)                        /* a USB-loaded frame is frozen until a clear (CTRL ext 2) */
+#endif
         sl_frame();
     }
 #endif

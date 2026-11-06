@@ -46,6 +46,9 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
                 PARAMLOG=1: at every note region 0 reads 64 words over 4M + a test block and logs them; w: also
                 writes 64 words at the first note (EDM_PORT_W0=n, default 0x380000) and reads them back;
                 d: the port registers before / after one read, restored after it; p: only the counter +0x48
+  SL_LOAD=1  (SL_WT=b5) load a new bank-5 frame over USB without reinstalling: the PC (tools/wt_load.py) sends
+                the 127 samples, region 1 writes them into A080.. with FD6C (engine.c wt_load.h, docs/MUTABLE_MEMORY.md
+                §4.5). UNPROVEN on hardware (2026-11-06); _TEST until it is
   MA_MAIN=0     do not load our (empty) master DSP A main at 0x0100 (default 1: load it, as the stock PLUG-OUTs do;
                 without it master A runs what an earlier mode left there, which overwrites the master -> slave words
                 600E..6021: docs/MUTABLE_MEMORY.md §4.3)
@@ -103,6 +106,15 @@ EDM_FB=${EDM_FB:-0.975}
 # EDM_WT=1 (make_s1cc.py option): a wavetable stored whole in the delay memory (model.c edm_wt, WT_WAV=file)
 [ -n "${EDM_WT+x}" ] || EDM_WT=$(kopt EDM_WT)
 [ "$EDM_WT" = 0 ] && EDM_WT=
+# SL_LOAD=1 (SL_WT=b5): load a new bank-5 frame over USB without reinstalling (engine.c wt_load.h, tools/wt_load.py,
+# docs/MUTABLE_MEMORY.md §4.5). UNPROVEN on hardware as of 2026-11-06
+[ -n "${SL_LOAD+x}" ] || SL_LOAD=$(kopt SL_LOAD)
+[ "$SL_LOAD" = 0 ] && SL_LOAD=
+# WTL_WITNESS_TEST=1 (with SL_LOAD): diagnostic -- a transport id arriving at region 1 writes an audible frame
+# (CC1 a square, bend a triangle), ignoring the data; proves whether the transport reaches region 1
+[ -n "${WTL_WITNESS_TEST+x}" ] || WTL_WITNESS_TEST=$(kopt WTL_WITNESS_TEST)
+[ "$WTL_WITNESS_TEST" = 0 ] && WTL_WITNESS_TEST=
+[ -n "$WTL_WITNESS_TEST" ] && SL_LOAD=1
 # EDM_PORT=r|w (model.c edm_port_probe): read / write probe of the delay memory through the ARM's port
 case "${EDM_PORT:-}" in ""|0) EDM_PORT= ;; r) ;; w) ;; d) ;; p) ;; *) echo "build.sh: EDM_PORT is r, w, d or p" >&2; exit 2 ;; esac
 [ -z "$EDM_PORT" ] || [ -n "$PARAMLOG" ] || { echo "build.sh: EDM_PORT needs PARAMLOG=1" >&2; exit 2; }
@@ -131,7 +143,7 @@ with open(out, 'w') as f:
 PY
 fi
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
- -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_STR:+-DEDM_STR} ${EDM_WT:+-DEDM_WT} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
+ -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_STR:+-DEDM_STR} ${EDM_WT:+-DEDM_WT} ${SL_LOAD:+-DSL_LOAD} ${WTL_WITNESS_TEST:+-DWTL_WITNESS_TEST} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
 for r in 0 1; do
     if [ $r = 0 ]; then SRC=model.c; BASE=0x60800000; CODE=0x9000; else SRC=engine.c; BASE=0x60200000; CODE=0x1000; fi
     arm-none-eabi-gcc $CFLAGS -c "$HERE/$SRC" -o "$B/region$r.o"

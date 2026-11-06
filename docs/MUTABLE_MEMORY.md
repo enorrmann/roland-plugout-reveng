@@ -671,6 +671,20 @@ recién instalado colgó dos veces); el lag del audio USB varía: capturas de 15
 
 ## 4. Tablas de datos (wavetables)
 
+### 4.0 ¿Qué plug-out usar? (oscilador single-cycle vs. tabla larga)
+
+| Caso | Plug-out | Kernel / ejemplo | Por qué |
+|------|----------|------------------|---------|
+| **Oscilador single-cycle** (una onda, o pocos frames; p. ej. una saw, un pulso, un frame de Serum) | **esclavo, frame FIJO en el banco 5** (`SL_WT=b5`, §4.1) | `sdk/s1cc/examples/wavetable/jp8_saw.c` (ejemplo concreto, Jupiter 8 Saw), `wt_slave.c` (plantilla WT-SLAVE5) | **8 voces**, sin EDM, sin relleno al arrancar la nota. El frame (127 puntos, 63 armónicos) se escribe **una vez** en `A080`–`A0FF` → período perfecto. **Medido el más fiel** (2026-11-06): armónicos a 0,5 dB del saw ideal, piso inter-armónico ~−161 dB |
+| **Tabla larga / wavetable multi-frame con morph** (barrido entre muchos frames, muestras largas) | **EDM del maestro** (`EDM_WT=1`, §4.4) | `sdk/s1cc/examples/wavetable/wt_edm_cmod.c` (WT-LINES8) | La tabla entera vive en la memoria de retardo externa (hasta el tamaño de la región 0, ~0.94 MB), con morph entre todos los frames y COLOR MOD por voz. Coste: ~6 voces, se rellena en las primeras ~13 notas, 17–22 dB más de ruido que la lectura ideal |
+
+Regla práctica: si la onda es **una sola** (o dos/tres frames que no se barren en tiempo real), va al **esclavo** con
+el frame **fijo en el banco 5** (`SL_WT=b5`) — es el más fiel y limpio (medido, §4.1). El lazo recirculante del banco 0
+(`SL_WT=b0`, 768 pts / 384 armónicos) da más brillo pero se midió **peor** (el ARM lo rellena por bloques, el período
+no es estable → deforma armónicos y mete ruido; §4.1). Si hace falta **recorrer una tabla larga** o samples de más de
+un frame con morph continuo, va a la **EDM** (`EDM_WT`). Los ejemplos traen las líneas de build en su comentario de
+cabecera.
+
 No son retardos: son datos fijos leídos por fase. El banco 0 no sirve (el anillo los movería, y una tabla fija del
 banco 0 sólo es posible si el DSP no guarda nada en el banco 0 [medido en el S8]). El lugar es el **banco 5**:
 
@@ -694,6 +708,32 @@ DSP A (`microcode/sl_wt.s sl_wt5_voice`): fase p += `s1_dt` (`A040 + v`), x = 12
 Y 1, interpolación lineal → la salida de la voz (`A151 + v`); el DSP B (filtro + VCA de `mp_dsp_b.h`) como cualquier
 oscilador. Kernel `sdk/s1cc/examples/wavetable/wt_slave.c`, opción `SL_WT=b5`: `KERNEL=sdk/s1cc/build/wt_slave sh
 examples/system_s1cc/build.sh` (con `S1_BUILD("SL_WT=b5")`). Medido: las 8 voces a su altura (USB, 16 notas).
+
+**Calidad del read medida: banco 5 (fijo) ≫ banco 0 (recirculante)** (2026-11-06, A/B en el equipo, misma WAV
+*Jupiter 8 Saw* = 2 frames, misma nota A3 = 220 Hz, filtro abierto, DELAY/REVERB a 0; ejemplo `jp8_saw.c`). Contra un
+saw ideal (armónicos 1/n): **b5 = 0,5 dB de error medio** (H2 −5,9 vs −6,0 ideal; H4 −12,3 vs −12,0; H7 −17,4 vs
+−16,9) con piso inter-armónico (0,3–10 kHz) **−161 dB** mediana; **b0 = 3,7 dB de error** (H2 −12,1, H4 −7,4, H7
+−10,5: armónicos deformados) con piso **−91 dB**. El `SL_WT=b0` suena más brillante (384 armónicos contra 63) pero el
+lazo recirculante no tiene un período estable —el ARM lo rellena en bloques de 64 puntos cada 12 ms, y esas costuras
+modulan la onda— así que deforma el balance armónico y mete ruido de banda ancha. El `SL_WT=b5` se escribe una sola
+vez → período perfecto. **Para single-cycle: banco 5.** La única pérdida de b5 es la octava más aguda (63 armónicos).
+
+**Más puntos en b5: `A200` resultó NO confiable (medido 2026-11-06).** El frame de b5 vive por defecto en `A080`–`A0FF`
+(128 palabras = 127 puntos + guarda). El `ldb5` arma la dirección con un offset de 10 bits (`SL_STG & 0x3FF`), así que
+alcanza las 1024 palabras bajas del banco 5 (`A000`–`A3FF`); el host sólo usa `A000`–`A1FF`, dejando `A200`–`A3FF`
+(512 palabras) libres en teoría. Se agregaron las opciones `SL_STG` (default `0xA080`) y `SL_N` (default 127, b5) y se
+probó un frame de 256 puntos / 128 armónicos en `A200` (JP8-SAW5T, `SL_STG=0xA200 SL_N=256`). Resultado en el equipo:
+sale sonido al pitch correcto pero la onda sale **corrupta —"metálica"** (error 7,0 dB contra 2,7 dB del de 127 en
+`A080`; picos/pozos; piso −128 vs −162 dB). **Aislado 2026-11-06 con un segundo build `SL_STG=0xA200 SL_N=127`** (misma
+cantidad de escrituras que el `A080` que anda): **también corrupto** (error 6,0 dB, piso −147 dB). Como falla con 127
+igual que con 256, **no es la ráfaga de escrituras: es la dirección `A200` misma**. La estructura de la corrupción no es
+un wrap simple (2ª mitad vs 1ª del ciclo: corr 0,03) sino la forma correcta + palabras sueltas mal leídas/escritas.
+**Conclusión: el `ldb5`/`FD6C` del esclavo en el equipo real alcanza de forma fiable solo `A000`–`A1FF` (512 palabras),
+no las 1024 del emulador (`bank5_own[0x400]`).** De esas 512 el host usa `A000`–`A07F` (control por voz) y `A100`–`A1FF`
+(stores del DSP), así que la única ventana para el frame es `A080`–`A0FF` → **127 puntos es el techo real del b5.** Para
+más puntos: el lazo `b0` (768 pts, peor calidad, §4.1) o la EDM (§4.4). Las opciones `SL_STG`/`SL_N` quedan (validadas en
+`A080`); `make_s1cc.py` avisa si `SL_STG >= 0xA200` (medido no confiable). Quien quiera reintentarlo: sonda write-vs-read
+dedicada (leer `A200` de vuelta por una vía que no sea `ldb5`).
 
 **`SL_WT=b0` (WT-SLAVE0L, funciona 2026-11-05):** el frame en un lazo del banco 0 del DSP A (`SL_S=0x0040`, `SL_L=512`
 puntos, 255 armónicos), que un solo `ldb5` por muestra llena desde los bloques de 64 puntos que el ARM rota en el
@@ -953,6 +993,51 @@ de toda dirección fuera de la lista (`warning: s1m0: 0200..020f never ran on th
 compartida del banco 5 que el DSP A del esclavo guarde más de una vez por muestra (regla 4). Después de comprobar un
 build en el equipo: `KERNEL=… OUTDIR=examples/system_s1cc/build python3 examples/system_s1cc/make_s1cc.py
 --promote-addresses NOMBRE`. Las tablas leídas por índice (`hset`) no se ven ahí: deben caer en esos rangos.
+
+### 4.5 Cargar un frame por USB en caliente: `SL_LOAD` (2026-11-06, **SIN PROBAR en el equipo**)
+
+Cambiar la wavetable del frame fijo (`SL_WT=b5`, §4.1) **en vivo, sin reinstalar**: el PC manda las 127 muestras del
+frame por MIDI y el DSP cambia de tabla al terminar de escribir. El mecanismo de escritura del banco 5 en vivo ya
+está probado — es el mismo `b5()` / `FD6C(sel 0)` con el que `sl_frame()` reescribe el frame cuando se mueve OSC1
+COLOR (§4.1), y lo mismo que hace `re/dsplive.py` (`Link.write_b5`) en el SYSTEM-8. Lo nuevo es el handler de
+recepción en la región 1 y el tool de PC.
+
+**Dos etapas, a propósito** (`examples/system_s1cc/wt_load.h`, reutilizable): el transporte llena primero un búfer en
+la **RAM del ARM** (`wtl_buf`, Q15) y un comando *commit* lo vuelca al destino con `WTL_COMMIT(buf, n)`. Hoy el
+destino es el banco 5 (`sl_commit()` en `engine.c`: `b5(SL_STG_IDX + i, sl_bits(buf[i]))`); el mismo cargador sirve
+luego para la **EDM** del maestro (§4.4) definiendo otro `WTL_COMMIT` que escriba la línea de retardo desde el ARM.
+
+**Transporte** (el protocolo de `re/dsplive.py` portado al SYSTEM-1, sin tocar la región 0): por cada palabra, un
+*pitch bend* lleva 14 bits de dato y un CC1 (modulación) lleva el comando de 7 bits. La región 0 ya reenvía el bend →
+parámetro de voz `0x130` y el CC1 → `0x131` (`model.c` `a_bend` / `a_cc`), y los dos llegan a la región 1
+(`e_param`). El comando se atiende cuando cambia de valor (el bit 6 de secuencia alterna en cada comando):
+
+```
+cmd = seq<<6 | op<<4 | ext                 (7 bits, un CC)
+  op 0 ADDR   index = data (0..127); la siguiente muestra cae en wtl_buf[index]
+  op 1 DATA   wtl_buf[index++] = sext18(data | ext<<14) >> 2   (un valor de 18 bits * 2^17 -> Q15)
+  op 2 CTRL   ext 0 commit (vuelca el búfer al banco 5);  ext 1 nop;  ext 2 clear (vuelve a mandar COLOR)
+```
+
+El `data` se lee con `os_get(2, 0x130)` al llegar el comando (robusto si se pierde el evento del bend), igual que
+`dsplive` lee el bend del store del esclavo. Una vez cargado un frame, `sl_loaded` lo congela (COLOR deja de pisarlo)
+hasta un *clear*; sobrevive a reseleccionar el PLUG-OUT (`e_load` lo vuelve a volcar).
+
+**Límites**: sólo 127 puntos (ventana `A080`–`A0FF`; `A200`+ no es direccionable, §4.1 / `s1rules.py` R10); es swap del
+frame residente, no streaming muestra a muestra; un solo cliente MIDI a la vez ([one-device-client]).
+
+```
+# build (SL_WT=b5 + SL_LOAD), instalar, y con el PLUG-OUT sonando:
+SL_LOAD=1 WT_WAV=".../Jupiter 8 Saw.wav" KERNEL=sdk/s1cc/build/jp8_saw sh examples/system_s1cc/build.sh
+python3 tools/plugout_tool.py install plugins/JP8-SAW5 --slot 1 --force --no-patches -y
+python3 tools/wt_load.py --saw            # una saw band-limitada (forma de prueba incorporada)
+python3 tools/wt_load.py onda.wav         # un frame de un WAV (--frame K, --frame-size N)
+python3 tools/wt_load.py --revert         # devolver el frame a OSC1 COLOR
+```
+
+**SIN PROBAR en el equipo (2026-11-06)**: que los parámetros de voz `0x130` / `0x131` lleguen a `e_param` de la
+región 1 (las notas `0x110+v` y velocidades `0x120+v`, también del grupo 2, sí llegan). Si no carga, reapuntar los
+dos ids (`-DWTL_DATA_ID` / `-DWTL_CMD_ID`) a un par que se sepa que llega a la región, y ajustar el tool.
 
 ## 5. Qué falta en s1cc
 
