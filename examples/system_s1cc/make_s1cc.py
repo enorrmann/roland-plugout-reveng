@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (docs/examples_system_s1cc_README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'SL_WT', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
+           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -1225,6 +1225,11 @@ WT_PSTG, WT_PSYNC = 0x3E, 0x3F                # master B C03E: a table sample; C
 # first, then the index); master B writes the loop only when its c equals a slot's index, so a late or lost write never
 # lands at a wrong place (the ARM-timed fill lost ~7 % and misplaced later writes, WT-DIAG2 2026-11-05). 0: the old fill
 WT_FILLIDX = opt('WT_FILLIDX', '1') == '1'
+# WT_SCALE2=1: the table is stored in the EDM at twice the amplitude (fill at 2^-15, the WAV peak -> +-1.0 full scale
+# instead of +-0.5), to use the whole word of the delay-memory read and lower its noise floor; the slave halves it
+# again at the voice input, before the filter (sl_wt.s sl_m2s_voice), so the level and the headroom are unchanged.
+# For the base-noise A/B (WT-LINES8 vs WT-LINES8 WT_SCALE2=1): same note, same level, measure the quiet-note floor.
+WT_SCALE2 = opt('WT_SCALE2', '0') == '1'
 WT_PI0, WT_PV0, WT_PI1, WT_PV1 = 0x3A, 0x3B, 0x3C, 0x3D
 WT_AGEB = 0x0340                              # master B bank 0: the requests' ages, main -> request block (one DSP,
                                               # one ring): age j stored at WT_AGEB + 4j and + 4j + 1, read at + 4j + 1
@@ -1362,7 +1367,8 @@ def wt_header():
         f'#define WT_LEN {n}u\n#define WT_F {WT_F}u\n#define WT_FRAMES {n // WT_F}u\n#define WT_A 0x{WT_A:06x}u',
         f'#define WT_W 0x{WT_W - 0x4000:02x}u\n#define WT_R 0x{WT_R - 0x4000:02x}u\n#define WT_SLOT0 {WT_SLOT0}',
         f'#define WT_PSTG 0x{WT_PSTG:02x}\n#define WT_PSYNC 0x{WT_PSYNC:02x}\n#define WT_FILLIDX {int(WT_FILLIDX and WT_SLAVE)}'
-        f'\n#define WT_LINES {int(WT_LINES)}\n#define WT_LSUB {WT_LSUB}\n#define WT_RN 0x{WT_RN - 0x4000:02x}u\n#define WT_LINE_MAP '
+        f'\n#define WT_LINES {int(WT_LINES)}\n#define WT_LSUB {WT_LSUB}\n#define WT_SCALE2 {int(WT_SCALE2)}'
+        f'\n#define WT_RN 0x{WT_RN - 0x4000:02x}u\n#define WT_LINE_MAP '
         + ', '.join(f'{{ 0x80000000u | 0x{WT_A + wt_loff(j + 1):x}u, 0x{w - 0x4000:02x}u << 16 }}' for j, w in enumerate(WT_LW))
         + f'\n#define WT_PI0 0x{WT_PI0:02x}\n#define WT_PV0 0x{WT_PV0:02x}\n#define WT_PI1 0x{WT_PI1:02x}\n#define WT_PV1 0x{WT_PV1:02x}',
         f'#define WT_SLAVE {int(WT_SLAVE)}\n#define WT_NV {WT_NV}\n#define WT_PDT0 0x{WT_PDT0:02x}\n#define WT_PGAIN0 0x{WT_PGAIN0:02x}\n'

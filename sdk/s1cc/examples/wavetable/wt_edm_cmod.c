@@ -3,6 +3,9 @@
  * slave A turns it into the voice's frame and sends it to master B (WT_CMOD, 6008 + v), which reads that voice's
  * frame of the whole table. The kernel's own output is not used (SL_WT=m replaces it); reading s1_color(0) is what
  * makes the host compute the color.
+ * WT_LINES=1 WT_LSUB=8 (default here): morph in eighths of a frame (master B writes 7 extra EDM lines per sample,
+ * still one tapreq per voice; VOICES=auto picks the voice count) so sweeping COLOR interpolates instead of stepping
+ * frame to frame. Override with WT_LINES=0 (or WT_LSUB=4) on the build command for the plain nearest-frame version.
  * Build:  sdk/s1cc/s1cc build sdk/s1cc/examples/wavetable/wt_edm_cmod.c
  *         KERNEL=sdk/s1cc/build/wt_edm_cmod sh examples/system_s1cc/build.sh */
 #include "../mutable_ported/include/mp_dsp_a.h"
@@ -12,5 +15,5 @@ S1_DSP_A {
   return 0.001f * s1_color(0) * s1_gate();
 }
 
-S1_BUILD("NAME=WT-EDM-CMOD EDM_WT=1 WT_SLAVE=1 WT_CMOD=1 SL_WT=m MIX=0");
+S1_BUILD("NAME=WT-EDM-CMOD EDM_WT=1 WT_SLAVE=1 WT_CMOD=1 WT_LINES=1 WT_LSUB=8 SL_WT=m MIX=0");
 S1_COMPILE("--regs 0,1,2,3 --no-fused");

@@ -516,6 +516,7 @@ static const uint32_t volume_bits[256] = {
 #define WT_FILLIDX 1
 #define WT_LINES 1
 #define WT_LSUB 8
+#define WT_SCALE2 0
 #define WT_RN 0x43u
 #define WT_LINE_MAP { 0x80000000u | 0x460000u, 0x44u << 16 }, { 0x80000000u | 0x4a0000u, 0x46u << 16 }, { 0x80000000u | 0x4c0000u, 0x48u << 16 }, { 0x80000000u | 0x4e0000u, 0x4au << 16 }, { 0x80000000u | 0x500000u, 0x4cu << 16 }, { 0x80000000u | 0x520000u, 0x4eu << 16 }, { 0x80000000u | 0x540000u, 0x50u << 16 }
 #define WT_PI0 0x3a

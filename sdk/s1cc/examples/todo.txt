@@ -18,7 +18,7 @@ wavetables con
 
 
 
-WT_WAV="/ruta/a/tu tabla.wav"
+export WT_WAV=
 NAME=MI-WT KERNEL=sdk/s1cc/build/wt_edm_cmod sh examples/system_s1cc/build.sh && python3 tools/plugout_tool.py install plugins/MI-WT --slot 1 --force --no-patches -y
 
 escribir en un registro temporal target donde el edm copia el nuevo frame y hacer morph entre el actual y ese hasta que queden iguales en vez de copiarlo directamente al lugar donde suena
@@ -29,6 +29,13 @@ ver docs/MUTABLE_MEMORY.md §4.4 "Mejora posible"
 wavetable WT-LINES8 (funciona 2026-11-06), mejoras para seguir (docs/MUTABLE_MEMORY.md §4.4):
 1. ruido de base: el equipo queda 17-22 dB peor que una lectura ideal (nota quieta -31 dB por 25 ms). Prueba barata:
    la tabla va a la EDM a media escala (wt_fill: wt_i2f(v,16) = +-0.5); probar x2 por si la EDM guarda menos bits; medir antes/despues
+   MEDIDO 2026-11-06 en el equipo: WT_SCALE2=1 (x2) EMPEORA mucho -> DESCARTADO. x2 a escala plena (+-1.0) hace WRAP
+   en el formato de punto fijo de la EDM: fundamental desaparece (-79 dB), solo armonicos pares, +22 dB de ruido.
+   La EDM no tiene bits de sobra; +-0.5 es el headroom necesario. WT_SCALE2 queda en el codigo (default 0), NO usar x2.
+   El ruido 17-22 dB NO es por bits desperdiciados -> buscar en otro lado (interpolacion de lectura / tapreq / bus EDM).
+   Unico resto de esta idea: impulso moderado 2^-15.5 (~x1.4, pico +-0.7) por si el piso es fijo (~3 dB). doc 4.4.
+   (Reutilizar lineas / reescribir en circulo para mas de 1/8: NO da resolucion -cada linea guarda una razon de mezcla fija-;
+    reales: WT_LSUB=16 (espacio EDM) o interpolar entre dos lineas vecinas al leer = +1 tapreq+MAC/voz, baja voces. doc 4.4)
 2. aliasing con COLOR cerca de 0 (frame 0 de 80's PWM, -22..-26 dB): sin tablas por octava; compromiso = morph de cuartos
    (WT_LSUB=4) y usar el lugar para UNA copia filtrada de la tabla para notas agudas
 3. relleno lento al arrancar (~13 notas / 6 s): mandar mas de una muestra por parametro

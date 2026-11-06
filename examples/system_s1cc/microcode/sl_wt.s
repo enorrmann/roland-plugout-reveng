@@ -198,6 +198,11 @@ st r1, [{XV[v]:04x}]
 .fragment sl_m2s_voice v col nfm1
 ; SL_WT=m voice {v}
 ld r0, [{WT_M2S + v:04x}]
+.if WT_SCALE2
+;; WT_SCALE2: the table is stored x2 in the EDM (full-scale read); halve it here, before DSP B's filter and amp,
+;; so the level and the headroom are as without the option (model.c wt_fill at 2^-15)
+mul r0, r0, #0.5
+.endif
 st r0, [{XV[v]:04x}]
 .if WT_CMOD and v < WT_NV
 ; WT_CMOD: the host's COLOR of voice {v} (0..1) -> the table position (units, frame x 2048 / 16384), in steps of

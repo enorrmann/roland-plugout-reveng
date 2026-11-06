@@ -936,7 +936,7 @@ static void wt_fill(void)
             continue;
         lastk = k;
         k %= WT_LEN;
-        wt_prm(slot ? WT_PV1 : WT_PV0, wt_i2f(wt_table[k], 16));   /* the value first, then the index */
+        wt_prm(slot ? WT_PV1 : WT_PV0, wt_i2f(wt_table[k], 16 - WT_SCALE2));   /* the value first, then the index (WT_SCALE2: 2^-15 = x2 in the EDM) */
         wt_prm(slot ? WT_PI1 : WT_PI0, wt_i2f((int32_t)k, 14));
         slot ^= 1u;
         sent++;

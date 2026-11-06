@@ -1,4 +1,4 @@
-kernel options (S1_BUILD): NAME=WT-EDM-CMOD (environment: WT-LINES8) EDM_WT=1 WT_SLAVE=1 WT_CMOD=1 SL_WT=m MIX=0
+kernel options (S1_BUILD): NAME=WT-EDM-CMOD (environment: MI-WT) EDM_WT=1 WT_SLAVE=1 WT_CMOD=1 WT_LINES=1 WT_LSUB=8 SL_WT=m MIX=0
 VOICES=auto: 8 voices by the estimate (budget A 703, B 708)
 warning: s1mm1: 20 x ld2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
 warning: s1mm1: 8 x st2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
