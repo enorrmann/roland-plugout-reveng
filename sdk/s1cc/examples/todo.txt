@@ -25,3 +25,11 @@ escribir en un registro temporal target donde el edm copia el nuevo frame y hace
 wavetable EDM: tablas/samples mas largos repartidos en varias lineas de la EDM leidas una a continuacion de la otra
 (la recirculacion no usa tapreq, no cuesta voces; limite por linea 262144 muestras; limite real = tamano de region 0 ~0.94 MB)
 ver docs/MUTABLE_MEMORY.md §4.4 "Mejora posible"
+
+wavetable WT-LINES8 (funciona 2026-11-06), mejoras para seguir (docs/MUTABLE_MEMORY.md §4.4):
+1. ruido de base: el equipo queda 17-22 dB peor que una lectura ideal (nota quieta -31 dB por 25 ms). Prueba barata:
+   la tabla va a la EDM a media escala (wt_fill: wt_i2f(v,16) = +-0.5); probar x2 por si la EDM guarda menos bits; medir antes/despues
+2. aliasing con COLOR cerca de 0 (frame 0 de 80's PWM, -22..-26 dB): sin tablas por octava; compromiso = morph de cuartos
+   (WT_LSUB=4) y usar el lugar para UNA copia filtrada de la tabla para notas agudas
+3. relleno lento al arrancar (~13 notas / 6 s): mandar mas de una muestra por parametro
+4. LFO rapido: la posicion salta 2-3 octavos por ciclo; limitar a 1/8 por ciclo en el esclavo (min/max)
