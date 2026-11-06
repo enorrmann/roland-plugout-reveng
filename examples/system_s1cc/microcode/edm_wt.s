@@ -240,23 +240,22 @@ addxy r3, r3, r5
 mov r7, r7
 st r3, [{WT_W:04x}]
 .if WT_LINES
-;; WT_LINES: lines 1..3 = the table mixed 1/4, 2/4, 3/4 toward the next frame (same phase), rebuilt every sample from
-;; the loop: x = w (index c), xn = [{WT_RN:04x}] (index c + WT_F, a fixed map read); line j at WT_A + j WT_LS
+;; WT_LINES: lines 1 .. WT_LSUB - 1 = the table mixed j / WT_LSUB toward the next frame (same phase), rebuilt every sample
+;; from the loop: x = w (index c), xn = [{WT_RN:04x}] (index c + WT_F, a fixed map read); line j at WT_A + wt_loff(j)
 ld r4, [{WT_RN:04x}]
 mov r7, r7
 subxy r4, r3, r4
 mov r7, r7
-mul r4, r4, #0.25
+mul r4, r4, #{1.0 / WT_LSUB!r}
 mov r7, r7
 addxy r5, r3, r4
 mov r7, r7
 st r5, [{WT_LW[0]:04x}]
+.for i in range(1, WT_LSUB - 1)
 addxy r5, r5, r4
 mov r7, r7
-st r5, [{WT_LW[1]:04x}]
-addxy r5, r5, r4
-mov r7, r7
-st r5, [{WT_LW[2]:04x}]
+st r5, [{WT_LW[i]:04x}]
+.endfor
 .endif
 .else
 ;; the loop: w = x + m (s - x), m = 1 when the sample parameter changed since the last sample

@@ -1,18 +1,18 @@
-kernel options (S1_BUILD): NAME=WT-EDM-CMOD (environment: WT-LINES) EDM_WT=1 WT_SLAVE=1 WT_CMOD=1 SL_WT=m MIX=0
+kernel options (S1_BUILD): NAME=WT-EDM-CMOD (environment: WT-LINES8) EDM_WT=1 WT_SLAVE=1 WT_CMOD=1 SL_WT=m MIX=0
 VOICES=auto: 8 voices by the estimate (budget A 703, B 708)
 warning: s1mm1: 20 x ld2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
-warning: s1mm1: 4 x st2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
+warning: s1mm1: 8 x st2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
 warning: s1mm1: 20 x ld2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
-warning: s1mm1: 4 x st2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
+warning: s1mm1: 8 x st2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
 MOD_DSP=auto: pitch envelope and COLOR MOD on DSP A
 warning: s1mm1: 20 x ld2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
-warning: s1mm1: 4 x st2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
-s1m0    257 instructions, 1464 halfwords
+warning: s1mm1: 8 x st2 with 0 op(s): a shape no program that ran on the device has (allowed by the rules)
+s1m0    277 instructions, 1562 halfwords
 s1m1    281 instructions, 1667 halfwords
-s1mm1   496 instructions, 1175 halfwords
+s1mm1   508 instructions, 1203 halfwords
 s1c0      2 instructions, 7 halfwords
 s1c1      2 instructions, 7 halfwords
 s1ma0     0 instructions, 7 halfwords
 kernel per voice: A 9 lines, 5 words; B 71 lines, 19 words
 A -> B x: one sample late (voices 0,1,2,3,4,5,6,7)
-A -> B input pitch: same sample (voices 0,2,4,6); one sample late (voices 1,3,5); race (voices 7)
+A -> B input pitch: same sample (voices 0,2,4,6); one sample late (voices 1,3,5,7)

@@ -208,20 +208,28 @@ ld r1, [{col:04x}]
 max r1, r1, #0.0
 min r1, r1, #1.0
 .if WT_LINES
-;; WT_LINES: q = the nearest quarter frame, frame k = floor(q/4), line j = q - 4k: u = k/8 - j WT_LSU - WT_LOFFU (units)
-;; -> 6008 + v. Master B's age then never wraps (always >= 254) and lands in line j one lap older (the lines keep two
-;; laps; they are rebuilt identically every lap); no split on master B (its budget, WT-LINES 640 instructions hung)
-mul r1, r1, #{4.0 * nfm1!r}
+;; WT_LINES: q = the nearest 1/WT_LSUB frame, frame k = floor(q / WT_LSUB), line j = q - WT_LSUB k:
+;; u = k/8 - WT_LOFFU - j WT_LSU (- WT_LXU from line 2 on) (units) -> 6008 + v. Master B's age then never wraps (>= 254)
+;; and lands in line j one lap older (the lines keep two laps, rebuilt identically every lap); no split on master B
+mul r1, r1, #{float(WT_LSUB) * nfm1!r}
 addxy r1, r1, #0.5
 floor r1, r1
-mul r0, r1, #0.25
+mul r0, r1, #{1.0 / WT_LSUB!r}
 floor r0, r0
-mul r0, r0, #-4.0
+mul r0, r0, #{-float(WT_LSUB)!r}
 addxy r1, r1, r0
+mul r0, r0, #{-0.125 / WT_LSUB!r}
+addxy r0, r0, #{-WT_LOFFU!r}
 mul r1, r1, #{-WT_LSU!r}
-addxy r1, r1, #{-WT_LOFFU!r}
-mul r0, r0, #-0.03125
-addxy r1, r1, r0
+.if WT_LX
+addxy r0, r0, r1
+mul r1, r1, #{-1.0 / WT_LSU!r}
+addxy r1, r1, #-1.0
+max r1, r1, #0.0
+min r1, r1, #1.0
+mul r1, r1, #{-WT_LXU!r}
+.endif
+addxy r1, r0, r1
 .else
 mul r1, r1, #{nfm1!r}
 .endif

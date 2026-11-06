@@ -1258,14 +1258,27 @@ WT_FL = 0x0320                                  # master B bank 0: 0x0320 + 4v (
 # index c + WT_F by a fixed map read WT_RN); line j at WT_A + j WT_LS; the slave sends u = frame x 1/8 + j x WT_LSU, master
 # B splits it and adds j WT_LS to the voice's request age (one request per voice: 6 voices). docs/MUTABLE_MEMORY.md §4.4
 WT_LINES = opt('WT_LINES', '0') == '1'
-WT_LS = 0x60000                                 # line spacing: lines at 0x440000 / 0x4A0000 / 0x500000 / 0x560000, clear of
-                                                # the OS reverb's writers (0x48CA00, 0x48F340.. up to ~0x49B0DA): 0x20000 put
-                                                # line 2 on them (glitches, wt_lines3_004021). Each line keeps 2 laps + 770
-WT_LGAP = 0x48CA00 - 0x440000                   # the main line's room below the OS reverb input writer
-WT_LSU = WT_LS / 16384.0                        # in units
-WT_LOFFU = 0.0                                  # set by wt_lines_setup(): (WT_LEN + 512) / 16384, the lap + margin
+# WT_LSUB: steps per frame (4: 3 lines, works 2026-11-06; 8: 7 lines). Line j (1 .. WT_LSUB - 1) at WT_A + wt_loff(j):
+# j WT_LS, + WT_LX from line 2 on. All clear of the OS reverb's writers (0x48CA00, 0x48F340 .. ~0x49B0DA; 0x20000 for
+# 4 put line 2 on them: glitches, wt_lines3_004021); the EDM has 2^21 words (0x600000 = the OS delay writer again).
+# Each line keeps 2 laps + 770 below the next writer above it
+WT_LSUB = int(opt('WT_LSUB', '4'))
+if WT_LSUB not in (4, 8):
+    raise SystemExit('make_s1cc.py: WT_LSUB is 4 or 8')
+WT_LS, WT_LX = (0x60000, 0) if WT_LSUB == 4 else (0x20000, 0x20000)   # 4: 0x440000 / 4A / 50 / 56; 8: 46, 4A .. 54
+WT_LSU, WT_LXU = WT_LS / 16384.0, WT_LX / 16384.0
+WT_OS_W = [0x48CA00]                            # OS writers above WT_A (the reverb input; its lines up to ~0x49B0DA)
+WT_OS_ZONE = (0x48CA00, 0x4A0000)               # no line base here
+WT_LOFFU = 0.0                                  # set in main(): (WT_LEN + 512) / 16384, the lap + margin
+
+
+def wt_loff(j):
+    """WT_LINES: line j's address offset above WT_A (samples)"""
+    return j * WT_LS + (WT_LX if j >= 2 else 0)
+
+
 WT_RN = 0x4043                                  # bank-2 read: the loop at index c + WT_F (odd word = read)
-WT_LW = [0x4044, 0x4046, 0x4048]                # bank-2 writes of lines 1..3 (even words = write)
+WT_LW = [0x4044 + 2 * i for i in range(WT_LSUB - 1)]   # bank-2 writes of lines 1.. (even words = write)
 WT_S2MROT = int(opt('WT_S2MROT', '0'))           # probe: voice v sends its frame by 6008 + (v + ROT) mod 6
 def wt_s2m(v):
     return 0x6008 + (v + WT_S2MROT) % 6
@@ -1329,9 +1342,16 @@ def wt_header():
     n = len(x)
     if WT_LINES and not (WT_SLAVE and WT_CMOD and WT_FLATCH and WT_FLK == 1.0):
         raise SystemExit('make_s1cc.py: WT_LINES needs WT_SLAVE=1 WT_CMOD=1 WT_FLATCH=1 WT_FLK=1')
-    if WT_LINES and 2 * n + 770 > min(WT_LS, WT_LGAP):
-        raise SystemExit(f'make_s1cc.py: WT_LINES: the table ({n} samples) does not fit below the next line '
-                         f'(two laps + 770 must fit {min(WT_LS, WT_LGAP)}); use a table of at most {(min(WT_LS, WT_LGAP) - 770) // 2} samples')
+    if WT_LINES:
+        bases = [WT_A + wt_loff(j) for j in range(WT_LSUB)]
+        writers = sorted(bases + WT_OS_W + [0x600000])
+        for b in bases:
+            if WT_OS_ZONE[0] <= b < WT_OS_ZONE[1]:
+                raise SystemExit(f'make_s1cc.py: WT_LINES: a line at 0x{b:x} is on the OS reverb')
+            room = min(w for w in writers if w > b) - b
+            if 2 * n + 770 > room:
+                raise SystemExit(f'make_s1cc.py: WT_LINES: the table ({n} samples) needs two laps + 770 = '
+                                 f'{2 * n + 770} at 0x{b:x}, there are {room}')
     q = [max(-32767, min(32767, int(round(v * 32767)))) for v in x]
     rows = [', '.join(str(v) for v in q[i:i + 16]) for i in range(0, n, 16)]
     dt = [440.0 * 2 ** ((k - 69) / 12) * WT_F / 96000.0 / 16384.0 for k in range(128)]
@@ -1342,8 +1362,9 @@ def wt_header():
         f'#define WT_LEN {n}u\n#define WT_F {WT_F}u\n#define WT_FRAMES {n // WT_F}u\n#define WT_A 0x{WT_A:06x}u',
         f'#define WT_W 0x{WT_W - 0x4000:02x}u\n#define WT_R 0x{WT_R - 0x4000:02x}u\n#define WT_SLOT0 {WT_SLOT0}',
         f'#define WT_PSTG 0x{WT_PSTG:02x}\n#define WT_PSYNC 0x{WT_PSYNC:02x}\n#define WT_FILLIDX {int(WT_FILLIDX and WT_SLAVE)}'
-        f'\n#define WT_LINES {int(WT_LINES)}\n#define WT_LS 0x{WT_LS:x}u\n#define WT_RN 0x{WT_RN - 0x4000:02x}u\n#define WT_LW0 0x{WT_LW[0] - 0x4000:02x}u\n#define WT_LW1 0x{WT_LW[1] - 0x4000:02x}u\n#define WT_LW2 0x{WT_LW[2] - 0x4000:02x}u'
-        f'\n#define WT_PI0 0x{WT_PI0:02x}\n#define WT_PV0 0x{WT_PV0:02x}\n#define WT_PI1 0x{WT_PI1:02x}\n#define WT_PV1 0x{WT_PV1:02x}',
+        f'\n#define WT_LINES {int(WT_LINES)}\n#define WT_LSUB {WT_LSUB}\n#define WT_RN 0x{WT_RN - 0x4000:02x}u\n#define WT_LINE_MAP '
+        + ', '.join(f'{{ 0x80000000u | 0x{WT_A + wt_loff(j + 1):x}u, 0x{w - 0x4000:02x}u << 16 }}' for j, w in enumerate(WT_LW))
+        + f'\n#define WT_PI0 0x{WT_PI0:02x}\n#define WT_PV0 0x{WT_PV0:02x}\n#define WT_PI1 0x{WT_PI1:02x}\n#define WT_PV1 0x{WT_PV1:02x}',
         f'#define WT_SLAVE {int(WT_SLAVE)}\n#define WT_NV {WT_NV}\n#define WT_PDT0 0x{WT_PDT0:02x}\n#define WT_PGAIN0 0x{WT_PGAIN0:02x}\n'
         f'#define WT_PFRAME 0x{WT_PFRAME:02x}\n#define WT_PMIX 0x{WT_PMIX:02x}\n#define WT_PLIM 0x{WT_PLIM:02x}\n#define WT_PHALF 0x{WT_PHALF:02x}',
         '#ifndef EDM_CALL\n#define EDM_CALL 1   /* the request block in the OS effect (edm_call.h) */\n#endif',

@@ -820,15 +820,13 @@ static void param_log(int id, int flag, int value);
 #endif
 #define WT_CYC (*(volatile uint32_t *)0xE0001004u)
 #if WT_LINES
-/* WT_LINES (make_s1cc.py): + the loop read at index c + WT_F (the next frame, same phase) and the writes of lines 1..3
-   (the table mixed toward the next frame) at WT_A + j WT_LS, above the loop (an older age reads a higher address) */
-static const uint32_t wt_map[7][2] = {
+/* WT_LINES (make_s1cc.py): + the loop read at index c + WT_F (the next frame, same phase) and the writes of the lines
+   (the table mixed toward the next frame) above the loop (an older age reads a higher address) */
+static const uint32_t wt_map[WT_LSUB + 3][2] = {
     { 0x80000000u | WT_A, WT_W << 16 },
     { WT_A + WT_RDIST, WT_R << 16 },
     { WT_A + WT_RDIST - WT_F, WT_RN << 16 },
-    { 0x80000000u | (WT_A + WT_LS), WT_LW0 << 16 },
-    { 0x80000000u | (WT_A + 2u * WT_LS), WT_LW1 << 16 },
-    { 0x80000000u | (WT_A + 3u * WT_LS), WT_LW2 << 16 },
+    WT_LINE_MAP,                                              /* lines 1 .. WT_LSUB - 1 (make_s1cc.py wt_loff) */
     { 0, 0 },
 };
 #else

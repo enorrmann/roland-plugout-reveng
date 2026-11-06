@@ -56,7 +56,7 @@ ld r4, [4043]
 mov r7, r7
 subxy r4, r3, r4
 mov r7, r7
-mul r4, r4, #0.25
+mul r4, r4, #0.125
 mov r7, r7
 addxy r5, r3, r4
 mov r7, r7
@@ -67,6 +67,18 @@ st r5, [4046]
 addxy r5, r5, r4
 mov r7, r7
 st r5, [4048]
+addxy r5, r5, r4
+mov r7, r7
+st r5, [404a]
+addxy r5, r5, r4
+mov r7, r7
+st r5, [404c]
+addxy r5, r5, r4
+mov r7, r7
+st r5, [404e]
+addxy r5, r5, r4
+mov r7, r7
+st r5, [4050]
 ld r2, [c039]
 ld r4, [0309]
 ld r5, [c030]
