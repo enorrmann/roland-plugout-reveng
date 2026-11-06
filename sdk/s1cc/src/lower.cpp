@@ -1412,6 +1412,16 @@ struct Lowerer {
             return emitIsland(*chosen[n], val.at(chosen[n]->root));
         if (op == "recip")                      // no island chose it: recipseed and Newton
             return recip(in(0), n->in[0]);
+        if (op == "s1_ldb5") {                  // indexed bank-5 read: word index -> (idx + base + 0.5) 2^-14, hset, ldb5
+            KVal *ir = materialize(in(0), 1, 0);               // r holds the integer word index
+            KVal *u = K->add(ir, KOperand::im(0x80 + 0.5));    // + base (SL_STG & 0x3FF = 0x80), centred
+            u = K->mul(u, KOperand::im(std::ldexp(1.0, -14))); // bank-5 units (samples / 16384)
+            LV r;
+            r.r = K->ldb5(u);
+            r.V.lo = -1;
+            r.V.hi = 1;
+            return r;
+        }
         if (n->bad)
             fail("E504", "not translatable and not tabulated: " + where(n->v));
         auto constIn = [&](int i) -> double {

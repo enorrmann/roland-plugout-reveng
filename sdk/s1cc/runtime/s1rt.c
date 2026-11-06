@@ -96,6 +96,27 @@ float s1_param_get(const s1_param_desc *d, int i) {
 }
 void s1_export(int i, float v) { g_export[i & 15] = v; }
 float s1_import(int i) { return g_export[i & 15]; }
+/* s1_ldb5(i): the wavetable frame in bank 5 (A080..). Here (native reference / profiling / check) a band-limited saw
+ * stands in for whatever the host / USB loader wrote; on the device the DSP reads the loaded frame. 127 points +
+ * a guard copy of point 0, peak 0.8, as make_s1cc's sl_frames() (docs/MUTABLE_MEMORY.md §4.1, §4.5). */
+#define S1_WT_N 127
+static float g_ldb5[S1_WT_N + 1];
+static int g_ldb5_ready;
+float s1_ldb5(int i) {
+    if (!g_ldb5_ready) {
+        for (int k = 0; k < S1_WT_N; k++) {           /* band-limited saw: sum of sines 1/h, 63 harmonics */
+            double y = 0, ph = 2.0 * 3.14159265358979323846 * k / S1_WT_N;
+            for (int h = 1; h <= S1_WT_N / 2; h++)
+                y += sinf((float)(h * ph)) / h;
+            g_ldb5[k] = (float)(y * 0.8 * 2.0 / 3.14159265358979323846);
+        }
+        g_ldb5[S1_WT_N] = g_ldb5[0];
+        g_ldb5_ready = 1;
+    }
+    if (i < 0) i = 0;
+    if (i > S1_WT_N) i = S1_WT_N;
+    return g_ldb5[i];
+}
 float s1_wrap(float x) { return wrapf(x); }
 float s1_clamp(float x) { return x < -1 ? -1 : x > 1 ? 1 : x; }
 float s1_tri(float x) { return 1.0f - 2.0f * fabsf(wrapf(-x - 1.5f)); }

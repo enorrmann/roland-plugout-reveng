@@ -33,6 +33,12 @@
  *                         writes with the pitch (SYSTEM-S1CC: two loads, no exp2, no division)
  *   s1_gate(), s1_trig()  gate 0 / 1; trigger: toggles 0 / 1 at every note start
  *   s1_param(name, i)     value i of the knob table `name` (a DSP parameter C0xx the ARM writes)
+ *   s1_ldb5(i)            S1_DSP_A only: word i (0..126) of the wavetable frame in bank 5 (A080..), the frame the
+ *                         host / USB loader (docs/MUTABLE_MEMORY.md §4.5) writes. One hset + ldb5 (an indexed bank-5
+ *                         load): the only way to read a run-time table by a computed index (a const array with a
+ *                         computed index is fitted as a function instead, §4.3). Build the oscillator in C: phase by
+ *                         s1_dt() (pitch mod already in it), two s1_ldb5 and interpolate. The native reference / check
+ *                         read a band-limited saw stand-in frame (the device reads the loaded frame)
  *   s1_export(i, v), s1_import(i)   a value from S1_DSP_A to S1_DSP_B, same sample
  *   s1_wrap(x)            x wrapped into [-1, 1)         
  *   s1_clamp(x)           x limited to [-1, 1]
@@ -99,6 +105,7 @@ S1_EXTERN S1_IN float s1_trig(void);
 S1_EXTERN S1_IN float s1_param_get(const s1_param_desc *param, int i);
 S1_EXTERN void s1_export(int i, float v);
 S1_EXTERN S1_IN float s1_import(int i);
+S1_EXTERN S1_IN float s1_ldb5(int i);
 S1_EXTERN S1_FN float s1_wrap(float x);
 S1_EXTERN S1_FN float s1_clamp(float x);
 S1_EXTERN S1_FN float s1_tri(float x);

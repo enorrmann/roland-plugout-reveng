@@ -270,7 +270,7 @@ const std::map<std::string, std::string> kIntrinsicOps = {
     {"umax", "umax"}, {"abs", "abs"}, {"floor", "floor"}};
 
 const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_increment", "s1_dt", "s1_rdt", "s1_param_get",
-                                        "s1_export", "s1_import", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env",
+                                        "s1_export", "s1_import", "s1_ldb5", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env",
                                         "s1_color", "s1_lfo_filter", "s1_lfo_amp", "s1_host_mix",
                                         "s1_range", "s1_floor", "s1_ceil", "s1_sign", "s1_abs", "s1_recip", "s1_exp",
                                         "s1_log2", "s1_ldexp", "s1_sum3", "s1_mac2", "s1_sqrt", "s1_rsqrt"};
@@ -946,6 +946,12 @@ struct Builder {
             Node *n = mk(NK::Import, "import", {}, CI);
             n->c = (double)constArg(0);
             vmap[CI] = n;
+            return;
+        }
+        if (fn == "s1_ldb5") {                            // indexed bank-5 read: hset + ldb5 (lower.cpp). DSP A only
+            if (S.name != "A")
+                fail("E121", "s1_ldb5 in S1_DSP_B " + where(CI) + ": the wavetable read is on DSP A");
+            vmap[CI] = mk(NK::Op, fn, {arg(0)}, CI);      // arg 0 = the word index (a computed integer is fine)
             return;
         }
         if (fn == "s1_wrap" || fn == "s1_clamp" || fn == "s1_tri" || fn == "s1_exp2" || fn == "s1_floor" ||

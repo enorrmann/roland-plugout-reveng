@@ -621,6 +621,39 @@ shows whether RQ1 follows the live edit buffer or only the stored patch).
 | `--wire-pacing` |  |  |
 | `-v, --verbose` |  |  |
 
+### `tools/s1_capture.py`
+
+```
+Play a note on the SYSTEM-1 and record its audio over USB -- the capture rig used to check a PLUG-OUT on the
+device (docs/S1_AUDIO_CAPTURE.md). One MIDI client at a time: do not run another SYSTEM-1 tool at the same time,
+and do not touch the keyboard while it records (your notes mix into the capture).
+
+    python3 tools/s1_capture.py                         # note 60 on ch 5, 1.5 s -> harmonic summary
+    python3 tools/s1_capture.py --note 67 --secs 3      # another note, longer
+    python3 tools/s1_capture.py --cmd "python3 tools/wt_load.py --square"   # run that first, then capture
+    python3 tools/s1_capture.py --raw cap.raw           # keep the raw audio (S32_LE, 96 kHz, 2 ch)
+    python3 tools/s1_capture.py --list                  # just show the SYSTEM-1 MIDI + audio devices
+
+The SYSTEM-1 receives on MIDI channel 5 here (--channel to change). Audio comes back on the USB audio input
+(S32_LE, 96 kHz, stereo); the synth's output is on it only while the device plays.
+```
+
+| option | help | default |
+|---|---|---|
+| `--note` | MIDI note (default 60 = middle C) | `60` |
+| `--channel` | MIDI channel 1..16 (default 5) | `5` |
+| `--vel` | velocity (default 100) | `100` |
+| `--secs` | capture length (default 1.5) | `1.5` |
+| `--on` | delay before note-on (default 0.3) | `0.3` |
+| `--hold` | note held (default 1.0) | `1.0` |
+| `--cmd` | a shell command to run before the capture (e.g. a wt_load.py send) |  |
+| `--raw` | keep the raw audio at this path (default: a temp file, deleted) |  |
+| `--port` | amidi MIDI port (default: the SYSTEM-1) |  |
+| `--audio` | ALSA capture device (default: the SYSTEM-1) |  |
+| `--list` | show the SYSTEM-1 devices and exit |  |
+
+Environment: `TMPDIR` (default '/tmp')
+
 ### `tools/svc_table.py`
 
 ```
@@ -708,9 +741,9 @@ Environment: `NAME` (default default)
 
 ```
 Load a wavetable frame into a running SYSTEM-S1CC bank-5 PLUG-OUT over USB -- no reinstall (docs/MUTABLE_MEMORY.md
-§4.5). The plug-out must be built with SL_LOAD_TEST=1 (a SL_WT=b5 kernel, e.g. sdk/s1cc/examples/wavetable/jp8_saw.c):
+§4.5). The plug-out must be built with SL_LOAD=1 (a SL_WT=b5 kernel, e.g. sdk/s1cc/examples/wavetable/jp8_saw.c):
 
-    SL_LOAD_TEST=1 WT_WAV=".../Jupiter 8 Saw.wav" KERNEL=sdk/s1cc/build/jp8_saw sh examples/system_s1cc/build.sh
+    SL_LOAD=1 WT_WAV=".../Jupiter 8 Saw.wav" KERNEL=sdk/s1cc/build/jp8_saw sh examples/system_s1cc/build.sh
     python3 tools/plugout_tool.py install plugins/JP8-SAW5 --slot 1 --force --no-patches -y   # then select it
 
 Then, while it plays:
@@ -741,7 +774,7 @@ UNPROVEN on hardware as of 2026-11-06 (that bend / CC1 reach region 1). Uses onl
 | `--harmonics` | band-limit to this many harmonics (default 63) |  |
 | `--peak` | normalize the frame to this peak (default 0.8) | `0.8` |
 | `--port` | raw MIDI device (default: the SYSTEM-1, from amidi -l) |  |
-| `--channel` | MIDI channel 0..15 (default 0) | `0` |
+| `--channel` | MIDI channel 1..16 the SYSTEM-1 receives on (default 5, this device's; set it to yours) | `5` |
 | `--delay` | seconds between messages (default 0.010) | `0.01` |
 | `--dry-run` | build the frame and print it, send nothing |  |
 
@@ -3677,7 +3710,7 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
                 PARAMLOG=1: at every note region 0 reads 64 words over 4M + a test block and logs them; w: also
                 writes 64 words at the first note (EDM_PORT_W0=n, default 0x380000) and reads them back;
                 d: the port registers before / after one read, restored after it; p: only the counter +0x48
-  SL_LOAD_TEST=1  (SL_WT=b5) load a new bank-5 frame over USB without reinstalling: the PC (tools/wt_load.py) sends
+  SL_LOAD=1  (SL_WT=b5) load a new bank-5 frame over USB without reinstalling: the PC (tools/wt_load.py) sends
                 the 127 samples, region 1 writes them into A080.. with FD6C (engine.c wt_load.h, docs/MUTABLE_MEMORY.md
                 §4.5). UNPROVEN on hardware (2026-11-06); _TEST until it is
   MA_MAIN=0     do not load our (empty) master DSP A main at 0x0100 (default 1: load it, as the stock PLUG-OUTs do;

@@ -217,6 +217,7 @@ public:
     std::pair<KVal *, KVal *> expsplit(KVal *z);   // (e^floor(z), frac(z)), z in [-19, 7)
     std::pair<KVal *, KVal *> log2split(KVal *y);  // (e, m) with y = m 2^e, m in [0.75, 1.5), y > 0
     KVal *exp2split(KVal *t, double shift);         // 2^(t + shift) for t + shift in [-27, 8]: expsplit + degree 4
+    KVal *ldb5(KVal *idxUnits);                     // indexed bank-5 load: hset h6, idxUnits ; ldb5 d, 0 (s1_ldb5)
     KVal *floor(KVal *x);                           // SFU floor / ceil / sign (+-1, 0)
     KVal *ceil(KVal *x);
     KVal *sign(KVal *x);

@@ -277,6 +277,12 @@ KVal *Kernel::recip(KVal *y) {
     return multi("recipseed {d}, {0}\nnewton {d}, {0}\nnewton {d}, {0}\nnewton {d}, {0}", y, true, true, false);
 }
 
+KVal *Kernel::ldb5(KVal *idxUnits) {
+    // s1_ldb5: hset h6 with the word index in bank-5 units (idxUnits = (word + 0.5) 2^-14), then ldb5 at offset 0.
+    // asm/dspsched.py keeps the measured hset -> load distance; idxUnits is read, not written (no clobber).
+    return multi("hset h6, {0}\nldb5 {d}, 0", idxUnits, false, false, false);
+}
+
 std::pair<KVal *, KVal *> Kernel::expsplit(KVal *z) {
     KVal *d = multi("expsplit {d}, {0}", z, false, true, true);
     return {d, ops_.back().d2};

@@ -831,6 +831,20 @@ def hlfo_voice(v):
     return frag('host_a', v=v, h=host_a_block(v))
 
 
+def _h67(lines, v):
+    """odd voices read the indexed bank-5 table (s1_ldb5) with h7 / ldb5h7 instead of h6 / ldb5, so two concurrent
+    voices never share the one hidden index register (as SL_H67 does for the microcode oscillator, docs/MUTABLE_MEMORY.md
+    §4.1). Even voices keep h6. Only s1cc's s1_ldb5 emits hset/ldb5, so this is safe for any kernel."""
+    if v % 2 == 0:
+        return lines
+    out = []
+    for x in lines:
+        x = re.sub(r'\bhset h6\b', 'hset h7', x)
+        x = re.sub(r'\bldb5 ', 'ldb5h7 ', x)
+        out.append(x)
+    return out
+
+
 def voice_a(v):
     """DSP A code of voice v: the host's (four registers), the kernel's, and the host's mixer"""
     L = [f'; voice {v}'] + (hlfo_voice(v) if HOST_LFO else []) + \
@@ -892,10 +906,10 @@ def prog_a_parts():
     units, v = [], 0
     while v < NV:
         if PAIRS and v + 1 < NV:               # two voices, independent registers: the scheduler fuses across them
-            units.append(_interleave(voice_a(v), _upper(voice_a(v + 1))))
+            units.append(_interleave(_h67(voice_a(v), v), _h67(_upper(voice_a(v + 1)), v + 1)))
             v += 2
         else:
-            units.append(voice_a(v))
+            units.append(_h67(voice_a(v), v))   # odd voices: h7 / ldb5h7 (s1_ldb5), so pairs never share h6
             v += 1
     if IDX_PROBE2:
         units.append(frag('idxp2_tail'))

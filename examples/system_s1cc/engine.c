@@ -687,11 +687,35 @@ static void sl_frame(void)
         b5(SL_STG_IDX + i, sl_bits(((int32_t)(255u - r) * sl_frames[f][i] + (int32_t)r * sl_frames[f + 1][i]) / 255));
 }
 #endif
+#endif
 #if defined(SL_LOAD) && !SL_B0
-/* SL_LOAD (docs/MUTABLE_MEMORY.md §4.5): load a new frame over USB into bank 5 without reinstalling. The frame is
-   received into ARM RAM (wt_load.h, wtl_buf) and committed with the same b5() / FD6C (sel 0) sl_frame() uses, into
-   SL_STG.. (A080..). Once a frame is loaded sl_loaded freezes it (COLOR no longer overwrites it) until a clear (CTRL
-   ext 2) hands control back to COLOR. Only the static b5 frame, not the b0 loop (SL_B0: the tick owns SL_STG). */
+/* SL_LOAD (docs/MUTABLE_MEMORY.md §4.5): load a frame over USB into bank 5 (A080..) without reinstalling. Received
+   into ARM RAM (wt_load.h, wtl_buf) and committed with b5() / FD6C (sel 0). Serves the SL_WT=b5 oscillator (the frame
+   OSC1 COLOR would pick, frozen once loaded) and a C-kernel wavetable that reads the window with s1_ldb5 (no SL_WT
+   microcode): then there is no COLOR frame, and a plain ramp saw is the default until one is sent. Not the b0 loop
+   (SL_B0: the tick owns SL_STG). */
+#if !SL_WT
+#ifndef SL_STG_IDX
+#define SL_STG_IDX 0x80                               /* bank 5 A080.. (= SL_STG, and the s1_ldb5 base in s1cc) */
+#endif
+#ifndef SL_W
+#define SL_W 128                                      /* 127 points + a guard */
+#endif
+static uint32_t sl_bits(int32_t x)                    /* Q15 (x 2^-15) -> IEEE float bits (as the SL_WT path's) */
+{
+    if (!x)
+        return 0;
+    uint32_t sg = x < 0 ? 0x80000000u : 0, a = x < 0 ? (uint32_t)-x : (uint32_t)x;
+    int e = 31 - __builtin_clz(a);
+    return sg | (uint32_t)(e - 15 + 127) << 23 | ((a << (23 - e)) & 0x7FFFFFu);
+}
+static void sl_frame(void) {}                         /* no COLOR frame for a C kernel: revert just clears */
+static void sl_default(void)                          /* a plain ramp saw so it is not silent before the first load */
+{
+    for (int i = 0; i < SL_W; i++)
+        b5(SL_STG_IDX + i, sl_bits((int32_t)((i * 2 - (SL_W - 1)) * 26214 / (SL_W - 1))));
+}
+#endif
 static int sl_loaded;
 static void sl_commit(const int32_t *buf, int n)
 {
@@ -722,7 +746,6 @@ static void sl_witness(int shape)
     }
     sl_loaded = 1;
 }
-#endif
 #endif
 #endif
 
@@ -766,6 +789,12 @@ static void e_load(engine_t *e)                                  /* vt+0x08 */
     else
 #endif
     sl_frame();
+#endif
+#if defined(SL_LOAD) && !SL_B0 && !SL_WT
+    if (sl_loaded)
+        sl_commit(wtl_buf, wtl_n);                     /* a C-kernel wavetable (s1_ldb5): the USB frame, else */
+    else
+        sl_default();                                  /* a ramp saw so the first note is not silent */
 #endif
     arm_start();
 }
