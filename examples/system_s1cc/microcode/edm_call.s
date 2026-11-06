@@ -112,8 +112,8 @@ cond 0, 15, 8
 .fragment edm_wt_block
 ;; EDM_WT (edm_wt.s): the requests of the wavetable voices (two per voice: frame f and f + 1) on their own line WT_A,
 ;; ages from bank 0 WT_AGEB + 4k + 1 (written by the main), results at WT_RES + 8k (x0, x1, fraction), read by the
-;; main the next sample. 2 WT_NV <= 6 requests per sample (the measured limit, §3.3.5)
-.for k in range(2 * WT_NV)
+;; main the next sample. WT_REQ (2 per voice, WT_SLAVE: 1) <= 6 requests per sample (the measured limit, §3.3.5)
+.for k in range(WT_REQ)
     ld r2, [{WT_AGEB + 4 * k + 1:04x}]
     hset h4, #{WT_A // 16384}@0:24
     hset h5, #{(WT_RES + 8 * k - 0x4000) / 16384}@0:16

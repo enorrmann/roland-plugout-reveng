@@ -3625,12 +3625,17 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
   EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.5):
                 the kernel makes the excitation; AMP DECAY / AMP RELEASE = feedback held / released, FILTER CUTOFF =
                 brightness (sdk/s1cc/examples/edm/edm_string.c)
-  EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.8): WT_WAV=file
-                (Serum WAV, all frames, <= 262144 samples), filled at the first note, OSC1 COLOR = position
+  EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.8, §4.4):
+                WT_WAV=file (Serum WAV, frames of 2048), filled at the first notes, OSC1 COLOR = position. The frames
+                that fit are kept from the start, the rest dropped with a warning: at most 127 (the delay line), and
+                as many as region 0 holds (the build retries with fewer, WT_MAXF=n to set it)
   EDM_PORT=r|w|d  probe of the ARM's indirect port to the delay memory (docs/MUTABLE_MEMORY.md §3.3.7), needs
                 PARAMLOG=1: at every note region 0 reads 64 words over 4M + a test block and logs them; w: also
                 writes 64 words at the first note (EDM_PORT_W0=n, default 0x380000) and reads them back;
                 d: the port registers before / after one read, restored after it; p: only the counter +0x48
+  MA_MAIN=0     do not load our (empty) master DSP A main at 0x0100 (default 1: load it, as the stock PLUG-OUTs do;
+                without it master A runs what an earlier mode left there, which overwrites the master -> slave words
+                600E..6021: docs/MUTABLE_MEMORY.md §4.3)
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
 

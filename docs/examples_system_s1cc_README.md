@@ -28,6 +28,7 @@ python3 tools/plugout_tool.py install plugins/SYSTEM-S1CC --slot 1 --force --no-
 | `BUDGET_A=n`, `BUDGET_B=n`, `MAIN_BYTES=n` | los límites medidos: 703 instrucciones por muestra en el DSP A (826 se colgó), 708 en el DSP B, y 6144 bytes de cada programa principal, su región `0x0100`–`0x18FF` ([DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md) §3.1: 5854 bytes corrieron, 6534 y 6740 colgaron el equipo, 2026-10-28). Sólo para probar más, a riesgo propio |
 | `NAME=…` | nombre del PLUG-OUT (`SYSTEM-S1CC`) |
 | `MODEL_ID`, `PARAMLOG=1` | como en MUTABLE-SYSTEM |
+| `MA_MAIN=0` | no cargar el principal propio (vacío) del maestro A en `0x0100`. Por defecto (`1`, desde 2026-11-05) se carga, como hacen los PLUG-OUTs de Roland: sin él el maestro A corre lo que dejó el modo anterior, que pisa las palabras maestro → esclavo `600E`–`6021` ([MUTABLE_MEMORY.md](MUTABLE_MEMORY.md) §4.3) |
 | `ENV_TMIN=s`, `ENV_TMAX=s` | tiempos de las envolventes del anfitrión con el fader en 0 y en 255 (por defecto 0,001 y 10 s, exponencial entre medio, como C-S1SY). Solo si el kernel usa `s1_env` |
 | `OUTDIR=dir` | solo `make_s1cc.py`: dónde escribir todo lo generado (por defecto `examples/system_s1cc/build/`, la misma carpeta que usa `build.sh`; los tests usan una carpeta temporal) |
 | `MOD_DSP=auto` / `A` / `B` | dónde corren la envolvente de pitch y la mezcla de COLOR MOD (§3.4). `auto` (por defecto): `make_s1cc.py` arma las dos y se queda con la que entra, o con la que deja más margen si entran las dos |

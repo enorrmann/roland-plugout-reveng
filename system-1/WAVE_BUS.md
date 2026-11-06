@@ -136,7 +136,7 @@ según `y`; `+8` del bloque = valor actual, `+C` = incremento [M] ([../docs/exam
 |---|---|---|---|
 | `6006`–`600D` | esclavo → maestro | esclavo A o B escriben; maestro A o B leen (SH-101: esclavo A `600B`–`600D`, esclavo B `6006`–`600A`) | [L]; `6006`/`6007` [M] con C-S1V4 |
 | `6026`–`602D` | esclavo → maestro | esclavo B escribe (SH-2: `6026`–`602D`; PROMARS: `6026`, `6027`); maestro A lee | [L] (`system-1/s1_progs.py`) |
-| `600E`–`6021` | maestro → esclavo (20 palabras) | maestro A (modulación) y B (PROMARS: `6010`) escriben; esclavo A y B leen | [L] |
+| `600E`–`6021` | maestro → esclavo (20 palabras) | maestro A (modulación) y B (PROMARS: `6010`) escriben; esclavo A y B leen | [L]; `600E`–`6015` maestro B → esclavo A [M] (WT-M2S, sólo con un principal propio en el maestro A: §5.1) |
 | `6000`/`6001` | maestro A → salida | programa de salida del OS | [M] |
 
 Latencia entre chips: ≥ 1 muestra [I]. En el sinte de serie, el mezclador del maestro suma `6006`–`600D` por parejas
@@ -160,6 +160,11 @@ esclavo A/B ──IOMD 6006…──► maestro B (programa del PLUG-OUT @0x1000
 
 * Al pasar a modo PLUG-OUT el OS encola en el maestro A el programa de salida en `0x82` y en el maestro B, en
   `0x1000`, un programa que pone `A118`–`A11D` a 0. Después llama a `load` del modelo de la región 0 [L].
+* El programa de salida en `0x82` mide 126 B y termina en `0x100`: el maestro A sigue en su principal `0x0100`, que
+  el OS **no** reemplaza. Si el PLUG-OUT no carga uno propio, corre lo que dejó el modo anterior, y eso escribe las
+  palabras maestro → esclavo `600E`–`6021` después de nuestro maestro B: el esclavo lee 0 (o una señal) en vez de lo
+  nuestro [M] ([../docs/MUTABLE_MEMORY.md](../docs/MUTABLE_MEMORY.md) §4.3). Los PLUG-OUTs de Roland cargan su
+  `0x0100` (`FC30 {0x100, 0x6DF2, 0x7FF2}`); SYSTEM-S1CC carga uno vacío (`MA_MAIN`, 2026-11-05).
 * **Un PLUG-OUT que no carga su programa del maestro B queda mudo** [M] (C-S1TONE). El VOLUME del panel tampoco pasa
   por el programa del OS: lo aplica el PLUG-OUT (`C01C`) [M].
 

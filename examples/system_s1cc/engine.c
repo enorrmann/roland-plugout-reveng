@@ -602,8 +602,32 @@ static uint32_t sl_bits(int32_t x)                     /* x 2^-15 (Q15) -> IEEE 
     int e = 31 - __builtin_clz(a);
     return sg | (uint32_t)(e - 15 + 127) << 23 | ((a << (23 - e)) & 0x7FFFFFu);
 }
-#if SL_B0
-/* SL_WT=b0 (docs/MUTABLE_MEMORY.md §4.1): DSP A's bank-0 loop (SL_LOOP words) holds two frames interleaved, data
+#if SL_B0 && !SL_MORPH
+/* SL_WT=b0 SL_MORPH=0 (docs/MUTABLE_MEMORY.md §4.1, as WT-SLAVE0L): DSP A's bank-0 loop (SL_LOOP words) holds one
+   frame, point k at data k, slot j = data SL_LOOP - 1 - j. Every SL_HOLD ms (> one lap) the next block of SL_B slots
+   goes into bank 5 SL_STG.. and its first slot into SL_BLK (units); the DSP's one ldb5 per sample copies it in. The
+   points are those of the frame COLOR picks now (the nearest of the whole table, no mix of frames), so a COLOR move
+   reaches the whole loop within one round of blocks (SL_NBLK x SL_HOLD ms) */
+#define SL_HOLD 12
+#define SL_NBLK (SL_LOOP / SL_B)
+static unsigned sl_blk, sl_hold;
+static void sl_tick(void)
+{
+    if (++sl_hold < SL_HOLD)
+        return;
+    sl_hold = 0;
+    uint32_t f = ((uint32_t)sl_color * (SL_NF - 1u) + 127u) / 255u;   /* COLOR 0..255 -> the nearest frame */
+    sl_blk = (sl_blk + 1) % SL_NBLK;
+    b5(SL_BLK_IDX, 0x3F800000u);                      /* 1.0: past every slot while the block is rewritten */
+    for (int i = 0; i < SL_B; i++) {
+        int dd = SL_LOOP - 1 - ((int)sl_blk * SL_B + i);
+        b5(SL_STG_IDX + i, sl_bits(sl_frames[f][dd]));
+    }
+    b5(SL_BLK_IDX, sl_bits((int32_t)(sl_blk * SL_B) << 1));   /* slot / 16384 = (slot << 1) 2^-15 */
+}
+static void sl_frame(void) {}                          /* the tick does it */
+#elif SL_B0
+/* SL_WT=b0 SL_MORPH=1 (WT-SLAVE0I, docs/MUTABLE_MEMORY.md §4.1): DSP A's bank-0 loop (SL_LOOP words) holds two frames interleaved, data
    d = 2k (set 0, "E") and 2k + 1 (set 1, "O") for point k, slot j = data SL_LOOP - 1 - j. Every SL_HOLD ms (> one lap)
    the next block of SL_B slots goes into bank 5 SL_STG.. and its first slot into SL_BLK (units); the DSP's one ldb5
    per sample copies it in. COLOR's position x (0 .. SL_NF - 1) between the two frames is the weight w of set 1, in

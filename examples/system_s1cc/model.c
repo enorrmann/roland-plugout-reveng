@@ -21,6 +21,11 @@
 #define NV STR_NV                                             /* EDM_STR_NV: the assigner plays only the strings */
 #endif
 
+#if defined(EDM_WT) && WT_SLAVE && WT_NV < NV
+#undef NV
+#define NV WT_NV                                              /* WT_SLAVE: the assigner plays only the table's voices */
+#endif
+
 #ifndef NV
 #define NV 4
 #endif
@@ -67,12 +72,19 @@ static void gate_off(struct assign *a, int v)
     a->v[v].vel = 0;
 }
 
+#if defined(EDM_WT) && WT_SLAVE
+static void wt_voice(int v, int note);
+#endif
 static void play(struct assign *a, int v, int note, int vel)
 {
     struct voice *x = &a->v[v];
 #ifdef EDM_STR
     if (vel)
         edm_str_note(v, note);
+#endif
+#if defined(EDM_WT) && WT_SLAVE
+    if (vel)
+        wt_voice(v, note);                                    /* the master's voice v = the slave's voice v */
 #endif
     if (x->note != note)
         vset(ID_NOTE + v, note);
@@ -172,12 +184,12 @@ static void a_reset(struct assign *a)
     clear_voices(a);
 }
 static void a_changed(struct assign *a, int group) { (void)a; (void)group; }
-#ifdef EDM_WT
+#if defined(EDM_WT) && !WT_SLAVE
 static void wt_note_on(int note, int vel);
 #endif
 static void a_note_off(struct assign *a, int note)
 {
-#ifdef EDM_WT
+#if defined(EDM_WT) && !WT_SLAVE
     wt_note_on(note, 0);                                      /* note offs come here, not as a velocity 0 */
 #endif
     key_set(a, note, 0);
@@ -807,11 +819,25 @@ static void param_log(int id, int flag, int value);
 #define WT_BLOCK_MS 500u                                      /* the most one note blocks the OS while filling */
 #endif
 #define WT_CYC (*(volatile uint32_t *)0xE0001004u)
-static const uint32_t wt_map[3][2] = {
-    { 0x80000000u | WT_A, WT_W << 16 },                       /* [WT_W] -> WT_A */
-    { WT_A + WT_RDIST, WT_R << 16 },                          /* [WT_R] <- WT_A + WT_LEN - 1: a loop of WT_LEN */
+#if WT_LINES
+/* WT_LINES (make_s1cc.py): + the loop read at index c + WT_F (the next frame, same phase) and the writes of lines 1..3
+   (the table mixed toward the next frame) at WT_A + j WT_LS, above the loop (an older age reads a higher address) */
+static const uint32_t wt_map[7][2] = {
+    { 0x80000000u | WT_A, WT_W << 16 },
+    { WT_A + WT_RDIST, WT_R << 16 },
+    { WT_A + WT_RDIST - WT_F, WT_RN << 16 },
+    { 0x80000000u | (WT_A + WT_LS), WT_LW0 << 16 },
+    { 0x80000000u | (WT_A + 2u * WT_LS), WT_LW1 << 16 },
+    { 0x80000000u | (WT_A + 3u * WT_LS), WT_LW2 << 16 },
     { 0, 0 },
 };
+#else
+static const uint32_t wt_map[3][2] = {
+    { 0x80000000u | WT_A, WT_W << 16 },                       /* [WT_W] -> WT_A */
+    { WT_A + WT_RDIST, WT_R << 16 },                          /* [WT_R] <- WT_A + WT_LEN - 2: a loop of WT_LEN (distance + 2, measured) */
+    { 0, 0 },
+};
+#endif
 static struct s1_prog wt_set[] = { { 8 * WT_SLOT0, sizeof wt_map, wt_map }, { 0, 0, 0 } };
 static uint8_t wt_done[(WT_LEN + 7u) / 8u];
 static int wt_state;                                          /* 0 loaded, 1 filled, 3 map table unknown */
@@ -835,6 +861,10 @@ static uint32_t wt_i2f(int32_t x, int sh)                     /* x 2^-sh as IEEE
 }
 static void wt_color(int knob)                                /* OSC1 COLOR: frame f (0 .. FRAMES - 2) and the mix */
 {
+#if WT_SLAVE
+    wt_prm(WT_PFRAME, wt_i2f((int32_t)((((uint32_t)knob * (WT_FRAMES - 1u) + 127u) / 255u) * WT_F), 14));   /* nearest */
+    return;
+#endif
     uint32_t q = (uint32_t)knob * (WT_FRAMES - 1u), f = q / 255u, r = q % 255u;
     if (f > WT_FRAMES - 2u) {
         f = WT_FRAMES - 2u;
@@ -843,10 +873,18 @@ static void wt_color(int knob)                                /* OSC1 COLOR: fra
     wt_prm(WT_PFRAME, wt_i2f((int32_t)(f * WT_F), 14));
     wt_prm(WT_PMIX, wt_i2f((int32_t)(r * 65536u / 255u), 16));
 }
+static void wt_limits(void)                                   /* edm_wt.s: c's limit and the age's wrap, exact */
+{
+    wt_prm(WT_PLIM, wt_i2f((int32_t)(2u * WT_LEN - 1u), 15));  /* (WT_LEN - 1/2) / 16384 */
+    wt_prm(WT_PHALF, wt_i2f((int32_t)WT_LEN, 15));              /* WT_LEN / 32768 */
+}
 static void wt_load(void)                                     /* m_load */
 {
+    wt_limits();
     for (int v = 0; v < WT_NV; v++) {
-        wt_prm(WT_PGAIN0 + v, 0);
+#if !WT_SLAVE
+        wt_prm(WT_PGAIN0 + v, 0);                             /* (WT_SLAVE: the slave's amp; C033.. are phase steps) */
+#endif
         wt_prm(WT_PDT0 + v, wt_dt_bits[60]);
     }
 #if WT_DIAG == 4
@@ -863,7 +901,58 @@ static void wt_load(void)                                     /* m_load */
     ((s1_queue_fn)SVC(0x3C))(wt_set);
     wt_state = 0;
 }
-#ifndef WT_POLL
+#if WT_FILLIDX
+/* WT_FILLIDX (make_s1cc.py): index-gated fill. Master B writes the loop only when its counter c equals the index of a
+   slot (C03A/C03B, C03C/C03D: index, value), so a late, early or lost write is dropped instead of landing elsewhere
+   (WT-DIAG2, 2026-11-05: the timed fill lost ~7 % and later notes overwrote good samples). Each lap of filling ("pass")
+   sends one residue class of k mod 3 (the ARM needs ~2 samples per pair), k = the first of the class >= t + D, so a
+   pair is still in its slot (alternating, ~6 samples) when c reaches k for a latency 0 .. D. Passes: residues 0, 1, 2
+   with D = 3, then again with D = 6, then once more with D = 3 (re-sends are harmless: same value, same place) */
+#define WT_FPASSES 9u
+static uint32_t wt_c0, wt_p0, wt_ftime, wt_pairs;
+static void wt_fill(void)
+{
+    *(volatile uint32_t *)0xE000EDFCu |= 1u << 24;
+    *(volatile uint32_t *)0xE0001000u |= 1u;
+    if (!wt_c0) {                                             /* the first note: the sync (c = 0) */
+        static uint32_t sync;
+        sync ^= 0x3F800000u;
+        wt_prm(WT_PSYNC, sync);
+        wt_c0 = WT_CYC;
+        wt_p0 = WT_CTR;
+        if (!wt_c0)
+            wt_c0 = 1;
+    }
+    uint32_t cref = WT_CYC, tref = (wt_p0 - WT_CTR) & 0x7FFFFFu;
+    uint32_t start = cref, last = tref, lastk = 0xFFFFFFFFu, slot = 0, sent = 0;
+    while (WT_CYC - start < WT_BLOCK_MS * 156000u && wt_ftime < WT_FPASSES * WT_LEN) {
+        uint32_t t = tref + (WT_CYC - cref) / 1625u;          /* samples since the sync */
+        if (t == last)
+            continue;
+        wt_ftime += t - last;                                 /* samples spent filling: the pass */
+        last = t;
+        uint32_t pass = wt_ftime / WT_LEN, r = pass % 3u, d = (pass / 3u) % 3u == 1u ? 6u : 3u;
+        uint32_t k = t + d;
+        k += (r + 3u - k % 3u) % 3u;
+        if (k == lastk)
+            continue;
+        lastk = k;
+        k %= WT_LEN;
+        wt_prm(slot ? WT_PV1 : WT_PV0, wt_i2f(wt_table[k], 16));   /* the value first, then the index */
+        wt_prm(slot ? WT_PI1 : WT_PI0, wt_i2f((int32_t)k, 14));
+        slot ^= 1u;
+        sent++;
+    }
+    wt_pairs += sent;
+    if (wt_ftime >= WT_FPASSES * WT_LEN)
+        wt_state = 1;
+#ifdef PARAMLOG
+    param_log(0x3F80, 0, (int)sent);
+    param_log(0x3F81, 0, (int)wt_pairs);
+    param_log(0x3F82, 0, (int)wt_ftime);
+#endif
+}
+#elif !defined(WT_POLL)
 /* WT_POLL undefined (default since MP-EDMWT hung at its first note, 2026-11-05, polling the counter word without a
    pause): the time from the ARM's cycle counter, 1625 cycles per sample (156 MHz / 96 kHz), the delay-memory counter
    read only at the start and at the end (0x3F84: its samples minus the cycle counter's, the drift). One lap per note
@@ -958,6 +1047,18 @@ static void wt_fill(void)                                     /* first note: the
 #endif
 }
 #endif
+#if WT_SLAVE
+static void wt_voice(int v, int note)                         /* region 0's assigner gave voice v the note */
+{
+    if (v >= 0 && v < WT_NV)                                  /* the note's step FIRST: the fill's parameters queue
+                                                                 up behind it (it came 40-350 ms late, 2026-11-05) */
+        wt_prm(WT_PDT0 + v, wt_dt_bits[note & 0x7F]);
+    wt_limits();                                              /* again: a write in load can land before the program */
+    if (wt_state == 0)
+        wt_fill();                                            /* the first notes fill the table (<= WT_BLOCK_MS each) */
+}
+#endif
+#if !WT_SLAVE
 static int8_t wt_vnote[WT_NV] = { -1, -1, -1 };
 static unsigned wt_next;
 static void wt_note_on(int note, int vel)                     /* the voice of a note: a free one, else the oldest */
@@ -993,9 +1094,10 @@ static void wt_note_on(int note, int vel)                     /* the voice of a 
     wt_prm(WT_PGAIN0 + v, 0x3ECCCCCDu);                       /* 0.4 */
 }
 #endif
+#endif
 static void a_note_on(struct assign *a, int note, int vel)
 {
-#ifdef EDM_WT
+#if defined(EDM_WT) && !WT_SLAVE
     wt_note_on(note, vel);
 #endif
 #if defined(PARAMLOG) && defined(EDM_PORT)
@@ -1095,6 +1197,16 @@ static struct s1_prog set_master_b[] = {
 #endif
     { 0, 0, 0 },
 };
+
+#ifdef MC_S1MA0_BYTES
+/* MA_MAIN: our master DSP A main at 0x0100 (empty), as the stock PLUG-OUTs load theirs (FC30 {0x100, ...}): the OS's
+   output program at 0x82 runs on into 0x0100, which otherwise keeps what an earlier mode left there (the stock
+   synth's modulation, writing 600E-6021 to the slave): docs/MUTABLE_MEMORY.md §4.3 */
+static struct s1_prog set_master_a[] = {
+    { 0x0100, MC_S1MA0_BYTES, mc_S1MA0 },
+    { 0, 0, 0 },
+};
+#endif
 
 static int m_nop(struct model *m) { (void)m; return 0; }
 
@@ -1228,6 +1340,9 @@ static void m_load(struct model *m)                           /* vt+0x08 */
     (void)m;
 #ifdef EDM_GLIDE
     edm_glide();
+#endif
+#ifdef MC_S1MA0_BYTES
+    ((s1_queue_fn)SVC(0x30))(set_master_a);
 #endif
     ((s1_queue_fn)SVC(0x34))(set_master_b);
 #ifdef EDM_KS

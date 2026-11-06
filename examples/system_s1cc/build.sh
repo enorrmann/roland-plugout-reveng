@@ -38,12 +38,17 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
   EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.5):
                 the kernel makes the excitation; AMP DECAY / AMP RELEASE = feedback held / released, FILTER CUTOFF =
                 brightness (sdk/s1cc/examples/edm/edm_string.c)
-  EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.8): WT_WAV=file
-                (Serum WAV, all frames, <= 262144 samples), filled at the first note, OSC1 COLOR = position
+  EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.8, §4.4):
+                WT_WAV=file (Serum WAV, frames of 2048), filled at the first notes, OSC1 COLOR = position. The frames
+                that fit are kept from the start, the rest dropped with a warning: at most 127 (the delay line), and
+                as many as region 0 holds (the build retries with fewer, WT_MAXF=n to set it)
   EDM_PORT=r|w|d  probe of the ARM's indirect port to the delay memory (docs/MUTABLE_MEMORY.md §3.3.7), needs
                 PARAMLOG=1: at every note region 0 reads 64 words over 4M + a test block and logs them; w: also
                 writes 64 words at the first note (EDM_PORT_W0=n, default 0x380000) and reads them back;
                 d: the port registers before / after one read, restored after it; p: only the counter +0x48
+  MA_MAIN=0     do not load our (empty) master DSP A main at 0x0100 (default 1: load it, as the stock PLUG-OUTs do;
+                without it master A runs what an earlier mode left there, which overwrites the master -> slave words
+                600E..6021: docs/MUTABLE_MEMORY.md §4.3)
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
 
@@ -103,6 +108,8 @@ case "${EDM_PORT:-}" in ""|0) EDM_PORT= ;; r) ;; w) ;; d) ;; p) ;; *) echo "buil
 [ -z "$EDM_PORT" ] || [ -n "$PARAMLOG" ] || { echo "build.sh: EDM_PORT needs PARAMLOG=1" >&2; exit 2; }
 export KERNEL
 mkdir -p "$B"
+# a failed build must leave nothing to install: the plug-out of an earlier build with this NAME goes first
+rm -f "$ROOT/plugins/$NAME/Script/Code1.Dat" "$ROOT/plugins/$NAME/Script/Code.Dat"
 # the most voices that fit: make_s1cc.py VOICES=auto computes them before it builds (exit 3: not even 1 fits)
 rm -f "$B"/s1mb?.*                      # EDM_ENTRY's program: only when this build makes it
 VOICES=auto OUTDIR="$B" python3 "$HERE/make_s1cc.py" > "$B/make_s1cc.log" 2>&1 || { cat "$B/make_s1cc.log"; exit 1; }
@@ -149,7 +156,7 @@ for r, base in ((0, 0x60800000), (1, 0x60200000)):
 here = b                                       # make_s1cc.py OUTDIR: the programs are in build/ too
 sects = tuple(n for n in ('s1a2', 's1a3', 's1a4', 's1a5', 's1b2', 's1b3', 's1b4', 's1b5')
               if os.path.exists(os.path.join(here, n + '.hex')))
-entry = tuple(n for n in ('s1mb0', 's1mb5', 's1mb6', 's1mb7') if os.path.exists(os.path.join(here, n + '.hex')))
+entry = tuple(n for n in ('s1mb0', 's1mb5', 's1mb6', 's1mb7', 's1ma0') if os.path.exists(os.path.join(here, n + '.hex')))
 for r, names in ((1, ('s1m0', 's1m1', 's1c0', 's1c1') + sects), (0, ('s1mm1',) + entry)):
     img = open(os.path.join(b, f'region{r}.bin'), 'rb').read()
     for n in names:
@@ -173,8 +180,25 @@ json.dump(meta, open(os.path.join(proj, 'plugout.json'), 'w'), indent=2)
 PY
 OUT=$ROOT/plugins/$NAME/Script
 mkdir -p "$OUT"
-python3 "$ROOT/tools/plugout_build.py" pack "$B/proj" -o "$OUT/Code1.Dat"
+if ! python3 "$ROOT/tools/plugout_build.py" pack "$B/proj" -o "$OUT/Code1.Dat" 2> "$B/pack.err"; then
+    # EDM_WT: the table travels in region 0 (1024 blocks of 512 compressed bytes): when it does not fit, the last frames
+    # go (4096 bytes each, as if they did not compress) and the build runs again; make_s1cc.py warns which
+    over=$(sed -n 's/.*region 0 needs.*(\([0-9]*\) bytes too many.*/\1/p' "$B/pack.err")
+    nf=$(sed -n 's/^#define WT_FRAMES \([0-9]*\)u.*/\1/p' "$B/s1_programs.h")
+    if [ -n "$EDM_WT" ] && [ -n "$over" ] && [ -n "$nf" ] && [ "$nf" -gt 1 ]; then
+        keep=$((nf - (over + 4095) / 4096 - 1))
+        [ "$keep" -ge 1 ] || keep=1
+        echo "build.sh: EDM_WT: region 0 is $over bytes too big with $nf frames: building again with $keep (WT_MAXF)" >&2
+        WT_MAXF=$keep exec sh "$0" "$@"
+    fi
+    cat "$B/pack.err" >&2
+    exit 1
+fi
+cat "$B/pack.err" >&2
 cp "$OUT/Code1.Dat" "$OUT/Code.Dat"
 python3 "$ROOT/tools/plugout_build.py" show "$OUT/Code1.Dat"
 echo "plugin folder: $ROOT/plugins/$NAME"
 echo "$NAME: $NV voices"
+if [ -n "$EDM_WT" ]; then
+    sed -n 's|^/\* EDM_WT (microcode/edm_wt.s, docs/MUTABLE_MEMORY.md §3.3.8): \(.*\) \*/$|wavetable: \1|p' "$B/s1_programs.h"
+fi

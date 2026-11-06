@@ -18,5 +18,7 @@ mul:reg
 sign:reg
 # sign: ONLY as `sign rX, rX` (the same register, the form that ran). `sign r3, r6` in MP-EDMWT9 (2026-11-05) gave
 # 0 for negative r6: the age wrap added half the table, the voice jumped by 46 frames every half lap (USB capture)
+# mul: `mul rD, rX, rX` with D != X (MI-WT 2026-11-05, sign fix) made the voices much noisier (cycle-to-cycle -10 dB):
+# suspect, like sign; use `mov rD, rX` + `mul rD, rD, rD`
 subxy:imm
 subxy:reg

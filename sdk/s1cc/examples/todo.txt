@@ -15,3 +15,13 @@ en el ejemplo cz sytem la env pitch no modula bien el color para algunas notas
 usando lo aprendido em memoria trabaja en un ejemplo para system-s1cc que use tabls de ondas como osciladores, el color de cada osc debe modular la posicion denrto de la tabla
 wavetables con 
 /home/emilio/PRODUCCION/samples/THE_REST/wavetables/Echo Sound Works Core Tables/Analog/
+
+
+
+WT_WAV="/ruta/a/tu tabla.wav"
+NAME=MI-WT KERNEL=sdk/s1cc/build/wt_edm_cmod sh examples/system_s1cc/build.sh && python3 tools/plugout_tool.py install plugins/MI-WT --slot 1 --force --no-patches -y
+
+escribir en un registro temporal target donde el edm copia el nuevo frame y hacer morph entre el actual y ese hasta que queden iguales en vez de copiarlo directamente al lugar donde suena
+wavetable EDM: tablas/samples mas largos repartidos en varias lineas de la EDM leidas una a continuacion de la otra
+(la recirculacion no usa tapreq, no cuesta voces; limite por linea 262144 muestras; limite real = tamano de region 0 ~0.94 MB)
+ver docs/MUTABLE_MEMORY.md §4.4 "Mejora posible"

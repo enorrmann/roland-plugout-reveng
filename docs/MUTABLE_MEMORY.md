@@ -30,7 +30,7 @@ Lo que **no** necesita memoria quedó portado aunque el original use tablas: las
 
 | memoria | tamaño | quién escribe | lectura con índice calculado | estado |
 |---|---|---|---|---|
-| banco 0 del esclavo (anillo) | 2048 palabras por DSP (`0000`–`0017` del OS), compartidas con todo el estado del kernel | el DSP | **sí**: `hset h6` + `ldidx` (relativo al anillo) | [medido] línea de 750 muestras con carga normal y con `ldidx` (C-S1SY15X, [../system-1/DSP_BANKS.md](../system-1/DSP_BANKS.md) §4); `hset` desde un registro en MP-CSAW2-8 (COLOR MOD, 2026-10-29) |
+| banco 0 del esclavo (anillo) | DSP A: **1024 palabras**, las direcciones dan la vuelta en `0x0400` (medido, WT-ALIAS, §4.2 regla 6); DSP B: aparte, tamaño sin medir (`0000`–`0017` del OS), compartidas con todo el estado del kernel | el DSP | **sí**: `hset h6` + `ldidx` (relativo al anillo) | [medido] línea de 750 muestras con carga normal y con `ldidx` (C-S1SY15X, [../system-1/DSP_BANKS.md](../system-1/DSP_BANKS.md) §4); `hset` desde un registro en MP-CSAW2-8 (COLOR MOD, 2026-10-29) |
 | banco 1 del esclavo (anillo) | 1024 palabras (`2000`–`23FF`) | el DSP | `ldidx` no lo direcciona [código] | buzón principal ↔ secciones ([../system-1/VOICE_ALLOCATION.md](../system-1/VOICE_ALLOCATION.md) §3.2) |
 | banco 5 (`A000`–`A3FF`) | 1024 palabras, compartidas por el DSP A y el B del esclavo; libres hoy ~`A070`–`A150` y `A200`–`A3FF` [código, SYSTEM-S1CC] | el ARM (`FD6C`) y el DSP | `da` / `db` (h6 / h7) | [medido] en los esclavos del SYSTEM-8 ([DSP_HARDWARE.md](DSP_HARDWARE.md) §7.4); en el S1 armado (MP-CSAW2-LUT, `LFO_LUT`), **sin probar** |
 | memoria de retardo (banco 2, `tapreq`) | megapalabras (S8: 2 M por BMC) | el DSP (entrada `4300`) | tomas con base `h4` y resultado `h5`; ≥ 24 tomas por muestra, fracción 1/64 | en el S1 sólo la usa el efecto del OS en el **maestro** B ([../system-1/FX_CHAIN.md](../system-1/FX_CHAIN.md) §3); en los esclavos del S1 **sin medir** [abierto] |
@@ -685,7 +685,7 @@ banco 0 sólo es posible si el DSP no guarda nada en el banco 0 [medido en el S8
 Bloqueo: la carga indexada del banco 5 (`ldb5` / `ldb5h7`) no está probada en el S1. `MP-CSAW2-LUT`
 (`LFO_LUT=1`) es esa prueba y ya está armada ([NATIVE_OPS.md](NATIVE_OPS.md) §3, paso 2).
 
-### 4.1 Wavetable en el esclavo: WT-SLAVE5 (2026-11-05, **funciona: 8 voces**)
+### 4.1 Wavetable en el esclavo: WT-SLAVE5, WT-SLAVE768 (2026-11-05, **funcionan: 8 voces**)
 
 La tabla entera (Sys8.wav, 92 frames) vive en la región 1 (`examples/system_s1cc/build/sl_wt.h`, cada frame limitado a
 63 armónicos, 127 puntos + guarda); el ARM del esclavo escribe en el banco 5 `A080`–`A0FF` (`FD6C sel 0`) el frame que
@@ -701,7 +701,225 @@ banco 5 (`A080`–`A0BF`, primer lugar en `A0FF`, uno cada 12 ms > una vuelta de
 8 voces, periódicas a su altura. 1024 puntos necesitan ~1040 palabras seguidas libres de los stores de los dos DSP
 (regla 6): hoy el tramo libre más grande es `0x0018`–`0x02FF` (744); habría que mover los bloques de voz.
 
-Pendiente: interpolación entre frames en el DSP (COLOR por voz / COLOR MOD).
+**Estado (2026-11-05): WT-SLAVE768 es el que funciona** (usuario: 8 voces, COLOR avanza de frame en frame).
+
+| | WT-SLAVE768 |
+|---|---|
+| build | `sdk/s1cc/s1cc build sdk/s1cc/examples/wavetable/wt_slave1k.c` y `KERNEL=sdk/s1cc/build/wt_slave1k sh examples/system_s1cc/build.sh` (el `S1_BUILD` del kernel: `SL_WT=b0 SL_MORPH=0 SL_L=768 SL_S=0x0040 A_BLOCK0=0x0360 SL_KOUT=0x0390 SL_P=0x03A0 SL_C=0x03B0 MIX=0`) |
+| tabla | Sys8.wav, 92 frames, cada uno limitado a 384 armónicos y llevado a 768 puntos (`make_s1cc.py sl_frames`, `build/sl_wt.h`, en la región 1) |
+| DSP A (esclavo) | lazo de 768 en el banco 0 `0x0040`–`0x0350`, un `ldb5` por muestra copia el bloque preparado; cada voz: fase, un `hset`, dos `ldidx` (puntos k y k + 1), interpolación lineal entre puntos → `A151 + v` (`sl_wt.s sl_wt_loop`, `sl_wt1_voice`); bloques de voz y palabras propias en `0x0360`–`0x03B1` |
+| DSP B (esclavo) | filtro + VCA + envolventes de `mp_dsp_b.h`, como cualquier oscilador |
+| ARM (región 1) | `engine.c sl_tick` cada 1 ms: cada 12 ms el bloque siguiente de 64 puntos del frame más cercano a OSC1 COLOR → banco 5 `A080`–`A0BF` + su lugar en `A0FF`; un frame nuevo entra entero en 144 ms |
+| COLOR | salta al frame más cercano (sin mezcla de frames: es lo que pidió el usuario por "morph") |
+| límite | el banco 0 del DSP A tiene 1024 palabras (abajo, WT-ALIAS): 896 puntos como máximo |
+
+**`SL_MORPH`** (2026-11-05): `SL_MORPH=1` (WT-SLAVE0I) guarda dos frames entrelazados en el lazo (256 puntos cada
+uno) y el DSP los mezcla por COLOR; en el equipo sonó peor que WT-SLAVE0L y al pasar de un par de frames al siguiente
+tardaba (una vuelta de bloques) y se oía el frame a medio escribir. `SL_MORPH=0` (por defecto): **un frame** de
+`SL_L` puntos; COLOR elige el frame más cercano de la tabla entera (sin mezcla) y la región 1 lo escribe en el lazo
+bloque a bloque (`engine.c sl_tick`: 64 puntos cada 12 ms → 1024 puntos en 192 ms, 512 en 96 ms). Interpolación
+lineal sólo entre puntos vecinos del frame (`sl_wt1_voice`, dos `ldidx`).
+
+| build | lazo | direcciones | estado |
+|---|---|---|---|
+| WT-SLAVE512 (`wt_slave1k.c` + `NAME=WT-SLAVE512 SL_L=512 A_BLOCK0=0x0300 SL_KOUT=0x0330 SL_P=0x0340 SL_C=0x0350 B_OUT0=0x0400`) | `0x0040`, 512 | las de WT-SLAVE0L (todas probadas) | **funciona** (usuario, 2026-11-05): 8 voces, COLOR avanza de frame |
+| WT-SLAVE1K (`sdk/s1cc/examples/wavetable/wt_slave1k.c`) | `0x0040`–`0x0450`, 1024 | bloques de voz del DSP A `0x0460`, `SL_KOUT` `0x04A0`, `SL_P` `0x04B0`, `SL_C` `0x04C0`, salidas del DSP B `0x04D0` (opciones `A_BLOCK0`, `B_OUT0`): **nuevas** para el DSP A (el DSP B guardó en `0x0400`–`0x05FF` en C-S1SY / MP-CSAW2-8) | **no funciona** (captura `work/captures/wt_slave1k_184127.wav`): nivel ~1/10, sin período a la altura de la nota (4–5 % de energía armónica), COLOR sin efecto |
+| WT-SLAVE768 (`wt_slave1k.c` + `NAME=WT-SLAVE768 SL_L=768 A_BLOCK0=0x0360 SL_KOUT=0x0390 SL_P=0x03A0 SL_C=0x03B0`) | `0x0040`–`0x0350`, 768 | todo lo del DSP A bajo `0x0400`; `0x0380`–`0x03B1` nuevas (promovidas) | **funciona** (usuario, 2026-11-05) |
+
+**El banco 0 del DSP A del esclavo tiene 1024 palabras** (medido, WT-ALIAS 2026-11-05): las direcciones dan la vuelta
+en `0x0400`. WT-ALIAS (WT-SLAVE512 + `SL_ALIAS=1`): el DSP A guarda 1,0 en `0x0770` cada muestra; las voces 0–3
+multiplican su salida por `[0371]`, las 4–7 por `[0771]` (control); 8 notas sostenidas una tras otra: el nivel sube 8
+veces igual (0,0016 · √n: 0,0016 … 0,0045, `work/captures/wt_alias_*.wav`), o sea `[0371]` = 1,0 = lo guardado en
+`0x0770`. Por eso WT-SLAVE1K falló (sus palabras en `0x0460`–`0x04C0` caían en `0x0060`–`0x00C0`, dentro del lazo) y
+WT-SLAVE0 (`0x0360` + 1024) se pisaba a sí mismo. Los stores del DSP B no llegan a ese banco: en WT-SLAVE0L el DSP B
+guarda en `0x0600`–`0x0742` (= `0x0200`–`0x0342` con la vuelta, dentro de su lazo `0x0041`–`0x0250`) y sonó bien.
+Lazo máximo: `0x0018`–`0x03FF` (1000 palabras) menos las palabras del DSP A (82 con 8 voces) menos 17 → 896 puntos
+(14 bloques de 64). `make_s1cc.py` rechaza un lazo fuera de `0x0018`–`0x03FF` y compara las palabras del DSP A módulo
+`0x0400`.
+
+`make_s1cc.py` rechaza el lazo si cae sobre cualquier store de los dos DSP (bloques de voz de A y B, salidas de B,
+fases, contador). Inmediatos de `mul` > 256,0 no tienen codificación: `x = p · 256 · (SL_N / 256)`.
+
+**WAV de entrada** (`wt_samples`, EDM_WT y SL_WT): se toman sólo frames enteros de 2048 desde el principio; la cola
+parcial y los frames que no entran (EDM: 262 144 muestras = 128 frames; SL_WT: `SL_TBYTES`, 640 KiB de frames en la
+región 1 = 319 frames de 1024 puntos) se descartan con un aviso; la normalización es sobre lo que queda.
+
+COLOR MOD por voz: no con un solo frame en el lazo (todas las voces leen el mismo); hace falta la tabla entera al
+alcance del DSP (la EDM, §3.3.8: ≤ 6 `tapreq` por muestra) o varios frames en el banco 0 (menos puntos).
+
+### 4.3 Maestro B → esclavo por `600E`–`6015`: WT-M2S (2026-11-05, **funciona con `MA_MAIN`**)
+
+Objetivo: la wavetable entera en la EDM leída por el maestro B (una `tapreq` por voz) y la muestra de cada voz mandada
+al esclavo, que le aplica filtro y amp como hoy (§3.3.8 + §4.1). Primero, el transporte maestro B → esclavo.
+
+Prueba (`M2S_PROBE`, sobre WT-SLAVE768): el maestro B guarda 1,0 en `600E`/`6010`/`6012`/`6014` y 0,5 en
+`600F`/`6011`/`6013`/`6015` cada muestra; el DSP A del esclavo multiplica la voz v por `[600E + v]`. Captura USB: 8 notas
+sostenidas una tras otra (48 … 72), amplitud de la fundamental de cada nota nueva (`work/captures/wt_m2s*.wav`).
+
+| build | `0x0100` del maestro A | el maestro B escribe | el esclavo lee | resultado |
+|---|---|---|---|---|
+| WT-M2SREF (`M2S_PROBE=2`) | lo que quedó | sí | no | normal: las 8 notas, fundamentales parejas (420–540) |
+| WT-M2S, 1ª vez | lo que quedó | sí | sí | ~15 veces más bajo, la nota sola una octava arriba: lo leído es una señal a la altura de la voz |
+| WT-M2S, 2ª y 3ª vez (otros arranques) | lo que quedó | sí | sí | **silencio digital** (lo leído = 0); después PLG1 mudo hasta reinstalar WT-SLAVE768 |
+| WT-M2SR0 (`M2S_PROBE=3 MA_MAIN=0`; arranque, una nota en modo SYSTEM-1, PLG1) | lo que quedó | no | sí | silencio digital (0) |
+| **WT-M2S + `MA_MAIN=1`** | **nuestro, vacío** | sí | sí | **las 8 notas, fundamentales alternadas 453 / 949 / 428 / 918 / 449 / 894 / 475 / 1032: razón ~2,05 = 1,0 / 0,5** |
+
+Conclusión [medido]: **el maestro B sí llega al esclavo por `600E`–`6015`** (ld / st planos, sin habilitar nada: como el
+PROMARS, cuyo maestro B escribe `6010` y su esclavo la lee en el principal de un DSP y en la sección `0x1900` del otro,
+`system-1/s1_progs.py`). Lo que lo impedía es **el principal del maestro A en `0x0100`, que nunca cargábamos**: en modo
+PLUG-OUT el OS encola en el maestro A sólo su programa de salida en `0x82` (126 B, termina justo en `0x100`) y los
+cierres; el DSP sigue en `0x0100`, donde queda lo que cargó el modo anterior, y ese programa escribe esas palabras
+después del maestro B (0 en reposo; una señal a la altura de la nota la vez que sonó). Que sea el programa de
+modulación del sinte de serie (696 instrucciones, escribe `600E`–`6021` y el banco 5 `A100`–`A113`) es [inferido]:
+el contenido no se leyó. Los PLUG-OUTs de Roland cargan su propio `0x0100` (`FC30 {0x100, 0x6DF2, 0x7FF2}`).
+
+Qué se hace desde ahora: **`make_s1cc.py` carga siempre un principal propio vacío en el maestro A** (`MA_MAIN=1`, por
+defecto; `s1ma0` = inicio + el fin de Roland, 7 medias palabras; `model.c set_master_a`, `FC30` en `load` antes del
+maestro B; `MA_MAIN=0` = como antes). Además del bus, así el maestro A deja de correr un programa ajeno (ciclos y
+stores al banco 5 de los que no sabíamos). Pendiente en las otras herramientas del S1 que tampoco lo cargan
+(`examples/system_1`, `system_1_synth`, `system_1_ramp`, `mutable_system`; `system_1_jx` sí carga el suyo).
+Los builds de SYSTEM-S1CC previos se probaron sin él; uno nuevo de un kernel ya probado debe volver a probarse.
+
+Siguiente: el esquema EDM → esclavo (maestro B: una `tapreq` por voz → `600E + v`; esclavo: filtro + amp).
+
+### 4.4 Wavetable entera en la EDM, voces en el esclavo: WT-EDM (2026-11-05, **funciona**)
+
+La tabla de §3.3.8 (Sys8.wav entera, 92 frames × 2048, en un lazo propio de la EDM) con las voces en el esclavo, para
+tener su filtro y su amp: `sdk/s1cc/s1cc build sdk/s1cc/examples/wavetable/wt_edm.c` y
+`KERNEL=sdk/s1cc/build/wt_edm sh examples/system_s1cc/build.sh` (`S1_BUILD`: `EDM_WT=1 WT_SLAVE=1 SL_WT=m MIX=0`).
+
+```
+región 0 (model.c)  asignador de 6 voces (NV = WT_NV); en cada nota la voz v recibe su paso de fase en C030 + v
+                    (wt_voice); COLOR → C036 = el primer sample del frame más cercano (sin mezcla); las primeras notas
+                    llenan el lazo (wt_fill, <= 500 ms cada una)
+maestro B (edm_wt.s master_wt_s, 353 instr.)  el lazo como master_wt; por voz UNA tapreq (edad de c - (frame + fase))
+                    desde el bloque del efecto del OS (edm_call.s edm_wt_block, 6 pedidos); el resultado de la muestra
+                    anterior, interpolado (x0 + (x1 - x0) fr) → 600E + v; después la mezcla del esclavo 6006 / 6007 ×
+                    VOLUME → envíos del efecto, como master.s
+esclavo A (sl_wt.s sl_m2s_voice)  [600E + v] → la salida de la voz (A151 + v)
+esclavo B           filtro + amp + envolventes de mp_dsp_b.h, como cualquier oscilador
+maestro A           nuestro principal vacío (MA_MAIN, §4.3): sin él no llega nada de 600E..
+```
+
+Medido (captura USB `work/captures/wt_edm_192818.wav`, 8 notas sostenidas una tras otra): la nota 48 sola a 130,79 Hz
+(130,81 esperado), periódica (correlación 0,988); cada nota nueva aparece con su fundamental (la 7.ª y la 8.ª roban
+voces: 6); al soltar, silencio (el amp del esclavo cierra la voz: lo que faltaba en MP-EDMWT8).
+
+**Incidente:** la primera vez que se eligió el PLUG-OUT recién instalado y se tocaron notas, **el equipo se apagó**;
+tras encenderlo, las primeras notas tardaban en empezar (el llenado bloquea hasta 500 ms por nota) y después anduvo.
+Causa sin determinar. Antes, un apagado así lo causó un store directo del ARM en la tabla de mapas (§3.3.4); acá la
+tabla se carga con `FC3C` en `load`, como en MP-EDMWT8, que no se apagó. Diferencias con MP-EDMWT8: el principal propio
+del maestro A (`MA_MAIN`), 6 pedidos por muestra (MP-EDMWT8: también 6, 3 voces × 2), el asignador de la región 0 en vez del propio.
+Regla de trabajo que ya estaba (§3.3.8): tras instalar, apagar y encender antes de elegir el PLUG-OUT.
+
+**Sonido alternado (medido 2026-11-05) y su causa.** Con una nota sostenida el timbre alternaba cada ~94 200 muestras
+entre el frame pedido y uno ~45 frames antes (frames 88–89 ↔ 44–45, `wt_edm_hold_*.wav`), y recién encendido (tabla a
+medio llenar) entre nota y silencio (`wt_edm_boot_*.wav`). Pruebas:
+
+| build | qué | resultado |
+|---|---|---|
+| WT-AGE (`WT_AGEFIX=40000,120000`) | voz 0 lee a edad fija 40 000, voz 1 a 120 000; izq./der. directo del maestro B | der. = izq. atrasado **80 000** (correlación 0,87): la EDM lee bien edades grandes |
+| WT-AGE2 (`WT_DIAGA=1`) | izq. la voz 0, der. la edad que pidió / 16 | la edad salta −0,3593 × 16 = **5,749 unidades cada 94 176 muestras**: `c` da la vuelta en la mitad |
+
+Causa [medido]: la constante del límite de `c`, `mov r3, #11.49609` (`WT_LEN / 16384 − 2^−15`, codificada `4b7f`),
+**corrió en el maestro B como 5,748** (la mitad); el ensamblador y el emulador la leen como 11,496 (por eso
+`wt_sim` / la simulación de edades daban bien). Con `c` de media vuelta, la mitad del tiempo la edad apuntaba media
+tabla corrida. Lo mismo estaba en MP-EDMWT8 (probable causa de su correlación 0,90). Arreglo: el límite con una op,
+`mov r3, #11.5` (`4b80`) + `addxy r3, r3, #−2^−15` (además exacto: la constante vieja daba 64 muestras menos por
+vuelta). **Verificado** (`wt_edm_fix_194906.wav`, nota sostenida 10 s): nivel y timbre parejos todo el tiempo
+(centroide 516–564 Hz, sin saltos), periódica (164,67 Hz, correlación 0,96). Qué inmediatos de 16 bits decodifica distinto el equipo no está medido: `#127.0` (esclavo) y `#5.75`,
+`#0.125` (maestro B) corren bien; `4b7f` (mantisa con los 7 bits bajos en 1) no.
+
+**Clicks cada 2^16 muestras y en cada vuelta (medido 2026-11-05).** Con el límite `mov #11.5` + `addxy #−2^−15` la
+voz saltaba de fase cada **65 536 muestras exactas** (`wt_edm_fix_194906.wav`, nota 40); con edades fijas (WT-AGE) no
+hay saltos: es la cuenta de `c`, otra vez una constante que el equipo lee distinto que el emulador. Arreglo: **el
+límite y el sumando de la vuelta como parámetros** que el ARM escribe en float exacto (`C038` = (LEN − ½) / 16384,
+`C039` = LEN / 32768; `model.c wt_limits`, en `load` y en cada nota), sin inmediatos. WT-AGE3 (rampa de la edad): la
+vuelta completa, sin saltos de 2^16; quedaba un error grande (0,44) justo en el cambio de vuelta de la edad → **margen**:
+las edades van de 256 a LEN + 256 (la copia de una vuelta antes; nunca una edad de pocas muestras). WT-EDM con los dos
+(`wt_edm_v3_200124.wav`): nota sola a 130,79 Hz, correlación 0,992, acorde sin saltos; quedan transitorios chicos
+(residuo ~0,002) en el cambio de vuelta, cada ~1,97 s, y uno de medio frame (1024 muestras de tabla) una vez. El
+usuario lo da por bueno. Maestro B: 379 instrucciones (MP-EDMWT8: 340).
+
+Regla que deja esto: **en el maestro B, ninguna constante que no sea "redonda" en programas que el emulador no puede
+validar contra el equipo**; los valores exactos van por parámetros (`FCEC`) o se arman con ops desde valores redondos
+probados.
+
+**COLOR MOD por voz: WT-EDM-CMOD (2026-11-05, funciona, 6 voces).** `sdk/s1cc/examples/wavetable/wt_edm_cmod.c`
+(`WT_CMOD=1`): el kernel lee `s1_color(0)`, así el anfitrión arma el COLOR de cada voz con su fuente de COLOR MOD
+(perilla + LFO / envolventes / sub); el DSP A del esclavo lo lleva a una posición de la tabla
+(`sl_wt.s sl_m2s_voice`: color × (frames − 1), paso `WT_CQ`) y la manda al maestro por **`6008 + v`** (esclavo →
+maestro, 6 palabras; el DSP B ya no escribe ceros ahí); el maestro B la usa en lugar de `C036` para esa voz.
+`WT_CQ`: 1 = de a frame, 2 = medio, 4 = cuarto, 0 = de a muestra (el ciclo es el final del frame k y el comienzo del
+k + 1, la frontera se mueve con COLOR: continuo, con un salto chico en la unión si los frames difieren).
+
+| build | qué | resultado |
+|---|---|---|
+| WT-EDM-CMOD (Sys8) | COLOR MOD = LFO, 6 notas una tras otra | 5 voces modulan, **una no** |
+| WT-CMOD-VTAG (`WT_VTAG=1`: la voz v a (v + 1) / 8) | qué voz es | la de menor nivel: **voz 0** |
+| WT-CMOD-ROT (`WT_S2MROT=1`: la voz v por 6008 + (v + 1) mod 6) | ¿la palabra o la voz? | sigue la voz 0 (la voz 5, ahora por 6008, modula) |
+| causa | `SL_KOUT` (salidas propias del kernel, que nadie lee) en `0x0700 + 2v`: con la vuelta del banco 0 del DSP A en `0x0400` (§4.2 regla 6), `0x0708` = `0x0308`, la palabra del COLOR de la voz 0 → el kernel la pisaba con ~0 | `SL_KOUT` → `0x0260` (probada, C-S1SY) |
+| WT-CMOD-VTAG2 | el arreglo | **las 6 voces modulan** (cambio de forma 0,25–0,27), niveles 0,12 … 0,75 en orden |
+
+Tablas: Sys8 es la más escalonada de la carpeta (cambio medio entre frames 0,148); **Circle PWM** (255 frames, entran
+127: comprime bien) tiene pasos 10 veces más chicos con un barrido grande: WT-CMOD-PWM (de a frame), WT-CMOD-PWMQ
+(cuarto), WT-CMOD-PWMS (continuo). **Elegido: de a frame (`WT_CQ=1`, el default).** WT-CMOD-PWMS sonó mucho peor
+(usuario; nota sostenida `wt_pwms_203312.wav`: sin período a la altura de la nota, correlación 0,28, la parte
+armónica entre 1 % y 62 % con un ciclo de una vuelta de la tabla), mientras que de a frame la misma nota es 98,6 %
+armónica (`wt_vtag2_203000.wav`). Causa del continuo sin medir.
+
+**Calidad frente a una wavetable ideal (medido 2026-11-05, MI-WT = WT-EDM-CMOD con `80's PWM.wav`, 31 frames).**
+Captura `work/captures/wt_pwm80_204717.wav` (nota 48 sostenida, sin modulaciones; nivel −52,7 dBFS rms). Referencia:
+el frame en lazo, con banda limitada. Resultados: suena el frame **12** (por la posición del COLOR; el 0 no coincide);
+altura 130,783 Hz (−0,40 cents); los armónicos fuertes 1–19 coinciden con el frame a ±0,1–1 dB. Desvíos: (1) los
+armónicos nulos del frame (3, 6, 9, 12, 15 …, −37 dB) salen +7 … +14 dB; (2) **ruido no armónico −24,5 dB**
+(el modelo de lectura lineal + fracción 1/64 da −59,4 dB; sin interpolar −49; fracción invertida −43; x0/x1 de una
+muestra antes −39 … −42: ninguno lo explica); la forma de onda **cambia lentamente y se repite cada 50 ciclos**
+(0,382 s; ventana contra ventana 50 ciclos después −52 dB, 1–13 ciclos después −35 … −19 dB); alrededor de cada
+armónico hay bandas laterales a ±5,77 Hz y un peine de **1,512 Hz = 96000 / 63488 (una vuelta del lazo de la EDM)**;
+el desplazamiento de tiempo por ciclo tiene componente a 5,7 Hz (desvío estándar 0,42 muestras). Una tabla fija,
+leída como el código, no lo reproduce (ajuste por mínimos cuadrados de los 2048 puntos: residuo −23 dB): el
+contenido o la posición leída cambia con el tiempo. Causas [medidas con `WT_DIAG=1` en `master_wt_s`: izquierda = el lazo `[4041]`, derecha = la lectura de la voz 0
+en `600E`; WT-DIAG1 `wt_diag1_210942.wav`, WT-DIAG2 `wt_diag2_211255.wav`]: (a) **el lazo medía WT_LEN + 1** (63 489,
+repetición exacta) con la lectura en `WT_A + WT_LEN − 1`: el lazo es la distancia + 2. Con `WT_RDIST = WT_LEN − 2`
+mide 63 488 exacto → ahora es el valor por defecto. La tabla corría una muestra por vuelta respecto de `c` (de ahí el
+peine de 1,512 Hz y el cambio lento). (b) **El relleno (`model.c wt_fill`) pierde ~7 % de las escrituras**: huecos
+aislados en 0 cada ~9–10 muestras, vecinos correctos (dos `FCEC` en la misma muestra del DSP); `wt_done` las marca
+igual, así que quedan para siempre. Las notas siguientes llenaron 700 huecos bien, 90 con el valor del vecino y
+**pisaron 1865 muestras buenas** (escrituras a destiempo). (c) Una nota llena hasta el frame 23 (≤ 500 ms). Las
+muestras escritas coinciden con el WAV a −33 dB (después del bloqueo de DC de la salida). Pendiente: relleno que no
+dependa del tiempo del ARM. Aparte, el aliasing de la lectura lineal de una tabla sin
+filtrar (calculado): nota 72 −48 dB, 84 −30 dB, 96 −22 dB; con la tabla limitada en banda por octava (mipmaps),
+≤ −59 dB en todas.
+
+**Validaciones de memoria en `make_s1cc.py`** (errores, salvo donde dice; agregadas 2026-11-05 tras este caso):
+`bank0_wrap_check` (dos direcciones del DSP A del esclavo que coinciden módulo `0x0400`), `collision_check`: DSP A
+en `0x0000`–`0x0017` del OS (módulo `0x0400`); DSP B lo mismo como aviso (su tamaño no está medido; las direcciones
+ya probadas no avisan); banco 5 del esclavo escrito por los dos DSP; IOMD con más de un escritor o en el sentido
+equivocado (esclavo → maestro `6006`–`600D`, `6026`–`602D`; maestro → esclavo `600E`–`6021`); maestro B en las
+palabras del efecto del OS (banco 0 `0000`–`0033`, banco 2 `4000`–`4033`). Más las que ya estaban: direcciones no
+probadas (aviso), stores dobles del banco 5 por el DSP A (regla 4), el lazo `SL_WT=b0`.
+
+**Relleno indexado y "tuc" (2026-11-05, MI-WT).** `WT_FILLIDX=1` (default): el ARM manda pares (valor, índice) en `C03A`/`C03B`, `C03C`/`C03D` (valor primero); el maestro B escribe el lazo sólo si `c` = índice (`m = 1 − sign(i − c)²`); 9 vueltas de relleno (k mod 3, adelanto 3 / 6). Medido: notas sostenidas con diferencia de ciclo a ciclo −40 … −50 dB (relleno viejo −12 … −29). `wt_voice` manda el paso de la nota ANTES del relleno (llegaba 40–350 ms tarde, detrás de los parámetros del relleno). El "tuc" a ~1–2 s de algunas notas era **`sign(0) = 0`** en la vuelta de la fase del maestro B: con `p + dt` justo en `WT_F`, `(sign + 1) F/2` restaba medio frame → la voz quedaba corrida 1024 muestras de tabla (medido `wt_long_235143.wav`, nota 52, 1022 de 2048). Arreglo: `sign + sign²` (2 / 0 / 0); lo mismo en la vuelta de la edad (`sign² − sign`). Regla: **en el DSP `sign(0) = 0`; toda decisión con `sign` debe dar un valor válido también en 0**. Verificado (`wt_sign5_235825.wav`, notas 48/52/55/59 de 2,3 s): sin saltos en la nota, diferencia de ciclo a ciclo −42 … −58 dB (la mejor medida). En el camino: `mul r5, r3, r3` (destino ≠ fuente) y un `mov r5, r3` pegado a `sign r3` (latencia) dieron −10 / −19 dB; `make_s1cc` ahora avisa la forma `mul rD, rX, rX`; los riesgos de latencia del maestro B escrito a mano no se chequean. WT-NOCMOD (`WT_CMOD=0`) no sigue al COLOR (queda en el frame 0–2) y suena más ruidoso: error aparte, abierto.
+
+**Aliasing con el COLOR cerca de 0 (medido 2026-11-06, MI-WT, `80's PWM.wav`).** Capturas `wt_alias_000104.wav` / `wt_alias14_000244.wav` (frame 0, idénticas hasta el decimal: determinista, no es el USB) y `wt_sign5_235825.wav` (frame 14). Potencia no armónica total:
+
+| frame | medido | modelo (lineal, fracción 1/64, tabla sin filtrar) | modelo con la tabla limitada en banda |
+|---|---|---|---|
+| 14 | −46 … −48 dB | −60 … −66 dB | −63 … −70 dB |
+| 0 (notas 48–84) | −22 … −26 dB | −29 … −48 dB | −62 … −66 dB |
+
+Origen: (1) el frame 0 es un pulso fino, con 16 dB más de energía arriba del armónico 100 que los demás frames (−39 dB contra −55); la lectura lineal de la tabla sin filtrar a la nota repliega esos armónicos; (2) el equipo queda 17–22 dB peor que ese modelo en los dos frames, y el exceso crece con el contenido agudo del frame (causa sin medir: la fracción de interpolación del `tapreq` o la precisión de la EDM; ninguna variante simulada de la lectura —sin interpolar, fracción atrasada o invertida— llega a lo medido). No es vibrato (la altura varía < 0,1 cent). Arreglo previsto (no hecho, postergado por el usuario): tablas limitadas en banda por octava.
+
+**Morph con una lectura por voz (medido 2026-11-06).** Las tablas Serum de la carpeta son barridos continuos (empalmar medio frame = mezclar, error 0 en las de 150–256 frames; 80's PWM 2,2 %), así que una posición FIJA entre frames suena bien (WT-CONT `WT_CQ=0`, COLOR quieto: −35 … −39 dB no armónico). Pero **mover** la posición corre la onda en el tiempo: es leer más rápido o más lento = cambio de altura (Doppler); con COLOR MOD (LFO, 8 frames en ~0,35 s) el ciclo se corría hasta ±36 muestras por ciclo (`wt_cont5_002159.wav`). Con una lectura por voz, sólo pasos de frame entero conservan la fase; un morph real modulable necesita dos lecturas y mezcla (3 voces). Además: COLOR + COLOR MOD sale de 0..1 → posición fuera de la tabla → silencio con pulsos: el esclavo lo recorta (`sl_wt.s`, `max`/`min`). `WT_FLATCH=1` (default): el maestro B toma la posición nueva sólo al empezar el ciclo de la voz (estado `0x0320 + 4v`); `WT_FLK` = acercamiento por ciclo, **1** (sólo captura): valores < 1 dejan posiciones fraccionarias = Doppler. MI-WT reinstalado con `WT_CQ=1` + captura, sin verificar.
+
+**Morph de a ¼ de frame sin Doppler: WT-LINES (`WT_LINES=1`, 2026-11-06).** El maestro B escribe en cada muestra 3 líneas más con la tabla mezclada ¼, ½, ¾ hacia el frame siguiente en la misma fase (`x` = la muestra `c` del lazo, `xn` = `[4043]`, lectura fija a `RDIST − WT_F`; escrituras `[4044]`/`[4046]`/`[4048]`, entradas 34–39 de la tabla de mapas). El esclavo manda en `6008 + v` `u = k/8 − j·WT_LS/16384 − (LEN + 512)/16384` (k frame, j cuarto): la edad del maestro nunca da la vuelta y cae en la línea j una vuelta más vieja (cada línea guarda 2 vueltas + 770; las líneas se rehacen iguales cada vuelta). Las edades más viejas leen direcciones **más altas**. Medido: (1) con la separación y el corte de frame/línea en el maestro, 640 instrucciones → **cuelga** (481 corrió; presupuesto del maestro B entre 514 y 640); (2) un desplazamiento de línea por las palabras `6026 + v` llegó siempre en 0 (sin conexión esclavo → maestro, probable); (3) con `WT_LS = 0x20000` aparecen los cuartos (`wt_lines3_004021.wav`) pero con fallas sueltas: la línea 2 caía sobre los escritores de la reverb del OS (`0x48CA00`, `0x48F340` …). Ahora `WT_LS = 0x60000` (`0x440000`, `0x4A0000`, `0x500000`, `0x560000`; la EDM tiene 2 097 152 palabras y da la vuelta), sin verificar. Tabla ≤ ~65 000 muestras.
+
+**Mejora posible (no hecha): tablas más largas en varias líneas.** Hoy la tabla vive en UNA línea de la EDM (`WT_A = 0x440000`, lazo de `WT_LEN`); las 6 voces leen de esa misma línea con un `tapreq` cada una (6 por muestra = el límite medido, §3.3.5). Una línea no pasa de `WT_GAP` = 262 144 muestras (2,73 s: el escritor del delay del OS en `0x400000`, §3.3.6). Para más, partir la tabla en varias líneas en lazo (cada una con su par escritura/lectura en la tabla de mapas, como las de `EDM_STR` en `0x440000 + 0x4000 v`, cargadas con `FC3C`), una a continuación de la otra: la recirculación va por las entradas de la tabla de mapas, no por `tapreq`, así que **no cuesta voces**; la voz sigue con un `tapreq` y elige la línea por la base de su pedido. Abierto: cuántas entradas de mapa y cuánta EDM quedan libres, y el tamaño de la tabla en la región 0 (≈ 0,94 MB por región, (memoria "long samples"): ≈ 470 000 muestras int16 ≈ 4,9 s), que limita antes que la EDM.
+
+Pendiente: la inestabilidad (cuelgues al pasar de modo SYSTEM-1 a PLUG-OUT, un apagado; sospechoso: el parche en vivo
+de `edm_call` en la memoria de programa del maestro B durante `load`) (el frame por voz en vez de `C036` global:
+el maestro B ya tiene la edad por voz); el llenado sin bloquear al OS; 7.ª y 8.ª voz (no: 6 `tapreq` como máximo).
 
 ### 4.2 Reglas de las cargas indexadas y del banco 5 en el esclavo del S1 (medidas 2026-11-05)
 
@@ -713,7 +931,7 @@ Ninguna de estas aparece en el emulador (modelo del SYSTEM-8); costaron las prue
 | 2 | una carga indexada usa el registro que nombró su `hset` **tal como está al cargar**: no escribirlo entre el `hset` y la última carga indexada (ni en la misma instrucción) | IDX-PROBE cabeza: dos cargas leyeron el índice de otro valor del registro; WT-SLAVE5: `mov r6, #1.0 \| ldb5 r1, 0` | `asm/dspsched.py` (`hset_src`, `HSET_HOLD`) |
 | 3 | una sola carga indexada por instrucción: `ldidx r1, 0 \| ldidx r2, 1` da a las dos la palabra de la segunda | IDX-PROBE (par del banco 0: 0,757 / 0,752 para 0,625 / 0,75) | `asm/dspsched.py` (`Ins.fits`) |
 | 4 | **el DSP A y el B de un esclavo corren a la vez**: una palabra del banco 5 que A escribe dos veces por muestra (el 0 del kernel, después la onda) la puede leer B en el medio. Un solo store por muestra en cada palabra compartida | WT-SLAVE5 con el kernel escribiendo `A151 + v`: sonaba sólo la voz que B lee antes del 0 (voz 0; con el orden invertido, las dos primeras y las dos últimas); con el kernel en el banco 0 (`SL_KOUT`): las 8 | `make_s1cc.py addresses` (`SL_WT`) |
-| 6 | **el banco 0 del esclavo es uno por chip** [inferido, fuerte]: un lazo del DSP A en `0x0360`–`0x0770` (dentro de los stores del DSP B, `0x0400`.., `0x0600`–`0x0742`) no fue periódico; el mismo lazo (512) en `0x0040`–`0x0250`, donde no guarda ninguno de los dos, sí (correlación al período 0,965–1,000, 8 voces). Toda línea / tabla del banco 0 debe quedar fuera de los stores de **los dos** DSP | WT-SLAVE0 / WT-SLAVE0L | `make_s1cc.py` (`SL_S`, `SL_L`) |
+| 6 | **el banco 0 del DSP A tiene 1024 palabras: las direcciones dan la vuelta en `0x0400`** (medido, WT-ALIAS; corrige la inferencia anterior "uno por chip"). Toda línea / tabla del banco 0 debe quedar en `0x0018`–`0x03FF` y fuera de los stores del DSP A módulo `0x0400`; los del DSP B no la tocan | WT-SLAVE0 (lazo `0x0360` + 1024: se pisa a sí mismo), WT-SLAVE0L, WT-SLAVE1K, WT-ALIAS (§4.1) | `make_s1cc.py` (`SL_S`, `SL_L`) |
 | 5 | la distancia `hset` → carga 2 alcanza (8 no cambió nada); las cargas y el SFU con distancia 1 están bien | WT-SLAVE5B (`HSET_DIST=8`), WT-SLAVE5L (`LAT2=1`): igual que sin ellas | `HSET_DIST`, `LAT2` quedan como opciones de prueba |
 
 Maestro B (§3.3.8): nuestro principal en `0x1000` lee el banco 5 como 0; `sign` sólo como `sign rX, rX`

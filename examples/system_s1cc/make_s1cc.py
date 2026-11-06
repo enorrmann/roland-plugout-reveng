@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (docs/examples_system_s1cc_README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'SL_WT', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
+           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'SL_WT', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -215,11 +215,14 @@ def export_addr(i, v):
     return base + v
 # bank 0 (ring, S / S+1): the voice blocks of the kernel, sized by what it needs, in the regions our device-proven
 # programs used (C-S1V8 / C-S1SY: slave A 0x0300.., slave B 0x0400..; MUTABLE-SYSTEM's kernel B: 0x0600..)
-A_BLOCK0, B_BLOCK0 = 0x0300, 0x0600
-B_OUT = [0x0400 + 2 * v for v in range(NV_MAX)]  # DSP B output of voice v (ring: read one sample later at S+1)
+# A_BLOCK0 / B_OUT0 options: SL_WT=b0 SL_L=1024 moves them out of the loop (wt_slave.c, MUTABLE_MEMORY.md §4.1)
+A_BLOCK0, B_BLOCK0 = int(opt('A_BLOCK0', '0x0300'), 16), 0x0600
+B_OUT = [int(opt('B_OUT0', '0x0400'), 16) + 2 * v for v in range(NV_MAX)]  # DSP B output of voice v (ring: read one sample later at S+1)
 K_A_PARAM0, K_B_PARAM0 = 0x70, 0x60         # the kernel's knob tables: DSP A C070.., DSP B C060..
 OUT_L, OUT_R = 0x6006, 0x6007               # slave B -> master (IOMD)
 OUT_ZERO = [0x6008, 0x6009, 0x600A, 0x600B, 0x600C, 0x600D]
+if opt('WT_CMOD', '0') == '1':
+    OUT_ZERO = []                               # WT_CMOD: slave A writes 6008..600D (the voices' frames)
 GAIN = 2.0 / (1.5 * NV)                     # the mix as C-S1SY13's (one voice at full scale: 1.33 / NV); set_voices
 M_OUT = (0xA118, 0xA119)                    # master B -> the OS output program on master A
 M_ZERO = [0xA11A, 0xA11B, 0xA11C, 0xA11D]
@@ -900,14 +903,26 @@ def prog_a_parts():
         head = head + frag('idxp_head')
         units.append(frag('idxp_tail'))
     if SL_WT == 'b0':                          # the loop first (its one ldb5 at the program's start), the voices last
+        # DSP A's bank 0 has 1024 words, addresses wrap at 0x0400 (WT-ALIAS, measured 2026-11-05, §4.2 rule 6); DSP B's
+        # stores do not reach it (WT-SLAVE0L: B's 0x0600.. = 0x0200.. inside the loop, it played)
         win = range(SL_S + 1, SL_S + SL_L + 17)       # no store of DSP A inside the loop's window
+        if win.stop > 0x0400 or SL_S < 0x0018:
+            raise SystemExit(f'make_s1cc.py: SL_WT=b0: the loop 0x{SL_S:04x}..0x{win.stop - 1:04x} leaves DSP A bank 0 '
+                             f'0x0018..0x03ff (1024 words, wraps at 0x0400; 0x0000..0x0017 the OS)')
         used = [(A_BLOCK0, bank0_top('A'), 'voice blocks'), (SL_P, SL_P + 16, 'phases'), (SL_KOUT, SL_KOUT + 16, 'kernel outputs'),
                 (SL_C, SL_C + 2, 'counter')]
         for lo, hi, what in used:
-            if lo < win.stop and hi > win.start:
-                raise SystemExit(f'make_s1cc.py: SL_WT=b0: the {what} 0x{lo:04x}..0x{hi - 1:04x} lie in the loop 0x{win.start:04x}..0x{win.stop - 1:04x}')
+            for a in range(lo, hi):
+                if a % 0x400 in win:
+                    raise SystemExit(f'make_s1cc.py: SL_WT=b0: the {what} 0x{lo:04x}..0x{hi - 1:04x} (bank 0 wraps at '
+                                     f'0x0400) lie in the loop 0x{win.start:04x}..0x{win.stop - 1:04x}')
         head = head + frag('sl_wt_loop')
-        units += [frag('sl_wt_voice', v=v) for v in range(NV)]
+        units += [frag('sl_wt_voice' if SL_MORPH else 'sl_wt1_voice', v=v) for v in range(NV)]
+    if SL_WT == 'm':                           # the voices from master B (EDM_WT WT_SLAVE)
+        if WT_CMOD and 'IN:color0' not in addresses('A', 0):
+            raise SystemExit('make_s1cc.py: WT_CMOD: the kernel must read s1_color(0) (the host makes it per voice)')
+        units += [frag('sl_m2s_voice', v=v, col=addresses('A', v).get('IN:color0', 0), nfm1=float(WT_LEN // WT_F - 1))
+                  for v in range(NV)]
     if SL_WT == 'b5':                          # the wavetable voices replace the kernel's outputs, after all of them
         order = range(NV - 1, -1, -1) if opt('SL_REV', '0') == '1' else range(NV)   # SL_REV=1: voice 7 first (probe)
         units += [frag('sl_wt5_voice', v=v) for v in order]
@@ -1178,31 +1193,97 @@ STR1_STEPS = 16                               # FILTER CUTOFF steps of the tunin
 EDM_WT = opt('EDM_WT', '0') == '1'
 WT_WAV = opt('WT_WAV', os.path.expanduser('~/PRODUCCION/samples/THE_REST/wavetables/Echo Sound Works Core Tables/'
                                           'Analog/Sys8.wav'))
+# WT_WAV given (environment or S1_BUILD) but not there: stop, whatever the build uses (absent: the default, read only by
+# EDM_WT / SL_WT)
+if ('WT_WAV' in os.environ or 'WT_WAV' in KDEF.options) and not os.path.isfile(WT_WAV):
+    raise SystemExit(f'make_s1cc.py: WT_WAV not found: {WT_WAV!r} (a Serum-style WAV, frames of 2048 samples)')
+
+
+def wt_wav_check():
+    """EDM_WT / SL_WT read WT_WAV: a missing file stops the build with a plain message (not a traceback)"""
+    if not os.path.isfile(WT_WAV):
+        raise SystemExit(f'make_s1cc.py: WT_WAV not found: {WT_WAV!r} (a Serum-style WAV, frames of 2048 samples)')
+
+
 WT_DIAG = int(opt('WT_DIAG', '0'))            # 1: left = the loop itself, right = the voice; 2: the slaves' mix at the
                                               # main's start (left) and end (right) (edm_wt.s)
-WT_RDIST = int(opt('WT_RDIST', '0'))           # probe: the read entry's distance (0: WT_LEN - 1, the loop)
+WT_RDIST = int(opt('WT_RDIST', '0'))           # the read entry's distance (0: WT_LEN - 2: the loop is distance + 2,
+                                              # measured WT-DIAG1/2 2026-11-05; WT_LEN - 1 gave WT_LEN + 1)
 WT_F = 2048                                   # samples per frame (Serum)
 WT_A = 0x440000                               # the line's write address (EDM_STR's first line, measured)
 WT_GAP = 262144                               # to the OS delay's writer at 0x400000: the most a loop keeps (§3.3.6)
+# EDM_WT: the most frames: the requests' ages reach WT_LEN + 256 + WT_LAT (the age margin, edm_wt.s master_wt_s), all
+# below WT_GAP; WT_MAXF=n to ask for fewer (the table also travels in region 0: see the build's block count)
+WT_MAXF = min(int(opt('WT_MAXF', '9999')), (WT_GAP - 256 - 2 - 1) // 2048)
 WT_W, WT_R = 0x4040, 0x4041                   # bank-2 words: write, re-circulation read (EDM_STR's first line's: words
                                               # 40C0 / 40C1 gave silence, 2026-11-05: the map may not reach them)
 WT_RES = 0x4080                               # tapreq results 4080..4082, 4088..408A (EDM_STR's, measured)
 # region 0 -> master B by parameters (FCEC): our main at 0x1000 reads master bank 5 as 0, also words the OS writes
 # (A101), measured 2026-11-05 (MP-EDMWT7); the parameters are how VOLUME and EDM_STR's tuning arrive
 WT_PSTG, WT_PSYNC = 0x3E, 0x3F                # master B C03E: a table sample; C03F: the sync
+# WT_FILLIDX=1 (default, WT_SLAVE): the fill sends (value, index) pairs in two slots C03A/C03B, C03C/C03D (value
+# first, then the index); master B writes the loop only when its c equals a slot's index, so a late or lost write never
+# lands at a wrong place (the ARM-timed fill lost ~7 % and misplaced later writes, WT-DIAG2 2026-11-05). 0: the old fill
+WT_FILLIDX = opt('WT_FILLIDX', '1') == '1'
+WT_PI0, WT_PV0, WT_PI1, WT_PV1 = 0x3A, 0x3B, 0x3C, 0x3D
 WT_AGEB = 0x0340                              # master B bank 0: the requests' ages, main -> request block (one DSP,
                                               # one ring): age j stored at WT_AGEB + 4j and + 4j + 1, read at + 4j + 1
 WT_S = 0x0300                                 # master B bank 0 states (the OS effect uses 0000..0033)
-WT_NV = 3                                     # voices: 2 requests each, 6 per sample at most (§3.3.5)
+# WT_SLAVE=1: the voices go to the slave (master -> slave words 600E + v, SL_WT=m), which applies its filter and amp:
+# one request per voice (COLOR = the nearest frame, no mix), 6 voices; the master mixes the slave as usual (§4.4)
+WT_SLAVE = opt('WT_SLAVE', '0') == '1'
+WT_NV = 6 if WT_SLAVE else 3                  # voices: 6 requests per sample at most (§3.3.5)
+WT_REQ = WT_NV if WT_SLAVE else 2 * WT_NV     # requests per sample
+WT_M2S = 0x600E                               # WT_SLAVE: master B -> slave word of voice v (WT-M2S, measured)
+# WT_AGEFIX=a0,a1 (probe, WT_SLAVE): voice 0 reads at fixed age a0, voice 1 at a1 (samples); left / right = the two
+# reads, straight from master B (is a large tapreq age read where it should be? MUTABLE_MEMORY.md §4.4)
+WT_AGEFIX = [int(x) for x in opt('WT_AGEFIX', '').split(',') if x.strip()]
+WT_DIAGA = opt('WT_DIAGA', '0') == '1'
+# WT_CMOD=1 (WT_SLAVE, SL_WT=m): COLOR MOD per voice. Slave A turns the host's modulated COLOR of voice v (s1_color(0):
+# knob + COLOR MOD source) into its nearest frame's first sample (units) and sends it by 6008 + v; master B reads it
+# there instead of the global C036 (MUTABLE_MEMORY.md §4.4). Slave B then leaves 6008..600D alone (one writer)
+WT_CMOD = opt('WT_CMOD', '0') == '1'
+WT_S2M = 0x6008                               # WT_CMOD: slave -> master word of voice v (6008..600D)
+# WT_CQ: the COLOR step of WT_CMOD: 1 a whole frame (default), 2 half a frame, 4 a quarter, 0 one sample (continuous:
+# a cycle is the end of frame k and the start of frame k + 1, the split moving with COLOR)
+WT_CQ = int(opt('WT_CQ', '1'))
+# WT_FLATCH=1 (default): master B takes a voice's frame position only at the start of its cycles and moves toward it by
+# WT_FLK per cycle (state at bank 0 WT_FL + 4v, ring like p): no splice inside a cycle, smooths COLOR (WT_CQ=0: morph)
+WT_FLATCH = opt('WT_FLATCH', '1') == '1'
+WT_FLK = float(opt('WT_FLK', '1.0'))            # 1 = latch only. < 1 leaves sub-frame offsets while gliding = Doppler pitch
+                                                # wobble (WT-CONT + COLOR MOD, 2026-11-06); 8 x WT_FLK is an immediate: round
+WT_FL = 0x0320                                  # master B bank 0: 0x0320 + 4v (free inside the proven 0300..0355)
+# WT_LINES=1 (WT_SLAVE + WT_CMOD + WT_FLATCH): morph in quarter frames without Doppler. Master B writes 3 more EDM lines
+# every sample, the table mixed 1/4, 2/4, 3/4 toward the next frame at the same phase (x = the loop's index c, xn =
+# index c + WT_F by a fixed map read WT_RN); line j at WT_A + j WT_LS; the slave sends u = frame x 1/8 + j x WT_LSU, master
+# B splits it and adds j WT_LS to the voice's request age (one request per voice: 6 voices). docs/MUTABLE_MEMORY.md §4.4
+WT_LINES = opt('WT_LINES', '0') == '1'
+WT_LS = 0x60000                                 # line spacing: lines at 0x440000 / 0x4A0000 / 0x500000 / 0x560000, clear of
+                                                # the OS reverb's writers (0x48CA00, 0x48F340.. up to ~0x49B0DA): 0x20000 put
+                                                # line 2 on them (glitches, wt_lines3_004021). Each line keeps 2 laps + 770
+WT_LGAP = 0x48CA00 - 0x440000                   # the main line's room below the OS reverb input writer
+WT_LSU = WT_LS / 16384.0                        # in units
+WT_LOFFU = 0.0                                  # set by wt_lines_setup(): (WT_LEN + 512) / 16384, the lap + margin
+WT_RN = 0x4043                                  # bank-2 read: the loop at index c + WT_F (odd word = read)
+WT_LW = [0x4044, 0x4046, 0x4048]                # bank-2 writes of lines 1..3 (even words = write)
+WT_S2MROT = int(opt('WT_S2MROT', '0'))           # probe: voice v sends its frame by 6008 + (v + ROT) mod 6
+def wt_s2m(v):
+    return 0x6008 + (v + WT_S2MROT) % 6
+WT_VTAG = opt('WT_VTAG', '0') == '1'           # probe: master B sends voice v at (v + 1) / 8 (which voice a note got)         # probe (WT_SLAVE): left = voice 0's read, right = its age / 16
 WT_PDT0, WT_PGAIN0 = 0x30, 0x33               # master B C030 + v: the note's phase step; C033 + v: the gate (target)
 WT_PFRAME, WT_PMIX = 0x36, 0x37               # COLOR: the first frame's first sample (units), the mix to the next
+WT_PLIM, WT_PHALF = 0x38, 0x39                # master B C038: c's limit WT_LEN - 1/2 sample; C039: WT_LEN / 32768 (units;
+                                              # parameters, not immediates: those ran wrong on master B, §4.4)
 WT_GK = 0.002                                 # the gain's one-pole per sample (~5 ms)
 WT_LAT = 2                                    # samples between a table sample's write and the request that finds it
 WT_SLOT0 = 34                                 # map-table entries 34, 35, then a zero entry
 
 
-def wt_samples():
-    """the WAV's samples (all of them), normalized to a peak of 1"""
+def wt_samples(max_frames=None):
+    """the WAV's samples, whole frames of WT_F only, at most max_frames of them (default: what the EDM line keeps,
+    WT_GAP): what fits is kept from the start, the rest (and a partial last frame) is dropped with a warning;
+    normalized to a peak of 1 over what is kept"""
+    wt_wav_check()
     import wave as _wave
     raw = open(WT_WAV, 'rb').read()
     fmt, data, i = None, None, 12
@@ -1223,10 +1304,18 @@ def wt_samples():
     else:
         raise SystemExit(f'make_s1cc.py: WT_WAV: format {tag} / {bits} bits (float32 or int16)')
     x = x[::ch]
+    nf = len(x) // WT_F
     if len(x) % WT_F:
-        raise SystemExit(f'make_s1cc.py: WT_WAV: {len(x)} samples, not whole frames of {WT_F}')
-    if len(x) > WT_GAP:
-        raise SystemExit(f'make_s1cc.py: WT_WAV: {len(x)} samples, the line keeps at most {WT_GAP} (§3.3.6)')
+        print(f'make_s1cc.py: warning: WT_WAV: {len(x)} samples, not whole frames of {WT_F}: the last '
+              f'{len(x) % WT_F} samples dropped', file=sys.stderr)
+    cap = WT_MAXF if max_frames is None else max_frames
+    if nf > cap:
+        print(f'make_s1cc.py: warning: WT_WAV: {nf} frames, {cap} fit: frames {cap}..{nf - 1} dropped',
+              file=sys.stderr)
+        nf = cap
+    if nf < 1:
+        raise SystemExit(f'make_s1cc.py: WT_WAV {WT_WAV}: not one whole frame of {WT_F} samples')
+    x = x[:nf * WT_F]
     peak = max(abs(v) for v in x) or 1.0
     return [v / peak for v in x]
 
@@ -1238,18 +1327,25 @@ def wt_header():
     """EDM_WT: the table (int16, all frames), the note's phase step in units, the map entries, the words"""
     x = wt_samples()
     n = len(x)
+    if WT_LINES and not (WT_SLAVE and WT_CMOD and WT_FLATCH and WT_FLK == 1.0):
+        raise SystemExit('make_s1cc.py: WT_LINES needs WT_SLAVE=1 WT_CMOD=1 WT_FLATCH=1 WT_FLK=1')
+    if WT_LINES and 2 * n + 770 > min(WT_LS, WT_LGAP):
+        raise SystemExit(f'make_s1cc.py: WT_LINES: the table ({n} samples) does not fit below the next line '
+                         f'(two laps + 770 must fit {min(WT_LS, WT_LGAP)}); use a table of at most {(min(WT_LS, WT_LGAP) - 770) // 2} samples')
     q = [max(-32767, min(32767, int(round(v * 32767)))) for v in x]
     rows = [', '.join(str(v) for v in q[i:i + 16]) for i in range(0, n, 16)]
     dt = [440.0 * 2 ** ((k - 69) / 12) * WT_F / 96000.0 / 16384.0 for k in range(128)]
     return '\n'.join([
         f'/* EDM_WT (microcode/edm_wt.s, docs/MUTABLE_MEMORY.md §3.3.8): {os.path.basename(WT_WAV)}, {n // WT_F} frames x '
         f'{WT_F} = {n} samples ({n / 96000:.2f} s), int16, peak normalized */',
-        f'#define WT_RDIST {WT_RDIST or n - 1}u\n#define WT_DIAG {WT_DIAG}\n'
+        f'#define WT_RDIST {WT_RDIST or n - 2}u\n#define WT_DIAG {WT_DIAG}\n'
         f'#define WT_LEN {n}u\n#define WT_F {WT_F}u\n#define WT_FRAMES {n // WT_F}u\n#define WT_A 0x{WT_A:06x}u',
         f'#define WT_W 0x{WT_W - 0x4000:02x}u\n#define WT_R 0x{WT_R - 0x4000:02x}u\n#define WT_SLOT0 {WT_SLOT0}',
-        f'#define WT_PSTG 0x{WT_PSTG:02x}\n#define WT_PSYNC 0x{WT_PSYNC:02x}',
-        f'#define WT_NV {WT_NV}\n#define WT_PDT0 0x{WT_PDT0:02x}\n#define WT_PGAIN0 0x{WT_PGAIN0:02x}\n'
-        f'#define WT_PFRAME 0x{WT_PFRAME:02x}\n#define WT_PMIX 0x{WT_PMIX:02x}',
+        f'#define WT_PSTG 0x{WT_PSTG:02x}\n#define WT_PSYNC 0x{WT_PSYNC:02x}\n#define WT_FILLIDX {int(WT_FILLIDX and WT_SLAVE)}'
+        f'\n#define WT_LINES {int(WT_LINES)}\n#define WT_LS 0x{WT_LS:x}u\n#define WT_RN 0x{WT_RN - 0x4000:02x}u\n#define WT_LW0 0x{WT_LW[0] - 0x4000:02x}u\n#define WT_LW1 0x{WT_LW[1] - 0x4000:02x}u\n#define WT_LW2 0x{WT_LW[2] - 0x4000:02x}u'
+        f'\n#define WT_PI0 0x{WT_PI0:02x}\n#define WT_PV0 0x{WT_PV0:02x}\n#define WT_PI1 0x{WT_PI1:02x}\n#define WT_PV1 0x{WT_PV1:02x}',
+        f'#define WT_SLAVE {int(WT_SLAVE)}\n#define WT_NV {WT_NV}\n#define WT_PDT0 0x{WT_PDT0:02x}\n#define WT_PGAIN0 0x{WT_PGAIN0:02x}\n'
+        f'#define WT_PFRAME 0x{WT_PFRAME:02x}\n#define WT_PMIX 0x{WT_PMIX:02x}\n#define WT_PLIM 0x{WT_PLIM:02x}\n#define WT_PHALF 0x{WT_PHALF:02x}',
         '#ifndef EDM_CALL\n#define EDM_CALL 1   /* the request block in the OS effect (edm_call.h) */\n#endif',
         '/* phase step per sample of a MIDI note, in samples / 16384 of one frame */',
         table('wt_dt_bits', dt),
@@ -1263,23 +1359,42 @@ SL_WT = opt('SL_WT', '0')
 #   SL_WT=b0   the frame in a loop of SL_L words in DSP A's bank 0, read with ldidx by the voices; one ldb5 per sample
 #              (at the start of the program) copies region 1's staged blocks into it. b5 on the device: only the
 #              voices at the start / end of the program read right (bank 5 shared with DSP B, 2026-11-05)
-if SL_WT not in ('0', 'b5', 'b0'):
-    raise SystemExit('make_s1cc.py: SL_WT is 0, b5 or b0')
+#   SL_WT=m    each voice's sample comes from master B by the master -> slave word 600E + v (EDM_WT WT_SLAVE: the
+#              table in the delay memory, MUTABLE_MEMORY.md §4.4); DSP A only copies it to the voice's output
+if SL_WT not in ('0', 'b5', 'b0', 'm'):
+    raise SystemExit('make_s1cc.py: SL_WT is 0, b5, b0 or m')
+if SL_WT == 'm' and not (EDM_WT and WT_SLAVE):
+    raise SystemExit('make_s1cc.py: SL_WT=m needs EDM_WT=1 WT_SLAVE=1 (the master sends the voices)')
 SL_STG = 0xA080                               # bank 5 A080..A0FF: written by region 1 (FD6C sel 0), read by DSP A
 SL_L = int(opt('SL_L', '1024'))               # SL_WT=b0: the loop's length (bank 0 words)
-SL_N = 127 if SL_WT != 'b0' else SL_L // 2     # points per frame (b5: + the guard, 128 words; b0: two frames in the loop)
+# SL_MORPH=1 (WT-SLAVE0I): the loop holds two frames interleaved, COLOR mixes them (sounded worse, slow set changes);
+# SL_MORPH=0 (default, as WT-SLAVE0L): one frame of SL_L points, COLOR picks the nearest frame
+SL_MORPH = opt('SL_MORPH', '0') == '1'
+SL_N = 127 if SL_WT != 'b0' else SL_L // 2 if SL_MORPH else SL_L   # points per frame (b5: + the guard, 128 words)
 SL_W5 = 0xA0FE                                # SL_WT=b0: COLOR's weight of frame O (region 1, 0 .. 1; proven word)
 # SL_WT=b0: the loop at DSP A bank 0 SL_S .. SL_S + SL_L (+ 16 read past): no other store in SL_S + 1 .. + SL_L + 16.
 # 0x0360 + 1024: WT-SLAVE0 not periodic on the device (DSP B stores 0x0400.., 0x0600..0x0742: is bank 0 one per
 # chip?); SL_S=0x0040 SL_L=512 (WT-SLAVE0L): below everything both DSPs store (new range)
 SL_S = int(opt('SL_S', '0x0360'), 16)
 SL_B = 64                                     # SL_WT=b0: points per staged block (bank 5 A080..A0BF, proven)
-SL_C = 0x0350                                 # SL_WT=b0: the loop counter c (bank 0, new)
+SL_C = int(opt('SL_C', '0x0350'), 16)         # SL_WT=b0: the loop counter c (bank 0)
 SL_BLK = 0xA0FF                               # SL_WT=b0: the staged block's first slot (units), region 1 (proven word)
 SL_P = int(opt('SL_P', '0x0340' if SL_WT == 'b0' else '0x0780'), 16)         # DSP A bank 0: the voices' phases (stored at SL_P + 2v, read at + 1;
                                               # 0x0780..: proven by IDX-PROBE, 0x0200 was never run)
-SL_KOUT = 0x0330 if SL_WT == 'b0' else 0x0700   # SL_WT: the kernel's DSP A outputs (bank 0, nobody reads them; b0:
+SL_KOUT = int(opt('SL_KOUT', '0x0330' if SL_WT == 'b0' else '0x0260'), 16)   # SL_WT: the kernel's DSP A outputs (bank 0, nobody reads them; b0:
                                                 # below the loop, new)
+SL_TBYTES = int(opt('SL_TBYTES', '0xA0000'), 0)  # SL_WT: the most bytes of frames region 1 holds (the WAV's first frames)
+# probe of the master B -> slave words 600E..6015 (MUTABLE_MEMORY.md §4.3): M2S_PROBE=1 master B writes them and slave A
+# reads them; 2 the master writes, the slave does not read (control); 3 the slave reads, nobody of ours writes (who else
+# writes them?)
+M2S_PROBE = opt('M2S_PROBE', '0') in ('1', '2')    # master B writes
+M2S_READ = opt('M2S_PROBE', '0') in ('1', '3')     # slave A reads
+# MA_MAIN=1 (default since 2026-11-05): our own (empty) master DSP A main at 0x0100, queued with FC30 in load as the
+# stock PLUG-OUTs do. Without it (MA_MAIN=0, every build before), master A runs on from the OS's output program
+# (0x82..0x100) into whatever an earlier mode left at 0x0100, and that program writes the master -> slave words
+# 600E..6015 after ours (measured, WT-M2S / WT-M2SR0: the slave read 0 or a voice-pitched signal): MUTABLE_MEMORY.md §4.3
+MA_MAIN = opt('MA_MAIN', '1') == '1'
+SL_ALIAS = opt('SL_ALIAS', '0') == '1'        # probe (SL_MORPH=0): does DSP A's bank 0 wrap at 0x0400? (§4.1)
 SL_VTAG = opt('SL_VTAG', '0') == '1'          # probe: voice v's output x (v + 1) / 8 (which voice sounds)
 # the hidden index register of voice v's loads: all h6, or SL_H67=1 even voices h6 / odd h7 (S1 probe, §4.1)
 SL_H = [7 if opt('SL_H67', '0') == '1' and v % 2 else 6 for v in range(8)]
@@ -1303,7 +1418,7 @@ def sl_frames():
     """SL_WT: every frame of WT_WAV band-limited to SL_N / 2 harmonics and resampled to SL_N points (b5: + a guard
     point; b0: the frame as it is, region 1 interleaves two of them into the loop's slots)"""
     import numpy as np
-    x = np.array(wt_samples()).reshape(-1, WT_F)
+    x = np.array(wt_samples(SL_TBYTES // (2 * (SL_N + 1)))).reshape(-1, WT_F)
     h = SL_N // 2
     out = []
     for fr in x:
@@ -1323,7 +1438,7 @@ def sl_header(path):
         f'{SL_N // 2} harmonics, {SL_N} points + a guard, Q15 (peak 0.8) */',
         f'#define SL_NF {len(f)}\n#define SL_W {len(f[0])}\n#define SL_STG_IDX 0x{SL_STG & 0xFF:02x}\n'
         f'#define SL_B0 {int(SL_WT == "b0")}\n#define SL_B {SL_B}\n#define SL_BLK_IDX 0x{SL_BLK & 0xFF:02x}\n'
-        f'#define SL_LOOP {SL_L}\n#define SL_W5_IDX 0x{SL_W5 & 0xFF:02x}',
+        f'#define SL_LOOP {SL_L}\n#define SL_W5_IDX 0x{SL_W5 & 0xFF:02x}\n#define SL_MORPH {int(SL_MORPH)}',
         f'static const int16_t sl_frames[{len(f)}][{SL_N + 1}] = {{\n' + ',\n'.join(rows) + '\n};']) + '\n')
 
 
@@ -1385,7 +1500,7 @@ def prog_master():
     """C-S1SY13's master B (microcode/master.s master), or with EDM_TAP its taps of the delay memory (microcode/edm.s),
     or with EDM_ECF its own delay-memory lines (microcode/edm_ecf.s)"""
     if EDM_WT:
-        return frag('master_wt')
+        return frag('master_wt_s' if WT_SLAVE else 'master_wt')
     if EDM_STR:
         return frag('master_bowed' if STR_BOWED else 'master_blown' if STR_BLOWN else 'master_pstr' if STR_PL else 'master_str1' if STR_ONE else 'master_str')
     if EDM_ECF and EDM_CALL_MODE == 'idx':
@@ -1448,6 +1563,9 @@ def master_forms_check(lines):
         m = re.match(r'sign\s+(r\d),\s*(r\d)', t)
         if m and m.group(1) != m.group(2):           # sign rD, rY with D != Y: wrong on master B (master_b_forms.txt)
             f = 'sign:reg (rD != rY)'
+        m = re.match(r'mul\s+(r\d),\s*(r\d),\s*(r\d)\s*$', t)
+        if m and m.group(2) == m.group(3) and m.group(1) != m.group(2):   # mul rD, rX, rX, D != X: noisy on master B
+            f = 'mul:reg (rD != rX = rY)'                                    # (MI-WT sign fix, 2026-11-05)
         if f not in ok:
             seen[f] += 1
     for f, c in sorted(seen.items()):
@@ -1529,6 +1647,9 @@ def sources():
     TRIED.clear()
     progs = {n: section(n, lines) for n, lines in raw.items()}      # the groups the final programs use, once
     progs.update({'s1mm1': section('s1mm1', prog_master()), 's1c0': close(0xA004), 's1c1': close(0xA005)})
+    if MA_MAIN:                              # master A 0x0100: start, end (the stock PLUG-OUTs' end sequence)
+        progs['s1ma0'] = ([0x0A02, 0xFF71, 0x0A02, 0xFF70, 0x0B02, 0x00F8, 0x0001], None,
+                          ['; s1ma0: master DSP A main 0x0100, empty (MA_MAIN)'])
     if EDM_ENTRY and EDM_STEP == 'head':     # control: the head alone, nothing else of the set changes
         progs['s1mb0'] = edm_entry()
     elif EDM_ENTRY:                          # our master B entry and the three ends it calls / jumps to (as the
@@ -1819,7 +1940,7 @@ def header(progs):
         out.append(str_header())
     if EDM_WT:
         out.append(wt_header())
-    out.append(f'#define SL_WT {int(SL_WT != "0")}\n#define IDX_PROBE {int(IDX_PROBE)}')
+    out.append(f'#define SL_WT {int(SL_WT in ("b5", "b0"))}\n#define IDX_PROBE {int(IDX_PROBE)}')
     out.append(f'#define HOST_ENVS {int(HOST_ENVS)}')
     if HOST_ENVS:
         out.append(f'/* host envelopes (s1_env): DSP B parameters H6_ENV0 / H6_ENV1 + (sustain, attack, decay, release);\n'
@@ -2391,9 +2512,99 @@ def _runs(addrs):
     return runs
 
 
+def bank0_wrap_check(progs):
+    """slave DSP A's bank 0 has 1024 words, addresses wrap at 0x0400 (MUTABLE_MEMORY.md §4.2 rule 6, WT-ALIAS): two
+    different bank-0 addresses of DSP A's programs that meet modulo 0x0400 are the same word. 2026-11-05: the kernel
+    outputs at 0x0700.. (SL_KOUT) were voice 0's COLOR word 0x0308 (WT-CMOD-VTAG: voice 0 did not modulate)"""
+    seen = {}
+    for name, (_, _, lines) in progs.items():
+        if _prog_dsp(name) != 'sA':
+            continue
+        for a in prog_addresses(lines):
+            if a < 0x0800:
+                seen.setdefault(a % 0x0400, set()).add(a)
+    bad = {k: v for k, v in seen.items() if len(v) > 1}
+    if bad:
+        raise SystemExit('make_s1cc.py: slave DSP A bank 0 wraps at 0x0400; these addresses are the same word: '
+                         + ', '.join('/'.join(f'{a:04x}' for a in sorted(v)) for v in list(bad.values())[:8]))
+
+
+def store_map(progs):
+    """{dsp ('sA' / 'sB' / 'mB'): {address: set of program names}} of the plain stores ([xxxx]) of every program"""
+    out = {}
+    for name, (_, _, lines) in progs.items():
+        dsp = _prog_dsp(name)
+        if not dsp:
+            continue
+        for a, kind in prog_addresses(lines).items():
+            if 'st' in kind:
+                out.setdefault(dsp, {}).setdefault(a, set()).add(name)
+    return out
+
+
+def collision_check(progs):
+    """memory every program shares, checked together (errors stop the build; MUTABLE_MEMORY.md §4.2):
+    * slave DSP A bank 0: 1024 words (wraps at 0x0400, measured), 0x0000..0x0017 the OS's: no address there
+    * slave DSP B bank 0: the same checks as warnings (its size is not measured)
+    * slave bank 5 (shared by DSP A and B): one writer per word
+    * IOMD 6000..7FFF: one writer per word over slave A, slave B and master B; master -> slave words (600E..6021)
+      only from the master, slave -> master words (6006..600D, 6026..602D) only from the slave
+    * master B bank 0 0x0000..0x0033 and bank 2 4000..4033 belong to the OS effect (system-1/FX_CHAIN.md): no store"""
+    errs, warns = [], []
+    st = store_map(progs)
+    allad = {}
+    for name, (_, _, lines) in progs.items():
+        dsp = _prog_dsp(name)
+        if dsp:
+            allad.setdefault(dsp, set()).update(prog_addresses(lines))
+    proven = load_proven_addr()
+    for dsp, out in (('sA', errs), ('sB', warns)):
+        b0 = [a for a in allad.get(dsp, ()) if a < 0x0800
+              and not (dsp == 'sB' and any(lo <= a <= hi for lo, hi in proven.get('sB', [])))]   # sB: proven = ran
+        low = sorted(a for a in b0 if a % 0x0400 < 0x0018)
+        if low:
+            out.append(f'{dsp} bank 0 {", ".join("%04x" % a for a in low[:6])}: the OS words 0x0000..0x0017 (modulo 0x0400)')
+        if dsp == 'sB':
+            m = {}
+            for a in b0:
+                m.setdefault(a % 0x0400, set()).add(a)
+            same = [v for v in m.values() if len(v) > 1]
+            if same:
+                warns.append('sB bank 0, if it wraps at 0x0400 as DSP A\'s: ' + ', '.join(
+                    '/'.join('%04x' % a for a in sorted(v)) for v in same[:6]))
+    both = sorted(a for a in st.get('sA', {}) if 0xA000 <= a < 0xA400 and a in st.get('sB', {}))
+    if both:
+        errs.append('slave bank 5 written by DSP A and DSP B: ' + ', '.join('%04x' % a for a in both[:8]))
+    io = {}
+    for dsp, m in st.items():
+        for a in m:
+            if 0x6000 <= a < 0x8000:
+                io.setdefault(a, set()).add(dsp)
+    multi = sorted(a for a, d in io.items() if len(d) > 1)
+    if multi:
+        errs.append('IOMD words with more than one writer: ' + ', '.join(f'{a:04x} ({"+".join(sorted(io[a]))})' for a in multi[:8]))
+    s2m = lambda a: 0x6006 <= a <= 0x600D or 0x6026 <= a <= 0x602D
+    m2s = lambda a: 0x600E <= a <= 0x6021
+    wrong = [f'{a:04x} by {d}' for a, ds in io.items() for d in ds if (d == 'mB' and s2m(a)) or (d != 'mB' and m2s(a))]
+    if wrong:
+        errs.append('IOMD words written the wrong way (slave -> master: 6006..600D, 6026..602D; master -> slave: '
+                    '600E..6021): ' + ', '.join(sorted(wrong)[:8]))
+    mb = st.get('mB', {})
+    os_mb = sorted(a for a in mb if a <= 0x0033 or 0x4000 <= a <= 0x4033)
+    if os_mb:
+        errs.append('master B stores in the OS effect\'s words (bank 0 0000..0033, bank 2 4000..4033): '
+                    + ', '.join('%04x' % a for a in os_mb[:8]))
+    for w in warns:
+        print('warning:', w)
+    if errs:
+        raise SystemExit('make_s1cc.py: memory collisions:\n  ' + '\n  '.join(errs))
+
+
 def address_report(progs):
     """warn for every address of the programs that no build that ran on the device used (asm/proven_addresses.txt),
     and for shared bank-5 words slave DSP A stores more than once per sample (DSP B may read between, §4.2 rule 4)"""
+    bank0_wrap_check(progs)
+    collision_check(progs)
     proven = load_proven_addr()
     for name, (_, _, lines) in progs.items():
         dsp = _prog_dsp(name)
@@ -2447,6 +2658,9 @@ def main():
     if '--forms' in sys.argv:
         forms_report()
         return
+    if WT_LINES:                                   # the slave's lap + margin (sl_wt.s), from the table's length
+        global WT_LOFFU
+        WT_LOFFU = (len(wt_samples()) + 512) / 16384.0
     if VOICES == 'auto':
         n = choose_voices()
         print(f'VOICES=auto: {n} voices by the estimate (budget A {BUDGET["s1m0"]}, B {BUDGET["s1m1"]})')
@@ -2458,7 +2672,7 @@ def main():
     else:
         progs, over = build()
     os.makedirs(OUTDIR, exist_ok=True)
-    for n in ['s1s0'] + list(SECTION_OF):             # sections this build does not use: no stale files
+    for n in ['s1s0', 's1ma0'] + list(SECTION_OF):    # programs this build does not use: no stale files
         if n not in progs:
             for ext in ('.s', '.hex'):
                 if os.path.exists(os.path.join(OUTDIR, n + ext)):
@@ -2482,7 +2696,7 @@ def main():
         print(f'make_s1cc.py: {NV} voices do not fit ({", ".join(over)})')
         sys.exit(3)
     open(os.path.join(OUTDIR, 's1_programs.h'), 'w').write(header(progs))
-    if SL_WT != '0':
+    if SL_WT in ('b5', 'b0'):
         sl_header(os.path.join(OUTDIR, 'sl_wt.h'))
     if EDM_CALL or (EDM_STR and STR_TAP) or EDM_WT:
         edm_call_header(os.path.join(OUTDIR, 'edm_call.h'))
