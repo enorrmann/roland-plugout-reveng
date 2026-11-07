@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/c_v4_system8_reference.md).
+
 # SD-TXT: read a file from the SD card in a region 0 init hook
 
 A JX-3P-based PLUG-OUT whose region 0 init hook opens a file on the SD card

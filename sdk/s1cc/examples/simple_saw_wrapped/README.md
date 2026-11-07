@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../../../docs/vol6_reference_designs_applications/c_s1v8_system1_reference.md).
+
 # `sdk/s1cc/examples/simple_saw_wrapped`: una librería C y su envoltorio para el SYSTEM-1
 
 El ejemplo mínimo de cómo llevar una librería de audio en C a una voz de s1cc ([S1CC.md](S1CC.md)). La librería

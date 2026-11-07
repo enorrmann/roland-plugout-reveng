@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../../docs/vol6_reference_designs_applications/c_v4_system8_reference.md).
+
 # Region 0 (the model) in C
 
 Our own code for the master BMC side of the PLUG-OUT. It contains nothing

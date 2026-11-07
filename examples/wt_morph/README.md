@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/wavetable_engines.md).
+
 # C-MORPH — one wavetable position that morphs with an LFO
 
 DCO1 has one sound: six frames of `80's PWM.wav` (frames 0, 6, 12, 18, 24, 30 of 31, 72 points each) read by a

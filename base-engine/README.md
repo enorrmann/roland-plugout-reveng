@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../docs/vol4_firmware_container_protocol/plugout_virtual_machine.md).
+
 # base-engine
 
 Output of `tools/sys8fw.py` on `firmware/SYSTEM8_UP.BIN` (OS 1.32).

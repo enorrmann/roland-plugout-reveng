@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/c_s1v8_system1_reference.md).
+
 # C-S1SY: sintetizador sustractivo de 8 voces para el SYSTEM-1 (`examples/system_1_synth/`)
 
 Estado: 2026-10-23. **Último build que funciona por completo: C-S1SY13F** (`STEP=13 FOLD=1`) [medido, a oído]:

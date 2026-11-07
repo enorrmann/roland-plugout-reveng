@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/wavetable_engines.md).
+
 # C-PWM — wavetable PLUG-OUT with a WAV inside
 
 DCO1 is a wavetable made of six frames of `80's PWM.wav` (Echo Sound Works Core Tables / Analog, 31 frames of 2048

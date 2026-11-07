@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../../docs/vol6_reference_designs_applications/c_v4_system8_reference.md).
+
 # Ghidra on the JX-3P VST3 (static analysis only)
 
 The VST3 has no DSP microcode; its voices run in `CJx3pSim`, a native float

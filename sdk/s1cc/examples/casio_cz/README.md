@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../../../docs/vol6_reference_designs_applications/casio_cz_phase_distortion.md).
+
 # `sdk/s1cc/examples/casio_cz`: CZ-SYSTEM, una voz de Casio CZ (distorsión de fase) para SYSTEM-S1CC
 
 Kernel de s1cc ([S1CC.md](S1CC.md)) para el PLUG-OUT SYSTEM-S1CC

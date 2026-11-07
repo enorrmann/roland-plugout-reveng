@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../../docs/vol6_reference_designs_applications/c_v4_system8_reference.md).
+
 # C-SAW: from-scratch engine (region 1) in C
 
 Our own ARM code for the slave BMCs, with our own parameter model. The only

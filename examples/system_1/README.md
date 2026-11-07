@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/c_s1v8_system1_reference.md).
+
 # C-S1V4: el plug-out propio C-V4 portado al SYSTEM-1 (`examples/system_1/`)
 
 Estado: 2026-10-22. **C-S1V4 funciona en el equipo** [medido, a oído]: notas sueltas, acordes de cuatro notas y

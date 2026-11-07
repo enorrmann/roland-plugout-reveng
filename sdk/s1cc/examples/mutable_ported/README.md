@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../../../docs/vol6_reference_designs_applications/mutable_instruments_ports.md).
+
 # `sdk/s1cc/examples/mutable_ported`: osciladores y filtros de Mutable Instruments escritos para el DSP
 
 Ports en C de los osciladores y filtros de Braids, Plaits y stmlib (Emilie Gillet, MIT), **reescritos** para los

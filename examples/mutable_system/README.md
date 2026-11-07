@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/mutable_instruments_ports.md).
+
 # MUTABLE-SYSTEM: C-S1SY13F con SAW_SWARM de Braids (`examples/mutable_system/`)
 
 Estado: 2026-10-24. Construido y validado en el emulador. **Instalado en el slot 1** (reemplazó al SH-2 de

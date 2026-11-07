@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/wavetable_engines.md).
+
 # C-WTLIVE — live wavetable PLUG-OUT
 
 A dedicated PLUG-OUT that does one thing: receive a WAV wavetable over MIDI and play it on the

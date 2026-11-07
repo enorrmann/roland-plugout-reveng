@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/c_s1v8_system1_reference.md).
+
 # C-S1JX: el microcódigo del JX-3P en el SYSTEM-1, un DCO, 4 voces (`examples/system_1_jx/`)
 
 Estado: 2026-10-23. **En pausa: todavía se cuelga.** Se encontraron cinco causas de cuelgue y una sexta inferida

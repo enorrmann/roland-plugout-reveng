@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/c_v4_system8_reference.md).
+
 # S8LAB — SYSTEM-8 lab PLUG-OUT (PLG1)
 
 The SYSTEM-8 v1.32 firmware, rebuilt as a PLUG-OUT named `S8LAB` (id `0x20`, version 0.01), installed in **PLG1**

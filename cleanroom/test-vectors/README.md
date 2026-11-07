@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol7_cleanroom_evidence_archive/test_vectors_verification_plan.md).
+
 # test-vectors
 
 | File | Content | How it is generated |

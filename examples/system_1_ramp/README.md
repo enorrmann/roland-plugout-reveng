@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/c_s1v8_system1_reference.md).
+
 # C-S1RAMP: medición de las rampas de parámetros del SYSTEM-1 (`FCE4`)
 
 `examples/system_1_ramp/`: C-S1V4 (`examples/system_1`) más una medición, en el ARM del maestro, del servicio

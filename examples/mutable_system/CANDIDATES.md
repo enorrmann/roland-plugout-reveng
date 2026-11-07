@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/mutable_instruments_ports.md).
+
 # MUTABLE-SYSTEM: qué más se puede portar de `eurorack/` (formas de onda, filtros, efectos, moduladores)
 
 Estado: 2026-10-24. Inventario del repositorio de Mutable Instruments (`~/git/eurorack`, commit `f4cfa76`) para

@@ -1,3 +1,6 @@
+> [!NOTE]
+> **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/c_s1v8_system1_reference.md).
+
 # `examples/system_s1cc`: SYSTEM-S1CC, un PLUG-OUT que es solo el kernel de s1cc
 
 SYSTEM-S1CC es un PLUG-OUT del SYSTEM-1 cuya voz es **solo** un kernel compilado por s1cc ([S1CC.md](S1CC.md)).
