@@ -9,7 +9,7 @@ Reverse engineering of the Roland SYSTEM-8 PLUG-OUT system, with three results:
 3. **Our own PLUG-OUTs and lab experiments** (`examples/`): a from-scratch C engine, its own DSP microcode for
    an oscillator and a wavetable player, and a SYSTEM-8 image used as a lab.
 
-All documents are in [`docs/`](docs/INDEX.md); start with [`docs/INDEX.md`](docs/INDEX.md).
+The complete engineering reference is documented in the **[Roland BMC Technical Reference Manual Suite](docs/index.md)** (Volumes I through VII). Start with [`docs/index.md`](docs/index.md).
 
 ## Scope
 
@@ -33,27 +33,27 @@ What this project is not:
 
 | Area | Status | Where |
 |---|---|---|
-| Install of firmware and patch banks, `info`, `banks`, `inspect` | works | `tools/plugout_tool.py`, [`docs/PROTOCOL.md`](docs/PROTOCOL.md) |
-| Rebuilt JX-3P (byte-identical), renamed version, name change, effect label change | works | [`docs/CUSTOM_PLUGOUTS.md`](docs/CUSTOM_PLUGOUTS.md) |
-| Code patch in the engine (EFFECT TONE inverted for OD/DS/FZ) | works | `examples/` + `docs/CUSTOM_PLUGOUTS.md` |
+| Install of firmware and patch banks, `info`, `banks`, `inspect` | works | `tools/plugout_tool.py`, [`Volume IV: USB SysEx Protocol`](docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md) |
+| Rebuilt JX-3P (byte-identical), renamed version, name change, effect label change | works | [`Volume IV: Container Formats`](docs/vol4_firmware_container_protocol/container_formats.md) |
+| Code patch in the engine (EFFECT TONE inverted for OD/DS/FZ) | works | `examples/` + [`Volume IV: Container Formats`](docs/vol4_firmware_container_protocol/container_formats.md) |
 | Region 0 init hook reading OS RAM and the SD card | works | `examples/mem_name`, `examples/sd_txt` |
-| Own C engine and own region 0 (parameter model), own packaging | plays | `examples/from_scratch/`, `docs/examples_from_scratch_engine_README.md` |
-| Own DSP microcode: sawtooth oscillator at 96 kHz (±1.2 cents) | works | `docs/CUSTOM_OSC.md` |
-| `C-V4`: fully own PLUG-OUT (own region 0, engine and all six main DSP programs, no Roland microcode), eight voices on both slaves | works (sawtooth with gate only) | [`docs/FROM_SCRATCH.md`](docs/FROM_SCRATCH.md), [`docs/VOICE_ALLOCATION.md`](docs/VOICE_ALLOCATION.md) §7 |
-| Wavetable player (WAV → bank 5 → DSP) and `C-WTLIVE` live table | works | `examples/wt_live/`, `examples/from_scratch/re/wt5.py` |
-| Live DSP peek and poke from the host | works | `docs/DSP_HARDWARE.md`, `examples/from_scratch/re/dsplive.py` |
-| S8LAB lab image in PLG1: OSC1 COLOR changes the timbre | works (not monotonic) | `examples/sys8_lab/`, `docs/PLAN.md` |
+| Own C engine and own region 0 (parameter model), own packaging | plays | `examples/from_scratch/`, [`Volume VI: C-V4 Reference`](docs/vol6_reference_designs_applications/c_v4_system8_reference.md) |
+| Own DSP microcode: sawtooth oscillator at 96 kHz (±1.2 cents) | works | [`Volume II: SFU & Accelerators`](docs/vol2_dsp_core_isa/sfu_and_accelerators.md) |
+| `C-V4`: fully own PLUG-OUT (own region 0, engine and all six main DSP programs, no Roland microcode), eight voices on both slaves | works (sawtooth with gate only) | [`Volume VI: C-V4 Reference`](docs/vol6_reference_designs_applications/c_v4_system8_reference.md), [`Volume III: Voice Allocation`](docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md) |
+| Wavetable player (WAV → bank 5 → DSP) and `C-WTLIVE` live table | works | `examples/wt_live/`, [`Volume VI: Wavetable Engines`](docs/vol6_reference_designs_applications/wavetable_engines.md) |
+| Live DSP peek and poke from the host | works | [`Volume I: Host Control Plane`](docs/vol1_system_architecture/host_control_plane.md), [`Volume II: Memory Banks`](docs/vol2_dsp_core_isa/memory_banks_dma.md) |
+| S8LAB lab image in PLG1: OSC1 COLOR changes the timbre | works (not monotonic) | `examples/sys8_lab/`, [`Volume VII: Reverse Engineering Reports`](docs/vol7_cleanroom_evidence_archive/firmware_reverse_engineering_reports.md) |
 
 ### Not done or not verified
 
 * **Own microcode beyond the oscillators above.** `C-V4` has no Roland microcode, but its voice is only a sawtooth
   with a gate: filters, envelopes, LFO and effects are not written yet (Roland's are used only in the older builds).
 * **Noise on OSC1.** The stock engine has no native path for it, and the DSP decides the sound; any version needs
-  a code cave (see `docs/CUSTOM_PLUGOUTS.md`).
+  a code cave (see [TRM Volume IV: Plug-out Virtual Machine](docs/vol4_firmware_container_protocol/plugout_virtual_machine.md)).
 * **Wavetable budget.** A table that exceeds the DSP cycle budget can need a power cycle of the device
-  (`examples/from_scratch/re/wav2dco.py`, `docs/CUSTOM_OSC.md`, `docs/OPTIONS.md`).
+  (`examples/from_scratch/re/wav2dco.py`, [TRM Volume II: SFU & Accelerators](docs/vol2_dsp_core_isa/sfu_and_accelerators.md), [TRM Volume III: Timing Budgets](docs/vol3_voice_allocation_scheduling/execution_timing_budgets.md)).
 * **The SYSTEM-8 modulation paths.** How an LFO or envelope reaches COLOR or OSC1 cross mod is not found: the
-  patch cords and the EXTEND matrix did not change the sound in the tests (`docs/PLAN.md`, steps 3 to 8).
+  patch cords and the EXTEND matrix did not change the sound in the tests ([TRM Volume VII: Archive](docs/vol7_cleanroom_evidence_archive/firmware_reverse_engineering_reports.md)).
 * **Bootloader and updater.** Both are encrypted (ECB); the key is in the BMC chip. The OS image is decoded
   (local dump, not in git).
 * **Long samples.** A write to the EDM memory from ARM code is still open; not yet written up in `docs/`.
@@ -74,7 +74,7 @@ What this project is not:
 | `base-engine/` | decoded base engine of the stock plugouts (reports and ELF exports) |
 | `cleanroom/` | clean-room specification test vectors and their checker |
 | `examples/` | experiments that run on the device (one folder each, see below) |
-| `docs/` | all documents; index in [`docs/INDEX.md`](docs/INDEX.md) |
+| `docs/` | Roland BMC Technical Reference Manual Suite (Volumes I–VII); master index in [`docs/index.md`](docs/index.md) |
 | `plugins/`, `work/`, `dumps/` | local, not in git: plugin folders, decoded images, device dumps |
 
 ### Examples
@@ -84,8 +84,8 @@ What this project is not:
 | `examples/from_scratch/` | own PLUG-OUT in C (`engine/`, `model/`, `v3/`, `v4/`), the slave DSP emulator (`emu/`) and the reverse-engineering scripts (`re/`) | `C-V4` plays eight voices with only our code and microcode |
 | `examples/sys8_lab/` | S8LAB, the SYSTEM-8 image in PLG1, with the COLOR, cord, MOD and LFO tests | installed; tests run |
 | `examples/wt_live/` | `C-WTLIVE`: send a WAV wavetable to the slaves live (slot 3) | works |
-| `examples/wt_morph/` | `C-MORPH`: one wavetable position morphing with an LFO | design only; no hardware run recorded; options in `docs/OPTIONS.md` |
-| `examples/wt_pwm/` | `C-PWM`: wavetable PLUG-OUT with a WAV inside | built; no hardware run recorded in `docs/` |
+| `examples/wt_morph/` | `C-MORPH`: one wavetable position morphing with an LFO | design only; see [TRM Volume VI: Wavetable Engines](docs/vol6_reference_designs_applications/wavetable_engines.md) |
+| `examples/wt_pwm/` | `C-PWM`: wavetable PLUG-OUT with a WAV inside | built; see [TRM Volume VI: Wavetable Engines](docs/vol6_reference_designs_applications/wavetable_engines.md) |
 | `examples/sd_txt/` | read a file from the SD card in a region 0 init hook | works |
 | `examples/mem_name/`, `examples/mem_names/`, `examples/mem_scan/` | region 0 hooks that read OS RAM through the plugout name, and the dump loops | works |
 | `examples/midi_send/` | captures and bulk dump / bulk loop of the device's SysEx | captures |
@@ -93,8 +93,7 @@ What this project is not:
 
 ## Tools and firmware
 
-**Usage and parameters of every tool: [`docs/TOOLS.md`](docs/TOOLS.md)** (workflows and daily tools by hand in
-[`docs/TOOLS_GUIDE.md`](docs/TOOLS_GUIDE.md), the full reference generated by `python3 tools/tools_usage.py`).
+**Usage and parameters of every tool: [TRM Volume V: Assembler & Toolchain Guide](docs/vol5_toolchain_compiler_sdk/assembler_disassembler_tools.md)** and [`docs/TOOLS.md`](docs/TOOLS.md) (the full reference generated by `python3 tools/tools_usage.py`).
 
 | Path | What |
 |---|---|
@@ -102,17 +101,17 @@ What this project is not:
 | `tools/plugout.py` | container format, Roland SysEx, protocol constants |
 | `tools/patches.py` | `Script.xml` structures, `Patch/*.bin` banks, patch addresses |
 | `tools/midi_io.py` | MIDI ports (ALSA raw MIDI via ctypes, python-rtmidi) |
-| `tools/plugout_build.py` | CLI to unpack, modify and rebuild `Code*.Dat` ([`docs/CUSTOM_PLUGOUTS.md`](docs/CUSTOM_PLUGOUTS.md)) |
+| `tools/plugout_build.py` | CLI to unpack, modify and rebuild `Code*.Dat` ([TRM Volume IV: Container Formats](docs/vol4_firmware_container_protocol/container_formats.md)) |
 | `tools/plugout_image.py` | flash image, region header, SYNINFO, relocation, container builder |
 | `tools/lzss.py` | LZSS codec of the firmware regions |
-| `tools/sys8fw.py` | unpack / patch / rebuild `SYSTEM8_UP.BIN`, RTTI symbols, ELF ([`docs/BASE_FIRMWARE.md`](docs/BASE_FIRMWARE.md)) |
+| `tools/sys8fw.py` | unpack / patch / rebuild `SYSTEM8_UP.BIN`, RTTI symbols, ELF ([TRM Volume IV: Container Formats](docs/vol4_firmware_container_protocol/container_formats.md)) |
 | `tools/os_analyze.py`, `tools/svc_table.py`, `tools/crypto_scan.py` | analysis of the decoded OS and its service table |
 | `tools/engine_*.py`, `tools/read_param.py`, `tools/patch_read.py` | engine analysis and parameter reads |
-| `tools/check_optimized.py` | warns about unoptimized DSP microcode; every build runs it ([`docs/MICROCODE_OPTIMIZATION.md`](docs/MICROCODE_OPTIMIZATION.md)) |
+| `tools/check_optimized.py` | warns about unoptimized DSP microcode; every build runs it ([TRM Volume II: Instruction Encoding](docs/vol2_dsp_core_isa/instruction_word_encoding.md)) |
 | `tools/tools_usage.py` | regenerates [`docs/TOOLS.md`](docs/TOOLS.md) |
 | `tools/test_sys8fw.py`, `tools/test_plugout.py`, `tools/test_plugout_build.py` | tests (`python3 -m unittest discover -s tools`) |
-| `asm/` | DSP assembler and disassembler ([`docs/DSP_ISA_SPEC.md`](docs/DSP_ISA_SPEC.md), [`docs/REVIEW.md`](docs/REVIEW.md)) |
-| `firmware/sys8_sys_v132/SYSTEM8_UP.BIN` | official SYSTEM-8 updater (v1.32); see [`docs/VERSIONS.md`](docs/VERSIONS.md) |
+| `asm/` | DSP assembler and disassembler ([TRM Volume II: ISA Reference](docs/vol2_dsp_core_isa/instruction_set_reference.md), [TRM Volume V: Toolchain Guide](docs/vol5_toolchain_compiler_sdk/assembler_disassembler_tools.md)) |
+| `firmware/sys8_sys_v132/SYSTEM8_UP.BIN` | official SYSTEM-8 updater (v1.32); see [TRM Volume IV: Container Formats](docs/vol4_firmware_container_protocol/container_formats.md) |
 
 ## Requirements
 
@@ -215,7 +214,7 @@ transfer must wait for the flow-control replies every 32 messages, which is what
 ## Limitations
 
 * The patch transfer has been tested against a simulated device and on the real SYSTEM-8; it follows the plugin's
-  code ([`docs/PROTOCOL.md`](docs/PROTOCOL.md) §6).
+  code ([Volume IV: USB SysEx Protocol](docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md)).
 * Patches are sent without flow control (as the plugin does) and, by default, without delays. If the device drops
   data, use `--gap-ms 10 --wire-pacing`.
 * Do not run two tools against the device at once: they share one MIDI port and their replies mix.
