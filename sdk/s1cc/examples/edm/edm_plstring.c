@@ -27,3 +27,5 @@ S1_DSP_A {
   lp = y;
   return y * s1_param(level, 0);
 }
+
+// todo mover la linea de delay a C tambien
