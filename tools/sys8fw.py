@@ -10,9 +10,10 @@ sys8fw.py -- unpack, inspect, patch and rebuild the SYSTEM-8 updater (SYSTEM8_UP
 
 What is decoded: the tar container, the PRELOAD_PLUGOUT wrapper, the
 "SYSTEM-8:Plugout" regions (LZSS) of slot 0 and the factory PLUG-OUTs.
-What is NOT: the `App1_Main` OS file, which is encrypted with a 64-bit block
-cipher whose key is not in the updater (docs/BASE_FIRMWARE.md). It is carried
-through unchanged unless you supply a replacement with `--os`.
+The `App1_Main` OS file is 3-key 3DES encrypted; use `app1_crypto.py` to
+decrypt it, or `pack --os-plain` to put a modified OS back in encrypted form.
+Pass `--os` when you already hold an encrypted replacement
+(docs/vol4_firmware_container_protocol/container_formats.md section 1.4.1a).
 """
 
 from __future__ import annotations
@@ -239,12 +240,29 @@ def load_project(path: str) -> dict:
         return json.load(fh)
 
 
-def build_up(path: str, os_override: str | None = None) -> bytes:
+def build_up(path: str, os_override: str | None = None,
+             os_plain: str | None = None, opts=None) -> bytes:
     man = load_project(path)
     members = []
     for ent in man["members"]:
         if ent["kind"] == "os":
-            data = open(os_override or os.path.join(path, ent["file"]), "rb").read()
+            ref = os.path.join(path, ent["file"])
+            if os_plain:
+                # a decrypted image goes back in encrypted, using the crypto fields
+                # (mode + boot ROM key slot) carried by the original container header.
+                # The key is private and never stored: pass --os-key / --os-key-file.
+                import app1_crypto as AC
+                blob = open(ref, "rb").read()
+                info = AC.parse_header(blob)
+                key, src = AC.resolve_key(getattr(opts, "os_key", None),
+                                          info["key_index"],
+                                          getattr(opts, "os_bootrom", None),
+                                          getattr(opts, "os_key_file", None))
+                say(f"re-encrypting {os_plain} with key slot 0x{info['key_index']:02X} "
+                    f"from {src}")
+                data = AC.rebuild_container(blob, open(os_plain, "rb").read(), key)
+            else:
+                data = open(os_override or ref, "rb").read()
         else:
             plains = [open(os.path.join(path, r["file"]), "rb").read() for r in ent["regions"]]
             data = build_plugout(ent, plains)
@@ -253,7 +271,7 @@ def build_up(path: str, os_override: str | None = None) -> bytes:
 
 
 def cmd_pack(args) -> int:
-    out = build_up(args.dir, args.os)
+    out = build_up(args.dir, args.os, getattr(args, "os_plain", None), args)
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     open(args.output, "wb").write(out)
     say(f"wrote {args.output} ({len(out)} bytes, sha256 {hashlib.sha256(out).hexdigest()[:16]})")
@@ -576,7 +594,13 @@ def main(argv=None) -> int:
     p = sub.add_parser("info"); p.add_argument("up"); p.set_defaults(func=cmd_info)
     p = sub.add_parser("unpack"); p.add_argument("up"); p.add_argument("dir"); p.set_defaults(func=cmd_unpack)
     p = sub.add_parser("pack"); p.add_argument("dir"); p.add_argument("-o", "--output", required=True)
-    p.add_argument("--os", help="replacement App1_Main file (already encrypted)"); p.set_defaults(func=cmd_pack)
+    p.add_argument("--os", help="replacement App1_Main file (already encrypted)")
+    p.add_argument("--os-plain", help="replacement App1_Main as a DECRYPTED image; "
+                                      "it is re-encrypted with the container's own key slot")
+    p.add_argument("--os-key", help="3DES key (48 hex digits) needed by --os-plain")
+    p.add_argument("--os-key-file", help="file holding the --os-plain key, or '-' for stdin")
+    p.add_argument("--os-bootrom", help="silicon Boot ROM dump to read the --os-plain key from")
+    p.set_defaults(func=cmd_pack)
     p = sub.add_parser("verify"); p.add_argument("up"); p.set_defaults(func=cmd_verify)
     p = sub.add_parser("symbols"); p.add_argument("dir"); p.add_argument("--elf-dir")
     p.add_argument("--json"); p.set_defaults(func=cmd_symbols)

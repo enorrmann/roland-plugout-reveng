@@ -130,6 +130,79 @@ Analysis of official updaters across releases v1.30, v1.31, and v1.32 demonstrat
 | `pl2m` | JX-3P Model v1.00 / Engine | 1,159,484 / 275,492 B | 1,159,484 / 275,508 B | 1,159,484 / 275,508 B | Engine expanded +16 B in v1.31 |
 | `App1_Main` | Encrypted Master OS Kernel | 2,938,080 B (cipher) | 2,938,640 B (cipher) | 2,939,664 B (cipher) | OS expanded across all versions; v1.32 adds JUPITER-4 support |
 
+### 1.4.1a `App1_Main` Payload Cipher: 3-Key 3DES `[VERIFIED]`
+
+Only the **payload** is encrypted. File bytes `[0x60 : 0x60 + size@0x44)`; the `0x60`-byte
+clear header and the 0x40-byte clear trailer are always plaintext, which is what makes an
+encrypt/decrypt round trip byte-exact.
+
+Container layout:
+
+| Offset | Contents |
+|---|---|
+| `0x00` | `"App1_Main"` + NUL |
+| `0x10` | build date, ASCII (`2022/04/28 09:41`) |
+| `0x20` | tool/version tag (`0.010001`) |
+| `0x28` | load address (`0x60000000`, master BMC SDRAM) |
+| `0x30` | `0x00060040`; `0x34`–`0x40` are `FFFFFFFF` |
+| `0x40` | `0x00060060` |
+| `0x44` | encrypted payload size (v1.32: `0x2CDA70`) |
+| `0x48` | load address again |
+| `0x50` | payload check value (not CRC-32/sum32/Adler/SHA of the ciphertext) |
+| `0x54` | crypto control: bytes `01 00 MM KK` = enabled / mode / boot ROM key slot |
+| `0x60` | **encrypted payload begins** |
+
+Cipher:
+
+- **3-key 3DES in ECB over 64-bit blocks**, operated through the hardware AXI FIFO word
+  order: each 64-bit block is two 32-bit words, big-endian packed and word-swapped
+  ($[W_1{:}W_0]$) on both ingress and egress.
+- **Key source**: the silicon Boot ROM master key table at `0x012023B0`, entry
+  `0x012023B0 + key_idx * 24`. In decrypt mode the hardware key registers load the six
+  32-bit words in inverted stage order: `Key = pack(">IIIIII", w1, w0, w3, w2, w5, w4)`.
+
+Known key slots (addresses are public; the 24-byte key material is **not**, and is
+deliberately not reproduced in this documentation):
+
+| Slot | Address | Protects |
+|---|---|---|
+| `0xB6` | `0x012034C0` | MC-101 `App1_Main`; SYSTEM-8 `App1_Main` |
+| `0xB5` | `0x012034A8` | MC-101 `App0_UPD` recovery updater |
+
+The SYSTEM-8 `App1_Main` container names slot **`0xB6`** and mode `0x02` (3-key 3DES) in
+all of v1.30, v1.31 and v1.32. The mechanism and the key table are shared with the
+Roland ESC2 firmware family (MC-101).
+
+> **Key handling.** The key material is private. It is never stored in this repository,
+> in `tools/`, in the test suite, or in these documents. Supply it at the point of use:
+> `--key <48 hex digits>`, `--key-file <path|->`, or `--bootrom <silicon dump>` (which
+> reads the table entry directly). `tools/app1_crypto.py` prints only a SHA-256
+> fingerprint of the key, never the key itself.
+
+Verification `[VERIFIED]`:
+
+- The ported cipher reproduces the MC-101 `App1_Main` reference plaintext exactly.
+- Decrypting the v1.32 payload yields a valid Cortex-M image (`0x680148B0`, `ldr r0,[pc,#…]`)
+  whose **code segment matches `dumps/os_full.bin` byte for byte** up to the first
+  live-RAM variable; the remaining 2.63 % are runtime-mutated `.data` values.
+- Re-encrypting the decrypted payload reproduces Roland's shipped `SYSTEM8_UP.BIN`
+  byte for byte (`cmp` clean), so a patched OS can be repackaged and installed.
+
+Tool: [`tools/app1_crypto.py`](../tools/app1_crypto.py) (`info`, `decrypt`, `encrypt`,
+`selftest`), or `tools/sys8fw.py pack --os-plain <decrypted image> --os-key <hex>` to
+rebuild the whole updater with a modified OS. `info` needs no key; the other commands
+require one.
+
+```bash
+# needs no key
+python3 tools/app1_crypto.py info firmware/sys8_sys_v132/untared/p1y01_m0c0a_up.bin
+
+# decrypt / re-encrypt (key supplied per invocation, or via $APP1_KEY / a bootrom dump)
+python3 tools/app1_crypto.py decrypt <container> -o os.bin --key-file ~/.roland-key
+python3 tools/app1_crypto.py encrypt os.bin --header-from <container> \
+        -o out.bin --key-file ~/.roland-key
+```
+
 ### 1.4.2 LZSS Compression Algorithm Specification `[STATIC_ANALYSIS]`
 
 System images are compressed using an optimized **LZSS (Lempel-Ziv-Storer-Szymanski)** sliding-window algorithm:

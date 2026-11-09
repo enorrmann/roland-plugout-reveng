@@ -3,6 +3,59 @@
 
 ## Install, containers, firmware, checks (`tools/`)
 
+### `tools/app1_crypto.py`
+
+```
+app1_crypto.py -- decrypt / encrypt the SYSTEM-8 `App1_Main` OS payload.
+
+    python3 tools/app1_crypto.py info     firmware/sys8_sys_v132/untared/p1y01_m0c0a_up.bin
+    python3 tools/app1_crypto.py decrypt  <container> -o out/os.bin
+    python3 tools/app1_crypto.py encrypt  out/os.bin -o out/p1y01_m0c0a_up.bin \
+                                          --header-from <original container>
+    python3 tools/app1_crypto.py selftest
+
+Only the payload is encrypted: file bytes [0x60 : 0x60 + size@0x44]. The 0x60-byte
+clear header and the 0x40-byte clear trailer are never touched, which is what
+makes an encrypt -> decrypt round trip exact.
+
+Mechanism (ported from the MC-101 / ESC2 research in ../mc-101-re,
+tools/decrypt_c0a.py + docs/core0_boot_and_memory_architecture.md):
+  * 3-key 3DES, ECB, 64-bit blocks.
+  * hardware AXI FIFO word order: each 64-bit block is two 32-bit words that are
+    big-endian packed and word-swapped -- [W1:W0] on the way in and on the way out.
+  * the key comes from the silicon Boot ROM master key table at 0x012023B0:
+        table address = 0x012023B0 + key_idx * 24
+    and, in decrypt mode, the hardware key registers load the six 32-bit words in
+    inverted stage order:
+        Key = pack(">IIIIII", w1, w0, w3, w2, w5, w4)
+
+Key slots found so far (the 24-byte 3DES key is hardware-ordered -- table words
+packed as w1,w0,w3,w2,w5,w4):
+    0xB6   MC-101 App1_Main / SYSTEM-8 App1_Main
+    0xB5   MC-101 App0_UPD
+  Slot 0xB6 is the one the SYSTEM-8 container actually names (see `info`), and the
+  research above confirms the key table is shared across Roland ESC2 partitions.
+
+The key material is private: it is never stored in this file. Supply it with
+--key (hex on the command line) or --key-file (path, or - for stdin), or point
+--bootrom at a silicon dump so the table entry is read from there.
+
+Pure stdlib except pycryptodome/pycryptodomex for the DES3 primitive.
+```
+
+| option | help | default |
+|---|---|---|
+| `container` |  |  |
+| `container` |  |  |
+| `-o, --output` |  |  |
+| `plain` |  |  |
+| `--header-from` | original container to take the clear header/trailer from |  |
+| `-o, --output` |  |  |
+| `--key` | 24-byte 3-key 3DES key as hex (48 digits) |  |
+| `--key-file` | read the key from a file, or '-' for stdin |  |
+| `--key-index` | boot ROM key slot (default: taken from the container header) |  |
+| `--bootrom` | silicon Boot ROM dump to read the key table from |  |
+
 ### `tools/check_optimized.py`
 
 ```
@@ -496,9 +549,10 @@ sys8fw.py -- unpack, inspect, patch and rebuild the SYSTEM-8 updater (SYSTEM8_UP
 
 What is decoded: the tar container, the PRELOAD_PLUGOUT wrapper, the
 "SYSTEM-8:Plugout" regions (LZSS) of slot 0 and the factory PLUG-OUTs.
-What is NOT: the `App1_Main` OS file, which is encrypted with a 64-bit block
-cipher whose key is not in the updater (docs/BASE_FIRMWARE.md). It is carried
-through unchanged unless you supply a replacement with `--os`.
+The `App1_Main` OS file is 3-key 3DES encrypted; use `app1_crypto.py` to
+decrypt it, or `pack --os-plain` to put a modified OS back in encrypted form.
+Pass `--os` when you already hold an encrypted replacement
+(docs/vol4_firmware_container_protocol/container_formats.md section 1.4.1a).
 ```
 
 | option | help | default |
@@ -509,6 +563,10 @@ through unchanged unless you supply a replacement with `--os`.
 | `dir` |  |  |
 | `-o, --output` |  |  |
 | `--os` | replacement App1_Main file (already encrypted) |  |
+| `--os-plain` | replacement App1_Main as a DECRYPTED image; it is re-encrypted with the container's own key slot |  |
+| `--os-key` | 3DES key (48 hex digits) needed by --os-plain |  |
+| `--os-key-file` | file holding the --os-plain key, or '-' for stdin |  |
+| `--os-bootrom` | silicon Boot ROM dump to read the --os-plain key from |  |
 | `up` |  |  |
 | `dir` |  |  |
 | `--elf-dir` |  |  |

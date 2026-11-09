@@ -2,10 +2,13 @@
 
 `os_full.bin` (2 939 504 B, `0x60000000`–`0x602CDA6F`) is the SYSTEM-8 OS as it
 sits in the master BMC's SDRAM while the synth runs.  The copy in the updater
-(`App1_Main`) is encrypted and the key is held by the BMC, so this dump is the
-only plaintext source of the operating system; everything here is derived from
-it.  See [`../docs/BASE_FIRMWARE.md`](../docs/BASE_FIRMWARE.md) §7.14 for how
-the dump was obtained.
+(`App1_Main`) is 3-key 3DES encrypted (see
+[`../docs/vol4_firmware_container_protocol/container_formats.md`](../docs/vol4_firmware_container_protocol/container_formats.md)
+§1.4.1a); it can now be decrypted and re-encrypted with
+`../tools/app1_crypto.py`, and the two agree outside live-RAM variables.  This
+folder still reconstructs the image from the dump.  See
+[`../docs/BASE_FIRMWARE.md`](../docs/BASE_FIRMWARE.md) §7.14 for how the dump was
+obtained.
 
 This folder reconstructs the image from source:
 
