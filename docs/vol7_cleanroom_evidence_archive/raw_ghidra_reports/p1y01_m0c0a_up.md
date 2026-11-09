@@ -1,6 +1,15 @@
-# p1y01_m0c0a_up (App1_Main, the OS) - NOT DECODED
+# p1y01_m0c0a_up (App1_Main, the OS) - DECODED
 
-Encrypted payload; only the clear header and trailer can be read. No classes, vtables, presets or labels can be extracted until the payload is decrypted (docs/BASE_FIRMWARE.md section 2).
+**Update: this payload has been decrypted.** The section is 3-key 3DES in ECB over
+64-bit blocks, read through the hardware AXI FIFO word order, with the key taken
+from the silicon Boot ROM master key table at `0x012023B0`; the container names
+slot `0xB6`. See `docs/vol4_firmware_container_protocol/container_formats.md`
+§1.4.1a and `tools/app1_crypto.py`. The original analysis below is kept for
+reference, but its "Cipher conclusions" section is superseded (see the note at
+the end).
+
+Encrypted payload; only the clear header and trailer can be read from the raw
+container.
 
 ## Clear header (0x60 bytes)
 
@@ -51,3 +60,12 @@ Text: `����Roland P1Y01_C0AVER.1.32BLD.136E22 0428 09 41 54`
 * 64-bit block cipher in ECB mode (equal plaintext blocks give equal ciphertext; 8-byte halves repeat independently of their 16-byte neighbours).
 * Full diffusion; no XOR/rotate/linear structure; not the plug-out chained XOR.
 * Keys derived from header, trailer and product strings failed for Blowfish, CAST5, DES/3DES, IDEA, TEA and XTEA. The key is in the device bootloader.
+
+> **SUPERSEDED.** The cipher is **3-key 3DES (ECB, 64-bit blocks) operated through the
+> hardware AXI FIFO word order**, and the key is in the Boot ROM master key table
+> (`0x012023B0 + key_idx * 24`, here slot `0xB6`), not derived from header strings. The
+> correct key ordering is `pack(">IIIIII", w1, w0, w3, w2, w5, w4)` with `[W1:W0]` word
+> swapping on both ingress and egress. The observations above (full diffusion, the repeat
+> structure) are consistent with that; what made every earlier key attempt fail was
+> assuming native block order. Decryption is implemented and verified in
+> `tools/app1_crypto.py`.

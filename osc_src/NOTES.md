@@ -118,9 +118,13 @@ an instruction, byte form if it is `.byte`.
   function — the pipeline a follow-up would build on.  Ghidra does decompile
   this image (e.g. `FUN_600001c2`, the DMA copy routine, comes out as a clean
   loop over the DMA registers).
-* **No re-encryption of `App1_Main`.**  Rebuilding the updater needs the
-  container plus the encrypted payload (`../tools/sys8fw.py`) and the BMC key,
-  which is not in any file we have (`../docs/BASE_FIRMWARE.md` §2, §8.14).
+* **`App1_Main` encryption is now reversible.**  `../tools/app1_crypto.py`
+  decrypts the updater payload with the Boot ROM key slot the container names
+  (`0xB6`, 3-key 3DES, hardware word order) and re-encrypts it; a rebuilt
+  updater is byte-identical to Roland's when the plaintext is unchanged.  What
+  is *not* fixed here is the header check value at `0x54`'s neighbour (`0x50`),
+  which we cannot recompute, so a modified OS keeps the original check word —
+  see `container_formats.md` §1.4.1a.
 * **Live RAM is included as dumped.**  The image holds run-time variables (the
   MIDI receive buffer at `0x602C4D00`, the value-label lists at `0x20001A72`
   seen through the dump).  They are reproduced verbatim, as the dump has them.
