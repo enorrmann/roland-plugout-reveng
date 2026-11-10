@@ -35,7 +35,7 @@ activo; sin comprobar).
 | `work/sys1_v120/app_master.bin` | `Code1.Dat` bloques 0–839 | 702 520 |
 | `work/sys1_v120/app_slave.bin` | `Code1.Dat` bloques 2048–2312 | 373 604 |
 
-En el SYSTEM-8 el OS venía cifrado y hubo que volcarlo del equipo (bulk dump, `docs/BASE_FIRMWARE.md` §7.13). En el
+En el SYSTEM-8 el OS venía cifrado y hubo que volcarlo del equipo (bulk dump, [Vol. IV ch. 6](../docs/vol4_firmware_container_protocol/base_firmware.md) §7.13). En el
 SYSTEM-1 **no hace falta volcar nada**: el actualizador trae el código completo. Un volcado solo añadiría el estado
 vivo de la RAM.
 
@@ -50,7 +50,7 @@ vivo de la RAM.
 | `0x130000` | región `"SYSTEM-1:Appli"`: aplicación del slave |
 | resto | `0xFF` hasta 4 MiB; 16 bytes finales `30 00 00 00 2f 02 00 00 00 10 00 00 00 00 40 00` (sin estudiar) |
 
-Formato de región: el de los PLUG-OUTs (`docs/CUSTOM_PLUGOUTS.md` §2–3): cabecera de 0x40 bytes, carga y entrada
+Formato de región: el de los PLUG-OUTs ([Vol. IV ch. 2](../docs/vol4_firmware_container_protocol/plugout_virtual_machine.md) §2–3): cabecera de 0x40 bytes, carga y entrada
 `0x60000000`, LZSS con el anillo a cero, suma de 32 bits del flujo comprimido. Las tres sumas coinciden.
 
 ### 2.2 `Code1.Dat` del plug-in SYSTEM-1

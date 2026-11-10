@@ -98,7 +98,7 @@ checked again on 2026-10-22 with this `test_model.py` (unchanged, importing it a
 changes (72 sources x 4 contexts x 2 slaves) and at refresh, largest approximation error 2 %. With the current
 trimmed file `test_model.py 4` reports 92 differing (source, target) pairs and 84 ids at refresh, so the "0
 differences" above no longer holds for it. The full model lives on, unchanged, in
-`examples/system_1_jx/model_full.py` (C-S1JX, `docs/examples_system_1_jx_README.md` section 8).
+`examples/system_1_jx/model_full.py` (C-S1JX, [examples/system_1_jx/README.md](../../system_1_jx/README.md) section 8).
 
 ## Program registration and swaps
 

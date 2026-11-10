@@ -1,6 +1,6 @@
 # examples/system_1_synth: qué es cada archivo
 
-Documento principal: [../../docs/examples_system_1_synth_README.md](../../docs/examples_system_1_synth_README.md).
+Documento principal: [examples/system_1_synth/README.md](README.md).
 
 ## Programas DSP generados (`*.s` = fuente legible, `*.hex` = palabras que se cargan)
 

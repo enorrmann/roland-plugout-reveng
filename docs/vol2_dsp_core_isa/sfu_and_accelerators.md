@@ -1,136 +1,118 @@
-# Volume II: Roland BMC DSP Core & ISA Reference
+# Volume II — Chapter 5: Special-Function Unit, Seed ROMs and Phase Operations
 
-# Chapter 5: Special Function Units (SFU), Seed ROMs & Mathematical Accelerators
+> The non-linear operations in one place; sources: [ch. 1](core_architecture.md) §5.1–§5.3,
+> [ch. 4](instruction_set_reference.md) §6.2–§6.4 and [ch. 9](operation_uses.md). The ROM contents were checked
+> against the C reference `examples/from_scratch/emu/dspcore.h` (`recip_seed`, `RSQRT_Q`, `EXP_ROM`).
 
-> **Document ID**: TRM-BMC-VOL2-005  
-> **Classification**: Normative Hardware Reference  
-> **Release Target**: Texas Instruments / Analog Devices TRM Standard  
+## 1. Where the functions live
 
----
+| function | unit and encoding | mnemonic (`asm/isa.json`) | source |
+|---|---|---|---|
+| Newton step | unit A, op 0, sub-code X = 2 | `newton` | ch. 1 §5.1 |
+| reciprocal seed | unit B, D ≥ 8, nibble f, bits 7–6 = 00, mode 00, Y bit 3 = 0 | `recipseed` | ch. 1 §5.3 |
+| atanh split | same, mode 00, Y bit 3 = 1 | `atanhsplit` | ch. 1 §5.3 |
+| root split | mode 01, Y bit 3 = 0 | `sqrtsplit` | ch. 1 §5.3 |
+| exponential split | mode 01, Y bit 3 = 1 | `expsplit` | ch. 1 §5.3 |
+| log2 split | mode 10, Y bit 3 = 0 | `log2split` | ch. 1 §5.3 |
+| sign | mode 10, Y bit 3 = 1 | `sign` | ch. 1 §5.3 |
+| ceiling | mode 11, Y bit 3 = 0 | `ceil` | ch. 1 §5.3 |
+| floor | mode 11, Y bit 3 = 1 | `floor` | ch. 1 §5.3 |
+| reciprocal seed with a numerator | unit B, D ≥ 8, nibble e, bits 7–6 = 10 | `divseed` | `emu/dspcore.h` (measured 2026-10-29) |
+| frexp | unit B, D ≥ 8, nibble c, mode 0 | `frexp` | ch. 1 §5.2 |
+| shifts X·2^Y, X·2^−Y, X·2^−(16+Y) | unit B, D ≥ 8, nibble c, modes 1/2/3 | `shl` / `shr` / `shrn` | ch. 1 §5.2 |
+| phase shaping | unit B, D ≥ 8, nibble e, bits 7–6 = 11 | `ph_add`, `ph_sub`, `ph_abs`, `ph_clamp`, `ph_wrap`, `ph_tri`, `ph_mod2`, `ph_neg` | ch. 1 §5.2 |
+| register move, delay position, add hidden, markers | unit B, D ≥ 8, nibble f, bits 7–6 = 01 | `f4`, `f5`, `f6`, `f7` | ch. 1 §5.3 |
 
-## 5.1 Hardware Special Function Units (SFU) Overview
+All of them cost one cycle like any instruction (ch. 1 §1). r(d) = r(D − 8).
 
-The Roland BMC DSP core embeds dedicated hardware accelerators to compute nonlinear transcendental functions, reciprocal division, roots, and periodic audio waveforms without incurring multi-cycle pipeline stalls:
+## 2. Reciprocal and division **[exact, 2026-10-28]**
 
-1. **Seed ROM Tables**: Internal hardware lookup tables for reciprocal ($1/x$) and reciprocal square root ($1/\sqrt{x}$) seed generation.
-2. **Newton-Raphson / Goldschmidt Convergence Units**: High-throughput quadratic convergence execution stages.
-3. **Phase Distortion Synthesis Accelerators**: Native zero-overhead modulo wrapping and waveshaping operators (`ph_wrap`, `ph_clamp`, `ph_tri`).
-4. **Logarithmic & Exponential Splitting Engines**: `log2split` and `expsplit` engines supporting wide dynamic range pitch calculation.
+* `recipseed`: |Y| = m·2^e, m ∈ [0.5, 1): r(d) ← sign·2^−e (**0 if 2^−e ≥ 512**), r(d+1) ← R[k], **rY ← m** (the input
+  is overwritten).
+* `newton` (A op 0 sub 2): rD ← D·r(D+1); r(D+1) ← 2 − r(D+1)·rY; rY ← r(D+1)·rY, all with the old values; results
+  ready in the next instruction.
+* `recipseed` + three `newton` steps on r(d), r(d+1), rY: r(d) = 1/Y with an error of 10⁻⁸ (Goldschmidt). Roland's SAW
+  oscillator uses `0902 4086` three times after the seed (ch. 4 §6.2).
+* The division must not read Y after `recipseed`, which overwrites it ([ch. 10](native_ops.md) §5).
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                     BMC DSP SFU ACCELERATOR ARCHITECTURE                          |
-|                                                                                                   |
-|  [ Operands: rX, rY ]                                                                             |
-|            │                                                                                      |
-|            ├───────────────┬────────────────────────┬────────────────────────┬─────────────────┐  |
-|            ▼               ▼                        ▼                        ▼                 ▼  |
-|  +-------------------+ +----------------------+ +----------------------+ +------------------+ ...|
-|  | Reciprocal Seed   | | Inv Square Root Seed | | Log2 / Exp Engines   | | Phase Distort    |     |
-|  | 9-bit ROM (Table) | | Table Q (9-bit)      | | Exponent/Frac Split  | | Wrap, Clamp, Tri |     |
-|  +---------+---------+ +----------+-----------+ +----------+-----------+ +--------+---------+     |
-|            │                      │                        │                      │               |
-|            ▼                      ▼                        ▼                      │               |
-|  +-------------------+ +----------------------+            │                      │               |
-|  | Newton-Raphson    | | Goldschmidt Iteration|            │                      │               |
-|  | Quadratic Refine  | | Refinement           |            │                      │               |
-|  +---------+---------+ +----------+-----------+            │                      │               |
-|            │                      │                        │                      │               |
-|            ▼                      ▼                        ▼                      ▼               |
-|  [ Result Writeback: High-Precision 32-bit Roland RAW Value Latched to Target Registers ]         |
-+---------------------------------------------------------------------------------------------------+
-```
+**ROM R** (64 entries, `re/dspseed.py`, 64/64): k = the 6 mantissa bits after the leading 1 (steps of 1/128 in
+[0.5, 1)); `R[k] = round(4096 / (0.5 + (2k + 1)/256)) / 4096` (ch. 1 §5.3; `recip_seed` in `emu/dspcore.h`).
 
----
+## 3. Square root **[exact, 2026-10-29]**
 
-## 5.2 Reciprocal Division Engine (`RECIPSEED` + `NEWTON`) `[VERIFIED]`
+`sqrtsplit`: |Y| = m·4^−k, m ∈ [1, 4): rY ← m, r(d+1) ← Q[j]/512, **r(d+3)** ← sign·2^−k. With rY = r(d+1) or r(d+3)
+the two writes mix bits (do not use). √|x| = r(d+3)·m·r(d+1), with r(d+1) refined by Newton (ch. 1 §5.3; ch. 9 §6).
 
-Direct division on standard DSP architectures requires iterative software loops or heavy microcoded multi-cycle instructions. The Roland BMC DSP achieves full-precision floating-point reciprocal calculation ($1/y$) in **4 instruction cycles** using Goldschmidt / Newton-Raphson quadratic approximation:
+**ROM Q** (48 entries, 9 bits): j = ⌊(m − 1)·16⌋; `Q[j] = round(512 / √(1 + (j + 0.5)/16))`:
 
-### 5.2.1 Operational Mechanism
-
-1. **Seed Extraction (`recipseed rD, rY`)**:
-   The hardware decomposes input $r_Y$ into mantissa $m \in [0.5, 1.0)$ and exponent $e$. It accesses an internal 9-bit seed ROM to obtain initial estimate:
-   $$x_0 \approx \frac{1}{m}$$
-2. **Quadratic Convergence Refinement (`newton rD, rY`)**:
-   The `newton` instruction executes parallel refinement across adjacent register pairs:
-   $$r_{D+1} \leftarrow 2.0 - (r_{D+1} \cdot r_Y), \quad r_D \leftarrow r_D \cdot r_{D+1}$$
-   Two iterations achieve a precision of $\epsilon < 10^{-8}$ across the entire normalized floating-point domain.
-
-```dsp
-; Full-Precision 32-bit Reciprocal Division (r0 <- 1.0 / r1)
-recipseed r0, r1    ; Extract 9-bit reciprocal seed from hardware ROM
-newton r0, r1       ; Refinement iteration 1: doubles valid significant bits
-newton r0, r1       ; Refinement iteration 2: full 29-bit mantissa convergence
+```text
+504 490 476 464 452 442 432 422 414 406 398 391 384 377 371 365 359 354 349 344 339 334 330 326
+322 318 314 311 307 304 300 297 294 291 288 285 283 280 277 275 272 270 268 266 263 261 259 257
 ```
 
----
+Identical to `RSQRT_Q` in `emu/dspcore.h`. **Difference between the sources:** ch. 4 §6.4 (state 2026-10-17) still
+gives an 8-bit table Q/256 and the third output as r7; the 2026-10-29 measurement (384 raw cases + 3072 in
+`re/dspnative.py`) replaced both. `asm/isa.json` still describes the third output as r7.
 
-## 5.3 Square Root & Inverse Square Root Engine (`SQRTSPLIT`) `[VERIFIED]`
+## 4. Exponential **[exact, 2026-10-28]**
 
-Computing $1/\sqrt{y}$ and $\sqrt{y}$ is accelerated via the hardware `sqrtsplit` instruction coupled with internal Table Q:
+`expsplit`: r(d) ← e^⌊Y⌋ from a ROM of its own, rY ← Y − ⌊Y⌋. Roland then evaluates e^frac by Horner (ch. 4 §6.4).
+The ROM covers n = −19 … 6; below, 0; above, the largest RAW (511.999998). It is neither truncated nor rounded e^n:
+up to 6·10⁻³ relative error at n = −18, 10⁻⁸ near 0 (ch. 1 §5.3). The words, from `EXP_ROM` in `emu/dspcore.h`:
 
-### 5.3.1 Decomposition Semantics
-Given operand $r_Y$:
-1. The hardware evaluates $m = |r_Y| \cdot 4^k \in [1.0, 4.0)$.
-2. Mantissa $m$ is placed into $r_Y$.
-3. An initial 9-bit estimate of $1/\sqrt{m}$ from Table Q is placed into $r_{D+1}$.
-4. Exponent scaling factor $\pm 2^{-k}$ is written to $r_{D+3}$.
-5. Standard polynomial or Newton refinement steps converge to exact square root representations without branch overhead.
+| n | RAW | n | RAW | n | RAW |
+|---|---|---|---|---|---|
+| −19 | `00000018` | −10 | `0002f9af` | −1 | `25e2d58d` |
+| −18 | `00000041` | −9 | `00081679` | 0 | `30000000` |
+| −17 | `000000b2` | −8 | `0015fc21` | 1 | `42b7e151` |
+| −16 | `000001e3` | −7 | `003bc2d7` | 2 | `4763992e` |
+| −15 | `00000522` | −6 | `00a27290` | 3 | `5415e5bf` |
+| −14 | `00000df3` | −5 | `01b993fe` | 4 | `63699205` |
+| −13 | `000025ec` | −4 | `04b0556e` | 5 | `69469c4c` |
+| −12 | `00006715` | −3 | `0cbed866` | 6 | `7936dc56` |
+| −11 | `00011835` | −2 | `222a5554` | | |
 
----
+## 5. Logarithms
 
-## 5.4 Logarithmic & Exponential Accelerators (`LOG2SPLIT` & `EXPSPLIT`) `[VERIFIED]`
+* `log2split` **[exact, 2026-10-29]**: Y = m·2^e, m ∈ [0.75, 1.5): rY ← m, r(d) ← e. Y < 0 is read in two's
+  complement: r(d) ← ⌊log2((Y + 512)/0.75)⌋, rY ← Y/2^e rounded toward −∞ at 2^−32 (then RAW truncates); e = 9 for
+  |Y| < 115 (ch. 1 §5.3).
+* `atanhsplit`: x = rY, (x+1)/(2·2^k) ∈ [0.5, 1): r(d) ← (x−1)/(2·2^k), rY ← (x+1)/(2·2^k), r(d+1) ← R[k] of rY; after
+  Newton, r(d)·r(d+1) = (x−1)/(x+1) and ln x = 2·atanh of it. Roland (base engine, JUPITER-8): `9f0d` after an `8f25`
+  log2 split, then `0902 1085` Newton (ch. 1 §5.3; ch. 4 §6.4).
 
-Synthesizer pitch calculation relies heavily on volt-per-octave and MIDI note-to-frequency conversions ($f = f_0 \cdot 2^{(\text{note}-69)/12}$):
+## 6. Rounding to integers, sign, frexp, shifts
 
-### 5.4.1 `LOG2SPLIT` Operation
-Decomposes input $x$ into:
-$$x = m \cdot 2^e, \quad m \in [0.75, 1.5)$$
-The fractional mantissa $m$ and integer exponent $e$ are output to target registers, allowing subsequent evaluation via low-order Horner polynomial approximation.
+* `floor` ⌊Y⌋ and `ceil` ⌈Y⌉ **[exact, 2026-10-28]**; `floor` was read before as −(Y < 0), which coincides for |Y| < 1
+  (ch. 1 §5.3).
+* `sign`: ±1, 0 (ch. 1 §5.3).
+* `frexp`: X = m·2^e, m ∈ [0.5, 1): r(d) ← m, rY ← e; X = 0 → 0, −31 (ch. 1 §5.2; ch. 4 §6.3).
+* `shl` / `shr` / `shrn`: X·2^Y / X·2^−Y / X·2^−(16+Y), Y = the 4-bit field; arithmetic domain in
+  [ch. 2](data_types_arithmetic.md) §4 (ch. 1 §5.2).
 
-### 5.4.2 `EXPSPLIT` Operation
-Computes base-2 and natural exponentials by partitioning the operand into integer floor $\lfloor x \rfloor$ and fractional remainder $\{x\}$:
-- Computes $2^{\lfloor x \rfloor}$ via an internal hardwired seed ROM spanning $> \pm 8$ octaves.
-- Returns fractional term $\{x\}$ for polynomial interpolation.
+## 7. Phase shaping (unit B, D ≥ 8, nibble e, bits 7–6 = 11) **[measured]**
 
----
+Bits 5–4 select the function, Y bit 3 the variant; no immediate (ch. 1 §5.2; ch. 4 §6.3):
 
-## 5.5 Phase Distortion & Waveform Synthesis Accelerators `[VERIFIED]`
+| bits 5–4 | Y bit 3 = 0 | Y bit 3 = 1 |
+|---|---|---|
+| 00 | `ph_add`: r(d) + rY | `ph_sub`: r(d) − rY |
+| 01 | `ph_abs`: \|rY\| | `ph_clamp`: clamp(rY, −1, 1) |
+| 10 | `ph_wrap`: wrap(rY) into [−1, 1) | `ph_tri`: 1 − 2\|wrap(−rY − 1.5)\| |
+| 11 | `ph_mod2`: (rY mod 2)/2 | `ph_neg`: −rY |
 
-Generating classic analog waveforms (Sawtooth, Triangle, Variable-Slope Pulse) at 96 kHz without aliasing requires continuous phase manipulation:
+Roland's oscillators use `ph_wrap` / `ph_tri` / `ph_clamp` to save cycles ([Vol. III ch. 7](../vol3_voice_allocation_scheduling/roland_oscillators.md)).
+On the SYSTEM-1 `ph_wrap`, `ph_clamp`, `ph_tri`, `min`, `max` are proven in the host of SYSTEM-S1CC
+([ch. 10](native_ops.md) §2).
 
-### 5.5.1 The Modulo Phase Wrapper (`PH_WRAP`)
-On standard architectures, wrapping an accumulating phase variable $p \in \mathbb{R}$ into the fundamental cycle range $[-1.0, +1.0)$ requires branch instructions or a multi-instruction chain of floating-point comparisons. The BMC DSP core computes this in **a single cycle**:
+## 8. Nibble f, bits 7–6 = 01 **[measured]**
 
-```dsp
-; Optimized 96 kHz Sawtooth Oscillator Core (2 Instructions Total)
-addxy r1, r1, r2    ; Advance phase accumulator (r1 += r2 frequency delta)
-ph_wrap r1, r3, r1  ; Wrap phase into [-1.0, +1.0) using canonical r3 register
-```
+| form | function |
+|---|---|
+| `{8+d}f4Y` | r(d) ← r(Y & 7) |
+| `{8+d}f5c` | r(d) ← delay-ring write position (counts down 1/16384 per sample, mod 512; own value per DSP); a free sample clock with an 87 s period (ch. 9 §5c) |
+| `{8+d}f5Y`, Y ≠ c | reads 0 in our contexts (ch. 1 §5.3; ch. 4 §6.4 has the details) |
+| `{8+d}f6Y`, Y = c–f | r(d) ← (r(d) + h(Y − 8)) mod 512 |
+| `{8+d}f7Y` | section markers, no effect, 1 cycle (ch. 1 §9) |
 
-### 5.5.2 Triangle Waveform Generator (`PH_TRI`)
-Generates a symmetrical bipolar triangle wave from an active phase accumulator:
-
-$$v_{\text{tri}} = 1.0 - 2.0 \cdot \left| \text{wrap}(r_Y) \right|$$
-
-```dsp
-; Phase to Bipolar Triangle Synthesis
-ph_tri r0, r3, r1   ; r0 <- 1.0 - 2.0 * |wrap(r1)|
-```
-
-### 5.5.3 Phase Saturation Limiter (`PH_CLAMP`)
-Clamps phase excursion to $[-1.0, +1.0]$, preventing buffer overruns in resonant phase-distortion tables:
-
-```dsp
-; Phase Clamp Operation
-ph_clamp r0, r3, r1 ; r0 <- clamp(r1, -1.0, +1.0)
-```
-
----
-
-## 5.6 Hardware Frame Timer Register (`F5C`) `[MEASURED]`
-
-The DSP core monitors global system time via the hardware counter instruction `f5c`:
-- Reads an autonomous 32-bit hardware counter that decrements by $1/16384$ per 96 kHz sample frame modulo 512.
-- Used by reverb delay networks and chorus modulation LFOs to determine absolute sample phase and hardware buffer alignment across asynchronous DSP cores.
+> Paths `re/…` and `emu/…` are relative to `examples/from_scratch/`.

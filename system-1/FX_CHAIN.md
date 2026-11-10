@@ -35,7 +35,7 @@ y saltan a `0x6000673c`; `0x6000733a`… saltan a `0x60007fee`, con `r0 = 3`. Es
 ## 2. Programas DSP del maestro en modo PLUG-OUT [código]
 
 `s1_progs.sets()` sobre el OS encuentra 16 sets en el maestro. Los de modo PLUG-OUT (los encola `0x6001ECA2`,
-[log/WAVE_BUS_LOG.md](log/WAVE_BUS_LOG.md) §2):
+[S1 wave-bus lab log](../docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s1_wave_bus_log.md) §2):
 
 | set | DSP | dirección | tamaño | qué es |
 |---|---|---|---|---|
@@ -168,7 +168,7 @@ Resultado: **funciona** [medido, C-S1SY13, 2026-10-23]: reverb, delay y delay ti
 ## 6. Siguientes pasos
 
 1. Escuchar C-S1SY13 (§5b): reverb, delay, delay time y el sonido seco con los efectos a 0.
-2. Si suena: documentar el paso 13 en [../docs/examples_system_1_synth_README.md](../docs/examples_system_1_synth_README.md)
+2. Si suena: documentar el paso 13 en [examples/system_1_synth/README.md](../examples/system_1_synth/README.md)
    y llevar el mismo `s1mm1` a C-S1V4 (`examples/system_1/make_s1.py`).
 3. Si no suena: medir el orden principal / efecto dentro de la muestra. Por ejemplo, con un principal que escriba
    una marca en `2000` y la región 0 leyendo lo que vuelve. Después mirar `FE14` / `FE28` (§5) y el banco 5
@@ -188,5 +188,5 @@ Resultado: **funciona** [medido, C-S1SY13, 2026-10-23]: reverb, delay y delay ti
   DISTORTION, CHORUS, FUZZ, CRUSHER, PHASER). El chorus/ensemble es global del maestro (`m1_tcm` `efdc`/`f7dc`) y el
   del Juno-60 está en `J60_b000_60a1f8e8`: LFO triangular, dos tomas interpoladas en la memoria de retardo, filtros
   de BBD. Los intentos de C-S1SY están en
-  [../docs/examples_system_1_synth_README.md](../docs/examples_system_1_synth_README.md) §7.4.
+  [examples/system_1_synth/README.md](../examples/system_1_synth/README.md) §7.4.
 

@@ -1,23 +1,14 @@
-# HISTORICAL LABORATORY LOG (FROZEN ARCHIVE)
+> Frozen lab log, formerly `system-1/log/VOICE_ALLOCATION_LOG.md`. The text below is the original, unchanged (Spanish), with its section numbers;
+> only link targets were updated to the new file locations. The current technical specification is [system-1/VOICE_ALLOCATION.md](../../../system-1/VOICE_ALLOCATION.md) (English translation: [Vol. III ch. 2](../../vol3_voice_allocation_scheduling/system1_voice_allocation.md)).
 
-> [!NOTE]
-> **HISTORICAL NON-NORMATIVE RECORD (ARCHIVE)**
-> This document is a preserved laboratory test and investigation log. It is retained strictly for evidentiary provenance, reverse-engineering history, and forensic reference.
-> For the authoritative normative hardware and software architecture, refer to:
-> - [Volume I: System Architecture & Interconnect](../../vol1_system_architecture/bus_interconnect.md)
-> - [Volume II: DSP Core & ISA Reference](../../vol2_dsp_core_isa/core_architecture.md)
-> - [Volume III: Voice Allocation & Scheduling](../../vol3_voice_allocation_scheduling/system8_voice_allocation.md)
-
----
-
-> **Bitácora (congelada el 2026-10-22).** Texto original de `system-1/VOICE_ALLOCATION.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`VOICE_ALLOCATION.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`VOICE_ALLOCATION.md`](../VOICE_ALLOCATION.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
+> **Bitácora (congelada el 2026-10-22).** Texto original de `system-1/VOICE_ALLOCATION.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`VOICE_ALLOCATION.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`VOICE_ALLOCATION.md`](../../../system-1/VOICE_ALLOCATION.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
 
 # SYSTEM-1: asignación de voces (qué DSP hace qué)
 
 Estado: 2026-10-22. Es el equivalente de `docs/VOICE_ALLOCATION.md` (SYSTEM-8) para el SYSTEM-1. Fuentes: OS 1.30
 (`work/sys1_v130/app_master.bin`, `app_slave.bin`), los PLUG-OUTs SH-2, SH-101 y PROMARS para SYSTEM-1 (sólo
 leídos) y nuestro C-S1V4 (`examples/system_1/`, `docs/examples_system_1_README.md`). El camino del audio entre
-chips está en [WAVE_BUS.md](WAVE_BUS.md).
+chips está en [WAVE_BUS.md](../../../system-1/WAVE_BUS.md).
 
 Leyenda: **[medido]** en el equipo · **[código]** visto en los binarios · **[inferido]** · **[abierto]**.
 
@@ -41,7 +32,7 @@ tecla / MIDI ─► OS del maestro ─► asignador (de serie, o el de la regió
 
 * **Asignador de serie**: objeto en `0x604A26B0` (puntero en `0x600094F4`), código `0x60009500`–`0x6000A400`. Cuatro
   voces fijas: bucles `cmp #4`, índices `& 3`, máscara de voces de un byte (bits 0–3). Modos según el parámetro
-  `0x192` del grupo 3 [código] (detalle y sitios en [VOCES_6.md](VOCES_6.md) §3–4).
+  `0x192` del grupo 3 [código] (detalle y sitios en [VOCES_6.md](../../../system-1/VOCES_6.md) §3–4).
 * **Ids de voz** (grupo 2): `0x110+v` nota, `0x120+v` velocidad (0 = soltar), `0x128+v` disparo (1/0), `0x130`
   bend, `0x131` modulación, `0x134` expresión. Los bloques tienen hueco para 16, 8 y 8 voces [código].
 * **En modo PLUG-OUT** el OS usa el asignador que devuelve `SYNINFO+0x2C` de la región 0 (vtable de 9 entradas:
@@ -67,7 +58,7 @@ Memoria de programa de cada DSP: cabecera `0x0000`, principal `0x0100`, seccione
 
 Los programas de voz vienen en sets (48 de voz, en parejas idénticas, 24 variantes, `voice_sets.py`); los cuatro de un
 set sólo cambian en las direcciones de datos de cada voz. Índice del servicio `FC40`/`FC44` → sección
-([SH101_POLY.md](SH101_POLY.md) §2):
+([SH101_POLY.md](../../../system-1/SH101_POLY.md) §2):
 
 | índice | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 |---|---|---|---|---|---|---|---|---|
@@ -96,7 +87,7 @@ Que A y B escriban en el mismo banco 1 sin pisarse indica que los dos DSP de un 
 * `0x60095B0C` (58 instrucciones; variantes `0x600959DC`, `0x60095A24`): mezclador. Suma las ocho salidas del esclavo
   `6006`–`600D` con ganancias `C005`–`C00E`, filtro de continua, × `C00F` × `C010` → `6000`/`6001`. El OS fija
   `C00F` y `C010` con el nivel del patch y un desplazamiento de parte (ids de patch `0x16D`/`0x169` y de parte `0xB5`; `0x60021020`, `0x60021078`) [inferido de qué id lleva a cada función].
-* En modo PLUG-OUT el OS cambia el maestro (§4 y [WAVE_BUS.md](WAVE_BUS.md) §2).
+* En modo PLUG-OUT el OS cambia el maestro (§4 y [WAVE_BUS.md](../../../system-1/WAVE_BUS.md) §2).
 
 ## 4. Los PLUG-OUTs del SYSTEM-1
 

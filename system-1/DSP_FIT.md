@@ -17,7 +17,7 @@ python3 system-1/dsp_fit.py --budget 945 --reserve-ma 0 --samples 4000
 
 Necesita `examples/from_scratch/engine/build/programs.h` (lo crea `examples/from_scratch/engine/build.sh` a partir de
 `plugins/JX-3P`). El microcódigo se lee de esa copia local en tiempo de ejecución; no se copia nada al repo
-(alcance de la regla de [VOICE_ALLOCATION_LOG.md](../docs/log/VOICE_ALLOCATION_LOG.md) §7). Tarda unos 10 s con 1500 muestras.
+(alcance de la regla de [VOICE_ALLOCATION_LOG.md](../docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md) §7). Tarda unos 10 s con 1500 muestras.
 Código de salida 0 si cabe, 1 si no.
 
 | opción | por defecto | qué es |
@@ -44,7 +44,7 @@ Código de salida 0 si cabe, 1 si no.
    * salida audible `6020`/`6021`.
 3. **Reparto en el SYSTEM-1**: prueba todas las asignaciones de los programas principales a los cuatro DSP (esclavo
    A/B, maestro A/B); cada ranura (DCO, efecto) va a uno de los dos DSP del **mismo chip** que su principal, porque se
-   hablan por el banco 1 (que A y B comparten [inferido], `VOICE_ALLOCATION.md` §3.2). Condiciones:
+   hablan por el banco 1 (que A y B comparten [inferido], [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md) §3.2). Condiciones:
    * cada DSP ≤ `--budget` (el maestro A con `--reserve-ma` ya ocupado);
    * palabras esclavo → maestro ≤ 8 (IOMD `6006`–`600D`; la salida de audio cuenta aquí si sale del esclavo);
    * palabras maestro → esclavo ≤ 20 (`600E`–`6021`).
@@ -55,7 +55,7 @@ Código de salida 0 si cabe, 1 si no.
 
 Lo que **no** mide: si los DSP del SYSTEM-1 tienen el mismo presupuesto, la latencia de `A1xx` y del IOMD en el
 SYSTEM-1, ni el trabajo del ARM (el motor del JX-3P es Thumb con VFP y servicios del SYSTEM-8; en el SYSTEM-1 no hay
-FPU y la interfaz es otra, `docs/examples_system_1_README.md` §3).
+FPU y la interfaz es otra, [examples/system_1/README.md](../examples/system_1/README.md) §3).
 
 ## 3. Resultados (2026-10-22) [emulador]
 
@@ -92,7 +92,7 @@ MAIN0 hacia MAIN2). Habría que reescribir 4 enlaces MXM en el microcódigo de R
 (o escribir uno que dé al microcódigo las mismas entradas del banco 5). [abierto]: nada de esto está probado.
 
 **Un DCO, 4 voces** (`--dco2 none`): 3098 instrucciones, cabe (maestro: MAIN2 + MAIN4 / MAIN0 + DCO1; esclavo:
-MAIN3 + MAIN5 / MAIN1 + DCO1). Hecho como C-S1JX: [../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md).
+MAIN3 + MAIN5 / MAIN1 + DCO1). Hecho como C-S1JX: [examples/system_1_jx/README.md](../examples/system_1_jx/README.md).
 
 Variantes por medir con la herramienta: `--dco1 sqr` (357 instrucciones por ranura), `--fx ch` (312 en DSP4).
 

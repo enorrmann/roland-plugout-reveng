@@ -1,21 +1,12 @@
-# HISTORICAL LABORATORY LOG (FROZEN ARCHIVE)
+> Frozen lab log, formerly `system-1/log/WAVE_BUS_LOG.md`. The text below is the original, unchanged (Spanish), with its section numbers;
+> only link targets were updated to the new file locations. The current technical specification is [system-1/WAVE_BUS.md](../../../system-1/WAVE_BUS.md).
 
-> [!NOTE]
-> **HISTORICAL NON-NORMATIVE RECORD (ARCHIVE)**
-> This document is a preserved laboratory test and investigation log. It is retained strictly for evidentiary provenance, reverse-engineering history, and forensic reference.
-> For the authoritative normative hardware and software architecture, refer to:
-> - [Volume I: System Architecture & Interconnect](../../vol1_system_architecture/bus_interconnect.md)
-> - [Volume II: DSP Core & ISA Reference](../../vol2_dsp_core_isa/core_architecture.md)
-> - [Volume III: Voice Allocation & Scheduling](../../vol3_voice_allocation_scheduling/system8_voice_allocation.md)
-
----
-
-> **Bitácora (congelada el 2026-10-22).** Texto original de `system-1/WAVE_BUS.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`WAVE_BUS.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`WAVE_BUS.md`](../WAVE_BUS.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
+> **Bitácora (congelada el 2026-10-22).** Texto original de `system-1/WAVE_BUS.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`WAVE_BUS.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`WAVE_BUS.md`](../../../system-1/WAVE_BUS.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
 
 # SYSTEM-1: bus de audio entre DSP y chips (esclavo → maestro → salida)
 
 Estado: 2026-10-22. Es el equivalente de `docs/WAVE_BUS.md` (SYSTEM-8) para el SYSTEM-1. Quién toca qué voz está
-en [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md). Fuentes: OS 1.30, SH-2/SH-101/PROMARS para SYSTEM-1 (sólo leídos),
+en [VOICE_ALLOCATION.md](../../../system-1/VOICE_ALLOCATION.md). Fuentes: OS 1.30, SH-2/SH-101/PROMARS para SYSTEM-1 (sólo leídos),
 C-S1V4 (`docs/examples_system_1_README.md`).
 
 Leyenda: **[medido]** · **[código]** · **[inferido]** · **[abierto]**.
@@ -51,7 +42,7 @@ Leyenda: **[medido]** · **[código]** · **[inferido]** · **[abierto]**.
   (inmediato) o `FCE4` (con rampa); `sel` 0/1 = DSP A/B. C-S1V4 escribe `C01C` del maestro B con `FCEC(1, 0x1C, …)`
   [medido: el VOLUME funciona].
 * **Banco 1** (`2nnn`): entradas y salidas de las secciones de voz, con el anillo de una muestra
-  ([VOICE_ALLOCATION.md](VOICE_ALLOCATION.md) §3.1) [código].
+  ([VOICE_ALLOCATION.md](../../../system-1/VOICE_ALLOCATION.md) §3.1) [código].
 * **Banco 0** (`0nnn`): datos propios del programa, también anillo (escribir `R`, leer `R+1` en la muestra
   siguiente): la fase de las sierras de C-S1V4 [medido: suenan afinadas].
 * En el SYSTEM-1 no aparece el MXM (banco 4, `8nnn`) en los programas mirados: con dos DSP por BMC no hay cadena

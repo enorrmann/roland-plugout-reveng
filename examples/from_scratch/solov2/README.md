@@ -2,7 +2,7 @@
 
 Ejemplo nuevo a partir de `dsp/make_solo.py` y `gate/engine_solo.c` (`solo`). `solo` ponía las ocho voces en el
 programa principal de DSP4, sin osciladores en DSP2/DSP3. `solov2` respeta la asignación de Roland
-(`docs/log/WAVE_BUS_LOG.md` §4g): cada componente queda en el DSP y la ranura que Roland le asigna.
+([S8 wave-bus lab log](../../../docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_wave_bus_log.md) §4g): cada componente queda en el DSP y la ranura que Roland le asigna.
 
 | componente | DSP | ranura | voces del slave |
 |---|---|---|---|
@@ -14,7 +14,7 @@ programa principal de DSP4, sin osciladores en DSP2/DSP3. `solov2` respeta la as
 Vacíos: DSP0/DSP1 (envolvente y LFO), DSP5, programas principales de DSP2/DSP3, ranuras DCO2 (programa nulo
 `gate/dco2_null.hex`) y efecto de DSP4.
 
-Caminos de MXM (`docs/DSP_ARM_SIDE.md`, `docs/DSP_HARDWARE.md` §8.2):
+Caminos de MXM ([Vol. II ch. 6](../../../docs/vol2_dsp_core_isa/memory_banks_dma.md), [Vol. II ch. 1](../../../docs/vol2_dsp_core_isa/core_architecture.md) §8.2):
 * DSP2 escribe Z `0404` / `0405` → DSP4 lee M `0005` / `0006`.
 * DSP3 escribe Z `0404` / `0405` → DSP4 lee O `0204` / `0205`.
 
@@ -44,8 +44,8 @@ python3 tools/plugout_tool.py install plugins/C-SOLOV2 --slot 3 --yes --force
 
 ## Riesgos conocidos
 
-* La ruta DSP3 → DSP4 (`O 0204`) viene de la topología estática de `DSP_ARM_SIDE.md` y de la medición en el
-  maestro (`DSP_HARDWARE.md` §8.2). En los slaves no está medida. Si no suena la voz 2 o la 3, es lo primero que
+* La ruta DSP3 → DSP4 (`O 0204`) viene de la topología estática de [Vol. II ch. 6](../../../docs/vol2_dsp_core_isa/memory_banks_dma.md) y de la medición en el
+  maestro ([Vol. II ch. 1](../../../docs/vol2_dsp_core_isa/core_architecture.md) §8.2). En los slaves no está medida. Si no suena la voz 2 o la 3, es lo primero que
   revisar.
 * La causa por la que `solo` sólo oía un slave no se ha determinado. `solov2` no la diagnostica; sólo elimina
   la diferencia de diseño (todas las voces en un DSP4 y ids de puerta compartidos).

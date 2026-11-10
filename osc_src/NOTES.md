@@ -7,7 +7,7 @@ tools in `tools/` and can be regenerated.
 
 `../dumps/os_full.bin`, 2 939 504 bytes, loaded at `0x60000000`, read out of the
 running SYSTEM-8 (master BMC core 0) over SysEx in 64 KiB chunks
-(`../docs/BASE_FIRMWARE.md` §7.14).  It is not one program: it is six images for
+([Vol. IV ch. 6](../docs/vol4_firmware_container_protocol/base_firmware.md) §7.14).  It is not one program: it is six images for
 four kinds of CPU bundled by a small loader (§8.1 of the same document):
 
 | Part | In the image | Runs at | CPU |

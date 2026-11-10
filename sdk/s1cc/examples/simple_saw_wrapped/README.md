@@ -3,7 +3,7 @@
 
 # `sdk/s1cc/examples/simple_saw_wrapped`: una librería C y su envoltorio para el SYSTEM-1
 
-El ejemplo mínimo de cómo llevar una librería de audio en C a una voz de s1cc ([S1CC.md](S1CC.md)). La librería
+El ejemplo mínimo de cómo llevar una librería de audio en C a una voz de s1cc ([Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)). La librería
 es un diente de sierra ingenuo, sin limitar banda, en C puro: no incluye nada del SDK. Un solo archivo, el
 envoltorio, la adapta a la voz con **dos instancias** de la librería: dos sierras por voz, la segunda desafinada
 con OSC2 COLOR.
@@ -35,7 +35,7 @@ float saw_process(struct saw *s) {
 
 Qué hace s1cc con ella, sin ayuda:
 * **Llamadas.** `saw_set_frequency` y `saw_process` están en otro archivo. El driver enlaza las fuentes y las
-  inlinea en la voz (§9 de S1CC.md).
+  inlinea en la voz (§9 de [Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)).
 * **Estado.** `phase` e `inc` de cada instancia pasan a ser palabras del anillo de la voz, una por campo, 8 copias
   (una por voz).
 * **El `if` del wrap.** Se convierte en un `select` y s1cc lo reconoce como envoltura de fase: queda exacto.
@@ -68,13 +68,13 @@ S1_DSP_A {
 
 ### 3.1 Cuándo corre cada parte
 
-Detalle general: [S1CC.md](S1CC.md) §3.1.
+Detalle general: [Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.1.
 
 | parte | cuándo corre | qué hace aquí |
 |---|---|---|
 | `S1_PARAM(level, S1_OSC1_COLOR, 1)` | **PC**, al compilar: 256 veces (knob = 0…255). **Sinte**: el ARM escribe la fila de la perilla en un parámetro del DSP A, la 128 al cargar y después cada vez que se mueve OSC1 COLOR | nivel 0…1 |
 | `S1_PARAM(detune, S1_OSC2_COLOR, 1)` | igual, con OSC2 COLOR | razón de frecuencia de la segunda sierra, 1 … 2^(0,5/12) (0…+50 cents). El `s1_exp2` corre en el PC: en el DSP es una tabla |
-| `S1_INIT` | **PC** solamente: antes de la referencia y de cada escenario del perfilado. **Nunca en el sinte** | `saw_init` de las dos instancias: fases y pasos en 0. s1cc hace que el DSP arranque igual (S1CC.md §11.1; aquí no hace falta corrección: todo empieza en 0) |
+| `S1_INIT` | **PC** solamente: antes de la referencia y de cada escenario del perfilado. **Nunca en el sinte** | `saw_init` de las dos instancias: fases y pasos en 0. s1cc hace que el DSP arranque igual ([Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §11.1; aquí no hace falta corrección: todo empieza en 0) |
 | `S1_DSP_A` | **Sinte**: DSP A del esclavo, cada muestra (96 kHz), las 8 voces, suene o no una nota. **PC**: en la referencia y el perfilado | tono → frecuencia; las dos sierras; promedio × nivel × puerta |
 | `saw_set_frequency`, `saw_process` | donde corre `S1_DSP_A`: s1cc las inlinea | — |
 | `static struct saw osc1, osc2` | — | las dos instancias: sus 4 campos son el estado de la voz, 4 palabras × 8 voces |
@@ -96,11 +96,11 @@ Detalle general: [S1CC.md](S1CC.md) §3.1.
 Lo que un envoltorio tiene que resolver con una librería más grande:
 * **Notas.** Si la librería tiene un `note_on` o reinicia la fase, detectar el comienzo de nota con `s1_trig()`, que
   alterna 0 / 1 en cada nota (ejemplo: `saw_wrapper.c`).
-* **Rangos ocultos.** Si una rama esconde el rango de un valor, declararlo con `s1_range(x, lo, hi)` (S1CC.md §3.2).
+* **Rangos ocultos.** Si una rama esconde el rango de un valor, declararlo con `s1_range(x, lo, hi)` ([Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.2).
 * **Bloques.** Si la librería procesa bloques (`Render(out, size)`), llamarla con tamaño 1.
 
 Para SYSTEM-S1CC, que no tiene VCA propio, `simple_saw_env.c` es la misma voz con una envolvente ADSR y el panel
-mapeado como en C-S1SY ([examples_system_s1cc_README.md](examples_system_s1cc_README.md) §3). Todo en C, con dos
+mapeado como en C-S1SY ([examples/system_s1cc/README.md](../../../../examples/system_s1cc/README.md) §3). Todo en C, con dos
 librerías puras:
 
 | archivo | qué es | incluye `s1dsp.h` |
@@ -116,11 +116,11 @@ Las sierras corren en `S1_DSP_A` y la ADSR en `S1_DSP_B` (sobre `x`, la salida d
 **Escribir para un DSP que ejecuta todos los caminos.** La primera ADSR (un `switch` sobre un estado entero con tres
 etapas) daba 174 instrucciones por voz: cada store condicional del estado es una cadena de `select`, y cada
 comparación de float, varias etapas. Con un flag float, un solo paso y los `?:`, quedan 100 (y s1cc resuelve gratis
-las comparaciones de valores 0 / 1, S1CC.md §7.2). Detectar la nota solo por `s1_trig()` (el ARM lo cambia en cada
+las comparaciones de valores 0 / 1, [Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §7.2). Detectar la nota solo por `s1_trig()` (el ARM lo cambia en cada
 nota), los 8 registros y la ADSR en el DSP B dejan A en 29 y B en 46: 8 voces entran con la mitad del presupuesto
 libre. Esa primera versión destapó cuatro errores de s1cc, corregidos:
 `switch`, igualdad entre enteros, booleanos especulados y el rango de un estado que se escribe antes de leerse
-(S1CC.md §4.1, §4.4, §5, §7.2).
+([Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §4.1, §4.4, §5, §7.2).
 
 ## 4. Build y verificación
 
@@ -130,10 +130,10 @@ sdk/s1cc/s1cc check sdk/s1cc/build/simple_saw_wrapped --note 33 level=255 detune
 KERNEL=sdk/s1cc/build/simple_saw_wrapped sh examples/mutable_system/build.sh   # en el sinte (S1CC.md §12)
 ```
 
-`saw.c` no se nombra: el driver agrega solo la fuente vecina de cada header incluido (`saw.h` → `saw.c`, S1CC.md
+`saw.c` no se nombra: el driver agrega solo la fuente vecina de cada header incluido (`saw.h` → `saw.c`, [Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)
 §9, paso 0) e informa `source: …/saw.c (for saw.h; …)`. El primer archivo de `build` da el nombre de la carpeta de
 salida. Con `--debug`, s1cc lista las funciones C que no
-puede compilar y por qué (S1CC.md §9.1).
+puede compilar y por qué ([Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §9.1).
 
 ## 5. Resultados [sim, 2026-10-27]
 
@@ -146,7 +146,7 @@ DSP A: 40 unidades → **30 instrucciones** (una sola sierra: 19). `check`:
 | 57 | `level` 255, `detune` 128 | 111,7 dB | 30,0 dB | −1,25 dB en la banda grave, 0,00–0,01 dB en las demás |
 | 81 | `level` 255, `detune` 255 | 99,3 dB | 32,0 dB | 0,00–0,02 dB |
 
-* **SNR total.** Las fases del original (float32) y las del DSP se separan poco a poco por el redondeo (S1CC.md
+* **SNR total.** Las fases del original (float32) y las del DSP se separan poco a poco por el redondeo ([Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)
   §11); con dos sierras que laten entre sí se nota antes.
 * **Banda grave con `detune` 128.** El batido de las dos sierras pone energía en la banda grave; con la deriva de
   fase, esa banda difiere 1,25 dB.
@@ -270,7 +270,7 @@ SYSTEM-S1CC tiene las ranuras 0…11.
 **Cuándo llega el valor.**
 * **En la referencia nativa y en el emulador**, el DSP B lee el valor de la misma muestra. En `s1rt.c` la ranura es un
   arreglo, y el emulador ejecuta primero el DSP A y después el B.
-* **En el equipo, los dos DSP del chip corren a la vez** ([examples_system_1_jx_README.md](examples_system_1_jx_README.md)
+* **En el equipo, los dos DSP del chip corren a la vez** ([examples/system_1_jx/README.md](../../../../examples/system_1_jx/README.md)
   §13). B recibe el valor de esta muestra solo si el store de A ocurre antes que la carga de B, en ciclos; si no,
   recibe el de la muestra anterior.
 * **`make_s1cc.py` lo informa** para cada valor que cruza (`x`, las entradas, los exports, las copias de puerta y

@@ -2,7 +2,7 @@
 
 Estado (2026-10-21): **sólo el oscilador SAW (DCO2) está escrito y verificado en simulación**. Carpeta de pruebas de
 esa época (C-IOMD, C-MINI, mapa de canales). El plug-out propio actual es C-V4 (`v4/`, ocho voces medidas); cómo se
-construye y qué es cada fichero: `docs/FROM_SCRATCH.md`.
+construye y qué es cada fichero: [Vol. VI ch. 1](../../../docs/vol6_reference_designs_applications/c_v4_system8_reference.md).
 
 ## Ficheros
 
@@ -33,7 +33,7 @@ El programa corre una vez por muestra (96 kHz). Para la voz A (la B usa las dire
 1. `mov r5, #0.0` y `mov r6, #1.0` al principio (constantes de máximo y mínimo).
 2. `ld r1, [0671]`: fase de la muestra anterior. La memoria de datos es un anillo: lo que se guarda en `S` se lee
    en `S+1` de la muestra siguiente, por eso el estado se carga de `S+1` y se guarda en `S`
-   (`docs/DSP_ISA_SPEC.md` §9).
+   ([Vol. II ch. 4](../../../docs/vol2_dsp_core_isa/instruction_set_reference.md) §9).
 3. `ld r0, [2207]`: tono `p` que escribe el programa principal de Roland (ver «Entradas» abajo).
 4. `x = p − 4.75`; `2^(x/16)` con la serie de Taylor (`ymacd`) elevada a 16 (cuatro `mul r3, r3, r3`).
    Incremento de fase = `2^x · 2·440/96000`.
@@ -43,7 +43,7 @@ El programa corre una vez por muestra (96 kHz). Para la voz A (la B usa las dire
 
 Igual que en `dspasm.saw`: la salida es la fase, que ya es la diente de sierra de amplitud 1.
 
-## Entradas, salidas y estado (direcciones medidas en el equipo, `docs/CUSTOM_OSC.md` §2)
+## Entradas, salidas y estado (direcciones medidas en el equipo, [Vol. VI ch. 6](../../../docs/vol6_reference_designs_applications/custom_osc.md) §2)
 
 | | voz A | voz B |
 |---|---|---|
@@ -76,11 +76,11 @@ explícitos y no una traducción literal.
 
 * Se simuló con `re/dspisa.py` mediante el mismo bucle que `dspasm.simulate` (anillo, saltos, un solo
   ejecutable por muestra). Ambos programas dan la misma diente de sierra dentro de la tolerancia de arriba.
-* Prueba de salida en el equipo (`make_iomd_test.py`, `analyze_iomd.py`, `docs/FROM_SCRATCH.md` §11): sólo la
+* Prueba de salida en el equipo (`make_iomd_test.py`, `analyze_iomd.py`, [Vol. VI ch. 1](../../../docs/vol6_reference_designs_applications/c_v4_system8_reference.md) §11): sólo la
   palabra `6020` llega a la salida; `60B0` y `60B1` no. El SAW propio aún no tiene nota ni puerta.
 
 ## Prueba de salida (IOMD)
 
 `make_iomd_test.py` escribe tres SAW fijos (440, 660 y 880 Hz) desde el slot DCO1 del DSP5 a `60B0`, `60B1`
 y `6020`. Se registra con `engine/build.sh` usando `IOMDTEST=1 OWN_PROGS=iomd5=iomd_test.txt NAME=C-IOMD`.
-Captura de PLG3: sólo 880 Hz en el canal derecho, armónicos 1/n. Ver `docs/FROM_SCRATCH.md` §11.
+Captura de PLG3: sólo 880 Hz en el canal derecho, armónicos 1/n. Ver [Vol. VI ch. 1](../../../docs/vol6_reference_designs_applications/c_v4_system8_reference.md) §11.

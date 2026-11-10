@@ -1,147 +1,134 @@
-# Volume III: Voice Engine & Dynamic Scheduling
+# Volume III — Chapter 3: DSP Program Memory — Main Program, Slots and Sections (SYSTEM-8 and SYSTEM-1)
 
-# Chapter 3: Slot Program Model, Main Microcode & Dynamic Dispatch
+State: 2026-10-22 (with the dated additions of 2026-10-28). It gathers what is known about how the program memory of
+a DSP is divided, who runs which part, how much fits in each and which usage variants are possible. It serves to decide
+where to put an own program. Detail of the ISA and of the time: [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md); loading from the
+ARM: [Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md); own PLUG-OUTs: [Vol. VI ch. 1](../vol6_reference_designs_applications/c_v4_system8_reference.md) (SYSTEM-8),
+[examples/system_1/README.md](../../examples/system_1/README.md) (SYSTEM-1).
 
-> **Document ID**: TRM-BMC-VOL3-003  
-> **Classification**: Normative Architectural Specification  
-> **Release Target**: Texas Instruments / Analog Devices TRM Standard  
+Legend: **[measured]** on the device · **[code]** seen in the binaries · **[inferred]** · **[open]** (untested).
 
----
+## 1. What both devices have in common
 
-## 3.1 Main Program vs Dynamic Slot Execution Model
+* Program memory is a stream of 16-bit words; each 32-bit word carries two, the upper half first. The slot/section
+  addresses are given **in bytes** [code].
+* In each sample the DSP runs **several programs**: the **main** program and then the **slot programs** (SYSTEM-8) or
+  **sections** (SYSTEM-1) that are enabled, in order. Each one ends with `0a02 ff70 0b02 00f8 0001`; `0b02 00f8` is
+  the return to the scheduler [measured on the SYSTEM-8; the same ending on the SYSTEM-1, which works: C-S1V4].
+* All programs of a DSP **share r0–r7, flags and hidden registers**; nothing is reset between programs or between
+  samples [measured, SYSTEM-8].
+* The main program runs **before** the slots: it writes an input into bank 1 and the slot reads it in the same
+  sample; the slot's output comes back to the main program one sample later (ring) [measured, C-V4].
+* **The real limit is time, not space**: about 925–945 instructions per sample and per DSP on the SYSTEM-8 (on the
+  SYSTEM-1, slave DSP A: **between 703 and 826**, 703 ran and 826 hung [measured 2026-10-28]) **adding all its programs**; going over loses
+  the end and on the slaves leaves the device unstable until it is switched off [measured]. What a jump skips costs
+  nothing [measured]. An instruction takes 2 to 62 bytes (1–31 words; average ≈ 6–8 in Roland's programs: 575 instructions of the
+  SH-101 = 5222 bytes; ≈ 8–10 bytes in our programs with 32-bit immediates,
+  [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §1), so the budget of one sample is ≈ 6–8 KiB of executed code.
+* Start: SYSTEM-8 `0a02 ff70`, SYSTEM-1 `0a02 ff71`; they are markers without effect [measured], put for fidelity.
 
-Microcode execution within the Roland BMC DSP core is organized hierarchically into two tiers:
-1. **The Main Program (`MAIN`)**: A permanent, statically linked execution thread located at base offset `0x0100`. It initializes every 96 kHz audio sample frame, prepares parameter mailboxes, routes inter-DSP bus signals, and executes core filtering and mixing algorithms.
-2. **Dynamic Program Slots (`SLOTS`)**: Swappable modular microcode kernels located at higher address boundaries (e.g. `0x6000`, `0x8000`, `0xB000`). Slots implement selectable synthesis components (Analog Circuit Behavior [ACB] oscillator shapes, digital cross-modulation, chorus, flanger, overdrive).
+## 2. SYSTEM-8
+
+### 2.1 Map [code]
+
+Program window of 64 KiB per DSP (`PRG0` = `0x41460000`, 0x10000 bytes, in the OS's dump table; the slave's ARM writes
+at `0x41480000 + n·0x100000` + address). Slots used by Roland's PLUG-OUTs (the same ones `engine_v3.c` registers):
+
+| DSP (slave) | main | slots | space of the main program |
+|---|---|---|---|
+| DSP0, DSP1 | `0x0100` | `0x8000` (LFO/envelopes) | `0x0100`–`0x7FFF` (≈ 32 KiB) |
+| DSP2, DSP3 | `0x0100` | DCO1 `0x6000`, DCO2 `0xB000` | `0x0100`–`0x5FFF` (≈ 24 KiB); each DCO `0x5000` (20 KiB) |
+| DSP4 | `0x0100` | `0x6000`, effect `0xB000` | `0x0100`–`0x5FFF` |
+| DSP5 | `0x0100` | `0x6000` | `0x0100`–`0x5FFF` |
+| master DSP4 | (OS) | effects `0xEFDC`, `0xF7DC` | — |
+| master DSP3 | (OS) | — (idle; the main program ends `0b03 0080 7fee`) | — |
+
+### 2.2 Who decides what runs [code, measured]
+
+* The engine (region 1) **registers** in `e_load` the slot addresses of each DSP (`+0x28 + 4·dsp`), the programs
+  (`+0x40 + 4·dsp`) and the bank-0 data blocks (`+0x58 + 4·dsp`); the OS copies them.
+* A slot **only runs when its task bit is set**: `+0x70` sets it (`swap`: changes the program of a running slot and
+  activates its task; DCO1 = task 2, DCO2 = 3; effect of DSP4 = 3). Task register of the DSP: `0x41104318 + n·0x1000`
+  (`mask | prio << 28`) [code].
+* Descriptors: `{address, bytes, bytes, pointer, 2 OS words}`; **one per DSP**, they are not shared (with a shared one
+  every other swap was silenced) [measured].
+* Empty programs: DSP0, 1, 2, 3 and 5 can have an empty main program; **an empty main program on DSP4 silences
+  everything** [measured, [S8 wave-bus log](../vol7_cleanroom_evidence_archive/historical_lab_logs/s8_wave_bus_log.md) §4l]. The registered DCO slots get an own null program
+  (`gate/dco2_null.hex`) instead of being left without a program [code].
+
+### 2.3 Uses
+
+| use | how | state |
+|---|---|---|
+| everything in main programs (six programs) | C-V3/C-V4: own main programs, DCO slots with our saw | [measured] C-V4 |
+| a slot as a program bank | `+0x70` changes the program of a slot without stopping the rest (the JX-3P does it when changing the waveform or the effect) | [code], used by C-V4 at start-up |
+| live tests | `re/dsplive.py` writes single words into the DCO2 slot of DSP2/3 (shadow of 8 KiB) | [measured] |
+| a main program longer than its space (running over the next slot) | possible only if that slot has neither a task nor a registered program; the OS does not check it in what was seen | [open] |
+| own slot addresses (other than Roland's) | `+0x28` receives them from the engine: they could be chosen | [open] |
+
+## 3. SYSTEM-1
+
+### 3.1 Map [code]
+
+Two DSPs per BMC (A and B). Program memory of 32 KiB (the highest thing written is the closing at `0x7FF2`–`0x7FFF`).
 
 ```
-+---------------------------------------------------------------------------------------------------+
-|                           SAMPLE FRAME EXECUTION SEQUENCE (96.000 kHz)                            |
-|                                                                                                   |
-|  Frame Sync Strobe (Every 10.4166 microseconds)                                                   |
-|       │                                                                                           |
-|       ▼                                                                                           |
-|  +---------------------------------------------------------------------------------------------+  |
-|  |  Stage 1: Main Program (PC = 0x0100)                                                        |  |
-|  |  - Marshals incoming Bank 5 / Bank 6 parameters from ARM                                    |  |
-|  |  - Injects modulation parameters into Bank 1 slot input mailbox                             |  |
-|  |  - Reads MXM inter-core bus inputs from prior DSP stage                                     |  |
-|  +---------------------------------------------------------------------------------------------+  |
-|       │                                                                                           |
-|       ▼                                                                                           |
-|  +---------------------------------------------------------------------------------------------+  |
-|  |  Stage 2: Dynamic Program Slots (Sequential Dispatch)                                       |  |
-|  |  - Slot 1 (DCO1, PC = 0x6000): Evaluates Primary Waveform                                  |  |
-|  |  - Slot 2 (Sync, PC = 0x8000): Evaluates Phase Synchronization                              |  |
-|  |  - Slot 3 (DCO2, PC = 0xB000): Evaluates Secondary Waveform / Cross Modulation              |  |
-|  +---------------------------------------------------------------------------------------------+  |
-|       │                                                                                           |
-|       ▼                                                                                           |
-|  +---------------------------------------------------------------------------------------------+  |
-|  |  Stage 3: Main Program Re-entry / Output Consolidation                                      |  |
-|  |  - Reads slot audio outputs from Bank 1 (with 1-sample ring offset)                         |  |
-|  |  - Applies 4-pole resonant VCF and amplitude VCA                                            |  |
-|  |  - Dispatches audio stream to MXM / Wave Bus IOMD registers                                 |  |
-|  +---------------------------------------------------------------------------------------------+  |
-|       │                                                                                           |
-|       ▼                                                                                           |
-|  Idle / Pipeline Stall wait state until next 96 kHz hardware sync pulse                          |
-+---------------------------------------------------------------------------------------------------+
+0x0000 ─ header (written by the OS: stock sets {0x0000, 0x1E bytes, …}). The PLUG-OUTs do NOT queue it: doing so
+         hangs the device [measured, C-S1JX7, 2026-10-22; ../system-1/WAVE_BUS.md §5.3]
+0x0100 ─ MAIN ─────────────────── up to 0x18FF (6 KiB)
+0x1900 ─ section 2 ────────────── up to 0x30FF (6 KiB)
+0x3100 ─ section 3                up to 0x48FF
+0x4900 ─ section 4                up to 0x60FF
+0x6100 ─ section 5                up to 0x7FF1
+0x7FF2 ─ CLOSING: 7 half-words (0000, ld r0,[e000], st r0,[a0xx]): frame counter to bank 5
 ```
 
----
+On the **master** these are also used: DSP A `0x0082` (output program that the OS puts in PLUG-OUT mode,
+`0x82`–`0xFF`) and DSP B `0x1000` (program of the PLUG-OUT); and empty section closings at `0x5FF2`, `0x6DF2`,
+`0x6FF2` [code].
 
-## 3.2 Program Memory Map & Slot Base Addresses
+### 3.2 Who decides what runs [code, measured]
 
-### 3.2.1 Roland SYSTEM-8 Program Space Partitioning (64 KiB Space) `[VERIFIED]`
+* Programs: **sets** `{address, bytes, pointer}` terminated by `{0, 0, 0}` in the queues `FC30` (DSP A) and `FC34`
+  (DSP B); `FC38`/`FC3C` are data queues. The OS empties the queues and then calls `load` of the engine (slave) or of
+  the model (master), which queues its own; the master first queues its own PLUG-OUT-mode sets.
+* Voice sections [code, measured 2026-10-28]:
+  * `FC40(index, program set, data set 1, data set 2, data set 3)` (`0x60003F22`) places a program in a section. The
+    four arguments are lists `{address, bytes, pointer}` terminated by `{0, 0, 0}`; the data ones initialise the
+    voice's data memory (Roland: `{0x17f8, 8, …}`) and can be empty. It queues on its own queue (`0x600602d8`) with the
+    section number and calls the task machinery. The stock synth uses it that way (`0x6004ecb4`: `FC40(i, voice set,
+    data set, empty, empty)`).
+  * **A program queued with `FC30` / `FC34` at the address of a section is copied but does not run** [measured: the
+    voice of section 2 stayed silent]. With `FC40` it runs.
+  * `FC44(index, on)` (`0x60003F96`) handles the bit `1 << section` of `[0x60018520 + A/B·4 + 0x68]`, which is an
+    **off** bit: `on = 1` clears it (switches the section on), `on = 0` sets it [code]. The OS switches the sections off
+    when reloading (`bic 0x3E`).
+  * Index → (DSP, section, address): 0 → A/2 `0x1900`, 4 → A/3 `0x3100`, 1 → A/4 `0x4900`, 5 → A/5 `0x6100`, 2 → B/2,
+    6 → B/3, 3 → B/4, 7 → B/5 ([system-1/SH101_POLY.md](../../system-1/SH101_POLY.md) §2).
+  * A section runs **after the main program, in the same sample**, with the same registers and the same memory; its
+    instructions add to the same time budget: they give space, not time [measured: SYSTEM-S1CC with voice 6 in section 2
+    sounds the same as the others].
+* The main program and the closing always run (C-S1V4 sounds with all sections off) [measured].
 
-On each DSP of the SYSTEM-8, program space spans 64 KiB (`0x41480000 + n * 0x100000` from the ARM perspective):
+### 3.3 Uses
 
-| Address Offset | Size | Program Type | Target DSP Core | Hardware Role / Function |
-|---|---|---|---|---|
-| `0x0000` – `0x00FF` | 256 B | Hardwired Frame Stub | All DSPs | Hardware frame entry vector. Must never be modified. |
-| `0x0100` – `0x5FFF` | ~24 KiB | **Main Program (`MAIN0`–`MAIN5`)** | `DSP0`–`DSP5` | Primary signal routing, envelopes, mixing, and filters. |
-| `0x6000` – `0x7FFF` | 8 KiB | **Slot 1 (DCO1)** | `DSP2`, `DSP3` | Primary Oscillator Slot (Task Bit 1). |
-| `0x8000` – `0x9FFF` | 8 KiB | **Slot 2 (Aux/Sync)** | `DSP0`, `DSP1`, `DSP2`, `DSP3` | Auxiliary Modulators or Sync Logic (Task Bit 2). |
-| `0xB000` – `0xDFFF` | 12 KiB | **Slot 3 (DCO2 / FX)** | `DSP2`, `DSP3`, `DSP4` | Secondary Oscillator (DSP2/3) or Plug-Out FX (DSP4). |
-| `0xEFDC` / `0xF7DC` | 8 KiB | **Global Effects Slots** | Master `DSP4` | System-8 Global Reverb and Delay Networks. |
+| use | who | state |
+|---|---|---|
+| everything in the main program, sections off | SH-101 (575 instructions), **C-S1V4** (137) | [measured] C-S1V4 |
+| main + voice sections (one program per voice) | stock synth (4 per DSP), SH-2 (2 on DSP A) | [code] |
+| switching voices on/off without reloading | `FC44(i, on)`: it also saves cycles | [code] |
+| changing the program of a voice | `FC40` on a section | [code] |
+| a main program longer than 6 KiB (running over `0x1900`…) | **hangs the device** [measured 2026-10-28, SYSTEM-S1CC: 6534 bytes with 702 instructions and 6740 bytes with 578 instructions hung; 5854 bytes with 703 instructions ran]. Still to know whether it is the size of the region or the bytes executed per sample (both coincide at ≈ 6 KiB); a program split between the main program and section 2 would tell them apart | [measured] / [open] |
+| code that does not run every sample | conditional jumps: alternative programs in the same memory, chosen by a flag; what is skipped costs nothing | [measured on the SYSTEM-8; same ISA] |
+| using a section as a "second main program" | place the program with `FC40` (not with `FC30`) and switch it on with `FC44(index, 1)`: it runs after the main program on the same DSP. SYSTEM-S1CC does it only when the main program does not fit its 6 KiB (`examples/system_s1cc/make_s1cc.py SECTIONS`) | [measured 2026-10-28] |
 
-### 3.2.2 Roland SYSTEM-1 Program Space Partitioning (32 KiB Space) `[VERIFIED]`
+## 4. Choosing
 
-On the SYSTEM-1, program memory is strictly capped at 32 KiB and partitioned into fixed 6 KiB modular segments:
+* **A single program in the main slot** (C-V4/C-S1V4, SH-101): the simplest; all the data are freely chosen. Everything
+  that fits in the time of one sample fits (6 KiB on the SYSTEM-1, ≥ 24 KiB on the SYSTEM-8).
+* **Slots / sections**: when a part of the sound changes by itself (waveform, effect), when there are per-voice copies
+  that are worth switching off, or to change programs while running without touching the main program.
+* **Going from the space of one zone into the next**: only with that zone unused and without a task; untested on both
+  devices. Before trying it, do a test with a long program that jumps over what does not fit.
 
-| Address Range | Size | Allocation Name | Hardware Role | Control API |
-|---|---|---|---|---|
-| `0x0000` – `0x00FF` | 256 B | OS Header Stub | Hardware initialization words (`0000 0001...`). | Hardwired |
-| `0x0100` – `0x18FF` | **6,144 B (6 KiB)** | **Main Program** | Core audio execution loop. Exceeding 6 KiB halts ASIC. | Loaded via `FC30`/`FC34` |
-| `0x1900` – `0x30FF` | 6,144 B (6 KiB) | **Section 2 (Slot 0)** | Voice Slot 0 (DSP A) / Filter Slot 0 (DSP B). | Enabled via `FC44(0/2, 1)` |
-| `0x3100` – `0x48FF` | 6,144 B (6 KiB) | **Section 3 (Slot 1)** | Voice Slot 1 (DSP A) / Filter Slot 1 (DSP B). | Enabled via `FC44(4/6, 1)` |
-| `0x4900` – `0x60FF` | 6,144 B (6 KiB) | **Section 4 (Slot 2)** | Voice Slot 2 (DSP A) / Filter Slot 2 (DSP B). | Enabled via `FC44(1/3, 1)` |
-| `0x6100` – `0x78FF` | 6,144 B (6 KiB) | **Section 5 (Slot 3)** | Voice Slot 3 (DSP A) / Filter Slot 3 (DSP B). | Enabled via `FC44(5/7, 1)` |
-| `0x7FF2` – `0x7FFF` | 14 B | **Termination Trailer** | 7 halfword hardware closing stub. | Mandatory at `0x7FF2` |
-
----
-
-## 3.3 Slot Framing: Headers, Return Stubs & Trailers
-
-To allow the hardware sequencer to chain execution between the Main Program and active dynamic slots, every slot microcode binary must incorporate normative framing halfwords:
-
-### 3.3.1 Slot Header Framing `[VERIFIED]`
-Every dynamic slot microcode program must start with standard preamble words:
-- **SYSTEM-8 Preamble**:
-  ```
-  Halfwords: 0x0A02  0xFF70
-  ```
-- **SYSTEM-1 Preamble**:
-  ```
-  Halfwords: 0x0A02  0xFF71
-  ```
-
-### 3.3.2 Slot Return Sequence (Subroutine Return) `[VERIFIED]`
-At the conclusion of slot execution, the microcode returns control back to the Main Program sequencer via a dedicated return delimiter:
-```
-Halfwords: 0x0A02  0xFF70  0x0B02  0x00F8  0x0001
-```
-- The halfword `0x00F8` in position $B$ signals an internal pipeline return strobe, restoring the program counter to the Main Program continuation vector.
-
-### 3.3.3 SYSTEM-1 Hardware Termination Trailer (`0x7FF2`) `[VERIFIED]`
-On SYSTEM-1 DSP cores, program memory must conclude at address `0x7FF2` with a 7-halfword hardware termination trailer that latches the system frame counter:
-```
-0x7FF2:  0x0000             ; Alignment padding
-0x7FF4:  ld r0, [e000]      ; Sample frame counter register
-0x7FF8:  st r0, [a004]      ; Latch counter into Bank 5 word A004
-0x7FFC:  0x0001             ; Final one-word NOP
-```
-
----
-
-## 3.4 Dynamic Slot Switching & Execution Gating
-
-### 3.4.1 SYSTEM-8 Runtime Task Control Register `[VERIFIED]`
-The Slave ARM dynamically gates slot execution by writing to the DSP task enable register at MMIO address `0x41104318 + n * 0x1000`:
-- **Bit 1**: Enables Slot 1 (`0x6000`, DCO1).
-- **Bit 2**: Enables Slot 2 (`0x8000`, Sync).
-- **Bit 3**: Enables Slot 3 (`0xB000`, DCO2 / FX).
-- Microcode hot-swapping is performed by halting the slot bit, streaming new microcode words to `0x41480000 + slot_offset`, and re-asserting the task enable bit.
-
-### 3.4.2 SYSTEM-1 Section Control API (`FC44`) `[VERIFIED]`
-On SYSTEM-1, dynamic sections are toggled on the fly by invoking the `0x0100FC44` syscall from the ARM control plane:
-
-```c
-/* Toggling Dynamic Voice Sections on SYSTEM-1 */
-void set_section_state(int section_index, int enable)
-{
-    /* section_index: 0..7, enable: 1 (active) or 0 (bypass) */
-    typedef void (*slot_gate_fn)(int idx, int state);
-    ((slot_gate_fn)(*(void **)(0x0100FC44u)))(section_index, enable);
-}
-```
-
----
-
-## 3.5 Inter-Slot State Isolation & Register Inheritance `[MEASURED]`
-
-Because the hardware does not perform context saving when transitioning between Main and Slot microcode:
-- **Register Persistence**: A slot program inherits whatever values were left in `r0`–`r7` by the preceding program.
-- **Accidental Coupling Hazard**: If Slot 1 leaves an unmanaged value in `r4`, and Slot 2 assumes `r4` contains zero or a normalized constant, severe audio artifacts or DC offset will occur.
-- **Normative Best Practice**: Every slot program must initialize its working registers explicitly or pass data cleanly across Bank 1 (`DT1`) mailbox offsets.
+> Paths `re/…`, `gate/…` are relative to `examples/from_scratch/`.

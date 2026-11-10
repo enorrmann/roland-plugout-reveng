@@ -4,15 +4,15 @@
 # base-engine
 
 Output of `tools/sys8fw.py` on `firmware/SYSTEM8_UP.BIN` (OS 1.32).
-Start with [`BASE_ENGINE.md`](BASE_ENGINE.md).
+Start with [Vol. IV ch. 8](../docs/vol4_firmware_container_protocol/base_engine.md).
 
 | Path | Content |
 |---|---|
-| `BASE_ENGINE.md` | what was obtained and what it contains |
+| [Vol. IV ch. 8](../docs/vol4_firmware_container_protocol/base_engine.md) | what was obtained and what it contains |
 | `info.txt` | `sys8fw info` |
 | `up/` | unpacked updater: manifest + decompressed images (+ encrypted OS) |
 | `elf-asm/` | ELF per image with symbols, `objdump` listings |
 | `report/` | per-image class / preset / label tables, `symbols.json` |
 
-Regenerate: see "Reproduce" in `BASE_ENGINE.md`. The files are derived from
+Regenerate: see "Reproduce" in [Vol. IV ch. 8](../docs/vol4_firmware_container_protocol/base_engine.md). The files are derived from
 Roland's firmware and are kept for analysis only.

@@ -114,7 +114,7 @@ apagando) y se localizó por bisección (§10). Todas las comprueban `test_s1jx.
 
 | # | regla | evidencia |
 |---|---|---|
-| 1 | **No encolar la entrada `0x0000`** (cabecera del OS) en `load` | C-S1JX7; los motores de Roland la tienen en sus tablas pero no la encolan (ejecutados en Unicorn, [../system-1/WAVE_BUS.md](../system-1/WAVE_BUS.md) §5.3) |
+| 1 | **No encolar la entrada `0x0000`** (cabecera del OS) en `load` | C-S1JX7; los motores de Roland la tienen en sus tablas pero no la encolan (ejecutados en Unicorn, [../system-1/WAVE_BUS.md](../../system-1/WAVE_BUS.md) §5.3) |
 | 2 | **Banco 5: como mucho una carga y un store por instrucción** (ya medido en el SYSTEM-8) | C-S1JXQ/R: MAIN3 con 8 violaciones colgaba, un programa vacío no |
 | 3 | **Banco 0: como mucho 2 stores por instrucción** (y 2 cargas) | C-S1JXH, MAIN3 instrucción 55 (3 stores tras pasar el banco 1 al banco 0); en todo el código de Roland nunca hay más de 2 |
 | 4 | **Banco 6: como mucho 2 cargas por instrucción** | C-S1JXH1, MAIN1 instrucción 48 (3 cargas tras pasar un parámetro al banco 6); nunca más de 2 en el código de Roland |
@@ -124,7 +124,7 @@ apagando) y se localizó por bisección (§10). Todas las comprueban `test_s1jx.
 | 6 | **Bancos 5, 6 e IOMD juntos: como mucho 2 cargas por instrucción** [inferido, **no confirmado**] | ningún programa del SYSTEM-1 ni ninguna build que corrió bien tiene más; el JX-3P tiene 4 (MAIN0 41/287, MAIN1 48/294: un parámetro `keep_b5` + 2 del banco 6) y C-S1JXK (MAIN1 1–110, con la 48) colgó. Pero C-S1JXB y C-S1JXS **con** la regla siguen colgando (§10.7). En programas con saltos se cumple con un prólogo (`Plan._stage`, `test_stage`) |
 
 Nota: los límites 3 y 4 no estaban documentados; el SYSTEM-8 sólo había medido "los stores al banco 0 no cuentan"
-para el límite del banco 5 ([DSP_HARDWARE.md](DSP_HARDWARE.md) §7.3).
+para el límite del banco 5 ([Vol. II ch. 1](../../docs/vol2_dsp_core_isa/core_architecture.md) §7.3).
 
 ## 6. Puesta en marcha: lo que hace falta además del microcódigo
 
@@ -164,7 +164,7 @@ mapeado.
 palabra (banco 5 y banco 6) coincide con el modelo en Python; notas en las cuatro voces.
 
 `s1jx.py --check` (audio en el emulador) sale **inconcluso**: el emulador no reproduce el filtro de MAIN4
-([EMULATOR.md](EMULATOR.md) §5.2).
+([Vol. V ch. 5](../../docs/vol5_toolchain_compiler_sdk/emulator.md) §5.2).
 
 El modelo completo coincide con el motor del JX-3P (`engine/test_model.py` con `model_full`): 0 diferencias.
 
@@ -177,8 +177,8 @@ El modelo completo coincide con el motor del JX-3P (`engine/test_model.py` con `
 | 3 | saltos: ningún programa del SYSTEM-1 usa saltos; MAIN0/MAIN1 tienen 8. Neutralizarlos no quitó el cuelgue de MAIN1 (C-S1JXJ), pero aquella versión tenía también el problema del banco 6 | [abierto] |
 | 4 | presupuesto del SYSTEM-1 (925 medido en el SYSTEM-8); maestro B al 95 % | [abierto] |
 | 5 | entradas IOMD a 0 (`60e0`–`60e2` de MAIN0: posiblemente el LFO del maestro del SYSTEM-8) | [abierto] |
-| 6 | panel sin mapear (sólo VOLUME; OSC2 no hace nada) | pendiente: PARAMLOG ([examples_system_1_README.md](examples_system_1_README.md) §6) |
-| 7 | el emulador no reproduce el filtro del JX-3P | [abierto], [EMULATOR.md](EMULATOR.md) §5.2 |
+| 6 | panel sin mapear (sólo VOLUME; OSC2 no hace nada) | pendiente: PARAMLOG ([examples/system_1/README.md](../system_1/README.md) §6) |
+| 7 | el emulador no reproduce el filtro del JX-3P | [abierto], [Vol. V ch. 5](../../docs/vol5_toolchain_compiler_sdk/emulator.md) §5.2 |
 
 ## 9. Lo que se eliminó del modelo de `engine/` y dónde está
 
@@ -190,7 +190,7 @@ El modelo completo coincide con el motor del JX-3P (`engine/test_model.py` con `
 
 La versión completa (`013d3fe`) **funciona** contra el JX-3P. Con el `model_spec.py` actual, `engine/test_model.py 4`
 da 92 (fuente, destino) y 84 ids distintos. Detalle en
-[examples_from_scratch_engine_README.md](examples_from_scratch_engine_README.md) ("Removed from the model").
+[examples/from_scratch/engine/README.md](../from_scratch/engine/README.md) ("Removed from the model").
 
 ## 10. Puesta en marcha en el equipo (2026-10-22 y 23)
 

@@ -14,7 +14,7 @@ Estado: 2026-10-23. **Último build que funciona por completo: C-S1SY13F** (`STE
 
 Los pasos 14 y 15 (efectos propios en el pote CRUSHER) están abiertos (§7.4).
 
-Extiende C-S1V8 ([examples_system_1_README.md](examples_system_1_README.md) §7). Todo el
+Extiende C-S1V8 ([examples/system_1/README.md](../system_1/README.md) §7). Todo el
 código ARM y el microcódigo son nuestros; los programas de Roland sólo se leyeron para estudiar los mecanismos. Qué
 es cada archivo: `examples/system_1_synth/FILES.md`.
 
@@ -45,7 +45,7 @@ python3 examples/system_1_synth/make_synth.py --sim-check   # además núcleo C 
 nativo), en un solo `cchain.Slave`: DSP 0 = esclavo A, DSP 1 = esclavo B, DSP 2 = master B. Con
 `Model.shared5 = ((0, 1),)` A y B tienen un solo banco 5, el mismo modelo que la referencia Python (`simulate_py`,
 `re/dspisa.py`). `Model.own_params` da un banco 6 a cada DSP. Las salidas `6006`/`6007` de B llegan al master por
-el IOMD en la misma muestra ([EMULATOR.md](EMULATOR.md) §3.6.1). Desde el 2026-10-23, 1 s de audio tarda unos 0,4 s. Rendimiento: 16 400 muestras en 2,4 s, frente a 3 440 muestras en 3 min 24 s con
+el IOMD en la misma muestra ([Vol. V ch. 5](../../docs/vol5_toolchain_compiler_sdk/emulator.md) §3.6.1). Desde el 2026-10-23, 1 s de audio tarda unos 0,4 s. Rendimiento: 16 400 muestras en 2,4 s, frente a 3 440 muestras en 3 min 24 s con
 la referencia (unas 400 veces más rápido). `--sim-check` da salidas idénticas bit a bit en 600 muestras con dos notas
 (una se suelta) [sim], con el panel por defecto y con filtro, resonancia y ambas envolventes activas. Después
 compara, en el núcleo C, los programas empaquetados (`pack()`, §5) con los mismos sin empaquetar (`sources(False)`):
@@ -55,7 +55,7 @@ unos 80 s, casi todos de la referencia Python. Las longitudes salen de `SIM_CHEC
 [abierto, 2026-10-24] Desde el paso 13, `simulate_py` no modela el anillo del banco 1 del maestro: el retorno del
 efecto (`2001`/`2003`) queda en 0 y la referencia Python da silencio, así que la parte "sim check" de `--sim-check`
 compara contra 0 (el "pack check" sí vale). Corregido sólo en la copia de MUTABLE-SYSTEM
-([examples_mutable_system_README.md](examples_mutable_system_README.md) §4); aquí no se tocó.
+([examples/mutable_system/README.md](../mutable_system/README.md) §4); aquí no se tocó.
 
 La referencia antes de este cambio tenía dos huecos en el paso 8, ya corregidos: no escribía los parámetros `C050`–`C053`
 (ADSR del filtro) ni `C04C` (cantidad) del DSP B, y movía a mano el anillo con el paso de bloque 0x10 de B en vez
@@ -81,16 +81,16 @@ primer diseño, que lo metía todo de una vez (`STEP=0`, §6), no sonó, y no ha
 | 8 | ADSR del filtro por voz en el DSP B (empaquetado): faders `0x182`–`0x185` → `C050`–`C053` del DSP B, cantidad `0x181` → `C04C`; corte = base + cantidad × env + key track; estado en el bloque de voz de B + `0x10` (bloques de `0x20`) | 587 / 660 | [medido] |
 | 8 bis | cantidad bipolar: `0x181` = 128 → 0; 0 → −8 octavas (envolvente invertida); 255 → +8 octavas (sólo cambia la tabla `amount_bits` del ARM) | 587 / 660 | instalado, sin confirmar |
 | 9 | LFO global en el DSP A (§7.2): rate `0x162`, shape `0x160`, delay `0x161`, → pitch `0x163`, → filtro `0x164`, → amplitud `0x165` → `C058`–`C05D`, `C060`–`C064` del DSP A; el corte (base + LFO) pasa a B por `A180+v` | 693 / 652 (700 con `RESCOMP=1`) | [sim]; C-S1SY9 instalado, sin confirmar |
-| 10 | sierra con `ph_wrap rD, r3, rY` (forma de Roland) en vez del wrap manual de 11 ops ([MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md)) | 517 / 652 | [sim] La 440 = 439,98 Hz como antes |
+| 10 | sierra con `ph_wrap rD, r3, rY` (forma de Roland) en vez del wrap manual de 11 ops ([Vol. III ch. 6](../../docs/vol3_voice_allocation_scheduling/microcode_optimization.md)) | 517 / 652 | [sim] La 440 = 439,98 Hz como antes |
 | 11 | LFO por voz (§7.3): fase propia reiniciada en cada nota y S&H propio, ruido global; → filtro y → amplitud bipolares (128 = 0); fusión de ops (`FUSE=1`) | 576 / 603 | [medido] C-S1SY11 "funciona muy bien" (2026-10-23): primera build con ops fusionadas en el SYSTEM-1 |
 | 11 bis | → pitch bipolar; formas en el orden del panel: sine, triangle, saw, square, sample & glide, sample & hold (§7.3) | 640 / 603 | [sim] `--sim-check` idéntico |
-| 12 | planificador de instrucciones `asm/dspsched.py` en lugar de `pack()` ([MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md) §5) | 553 / 471 | [sim] `--pack-check` y `test_s1_sched` idénticos; sin probar en el equipo |
-| 13 | **delay y reverb del OS**: `s1mm1` hace el envío/retorno del efecto (maestro B banco 1 `2000`/`2002` → `2001`/`2003`), como el mezclador de serie ([../system-1/FX_CHAIN.md](../system-1/FX_CHAIN.md)) | 553 / 471 / 7 | [medido] "funciona perfecto" (C-S1SY13) |
+| 12 | planificador de instrucciones `asm/dspsched.py` en lugar de `pack()` ([Vol. III ch. 6](../../docs/vol3_voice_allocation_scheduling/microcode_optimization.md) §5) | 553 / 471 | [sim] `--pack-check` y `test_s1_sched` idénticos; sin probar en el equipo |
+| 13 | **delay y reverb del OS**: `s1mm1` hace el envío/retorno del efecto (maestro B banco 1 `2000`/`2002` → `2001`/`2003`), como el mezclador de serie ([../system-1/FX_CHAIN.md](../../system-1/FX_CHAIN.md)) | 553 / 471 / 7 | [medido] "funciona perfecto" (C-S1SY13) |
 | 13 + `FOLD` | paso 13 + triángulo con wavefolding en el pote COLOR de cada oscilador (`0x168`/`0x16D` → `C056`/`C057` del DSP A; §7.5) | 585 / 471 / 7 | [medido] C-S1SY13F "funciona" (2026-10-23); [sim] `--pack-check` idéntico — **último build que funciona por completo** |
 | 14 (primer intento) | AMP TONE + ensemble de 3 tomas en el maestro B | 553 / 471 / 64 | [medido] **cuelga**; también cuelga 14A (sólo tone, maestro B) y 14D (tone, esclavo B); 14C (DSP del paso 13 + `model.c` del 14) funciona; 14E (sólo el tone, esclavo B) funciona pero cambia el volumen, no el brillo (§7.4) |
 | 14F | paso 13 + sólo el ensemble en el esclavo B, planificado con la lista de formas probadas (`asm/proven_forms.txt`) | 553 / 534 / 7 | [medido] no cuelga; el ensemble "suena raro, no a ensemble" |
 | 15 | paso 13 + chorus estilo Juno-60 en el esclavo B (pote CRUSHER) | 553 / 508 / 7 | [medido] no cuelga; **las tomas salen en silencio**: captura USB = sierra pura, L = R (§7.4) |
-| 15X | diagnóstico: retardo fijo de 750 muestras, L por carga normal, R por `ldidx` | — | [medido] los dos iguales y con el peine: **la línea y `ldidx` funcionan** ([../system-1/DSP_BANKS.md](../system-1/DSP_BANKS.md) §4) |
+| 15X | diagnóstico: retardo fijo de 750 muestras, L por carga normal, R por `ldidx` | — | [medido] los dos iguales y con el peine: **la línea y `ldidx` funcionan** ([../system-1/DSP_BANKS.md](../../system-1/DSP_BANKS.md) §4) |
 | 15Y | el 15 con la fracción por `ph_mod2(2k)` en lugar del AND de bits | 553 / 512 / 7 | instalado 2026-10-23; el usuario: "no funciona el chorus" [abierto: confirmar con captura] |
 
 ## 3. Cómo llega cada valor a cada DSP (SYSTEM-1)
@@ -179,10 +179,10 @@ paso 13 + `FOLD` = A 585 / B 471. Cada build lo imprime (`s1m0 … instructions`
 
 Dos límites:
 * **Tiempo:** entre **703** (lo más alto que corrió) y 826 instrucciones por muestra en el DSP A del esclavo, más bajo
-  que las 925–945 medidas en el SYSTEM-8 (`docs/DSP_HARDWARE.md` §1). No se buscó el valor exacto: cada intento por
+  que las 925–945 medidas en el SYSTEM-8 ([Vol. II ch. 1](../../docs/vol2_dsp_core_isa/core_architecture.md) §1). No se buscó el valor exacto: cada intento por
   encima cuelga el equipo y hay que apagarlo y encenderlo.
 * **Tamaño:** el programa principal tiene que entrar en su región, `0x0100`–`0x18FF` = **6144 bytes**
-  ([DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md) §3.1). Los dos cuelgues de 2026-10-28 la pasan con menos de 703
+  ([Vol. III ch. 3](../../docs/vol3_voice_allocation_scheduling/slot_program_model.md) §3.1). Los dos cuelgues de 2026-10-28 la pasan con menos de 703
   instrucciones (702 y 578), y todo lo que corrió entra. [abierto]: si es el tamaño de la región o los bytes
   ejecutados por muestra (coinciden en ≈ 6 KiB).
 
@@ -388,12 +388,12 @@ Medido en el núcleo C (2026-10-23) [sim]:
 Hallazgos, 2026-10-23:
 * **CRUSHER (`0x18C`) y AMP TONE (`0x18B`) no los procesa el OS.** En los tres PLUG-OUTs oficiales del SYSTEM-1 los
   implementa el principal del maestro B: la máscara `bic` del crusher, con parámetros `C01C`–`C037` escritos por su
-  modelo. Los manuales los llaman EFFECT DEPTH y AMP TONE ([../system-1/FX_CHAIN.md](../system-1/FX_CHAIN.md) §7).
+  modelo. Los manuales los llaman EFFECT DEPTH y AMP TONE ([../system-1/FX_CHAIN.md](../../system-1/FX_CHAIN.md) §7).
   El botón LPF type sólo manda el CC 115 (`B4 73`), sin parámetro para el modelo.
 * **Los cuelgues del paso 14 venían de formas de instrucción nuevas, no del banco 0.** Pasaba lo mismo en el maestro
   B y en el esclavo B, y 14C demostró que no eran las escrituras de parámetros. Desde el paso 14 el planificador sólo
   fusiona grupos de ops que ya corrieron en el equipo (`asm/proven_forms.txt`,
-  [MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md) §5). Con eso 14F y 15 no cuelgan. Qué grupo concreto colgaba:
+  [Vol. III ch. 6](../../docs/vol3_voice_allocation_scheduling/microcode_optimization.md) §5). Con eso 14F y 15 no cuelgan. Qué grupo concreto colgaba:
   [abierto].
 * **AMP TONE** (14E: inclinación con un paso bajo de 1,2 kHz) cambia el nivel más que el brillo. Hay que rediseñarlo
   como un shelving de agudos o con un corte más alto.
@@ -420,7 +420,7 @@ el triángulo plegado; el pote COLOR del mismo oscilador sube el plegado. Las ot
 
 * Ganancia: g = 1 + (`FOLD_MAX` − 1) · color / 255, con `FOLD_MAX` = 5 por defecto (variable de build). El ARM
   escribe g/2 en `C056` (OSC1) / `C057` (OSC2) del DSP A (`fold_bits`).
-* Plegado: `ph_tri(R) = 1 − 2|wrap(−R − 1,5)|` ([DSP_ISA.md](DSP_ISA.md)) es la reflexión en ±1 de 2R, es decir,
+* Plegado: `ph_tri(R) = 1 − 2|wrap(−R − 1,5)|` ([Vol. II ch. 7](../../docs/vol2_dsp_core_isa/isa_overview.md)) es la reflexión en ±1 de 2R, es decir,
   un plegador con cualquier número de pliegues. Por eso salida = `ph_tri(g · tri / 2)`, y con color 0 (g/2 = 0,5) da
   el triángulo sin cambios. Coste: 1 carga + 2 ops por oscilador (+32 instrucciones en el DSP A).
 
@@ -474,7 +474,7 @@ Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py 
 | `0x182`–`0x185` | ADSR del filtro | 0–255 | paso 8 |
 | `0x187`–`0x18A` | ADSR del VCA | 0–255 | paso 4 |
 | — | HPF cutoff | no llegó nada (ni parámetro ni CC) [abierto] | — |
-| `0x18D` / `0x18E` / `0x18F` | REVERB amount (CC 91) / DELAY amount (CC 94) / DELAY time (CC 13), 2026-10-23 | 0–255 | — ([../system-1/FX_CHAIN.md](../system-1/FX_CHAIN.md)) |
+| `0x18D` / `0x18E` / `0x18F` | REVERB amount (CC 91) / DELAY amount (CC 94) / DELAY time (CC 13), 2026-10-23 | 0–255 | — ([../system-1/FX_CHAIN.md](../../system-1/FX_CHAIN.md)) |
 | `0x18B` | sin identificar: 128–145, con CC 69 (64–72) detrás; llegó dos veces durante la captura del LFO, entre otros controles [abierto] | — |
 
 Los ids del LFO se capturaron con C-S1SYRL (`RESCOMP=1 PARAMLOG=1`, 2026-10-23). Orden de la captura: rate, → filtro,

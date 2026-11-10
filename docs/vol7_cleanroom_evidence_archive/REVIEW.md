@@ -2,7 +2,7 @@
 
 Reviewed 2026-10-20. Scope: `asm/` (`asm.py`, `disasm.py`, `codec.py`, `isa.py`,
 `isa.json`, `layout.py`, `slots.py`) and its tests. The spec it implements is
-`docs/DSP_ISA_SPEC.md`. Nothing was committed.
+[Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md). Nothing was committed.
 
 ## Result
 
@@ -219,7 +219,7 @@ These are not verified and the code does not claim them.
 
 ## Follow-up: device session and the remaining open items (2026-10-20)
 
-With the lab plugin in slot 3 and PLG3 selected, the open items of `DSP_ISA_DISCREPANCIES.md` were probed on
+With the lab plugin in slot 3 and PLG3 selected, the open items of [Vol. II ch. 8](../vol2_dsp_core_isa/isa_discrepancies.md) were probed on
 master DSP3 (`examples/from_scratch/re/review_probes.py`, results in `work/review_probes.json`, 24 probes, all
 matching). The device closed these, and the code now follows it:
 

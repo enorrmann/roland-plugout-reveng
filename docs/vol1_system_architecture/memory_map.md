@@ -1,166 +1,123 @@
-# Volume I: System Architecture & Hardware
+# Volume I — Chapter 2: Memory Maps (ARM address spaces and DSP windows)
 
-# Chapter 2: Global Memory Map & Address Spaces
+> The addresses of both devices in one place, each with its source. The same address means different things on
+> different chips: every table says which chip it is for. Sources: [ch. 1](soc_overview.md) §2, §4,
+> [Vol. IV ch. 1](../vol4_firmware_container_protocol/container_formats.md) §4,
+> [Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) §7,
+> [Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §6.2, §8,
+> [Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) §1 and
+> [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §2, §4.
 
-> **Document ID**: TRM-BMC-VOL1-002  
-> **Classification**: Normative Hardware Reference  
-> **Release Target**: Texas Instruments / Analog Devices TRM Standard  
+## 1. The trap: addresses are per chip
 
----
+`0x60000000` is the OS on the SYSTEM-8 master and `s_data` on a slave; `0x01100000` is `m1_tcm` on the master's core 1
+and `s_boot` on a slave. That is why the engine (region 1) cannot call the master's OS: it jumps into other code and
+hangs; it can call the slave's services (`0x0113FC00`) ([ch. 1](soc_overview.md) §2). The same holds on the SYSTEM-1
+for `0x60000000` and `0x0100FC00` ([system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §2).
 
-## 2.1 Global Address Space Partitioning
+## 2. SYSTEM-8, ARM address spaces
 
-The Roland BMC SoC implements a unified 32-bit physical address space for each processor node. Because the platform operates under an Asymmetric Multi-Processing (AMP) cluster architecture, **physical addresses are node-local**: identical numerical memory addresses denote physically distinct memory arrays depending on whether they are accessed from the Master BMC, Slave BMC 0, or Slave BMC 1.
+### 2.1 Master BMC
 
-```
-+------------------+ 0xFFFFFFFF
-|                  |
-| Reserved / Periph|
-|                  |
-+------------------+ 0x62000000
-|  External SDRAM  | (32 MB Space: OS Kernel, Plug-Out Regions, Heap)
-+------------------+ 0x60000000
-|                  |
-| Memory-Mapped IO | (DSP Banks, MMIO Peripherals, Wave Bus Control)
-|                  |
-+------------------+ 0x40000000
-| System SRAM / TCM| (Fast Execution, RTOS Stacks, Bootloader)
-+------------------+ 0x01000000
-| Boot ROM / Vector|
-+------------------+ 0x00000000
-```
+| address | what | source |
+|---|---|---|
+| `0x00000000` (aliased with `0x01000000`) | vector table: SP `0x01050800`, reset `0x60000001`; faults and IRQ0 point at `b .` stubs (any fault freezes the synth) | base_firmware §6.2 |
+| `0x01000000` – `0x01019A08` | "kernel": RAM filled at start-up from the OS image (vector table `0x400` B, code and data from `0x01000400`, `.bss` from `0x010143AC`); not a separate ROM | base_firmware §6.2, §8.11 |
+| `0x01000400` | parameter kernel (`set(part, group, id, value)`) | ch. 1 §2 |
+| `0x01100000` | `m1_tcm` (core 1 TCM, window up to `0x01144000`) | base_firmware §8.3; ch. 1 §2 |
+| `0x20000000` | `.data` / `.bss` of core 0 (`0x308` copied, `0x8740` zeroed) | base_firmware §6.2, §8.12 |
+| `0x60000000` | the OS (`m0_core0`, `App1_Main` running in place) | ch. 1 §2; base_firmware §8.1 |
+| `0x61000000` – `0x61600000` | `m1_sdram` (core 1) | base_firmware §8.3 |
+| `0x61600000 + 0x200000·slot` | PLUG-OUT region 0 (model), slot 0 = the SYSTEM-8 itself … slot 3 = `0x61C00000` | Vol. IV ch. 1 §4 |
+| `0x40001000` | memory-to-memory DMA | base_firmware §6.3, §8.8 |
+| `0x40060000`, `0x40064000` | USB host EHCI / OHCI (links to the slaves) | base_firmware §8.8 |
+| `0x4010B000` | SD card controller | base_firmware §8.8 |
+| `0x41100000` | DSP system / register block (`+0x2000·n` per DSP) | base_firmware §8.5, §8.8 |
 
----
+The other peripheral pages seen in the code (`0x40026000`, `0x40031000`, `0x40054000`, `0x40062000`, `0x40080000`,
+`0xE000E000`, `0xE0043000`) and their partial identification are in base_firmware §8.8.
 
-## 2.2 Global Physical Address Map (Host ARM Control Plane)
+### 2.2 Slave BMCs
 
-The table below defines the normative physical memory map for both Master and Slave BMC ASICs:
+| address | what | source |
+|---|---|---|
+| `0x01100000` | `s_boot` (`BOOT` image sent by the master) | ch. 1 §2; base_firmware §8.3 |
+| `0x0113FC00` | OS service table for the engine ([Vol. IV ch. 3](../vol4_firmware_container_protocol/os_service_table.md)) | ch. 1 §2 |
+| `0x01103F2C` | `UpdateSynthParam` (reception of parameters) | ch. 1 §2 |
+| `0x60000000` – `0x60800000` | `s_data` (`DATA` image) | base_firmware §8.3 |
+| `0x60800000 + 0x200000·slot` | PLUG-OUT region 1 (engine), slot 3 = `0x60E00000`; RAM `0x60000000`–`0x61000000` | Vol. IV ch. 1 §4; ch. 1 §1 |
 
-| Address Range | Size | Access | Description / Master Context | Description / Slave Context | Evidence |
-|---|---|---|---|---|---|
-| `0x0000_0000` – `0x0000_7FFF` | 32 KiB | R/W | Internal Boot ROM / Fast SRAM | Internal Boot ROM / Fast SRAM | `[STATIC_ANALYSIS]` |
-| `0x0100_0000` – `0x0100_03FF` | 1 KiB | R/W | Vector Table & Fast ISR Vectors | Vector Table & Fast ISR Vectors | `[STATIC_ANALYSIS]` |
-| `0x0100_0400` – `0x010F_FFFF` | ~1 MiB | R/W | Master Parameter Engine Kernel | Slave Kernel Runtime | `[VERIFIED]` |
-| `0x0110_0000` – `0x0111_FFFF` | 128 KiB | R/W | `m1_tcm` (Master Core 1 TCM) | `s_boot` (Slave Boot & Voice Control) | `[VERIFIED]` |
-| `0x0113_FC00` – `0x0113_FFFF` | 1 KiB | R | Master OS Fixed Jump Table | **Slave Fixed Syscall Jump Table** | `[VERIFIED]` |
-| `0x4000_0000` – `0x400F_FFFF` | 1 MiB | R/W | System Control, Clocks, Timers, UART | System Control, Clocks, Timers, UART | `[STATIC_ANALYSIS]` |
-| `0x4010_0000` – `0x4010_FFFF` | 64 KiB | R/W | *(S1)* DSP Subsystem Common Control | *(S1)* Shared Bank 5 (`FD6C` Access) | `[MEASURED]` |
-| `0x4014_C000` – `0x4014_FFFF` | 16 KiB | R/W | *(S1)* DSP A Parameter Block | *(S1)* DSP A Parameters (`C000`–`C0FF`) | `[MEASURED]` |
-| `0x4016_C000` – `0x4016_FFFF` | 16 KiB | R/W | *(S1)* DSP B Parameter Block | *(S1)* DSP B Parameters (`C000`–`C0FF`) | `[MEASURED]` |
-| `0x4110_4318` + $n\cdot$`0x1000` | 4 KiB | R/W | *(S8)* DSP $n$ Slot Task Control | *(S8)* DSP $n$ Slot Task Control | `[VERIFIED]` |
-| `0x4111_4000` + $n\cdot$`0x4000` | 16 KiB | R/W | *(S8)* DSP $n$ Bank 5 (DPC floats) | *(S8)* DSP $n$ Bank 5 (DPC floats) | `[VERIFIED]` |
-| `0x4113_E000` – `0x4113_E3FF` | 1 KiB | R/W | *(S8)* IOMD Buffer Registers (RAW) | *(S8)* IOMD Buffer Registers (RAW) | `[MEASURED]` |
-| `0x4140_0000` + $n\cdot$`0x100000` | 64 KiB | R | *(S8)* DSP $n$ DT0 (IEEE Float View) | *(S8)* DSP $n$ DT0 (IEEE Float View) | `[VERIFIED]` |
-| `+0x0000_2000` | 64 KiB | R | *(S8)* DSP $n$ DT0 (SD31 Q31 View) | *(S8)* DSP $n$ DT0 (SD31 Q31 View) | `[VERIFIED]` |
-| `+0x0000_4000` | 64 KiB | R | *(S8)* DSP $n$ DT0 (RAW 32-bit View) | *(S8)* DSP $n$ DT0 (RAW 32-bit View) | `[VERIFIED]` |
-| `0x4148_0000` + $n\cdot$`0x100000` | 64 KiB | R/W | *(S8)* DSP $n$ Program Memory Space | *(S8)* DSP $n$ Program Memory Space | `[VERIFIED]` |
-| `0x6000_0000` – `0x607F_FFFF` | 8 MiB | R/W | Master μT-Kernel OS Executable | Slave `s_data` Image / Voice Engine | `[VERIFIED]` |
-| `0x6080_0000` – `0x609F_FFFF` | 2 MiB | R/W | *(S1)* Plug-Out Region 0 (Model) | *(S8)* Plug-Out Slot 0 Engine (Reg 1) | `[VERIFIED]` |
-| `0x6020_0000` – `0x603F_FFFF` | 2 MiB | R/W | *(S8)* System-8 Engine Driver Image | *(S1)* Plug-Out Region 1 (Engine) | `[VERIFIED]` |
-| `0x60A0_0000` – `0x60BF_FFFF` | 2 MiB | R/W | *(S8)* Plug-Out Slot 1 Engine (Master) | *(S8)* Plug-Out Slot 1 Engine (Slave) | `[VERIFIED]` |
-| `0x60C0_0000` – `0x60DF_FFFF` | 2 MiB | R/W | *(S8)* Plug-Out Slot 2 Engine (Master) | *(S8)* Plug-Out Slot 2 Engine (Slave) | `[VERIFIED]` |
-| `0x60E0_0000` – `0x60FF_FFFF` | 2 MiB | R/W | *(S8)* Plug-Out Slot 3 Engine (Master) | *(S8)* Plug-Out Slot 3 Engine (Slave) | `[VERIFIED]` |
-| `0x6100_0000` – `0x615F_FFFF` | 6 MiB | R/W | Master Core 1 SDRAM Engine | Unallocated Slave SDRAM | `[VERIFIED]` |
-| `0x6160_0000` – `0x617F_FFFF` | 2 MiB | R/W | *(S8)* Plug-Out Slot 0 Model (Reg 0) | Unallocated Slave SDRAM | `[VERIFIED]` |
-| `0x6180_0000` – `0x619F_FFFF` | 2 MiB | R/W | *(S8)* Plug-Out Slot 1 Model (Reg 0) | Unallocated Slave SDRAM | `[VERIFIED]` |
-| `0x61A0_0000` – `0x61BF_FFFF` | 2 MiB | R/W | *(S8)* Plug-Out Slot 2 Model (Reg 0) | Unallocated Slave SDRAM | `[VERIFIED]` |
-| `0x61C0_0000` – `0x61DF_FFFF` | 2 MiB | R/W | *(S8)* Plug-Out Slot 3 Model (Reg 0) | Unallocated Slave SDRAM | `[VERIFIED]` |
+### 2.3 PLUG-OUT windows (both regions)
 
-> [!WARNING]
-> **Context-Dependent Address Hazard**: Physical address `0x60000000` maps to the **Master μT-Kernel OS image** when referenced on the Master BMC, but references the **Slave `s_data` voice engine** on a Slave BMC. Calling Master OS entry points from Slave Region 1 code causes catastrophic invalid branch faults and hardware lockups.
+From Vol. IV ch. 1 §4 (run addresses from the SYNINFO pointers and the slot diffs; each window 2 MiB,
+`SLOT_STRIDE = 0x200000`; the image is followed by its `.bss`):
 
----
-
-## 2.3 DSP Core Internal Memory Spaces
-
-Each proprietary VLIW DSP core addresses its local internal memory through a 16-bit reference space partitioned into 8 logical memory banks (Banks 0 through 7). 
-
-A 16-bit DSP memory reference is structured as follows:
-
-```
-  15    13 12                                                   0
-┌─────────┬───────────────────────────────────────────────────────┐
-| Bank ID | Offset within Bank                                    |
-| (3-bit) | 13-bit word address (0x0000 - 0x1FFF)                 |
-└─────────┴───────────────────────────────────────────────────────┘
-```
-
-### 2.3.1 DSP Internal Memory Bank Architecture
-
-| Bank ID | Hex Prefix | Bank Name | Word Capacity | Addressing Behavior | Inter-DSP Visibility | Access Rules | Evidence |
-|---|---|---|---|---|---|---|---|
-| **Bank 0** | `0nnn` | **DT0** Data RAM | 2,048 (0x800) | **Rotating Ring Buffer** (wraps modulo 0x800) | Core Local Only | Max 2 loads per instruction word | `[VERIFIED]` |
-| **Bank 1** | `2nnn` | **DT1** Slot Mailbox | 2,048 (0x800) | Rotating Ring Buffer | Main $\leftrightarrow$ Active Slot | 1 load / 1 store per instruction | `[VERIFIED]` |
-| **Bank 2** | `4nnn` | **DT2** Delay DMA | Windowed | Ping-Pong DMA Buffer Pages | Core Local Only | Dedicated tap requests (`tapreq`) | `[MEASURED]` |
-| **Bank 3** | `6nnn` | **IOMD** Serial Bus | 256 (0x100) | Static Persistent Register Array | Inter-ASIC Wave Bus | Hardware owner DSP slot only | `[VERIFIED]` |
-| **Bank 4** | `8nnn` | **MXM** Crossbar | 4 × 512 (0x200)| Latched Single-Sample Pipeline | Paired DSP Cores | Zones M, O, Z, S | `[VERIFIED]` |
-| **Bank 5** | `Annn` | **DPC** Shared Mail | 1,024 (0x400) | Static Persistent RAM | `A000`..`A3FF`: Local; `A400`..`A7FF`: Paired | Max 1 load & 1 store per inst. | `[VERIFIED]` |
-| **Bank 6** | `Cnnn` | **PARAM** Registers | 512 (0x200) | Hardware Linear Ramp Generators | Core Local Only | Read-Only for DSP, Written by ARM | `[VERIFIED]` |
-| **Bank 7** | `Ennn` | System Telemetry | 256 (0x100) | Hardware Counter Registers | Core Local Only | `E000` = Global 96 kHz Frame Ctr | `[VERIFIED]` |
-
----
-
-## 2.4 Control Register Bitfields
-
-### 2.4.1 Slot Execution Task Control Register (`0x41104318` + $n\cdot$`0x1000`) `[VERIFIED]`
-
-Controls runtime dispatch and execution gating for DSP slot microcode segments:
-
-```
-  31                                           4   3   2   1   0
-┌───────────────────────────────────────────────┬───┬───┬───┬───┐
-│                   Reserved                    │S3 │S2 │S1 │EN │
-└───────────────────────────────────────────────┴───┴───┴───┴───┘
-```
-
-| Bit Field | Name | Access | Reset | Description |
+| | slot 0 (synth) | slot 1 | slot 2 | slot 3 |
 |---|---|---|---|---|
-| 31:4 | `RESERVED` | RO | 0 | Reserved for future expansion; reads as zero. |
-| 3 | `SLOT3_EN` | R/W | 0 | Slot 3 microcode execution enable (FX / Upper Oscillator). |
-| 2 | `SLOT2_EN` | R/W | 0 | Slot 2 microcode execution enable (DCO2 / Dynamic Slot). |
-| 1 | `SLOT1_EN` | R/W | 0 | Slot 1 microcode execution enable (DCO1 / Primary Osc). |
-| 0 | `DSP_CORE_EN` | R/W | 0 | Master DSP core execution strobe enable. When cleared, DSP idles. |
+| region 0 (model), master | `0x61600000` | `0x61800000` | `0x61A00000` | `0x61C00000` |
+| region 1 (engine), slaves | `0x60800000` | `0x60A00000` | `0x60C00000` | `0x60E00000` |
 
-### 2.4.2 Hardware Parameter Ramp Register (`0x4016C000` + $16\cdot$`id`) `[MEASURED]`
+The region header's load/entry fields are the same in every slot build (`0x60800000` region 0, `0x60200000` region 1);
+the image itself is linked per slot (Vol. IV ch. 1 §2, §4).
 
-Represents the memory-mapped configuration structure manipulated by the ARM control plane to trigger automatic linear parameter interpolation within Bank 6 (`C0id`):
+## 3. SYSTEM-8, DSP windows seen by the ARM
 
-```
-Offset 0x00: [ Mode / Target Status ]  (Bit 31:28 = Mode Control, Bit 27:0 = Target Fraction)
-Offset 0x04: [ Start Value RAW ]      (32-bit Roland RAW encoded floating point)
-Offset 0x08: [ Current Value RAW ]    (32-bit Roland RAW actively updated every 1/3 ms)
-Offset 0x0C: [ Delta Step RAW ]       (32-bit RAW linear step increment per tick)
-```
+Each DSP's ARM-side windows (DSP n = 0..5), from [ch. 1](soc_overview.md) §4 and the slave map of
+[Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) §7 ("Memory map of a slave DSP",
+from `s_boot`; base `0x41400000 + n·0x100000`, DSPM `0x41200000`):
 
-- When triggered via the ARM service `FCE4` (`SVC 0xE4`), the hardware updates the `Current Value` field every **1/3 ms** across a programmed ramp duration ranging from **4 ms to 97 ms**.
-- The DSP core samples this register synchronously via references to `[C0id]` without stalling the execution pipeline.
+| address | content | the ARM can |
+|---|---|---|
+| `0x41400000 + n·0x100000` (+`0x2000` SD31, +`0x4000` RAW) | bank 0 (DT0), a ring | read (writing does not stay) |
+| `… + 0x10000` | bank 1 (DSP0 and DSP1 share `0x41510000`) | — |
+| `… + 0x20000` | bank 2 | — |
+| `… + 0x30000` | bank 4 (DSP0/1: `0x411D0000` / `0x411D8000`) | read |
+| `… + 0x40000`, `+0x44000`, `+0x48000` | data RAM: the `+0x58` "data" lists, 8-byte aligned | — |
+| `0x41480000 + n·0x100000` (= `… + 0x80000`) | **program memory** (+ slot address in bytes; 64 KiB; main `0x0100`, slots `0x6000` / `0x8000` / `0xB000`) | read and write (32-bit stores) |
+| `… + 0xA0000` | ramped parameter block (`C0nn`), written by `+0xA0(dsp, id, ramp, flag)`: `[+0]` current value, `[+8]` control `0x08000000 \| ramp<<20 \| flag<<24 \| mode<<28`, `[+0xC]` target float | write via the OS |
+| `0x41104318 + n·0x1000` | control and task bit of each slot | write |
+| `0x41114000 + n·0x4000` | bank 5 / DPC (0x400 words; DSPM `0x41110000`; IEEE view, SD31 at `+0x1000`, RAW at `+0x2000`) | read and write (`+0xB0`) |
+| `0x4113C000` (IEEE) / `0x4113E000` (RAW) | bank 3, IOMD, 0x100 words common to the BMC | read |
+| `0x411D0000`, `0x411D8000` | MXM0 / MXM1 windows | read |
+| `0x41300000` | WMEM (reading all of it with a test program in slot `0xF7DC` hung the master once) | — |
+| `0x41158000`, sys + `0x40` / `+0x44` | indirect port of the EDM (delay memory, 0x200000 words per BMC) | read (ARM write not achieved) |
 
----
+The complete table of DSP windows of the debug console (`CEZUtilDSPDump`, 129 entries, `m1_sdram` `0x61014BB0`) is in
+[Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) §1. Two readings of the bank-5 RAW view coexist in the
+sources: `0x41114000 + n·0x4000 + 0x2000` (DSP_ARM_SIDE, the C code `engine.c live_bank5`) and "without an offset"
+(the slave map above); [Vol. II ch. 11](../vol2_dsp_core_isa/slave_dsp_readback.md) §2 item 3 lists it as unresolved
+for the slaves. The EDM and WMEM rows come from [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §8.4 and
+[Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) §9.1.
 
-## 2.5 Hardware Diagnostic & Telemetry Map (`CEZUtilDSPDump` Table) `[STATIC_ANALYSIS]`
+## 4. SYSTEM-1, ARM address spaces
 
-The Master OS (`m1_sdram` table at `0x61014BB0`) and Slave debug subsystem (`s_data`) maintain a 129-entry hardware descriptor table (`struct { uint32_t flags; const char *name; uint32_t address; uint32_t bytes; }`) used by the internal firmware console for memory inspection and DSP diagnostics:
+From [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §2:
 
-| Entry | Symbol Name | Target MMIO Base | Byte Size | Word Count | Functional Role |
-|---|---|---|---|---|---|
-| 0 | `Sys Control` | `0x41100000` | `0x080` (128 B) | `0x20` (32) | Core system clock, reset, and DMA arbitration |
-| 1 | `MXM0M` | `0x411D0000` | `0x800` (2 KiB) | `0x200` (512) | Mixer Crossbar Matrix 0 (Master input M) |
-| 2 | `MXM0O` | `0x411D0800` | `0x800` (2 KiB) | `0x200` (512) | Mixer Crossbar Matrix 0 (Offset output O) |
-| 3 | `MXZ0` | `0x411D1000` | `0x800` (2 KiB) | `0x200` (512) | Mixer Crossbar Matrix 0 (Zero output Z) |
-| 4 | `MXS0` | `0x411D1800` | `0x800` (2 KiB) | `0x200` (512) | Mixer Crossbar Matrix 0 (Sum output S) |
-| 5 | `MXE0` | `0x411D2000` | `0x040` (64 B) | `0x010` (16) | Mixer Crossbar Matrix 0 (Enable registers E) |
-| 6 | `MXM1M` | `0x411D8000` | `0x800` (2 KiB) | `0x200` (512) | Mixer Crossbar Matrix 1 (Master input M) |
-| 7 | `MXM1O` | `0x411D8800` | `0x800` (2 KiB) | `0x200` (512) | Mixer Crossbar Matrix 1 (Offset output O) |
-| 8 | `MXZ1` | `0x411D9000` | `0x800` (2 KiB) | `0x200` (512) | Mixer Crossbar Matrix 1 (Zero output Z) |
-| 9 | `MXS1` | `0x411D9800` | `0x800` (2 KiB) | `0x200` (512) | Mixer Crossbar Matrix 1 (Sum output S) |
-| 10 | `MXE1` | `0x411DA000` | `0x040` (64 B) | `0x010` (16) | Mixer Crossbar Matrix 1 (Enable registers E) |
+| chip | address | what |
+|---|---|---|
+| master | `0x60000000` | OS (`"SYSTEM-1:Appli"`), from flash `SYSTEM1_UPD.BIN` + `0x30000` |
+| master | `0x01000300` | fast code |
+| master | `0x0100FC00` | services for PLUG-OUTs (162 entries) |
+| master | `0x60800000` | region 0 (SYNINFO, assigner `+0x2C`, model object `+0x30`, 64 patches at `+0x1000`) |
+| slave | `0x60000000` | slave OS, from flash + `0x130000`, sent by the master |
+| slave | `0x01000300`, `0x0100FC00` | fast code, services (the same addresses as on the master, other code) |
+| slave | `0x60200000` | region 1 (engine) |
 
-### 2.5.1 Per-DSP Core MMIO Block Layout (`0x41100000`)
-- **Control Blocks**: `0x41102000` (DSP0), `0x41104000` (DSP1), `0x41105000` (DSP2), `0x41106000` (DSP3), `0x41107000` (DSP4), `0x41108000` (DSP5), `0x41109000` (DSPM).
-  - Offset `+0x310`: Run/Mode register (bit 0 = core enable, bit 1 = single-step).
-  - Offset `+0x318`: Task execution register (gating slots 1, 2, 3).
-  - Offsets `+0x400`, `+0x700`: Indirect data register ports.
-- **FIR Coefficient Tables**: `0x41152000` and `0x41153000`.
-- **Slave Generic Bank Access Dispatcher**: Located in `s_boot` at entry point `0x0111C2E0`.
-- **Inter-ASIC USB Bulk Link**: Master host sends parameter frames to slaves via `0x010125C1` $\to$ `0x0100D548` (`BMCBulk%d Attached`).
+A single slot, without relocation ([ch. 1](soc_overview.md) §6).
 
+## 5. SYSTEM-1, DSP windows seen from the slave ARM [code, partial]
+
+Translated from [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §4 (tags of that document):
+
+| address | what | state |
+|---|---|---|
+| `0x40101000 + 4·i` | bank 5 (`A000+i`), IEEE view; `+0x400` = `A100+i` (`FD6C`, `sel` 1) | `A0xx` [measured with C-S1V4]; `A1xx` [inferred] |
+| `0x4014C000 + 16·id` / `0x4016C000 + 16·id` | parameters (bank 6, `C0id`) of DSP A / B (`FCEC` immediate, `FCE4` with ramp: `mode<<28 \| …`) | [code]; `FCEC` on the master [measured: VOLUME] |
+| `0x40140000`, `0x40160000` (+`0xE000`, +`0x10000`) | blocks of each DSP; `+0x10000` is the destination of DMA copies in blocks of `0x200` (program or data memory) | [open] |
+| `0x40100000` | common control | [open] |
+
+Measurements on the parameter block (2026-11-03, [ch. 6](s1_arm_clock.md) §2): `FCEC` writes
+`[+0] = 0xE0000000, [+4] = [+8] = value, [+0xC] = 0`; `C060`–`C0FF` of the slave's DSP B arrive exactly; the hardware
+ramp (`FCE4`) only exists for ids < `0x80`; writes to `C100`… are not parameters. `FCE4` writes
+`[+0] = 0x80000000 | z << 28 | y << 24`, `[+4]` = target ([Vol. IV ch. 3](../vol4_firmware_container_protocol/os_service_table.md)).
+On the master, all four tried paths to read bank 5 return 0 ([examples/system_1_ramp/README.md](../../examples/system_1_ramp/README.md) §1).

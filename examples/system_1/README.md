@@ -9,7 +9,7 @@ hasta que la captura de parámetros (§6) mostró que es el id `0x100`. Afinaci�
 
 **C-S1V8 (8 voces) también funciona** [medido, a oído, 2026-10-22]: ocho notas sostenidas suenan todas, sin cortar
 ninguna. El SYSTEM-1 de serie tiene 4 voces; el OS reenvía al esclavo los ids de las voces 4–7 sin cambios (§7). Es el C-V4 del SYSTEM-8
-([FROM_SCRATCH.md](FROM_SCRATCH.md)) reescrito para la interfaz de PLUG-OUT del SYSTEM-1: cuatro voces de sierra
+([Vol. VI ch. 1](../../docs/vol6_reference_designs_applications/c_v4_system8_reference.md)) reescrito para la interfaz de PLUG-OUT del SYSTEM-1: cuatro voces de sierra
 con puerta, polifónicas, todo el código ARM y todo el microcódigo nuestros (ningún byte de Roland; los programas de
 Roland sólo se leyeron para estudiar la interfaz).
 
@@ -100,7 +100,7 @@ notas la salida es 0 exacto.
 
 ### 2.4 Dónde van las voces: programa principal o secciones de voz
 
-Mapa completo, límites y otras variantes (también del SYSTEM-8): [DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md).
+Mapa completo, límites y otras variantes (también del SYSTEM-8): [Vol. III ch. 3](../../docs/vol3_voice_allocation_scheduling/slot_program_model.md).
 
 **C-S1V4 usa el programa principal** (`s1m0` en `0x0100` del DSP A del esclavo) para las cuatro voces, y apaga las
 ocho secciones de voz del OS (`FC44(i, 0)`). Las secciones quedan sin usar.
@@ -270,7 +270,7 @@ Resultado del 2026-10-22 (C-S1LOG; se movieron el VOLUME y dos controles más):
 El SYSTEM-8 no tiene ese objeto modelo con `vt+0x30` en la región 0 (su descriptor es `create/destroy/asignador/
 select`, `examples/from_scratch/model/model.c`), y el motor del esclavo, que sí recibe `e_param(id, valor)`, no
 puede mandar MIDI. Dos caminos, los dos con el envío ya probado de `VOICELOG` (router `0x6000345D`, SysEx por
-USB 1 + DIN, `docs/BASE_FIRMWARE.md` §7.12):
+USB 1 + DIN, [Vol. IV ch. 6](../../docs/vol4_firmware_container_protocol/base_firmware.md) §7.12):
 
 1. **Diferencias en `changed(grupo)`** (vt[1] del asignador, que el OS llama al cambiar un grupo): guardar una copia
    de los valores de un rango de ids con `OS->get(parte, grupo, id)` y mandar sólo los que cambian. Sin enganches

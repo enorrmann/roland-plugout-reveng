@@ -47,7 +47,7 @@ sus unidades.
 | recurso | estado | qué componentes lo necesitan |
 |---|---|---|
 | estado en el anillo del banco 0 (2048 palabras por DSP, `ld S+1` / `st S`) | [medido] | todos |
-| retardo **fijo** de hasta 2047 muestras (21 ms): carga simple `[S + k]` o `ldidx` con `h6` constante | [medido] 15X ([../system-1/DSP_BANKS.md](../system-1/DSP_BANKS.md) §4) | reverbs y difusores de tomas fijas |
+| retardo **fijo** de hasta 2047 muestras (21 ms): carga simple `[S + k]` o `ldidx` con `h6` constante | [medido] 15X ([../system-1/DSP_BANKS.md](../../system-1/DSP_BANKS.md) §4) | reverbs y difusores de tomas fijas |
 | retardo **variable** (índice calculado → `hset h6`) | **[abierto]**: el chorus del paso 15 da tomas en silencio | cuerdas Karplus, comb, chorus, ensemble, pitch shifter, tablas de ondas leídas por fase |
 | tablas en el banco 5 (`A0xx`/`A1xx`, compartido A↔B, ≈ 0x400 palabras) | fijas [medido en el SYSTEM-8]; leer por fase = índice calculado [abierto] | wavetables, formantes |
 | tablas de control (ARM, `FCEC` → `C0xx`) | [medido] | todo lo que Mutable calcula por bloque (incrementos, coeficientes, tablas de knob) |
@@ -57,7 +57,7 @@ sus unidades.
 Retardo por voz: 2048 palabras entre 8 voces son 256 muestras por voz. Eso da 375 Hz como nota más grave de una
 cuerda Karplus a 96 kHz. Con el banco 1 (también es un anillo) serían 512 muestras y 187 Hz [estimado].
 
-### 1.4 Reglas de port (de `sdk/mport`, [MUTABLE_SDK.md](MUTABLE_SDK.md))
+### 1.4 Reglas de port (de `sdk/mport`, [Vol. V ch. 3](../../docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md))
 
 * **Lo que Mutable calcula una vez por bloque** (incrementos, coeficientes, lecturas de tabla en la posición del
   knob) se calcula en Python, en la build, para los 256 valores de cada knob → tabla del ARM → `C0xx`.

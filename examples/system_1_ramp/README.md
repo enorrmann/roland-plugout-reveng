@@ -79,7 +79,7 @@ DSP, y se desconoce qué pasa si dos rampas terminan juntas.
 * **Falta medir.** Otras `y`, varios parámetros encadenados a la vez (¿dos fines simultáneos?) y lo mismo en el
   esclavo, donde corre el motor. El código del esclavo es el mismo (§2.1).
 * **En el esclavo (2026-11-03).** Las rampas a `C080`… del DSP B no llegan al programa, y lo escrito en `C100`… el DSP
-  casi no lo ve. Lo que sí funciona allí: `FCEC` a `C080`–`C09F` desde el tick de 1 ms ([S1_ARM_CLOCK.md](S1_ARM_CLOCK.md)).
+  casi no lo ve. Lo que sí funciona allí: `FCEC` a `C080`–`C09F` desde el tick de 1 ms ([Vol. I ch. 6](../../docs/vol1_system_architecture/s1_arm_clock.md)).
 
 ## 3. Resultados [M]
 
@@ -117,7 +117,7 @@ Rampa de 0 a 1 (captura `work/captures/2026-10-29/ramp_out.txt`):
 La rampa más larga dura ~0,1 s, así que un segmento largo de una envolvente se arma con varias rampas seguidas.
 Con la función de fin de rampa (§2.1, medida), cada tramo lanza el siguiente sin tick. Ahorro medido en el emulador con
 MP-CSAW2 a 8 voces, reemplazando el código por la lectura de un parámetro (detalle en
-[S1_OPTIMIZATIONS.md](S1_OPTIMIZATIONS.md)):
+[Vol. III ch. 8](../../docs/vol3_voice_allocation_scheduling/s1_optimizations.md)):
 
 | al ARM | DSP B (de 701) |
 |---|---|

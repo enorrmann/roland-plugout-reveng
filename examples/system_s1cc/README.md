@@ -3,7 +3,7 @@
 
 # `examples/system_s1cc`: SYSTEM-S1CC, un PLUG-OUT que es solo el kernel de s1cc
 
-SYSTEM-S1CC es un PLUG-OUT del SYSTEM-1 cuya voz es **solo** un kernel compilado por s1cc ([S1CC.md](S1CC.md)).
+SYSTEM-S1CC es un PLUG-OUT del SYSTEM-1 cuya voz es **solo** un kernel compilado por s1cc ([Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)).
 No tiene oscilador, envolvente, filtro ni LFO propios: todo lo que hace una voz está en el C del kernel. Alrededor
 solo hay lo que el equipo necesita, con las formas que ya funcionaron en MUTABLE-SYSTEM / C-S1SY13:
 * la carga de los programas;
@@ -12,7 +12,7 @@ solo hay lo que el equipo necesita, con las formas que ya funcionaron en MUTABLE
 * la mezcla de las voces;
 * VOLUME y el envío a delay / reverb del OS.
 
-Comparado con MUTABLE-SYSTEM ([examples_mutable_system_README.md](examples_mutable_system_README.md)), deja libres
+Comparado con MUTABLE-SYSTEM ([examples/mutable_system/README.md](../mutable_system/README.md)), deja libres
 las instrucciones del anfitrión C-S1SY13 (LFO, ADSR, filtro, mezcla): unas 234 del DSP A y 412 del DSP B.
 
 ## 1. Uso
@@ -28,10 +28,10 @@ python3 tools/plugout_tool.py install plugins/SYSTEM-S1CC --slot 1 --force --no-
 |---|---|
 | `KERNEL=dir` | obligatoria: la carpeta de salida de `s1cc build` |
 | (voces) | no es una opción: `make_s1cc.py` con `VOICES=auto` (el default) calcula antes de compilar la mayor cantidad que entra en los límites (instrucciones por muestra y los 6 KiB del principal), y `build.sh` la anuncia al final (`SYSTEM-S1CC: 6 voices`). Cálculo: el programa de cada DSP agendado entero, sin ensamblar ni secciones (cota inferior de lo que cuenta el build: una sección agrega su cabecera y corta la fusión), búsqueda binaria sobre 1..8, un solo build; si ese build igual no entra (las secciones), una voz menos. Verificado 2026-11-03 en 38 kernels de `sdk/s1cc/build`: la estimación coincide con el build en todos (N entra, N+1 no) |
-| `BUDGET_A=n`, `BUDGET_B=n`, `MAIN_BYTES=n` | los límites medidos: 703 instrucciones por muestra en el DSP A (826 se colgó), 708 en el DSP B, y 6144 bytes de cada programa principal, su región `0x0100`–`0x18FF` ([DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md) §3.1: 5854 bytes corrieron, 6534 y 6740 colgaron el equipo, 2026-10-28). Sólo para probar más, a riesgo propio |
+| `BUDGET_A=n`, `BUDGET_B=n`, `MAIN_BYTES=n` | los límites medidos: 703 instrucciones por muestra en el DSP A (826 se colgó), 708 en el DSP B, y 6144 bytes de cada programa principal, su región `0x0100`–`0x18FF` ([Vol. III ch. 3](../../docs/vol3_voice_allocation_scheduling/slot_program_model.md) §3.1: 5854 bytes corrieron, 6534 y 6740 colgaron el equipo, 2026-10-28). Sólo para probar más, a riesgo propio |
 | `NAME=…` | nombre del PLUG-OUT (`SYSTEM-S1CC`) |
 | `MODEL_ID`, `PARAMLOG=1` | como en MUTABLE-SYSTEM |
-| `MA_MAIN=0` | no cargar el principal propio (vacío) del maestro A en `0x0100`. Por defecto (`1`, desde 2026-11-05) se carga, como hacen los PLUG-OUTs de Roland: sin él el maestro A corre lo que dejó el modo anterior, que pisa las palabras maestro → esclavo `600E`–`6021` ([MUTABLE_MEMORY.md](MUTABLE_MEMORY.md) §4.3) |
+| `MA_MAIN=0` | no cargar el principal propio (vacío) del maestro A en `0x0100`. Por defecto (`1`, desde 2026-11-05) se carga, como hacen los PLUG-OUTs de Roland: sin él el maestro A corre lo que dejó el modo anterior, que pisa las palabras maestro → esclavo `600E`–`6021` ([Vol. VI ch. 7](../../docs/vol6_reference_designs_applications/mutable_memory.md) §4.3) |
 | `ENV_TMIN=s`, `ENV_TMAX=s` | tiempos de las envolventes del anfitrión con el fader en 0 y en 255 (por defecto 0,001 y 10 s, exponencial entre medio, como C-S1SY). Solo si el kernel usa `s1_env` |
 | `OUTDIR=dir` | solo `make_s1cc.py`: dónde escribir todo lo generado (por defecto `examples/system_s1cc/build/`, la misma carpeta que usa `build.sh`; los tests usan una carpeta temporal) |
 | `MOD_DSP=auto` / `A` / `B` | dónde corren la envolvente de pitch y la mezcla de COLOR MOD (§3.4). `auto` (por defecto): `make_s1cc.py` arma las dos y se queda con la que entra, o con la que deja más margen si entran las dos |
@@ -68,14 +68,14 @@ KERNEL=sdk/s1cc/build/simple_saw_hostenv NAME=S1CC-HOSTENV sh examples/system_s1
 Los tres usan el slot 1 y el mismo id de modelo: instalar uno reemplaza al anterior.
 
 Opciones de la memoria de retardo del maestro B (`EDM_KS`, `EDM_CALL`, `EDM_ECF`, `EDM_STR`: cuerdas Karplus,
-`tapreq` propio, líneas propias, una cuerda por voz) y sus PLUG-OUTs de prueba: [MUTABLE_MEMORY.md](MUTABLE_MEMORY.md)
+`tapreq` propio, líneas propias, una cuerda por voz) y sus PLUG-OUTs de prueba: [Vol. VI ch. 7](../../docs/vol6_reference_designs_applications/mutable_memory.md)
 §3.3. Con `EDM_STR` el esclavo no mezcla: cada voz sale por su palabra `6006 + v` y el maestro B hace la cuerda.
 
 ### 1.2 Opciones en el fuente del kernel (`S1_BUILD`)
 
 Todas las variables de la tabla de arriba salvo `KERNEL`, `OUTDIR` y las voces, y también `LFO_PITCH`, `LFO_LUT`,
 `ENV_CURVE`, `ARM_ENV`, `ARM_LFO`, `ARM_RAMP`, `ARM_FADE`, `ARM_DIAG`, `ARM_TICK`, `CMOD_IDX`, `TRY_FORMS`, `PAIRS` y `SPLIT` (§1.3),
-pueden ir en el C del kernel ([S1CC.md](S1CC.md) §3.3):
+pueden ir en el C del kernel ([Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.3):
 
 ```c
 S1_BUILD("NAME=MP-CSAW ARM_ENV=1 LFO_LUT=1");
@@ -102,7 +102,7 @@ KERNEL=sdk/s1cc/build/mp_csaw sh examples/system_s1cc/build.sh        # -> plugi
 **Por defecto** desde 2026-11-03: `s1cc build` fusiona, y `make_s1cc.py` usa `ARM_ENV=1 ARM_LFO=1` (§3.7). Con
 `s1cc build --no-fused`, `ARM_ENV=0`, `ARM_LFO=0` vuelve cada parte a lo de antes.
 
-Con un kernel compilado con `s1cc --fused` ([S1CC.md](S1CC.md) §3.4, marca `.fused`), `make_s1cc.py` corre la voz
+Con un kernel compilado con `s1cc --fused` ([Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.4, marca `.fused`), `make_s1cc.py` corre la voz
 entera del kernel de las voces 0…NA−1 en el DSP A y la de NA…NV−1 en el DSP B. **El anfitrión no cambia**: su parte
 del DSP A (LFO → tono, COLOR, sub, copias de puerta) sigue en A para todas las voces, y su parte del DSP B
 (envolventes, LFO, COLOR MOD) sigue en B. Lo único que cambia de lugar es el kernel.
@@ -173,7 +173,7 @@ maestro B (s1mm1 @0x1000)  6006 / 6007 × VOLUME (C01C)                 → env�
   temporales + bandera de primera muestra. Esclavo A desde `0x0300`, esclavo B desde `0x0600`, salidas de B en
   `0x0400`+: las zonas que usaron nuestros programas probados en el equipo (C-S1V8, C-S1SY, MUTABLE-SYSTEM). No hay
   tope de 16 palabras como en MUTABLE-SYSTEM; el límite es que las `NV` voces entren hasta `0x07FF`. Lo de abajo de
-  `0x0018` es del OS ([../system-1/DSP_BANKS.md](../system-1/DSP_BANKS.md)).
+  `0x0018` es del OS ([../system-1/DSP_BANKS.md](../../system-1/DSP_BANKS.md)).
 * **Parámetros.** Las tablas `S1_PARAM` van a `C070`… del DSP A y `C060`… del DSP B, por `panel_id`. El ARM
   escribe la fila de la posición de la perilla cada vez que llega, y las vuelve a escribir en cada nota. Al cargar,
   el modelo del maestro hace `touch` de los controles `0x160`–`0x18F` del grupo 3 y `flush`: el OS le manda al
@@ -220,7 +220,7 @@ Si el kernel llama a `s1_env(0)` o `s1_env(1)` en `S1_DSP_B`, `make_s1cc.py` agr
 * **DSP B, antes del kernel:** una ADSR en ensamblador por cada envolvente que el kernel lee (`s1_env(0)`,
   `s1_env(1)` o las dos). Es `step_adsr` de C-S1SY, copiada sin cambios, que corre en el equipo desde el paso 4 de
   C-S1SY. Cada una deja su nivel 0…1 en una palabra del bloque de la voz, y el kernel la lee como `s1_env(i)`. Las
-  envolventes no necesitan `s1_export`: ver [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) §7.2.
+  envolventes no necesitan `s1_export`: ver [sdk/s1cc/examples/simple_saw_wrapped/README.md](../../sdk/s1cc/examples/simple_saw_wrapped/README.md) §7.2.
 * **ARM (`engine.c`):** las perillas → parámetros del DSP B. Envolvente 0: AMP S / A / D / R → `C040`–`C043`;
   envolvente 1: FILTER S / A / D / R → `C044`–`C047`. Las tablas las genera `make_s1cc.py` con `ENV_TMIN` /
   `ENV_TMAX`. Valores por defecto hasta que se mueve una perilla: AMP 255 / 0 / 128 / 60, FILTER 0 / 0 / 128 / 60.
@@ -228,7 +228,7 @@ Si el kernel llama a `s1_env(0)` o `s1_env(1)` en `S1_DSP_B`, `make_s1cc.py` agr
 La ADSR sigue a la puerta misma (ataque = puerta − latch; el latch se borra con cada disparo), así que no le afecta
 que el disparo y la puerta lleguen separados. Costo: unas 17 instrucciones por envolvente y voz en el DSP B, una vez
 empaquetadas (8 voces, 2 envolventes y el kernel de `simple_saw_hostenv`, con su paso bajo: 471). Ejemplo y detalle de quién escribe
-qué: [examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) §7.
+qué: [sdk/s1cc/examples/simple_saw_wrapped/README.md](../../sdk/s1cc/examples/simple_saw_wrapped/README.md) §7.
 
 ```sh
 sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_hostenv.c --regs 0,1,2,3,4,5,6,7 --check
@@ -331,7 +331,7 @@ es decir sin modulación.
   deja el tono como lo escribe el ARM (ahorra ~18 instrucciones por voz).
 * **Costo.** ~46 instrucciones por voz en el DSP A con pitch, filtro y amp (`mp_saw`: 155 → 521 con 8 voces); el
   DSP B, +4 por voz en `mp_dsp_b.h`. Los kernels de más de ~42 instrucciones por voz en A necesitan menos voces
-  (tabla en [examples_mutable_ported_README.md](examples_mutable_ported_README.md) §4).
+  (tabla en [sdk/s1cc/examples/mutable_ported/README.md](../../sdk/s1cc/examples/mutable_ported/README.md) §4).
 
 **Verificación** (emulador, `mp_saw`, palabras que el anfitrión le da al kernel en la voz 0):
 
@@ -430,14 +430,14 @@ primera carga indexada del banco 5 en el SYSTEM-1: el S8 la tiene medida exacta,
 coincide con la del DSP (pico 0,124 contra 0,123, MP-CSAW2).
 
 Las dos ADSR por voz y el LFO por voz corren en el ARM del esclavo (`engine.c arm_*`), enganchados al tick de 1 ms
-del OS ([S1_ARM_CLOCK.md](S1_ARM_CLOCK.md)). Cada una es un parámetro del DSP B; el DSP B solo lo lee (`ld` + `st`).
+del OS ([Vol. I ch. 6](../../docs/vol1_system_architecture/s1_arm_clock.md)). Cada una es un parámetro del DSP B; el DSP B solo lo lee (`ld` + `st`).
 
 | `ARM_RAMP` | cómo escribe el ARM | parámetros (`ARM_P0`) | tablas del kernel en el DSP B |
 |---|---|---|---|
 | `1` | un punto cada 4 ms con `FCE4`; el hardware hace la recta | envolvente i de la voz v en `C060 + 8 i + v`, lf en `C070 + v`, fade en `C078 + v` (las rampas solo llegan a ids `< 0x80`) | desde `C080` |
 | `0` (por defecto) | el valor con `FCEC` en cada tick de 1 ms: más rápido (≤ 1 ms de retraso) y con ids para más de 8 voces | `C080 + 8 i + v`, `C090 + v`, `C098 + v` | desde `C060` |
 
-Ventajas de cada uno: [S1_ARM_CLOCK.md](S1_ARM_CLOCK.md) §2. Con rampas el arranque de la nota se atrasa ~4 ms y
+Ventajas de cada uno: [Vol. I ch. 6](../../docs/vol1_system_architecture/s1_arm_clock.md) §2. Con rampas el arranque de la nota se atrasa ~4 ms y
 un ataque o decay de menos de ~8 ms queda suavizado; con `ARM_RAMP=0` la curva es una escalera de 1 ms (medida
 inaudible: bandas laterales a −79 dB).
 
@@ -449,7 +449,7 @@ inaudible: bandas laterales a −79 dB).
 * **Solo enteros.** El ARM del SYSTEM-1 no tiene FPU: niveles en Q24, `q24_bits` arma el `float` IEEE.
 * **Ahorro** (MP-CSAW2, 8 voces): DSP B de 701 a 375 instrucciones; con el kernel fusionado, el DSP más cargado al
   73 % (§1.3).
-* **Medido** (sonda `arm_probe`, captura USB, [S1_ARM_CLOCK.md](S1_ARM_CLOCK.md) §3): ADSR y LFO completos y suaves,
+* **Medido** (sonda `arm_probe`, captura USB, [Vol. I ch. 6](../../docs/vol1_system_architecture/s1_arm_clock.md) §3): ADSR y LFO completos y suaves,
   release hasta 0.
 
 **Límites.** La curva es una escalera de 1 ms. A más de ~100 Hz el LFO tiene pocos puntos por ciclo.
@@ -482,12 +482,12 @@ store en A cada una) y `s1_export` / `s1_import`.
 
 **Todos los registros.** `s1cc build` usa por defecto `--regs 0,1,2,3,4,7`, porque en MUTABLE-SYSTEM `r5` / `r6`
 son del anfitrión. SYSTEM-S1CC no tiene anfitrión: compilar el kernel con `--regs 0,1,2,3,4,5,6,7` deja más valores
-en registros y menos derrames ([S1CC.md](S1CC.md) §1.1). `make_s1cc.py` avisa si un kernel tiene derrames y no usa
+en registros y menos derrames ([Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §1.1). `make_s1cc.py` avisa si un kernel tiene derrames y no usa
 `r5` / `r6`.
 
 **Valores que cruzan de A a B.** `make_s1cc.py` informa, para `x`, las entradas copiadas, cada ranura de export y las
 copias de puerta y disparo, si en el equipo llegan en la misma muestra, una más tarde o en carrera. Los dos DSP del chip
-corren a la vez ([examples_simple_saw_wrapped_README.md](examples_simple_saw_wrapped_README.md) §8). Mapa de la zona
+corren a la vez ([sdk/s1cc/examples/simple_saw_wrapped/README.md](../../sdk/s1cc/examples/simple_saw_wrapped/README.md) §8). Mapa de la zona
 del banco 5 que escriben los DSP: `A151+v` `x`, `A160+v` / `A168+v` copias de puerta y disparo, `A188`–`A19F` ranuras
 de export 0…2, `A1A0`–`A1B7` entradas para B, `A1B8`–`A1FF` ranuras 3…11.
 
@@ -568,7 +568,7 @@ El código de una voz es una cadena de dependencias: aunque el DSP ejecuta hasta
 instrucciones del DSP A de `mp_saw` tenían una sola. Con pares, cada DSP corre las voces de a dos: la par en r0–r3 y
 la impar, el mismo código, en r4–r7, intercaladas. El planificador junta en una instrucción ops de las dos. Es la
 forma que sugiere el hardware: en la unidad B el operando X nombra 4 registros y la paridad del opcode elige la mitad
-([DSP_HARDWARE.md](DSP_HARDWARE.md) §5.2), y en el SYSTEM-8 cada DSP de oscilador lleva dos voces. Se activa solo
+([Vol. II ch. 1](../../docs/vol2_dsp_core_isa/core_architecture.md) §5.2), y en el SYSTEM-8 cada DSP de oscilador lleva dos voces. Se activa solo
 cuando el kernel está en r0–r3 (`PAIRS=0` / `1` lo fuerza); el DSP B, cuando su kernel también lo está:
 
 ```sh
@@ -594,7 +594,7 @@ KERNEL=sdk/s1cc/build/X sh examples/system_s1cc/build.sh
 
 ### 4.3 Secciones [medido 2026-10-28]
 
-Cada programa principal tiene 6 KiB (§1, [DSP_PROGRAM_MEMORY.md](DSP_PROGRAM_MEMORY.md) §3); pasarlos cuelga el equipo.
+Cada programa principal tiene 6 KiB (§1, [Vol. III ch. 3](../../docs/vol3_voice_allocation_scheduling/slot_program_model.md) §3); pasarlos cuelga el equipo.
 Cuando el principal de un DSP no entra, `make_s1cc.py` pone las voces (o pares) que no caben en sus secciones, en el
 orden en que el DSP las corre después del principal: 2 (`0x1900`), 3 (`0x3100`), 4 (`0x4900`), 5 (`0x6100`). Programas
 `s1a2`…`s1a5` (DSP A) y `s1b2`…`s1b5` (DSP B); `engine.c` coloca cada una con
@@ -620,7 +620,7 @@ la mezcla, con la latencia que mejor coincide.
 | caso | resultado |
 |---|---|
 | nota 45, voz 0 | latencia 1 muestra; SNR 97,4 dB (10 ms), 74,1 dB (todo) |
-| nota 69, voz 0 | SNR 112,1 dB (10 ms), 23,9 dB (todo: la deriva de fase float32 / DSP, S1CC.md §11) |
+| nota 69, voz 0 | SNR 112,1 dB (10 ms), 23,9 dB (todo: la deriva de fase float32 / DSP, [Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §11) |
 | 8 notas | pico 0,217 |
 | sin notas | pico 0,000000 |
 
@@ -649,7 +649,7 @@ corregido, §7). Para repetir la prueba:
 ## 7. Reglas del SYSTEM-1 en la herramienta (`asm/s1rules.py`)
 
 Romper una de estas reglas colgó el equipo en pruebas anteriores
-([examples_system_1_jx_README.md](examples_system_1_jx_README.md) §5). `make_s1cc.py` las verifica en cada build, y
+([examples/system_1_jx/README.md](../system_1_jx/README.md) §5). `make_s1cc.py` las verifica en cada build, y
 `make_mutable.py` con `KERNEL=` o `SWARM=1`. También se pueden correr a mano: `python3 asm/s1rules.py FILE.s ...`.
 
 | regla | qué limita, por instrucción | origen |

@@ -7,7 +7,7 @@ sits in the master BMC's SDRAM while the synth runs.  The copy in the updater
 §1.4.1a); it can now be decrypted and re-encrypted with
 `../tools/app1_crypto.py`, and the two agree outside live-RAM variables.  This
 folder still reconstructs the image from the dump.  See
-[`../docs/BASE_FIRMWARE.md`](../docs/BASE_FIRMWARE.md) §7.14 for how the dump was
+[Vol. IV ch. 6](../docs/vol4_firmware_container_protocol/base_firmware.md) §7.14 for how the dump was
 obtained.
 
 This folder reconstructs the image from source:
