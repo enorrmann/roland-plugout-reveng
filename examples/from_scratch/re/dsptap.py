@@ -1,4 +1,4 @@
-"""Delay-tap experiment (NOTES.md "Tomas de retardo"): own delay line through the delay-memory DMA.
+"""Delay-tap experiment (Vol. II ch. 9 §1): own delay line through the delay-memory DMA.
 
 Every sample: counter c += INC (ring state, wraps in [-1, 1)), store c to the write port [W], optionally set the
 f6c base (`1d06 4022 7fe0 c1fc <imm32>`), r3 = D, `bf6c` (r3 += base), the result destination `0b03 4050 <W+1>`,

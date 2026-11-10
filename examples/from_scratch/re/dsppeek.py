@@ -21,7 +21,7 @@ DELAY = 0.004
 
 
 def raw_value(w):
-    """DSP RAW word -> float (NOTES.md: sign-magnitude, value = +-M / 2^(32 - 4 s))"""
+    """DSP RAW word -> float (sign-magnitude, value = +-M / 2^(32 - 4 s))"""
     s = (w >> 29) & 3
     v = (w & 0x1FFFFFFF) / 2 ** (32 - 4 * s)
     return -v if w >> 31 else v

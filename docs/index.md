@@ -29,7 +29,7 @@ ones are:
  Vol. IV   Firmware and protocol      containers, PLUG-OUT code and OS interface, service tables, USB install, firmware
  Vol. V    Toolchain and SDK          s1cc, s1dsp.h, sdk/mport, asm/ toolchain, emulator, audio capture
  Vol. VI   Reference designs          C-V4, C-S1V4/V8, CZ-SYSTEM, Mutable ports, wavetables, C-SAW, memory oscillators
- Vol. VII  Clean room and evidence    boundary, clean-room spec, test plan, generated reports, lab logs, notes
+ Vol. VII  Clean room and evidence    boundary, clean-room spec, test plan, generated reports, lab logs
 ```
 
 ## 1. Volume I — System architecture
@@ -121,9 +121,6 @@ ones are:
 | [ch. 4 Generated reports of the firmware images](vol7_cleanroom_evidence_archive/firmware_reverse_engineering_reports.md) | S8 | Index of the per-image reports of `sys8fw report`; reports in [raw_ghidra_reports/](vol7_cleanroom_evidence_archive/raw_ghidra_reports/). |
 | [ch. 5 Transfer protocol and state machines](vol7_cleanroom_evidence_archive/cleanroom_protocol_spec.md) | both | The clean-room description of the transfer. |
 | [historical_lab_logs/](vol7_cleanroom_evidence_archive/historical_lab_logs/) | S8, S1 | Obsolete raw lab records cited as "log §n" ([OBSOLETE.md](OBSOLETE.md)). |
-| [NOTES.md](vol7_cleanroom_evidence_archive/NOTES.md) | S8 | Obsolete frozen record (Spanish): dated work log of the from-scratch PLUG-OUT and of the ISA measurements, cited as evidence by line ([OBSOLETE.md](OBSOLETE.md)). |
-| [PLAN.md](vol7_cleanroom_evidence_archive/PLAN.md) | S8 | Obsolete frozen record: plan and steps of the S8LAB lab ([OBSOLETE.md](OBSOLETE.md)); current: [examples/sys8_lab/README.md](../examples/sys8_lab/README.md), Vol. IV ch. 8 §5.4. |
-| [REVIEW.md](vol7_cleanroom_evidence_archive/REVIEW.md), [ASM_PENDIENTES.md](vol7_cleanroom_evidence_archive/ASM_PENDIENTES.md) | both | Obsolete frozen records: review of `asm/` of 2026-10-20 and its shortcomings of 2026-10-21 (Spanish) ([OBSOLETE.md](OBSOLETE.md)); current: Vol. V ch. 4 §2.1, Vol. II ch. 8. |
 | [PROMPT_ANALISIS_DSP.md](vol7_cleanroom_evidence_archive/PROMPT_ANALISIS_DSP.md), [PROMPT_TRM_OVERHAUL.md](vol7_cleanroom_evidence_archive/PROMPT_TRM_OVERHAUL.md) | — | Work prompts kept as they were; not a description of the hardware. |
 
 ## 8. Documents outside `docs/`

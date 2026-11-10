@@ -10,8 +10,7 @@ is [Vol. II ch. 4](instruction_set_reference.md)**; here it is only summarised w
 were measured. Each section says **where it was measured** (DSP and context). What is dated 2026-10-16 is verified by
 reading memory with the peek (`re/dsptap.py`, `re/dsprdly.py`, `re/dspidx.py`, `re/dsphreg.py`, `re/dspidxring.py`,
 `re/dspbus.py`, `re/dspbus2.py`); on 2026-10-17 the indexed delay (§2) and indexed bank 5 (§2b) were heard on the
-slaves; the delay line of §1 has not been heard yet. History and raw evidence: [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) ("Tomas de retardo",
-"Registros ocultos").
+slaves; the delay line of §1 has not been heard yet.
 
 Rules that apply to everything (from [Vol. II ch. 4](instruction_set_reference.md)):
 * ≈ 925–945 instructions per sample and per DSP (96 kHz); an A/A/B instruction costs one cycle. Going over can leave

@@ -1,8 +1,11 @@
 {
   "$comment": [
     "Executable ISA table: the source of truth for asm/ and disasm/.",
-    "Hand-derived from docs/DSP_ISA_SPEC.md; that file stays",
-    "the documentation and tests/test_spec.py cross-checks the two.",
+    "This table is the reference: no tool or test reads the documentation.",
+    "docs/vol2_dsp_core_isa/ describes it; a new finding is written in both.",
+    "",
+    "evidence  how a variant is known: kind (documented | measured | exact-fit | ...),",
+    "          the tool that reproduces it, a note. It names no document.",
     "",
     "HOW A VARIANT IS DECLARED",
     "  when    literals a decoded word must match (absent field = don't care).",
@@ -289,7 +292,6 @@
   "instructions": [
     {
       "name": "alu_a",
-      "$section": "6.1",
       "form": "alu",
       "layout": "alu",
       "unit": "A",
@@ -332,22 +334,14 @@
           "result": "rD <- rD + rX + Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 837",
-              "line": 837,
               "kind": "measured",
               "tool": "re/dspverify.py",
               "note": "immediate = Y bytes into the slot area (A/B); MAC: Y and W by their field, C after Y skipping references (spec 4.4)"
@@ -378,17 +372,12 @@
           "result": "rD <- rX * Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "immediate_bits": 32,
@@ -416,17 +405,12 @@
           "result": "rD <- rD + rX * Y (unit A op 3; see mac_* for the MAC unit)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "immediate_bits": 32,
@@ -454,17 +438,12 @@
           "result": "rD <- Y + rX * rD",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "immediate_bits": 32,
@@ -492,17 +471,12 @@
           "result": "rD <- Y - rX * rD",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "immediate_bits": 32,
@@ -530,17 +504,12 @@
           "result": "rD <- rX + Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "shows": [
@@ -567,17 +536,12 @@
           "result": "rD <- Y - rX",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "shows": [
@@ -608,17 +572,12 @@
           "result": "no effect (the one-word 0001 is class 0x000 instead)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "shows": []
@@ -642,17 +601,12 @@
           "result": "rD <- Y (also loads an immediate)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "shows": [
@@ -680,17 +634,12 @@
           "result": "rD <- rD*r(D+1); r(D+1) <- 2-r(D+1)*rY; rY <- r(D+1)*rY",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "kinds": {
@@ -721,17 +670,12 @@
           "result": "rD <- rD + Y + h4",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "shows": [
@@ -758,17 +702,12 @@
           "result": "rD <- rD + Y + h5",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "shows": [
@@ -795,17 +734,12 @@
           "result": "rD <- rD + Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "shows": [
@@ -833,17 +767,12 @@
           "result": "rD <- rD + Y (identical to sub-code 6; the spec keeps them apart)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "shows": [
@@ -875,17 +804,12 @@
           "$note": "the op field holds the third register here; the 'when' matches any op with D >= 8",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 435",
               "kind": "exact-fit",
-              "tool": "dspfit.py --all",
-              "line": 435
+              "tool": "dspfit.py --all"
             }
           ],
           "shows": [
@@ -924,14 +848,10 @@
           "result": "r(D-8) <- X + Y + r[op]",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "documented",
               "tag": "exact (class 0x048)"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.1",
               "kind": "measured",
               "tag": "measured 2026-10-20 (re/review_probes.py): class 0x0a8 all eight op values; class 0x048 four values"
             }
@@ -944,7 +864,6 @@
     },
     {
       "name": "alu_b",
-      "$section": "6.3",
       "form": "alu",
       "layout": "alu",
       "unit": "B",
@@ -996,18 +915,13 @@
           "result": "rD <- rX & Y (bit operations work mod 512)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
-              "tool": "re/dspbits.py",
-              "line": 437
+              "tool": "re/dspbits.py"
             }
           ]
         },
@@ -1042,18 +956,13 @@
           "result": "rD <- ~rX & Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
-              "tool": "re/dspbits.py",
-              "line": 437
+              "tool": "re/dspbits.py"
             }
           ]
         },
@@ -1088,18 +997,13 @@
           "result": "rD <- rX | Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
-              "tool": "re/dspbits.py",
-              "line": 437
+              "tool": "re/dspbits.py"
             }
           ]
         },
@@ -1134,18 +1038,13 @@
           "result": "rD <- ~rX | Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
-              "tool": "re/dspbits.py",
-              "line": 437
+              "tool": "re/dspbits.py"
             }
           ]
         },
@@ -1180,18 +1079,13 @@
           "result": "rD <- rX ^ Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
-              "tool": "re/dspbits.py",
-              "line": 437
+              "tool": "re/dspbits.py"
             }
           ]
         },
@@ -1226,18 +1120,13 @@
           "result": "rD <- ~(rX ^ Y)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
-              "tool": "re/dspbits.py",
-              "line": 437
+              "tool": "re/dspbits.py"
             }
           ]
         },
@@ -1279,18 +1168,13 @@
           "result": "rD <- |rX| + Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
-              "tool": "re/dspbits.py",
-              "line": 437
+              "tool": "re/dspbits.py"
             }
           ],
           "$doc": "2026-10-29: Y a register or an immediate (16/24/32), X in r0..r7 (odd nibble = X bit 2): exact on the SYSTEM-8 master (re/dspnative.py absadd_*); the old `mode 0` restricted it to a register Y"
@@ -1333,18 +1217,13 @@
           "result": "rD <- Y - |rX|",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured 2026-10-17",
-              "tool": "re/dspbits.py",
-              "line": 437
+              "tool": "re/dspbits.py"
             }
           ],
           "$doc": "2026-10-29: no e_family with D < 8 (bits 7-6 are X's low bits; the e families exist only with D >= 8): the old field forced X to r0 / r4"
@@ -1388,18 +1267,13 @@
           "result": "rD <- min(rX, Y)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured",
-              "tool": "re/dspclass.py",
-              "line": 437
+              "tool": "re/dspclass.py"
             }
           ]
         },
@@ -1442,18 +1316,13 @@
           "result": "rD <- max(rX, Y)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 437",
               "kind": "measured-on-hardware",
               "tag": "measured",
-              "tool": "re/dspclass.py",
-              "line": 437
+              "tool": "re/dspclass.py"
             }
           ]
         },
@@ -1496,8 +1365,6 @@
           "result": "rD <- min(-rX, Y)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured"
             }
@@ -1542,8 +1409,6 @@
           "result": "rD <- max(-rX, Y)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured"
             }
@@ -1589,8 +1454,6 @@
           "result": "rD <- |rX|",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             }
@@ -1636,8 +1499,6 @@
           "result": "rD <- |Y|",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "exact"
             }
@@ -1687,14 +1548,10 @@
           ],
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "8",
               "kind": "documented",
               "tag": "measured",
               "note": "8e09 / ae10 named as cmp partners of X9bY",
@@ -1741,7 +1598,6 @@
           ],
           "evidence": [
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-29 raw_e10_*"
             }
@@ -1788,8 +1644,6 @@
           "result": "rD <- +-rY",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "fitted"
             }
@@ -1832,8 +1686,6 @@
           "result": "rD <- rX * 2^Y (Y is the 4-bit field, not a register)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
             }
@@ -1880,8 +1732,6 @@
           "result": "rD <- rX * 2^-Y",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
             }
@@ -1928,8 +1778,6 @@
           "result": "rD <- rX * 2^-(16+Y)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
             }
@@ -1976,8 +1824,6 @@
           "result": "rD <- mantissa in [0.5,1), rY <- exponent",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
             }
@@ -2024,8 +1870,6 @@
           "result": "rD <- rD + rY",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspshape.py"
@@ -2074,8 +1918,6 @@
           "result": "rD <- rD - rY",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspshape.py"
@@ -2124,8 +1966,6 @@
           "result": "rD <- |rY|",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspshape.py"
@@ -2174,8 +2014,6 @@
           "result": "rD <- clamp(rY, -1, 1)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspshape.py"
@@ -2224,8 +2062,6 @@
           "result": "rD <- wrap(rY) into [-1, 1)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspshape.py"
@@ -2274,8 +2110,6 @@
           "result": "rD <- 1 - 2|wrap(-rY - 1.5)|",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspshape.py"
@@ -2324,8 +2158,6 @@
           "result": "rD <- (rY mod 2) / 2",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspshape.py"
@@ -2374,8 +2206,6 @@
           "result": "rD <- -rY",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.3",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspshape.py"
@@ -2397,7 +2227,6 @@
     },
     {
       "name": "sfu",
-      "$section": "6.4",
       "form": "alu",
       "layout": "alu",
       "unit": "B",
@@ -2453,23 +2282,18 @@
             "D",
             "Y"
           ],
-          "result": "rD <- sign*2^-e (0 when 2^-e >= 512), r(D+1) <- ~1/m, rY <- m (|rY| = m 2^e)",
+          "result": "rD <- sign*2^-e (0 when 2^-e >= 512), r(D+1) <- ~1/m (exactly the seed ROM value R[k]), rY <- m (|rY| = m 2^e)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
@@ -2514,20 +2338,15 @@
           "result": "rD <- e^floor(rY) (device ROM, n = -19..6; 0 below, saturated above), rY <- frac(rY)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
@@ -2572,20 +2391,15 @@
           "result": "rD <- +-1",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
@@ -2630,20 +2444,15 @@
           "result": "rD <- floor(rY)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
@@ -2686,20 +2495,15 @@
           "result": "rD <- ceil(rY)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
@@ -2738,23 +2542,18 @@
             "D",
             "Y"
           ],
-          "result": "rY <- m in [1,4), r(D+1) <- ~1/sqrt m, r7 <- sign*2^-k",
+          "result": "rY <- m in [1,4), r(D+1) <- ~1/sqrt m, r(D+3) <- sign*2^-k (measured; emu/dspcore.h)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
@@ -2796,20 +2595,15 @@
           "result": "rD <- exponent, rY <- mantissa in [0.75,1.5)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
@@ -2854,20 +2648,15 @@
           "result": "rD <- (x-1)/2^k, rY <- (x+1)/2^k, rD+1 <- ~1/m",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured, random inputs"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "exact",
               "tool": "re/dspseed.py"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28, mode bits 5-4 + Y bit 3"
             }
@@ -2882,7 +2671,6 @@
     },
     {
       "name": "f_words",
-      "$section": "6.3/6.4",
       "form": "alu",
       "layout": "alu",
       "unit": "B",
@@ -2931,8 +2719,6 @@
           "result": "rD <- r(Y & 7)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dsphops.py"
@@ -2972,8 +2758,6 @@
           "result": "f5 form (f5c = delay-ring position when Y = c)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspf5.py"
@@ -3013,8 +2797,6 @@
           "result": "rD <- (rD + h(Y-8)) mod 512",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured"
             }
@@ -3053,8 +2835,6 @@
           "result": "section marker, no effect",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "6.4",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspbudget.py marker"
@@ -3070,7 +2850,6 @@
     },
     {
       "name": "mac",
-      "$section": "7",
       "form": "mac",
       "layout": "mac",
       "status": "exact",
@@ -3145,17 +2924,12 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "exact on the measured cases"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 477",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 477
+              "tool": "re/dspmacfit.py"
             }
           ]
         },
@@ -3199,14 +2973,10 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
             }
@@ -3253,20 +3023,14 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
             }
@@ -3313,14 +3077,10 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -3367,17 +3127,12 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ]
         },
@@ -3421,17 +3176,12 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ]
         },
@@ -3475,17 +3225,12 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "exact on the measured cases"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 477",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 477
+              "tool": "re/dspmacfit.py"
             }
           ]
         },
@@ -3529,14 +3274,10 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
             }
@@ -3583,20 +3324,14 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured-without-bit-9",
               "note": "the measured MAC examples use coefreg = 0"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
             }
@@ -3643,14 +3378,10 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -3697,17 +3428,12 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ]
         },
@@ -3751,17 +3477,12 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ]
         },
@@ -3801,18 +3522,13 @@
           "result": "rD <- rX*Y + rC*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured-without-bit-9"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28 on the SYSTEM-8 master (test mac_p1w), register coefficient, result usable in the next instruction"
             }
@@ -3855,8 +3571,6 @@
           "result": "rD <- rX*Y + rC*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured",
               "tag": "measured 2026-10-20 (re/review_probes.py): bit 9 clear, op2 = 0: op1 6/7 no products, op1 4 keeps the products"
             }
@@ -3902,14 +3616,10 @@
           "result": "rD <- rX*Y + imm16*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -3959,22 +3669,14 @@
           "result": "rD <- rX*Y + imm24*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 837",
-              "line": 837,
               "kind": "measured",
               "tool": "re/dspverify.py",
               "note": "immediate = Y bytes into the slot area (A/B); MAC: Y and W by their field, C after Y skipping references (spec 4.4)"
@@ -4024,17 +3726,12 @@
           "result": "rD <- rX*Y + imm32*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "kinds": {
@@ -4078,18 +3775,13 @@
           "result": "rD <- -rX*Y + rC*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured-without-bit-9"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28 on the SYSTEM-8 master (test mac_n1w), register coefficient, result usable in the next instruction"
             }
@@ -4132,19 +3824,13 @@
           "result": "rD <- -rX*Y + rC*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured-without-bit-9"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "bit 9 clear with a register coefficient (spec 5.2 documents bit 9 = 1): the decoded line reassembles to the same words on 143 corpus instances; the meaning is not measured"
             }
@@ -4190,14 +3876,10 @@
           "result": "rD <- -rX*Y + imm16*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -4247,17 +3929,12 @@
           "result": "rD <- -rX*Y + imm24*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "kinds": {
@@ -4304,17 +3981,12 @@
           "result": "rD <- -rX*Y + imm32*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "kinds": {
@@ -4358,18 +4030,13 @@
           "result": "rD <- rX + W + rC*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured-without-bit-9"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28 on the SYSTEM-8 master (test mac_p1p2 / mac_p1p2h), register coefficient, result usable in the next instruction"
             }
@@ -4418,8 +4085,6 @@
           "result": "rD <- rX + W + Z (no products: op2 = 000, op1 = 6/7; spec 7)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured",
               "tag": "measured 2026-10-20 (re/review_probes.py): bit 9 clear, op2 = 0: op1 6/7 no products, op1 4 keeps the products"
             }
@@ -4467,8 +4132,6 @@
           "result": "rD <- rX*Y + W + c*Z (immediate Y with bit 9 clear: products kept; not measured)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "immediate Y with bit 9 clear: reproduced by the corpus only; the products are not measured"
             }
@@ -4513,14 +4176,10 @@
           "result": "rD <- rX*Y + W + imm16*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -4570,17 +4229,12 @@
           "result": "rD <- rX*Y + W + imm24*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "kinds": {
@@ -4627,17 +4281,12 @@
           "result": "rD <- rX*Y + W + imm32*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "kinds": {
@@ -4681,18 +4330,13 @@
           "result": "rD <- -rX + W + rC*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "note": "bit 9 = 1 with a register coefficient"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured-without-bit-9"
             },
             {
-              "source": "examples/from_scratch/re/dspnative.py",
               "kind": "measured",
               "tag": "exact 2026-10-28 on the SYSTEM-8 master (test mac_n1p2), register coefficient, result usable in the next instruction"
             }
@@ -4741,8 +4385,6 @@
           "result": "rD <- -rX + W + Z (no products: op2 = 000, op1 = 6/7; spec 7)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "measured",
               "tag": "measured 2026-10-20 (re/review_probes.py): bit 9 clear, op2 = 0: op1 6/7 no products, op1 4 keeps the products"
             }
@@ -4790,8 +4432,6 @@
           "result": "rD <- -rX*Y + W + c*Z (immediate Y with bit 9 clear: products kept; not measured)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "corpus-reassembly",
               "note": "immediate Y with bit 9 clear: reproduced by the corpus only; the products are not measured"
             }
@@ -4836,14 +4476,10 @@
           "result": "rD <- -rX*Y + W + imm16*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -4893,17 +4529,12 @@
           "result": "rD <- -rX*Y + W + imm24*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "kinds": {
@@ -4950,17 +4581,12 @@
           "result": "rD <- -rX*Y + W + imm32*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "kinds": {
@@ -5008,14 +4634,10 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -5062,17 +4684,12 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
@@ -5117,17 +4734,12 @@
           "result": "rD <- rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
@@ -5172,14 +4784,10 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -5226,17 +4834,12 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
@@ -5281,17 +4884,12 @@
           "result": "rD <- -rX*Y + W",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down"
@@ -5335,14 +4933,10 @@
           "result": "rD <- rX*Y + imm16*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -5392,17 +4986,12 @@
           "result": "rD <- rX*Y + imm24*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
@@ -5450,17 +5039,12 @@
           "result": "rD <- rX*Y + imm32*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
@@ -5508,14 +5092,10 @@
           "result": "rD <- -rX*Y + imm16*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -5565,17 +5145,12 @@
           "result": "rD <- -rX*Y + imm24*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
@@ -5623,17 +5198,12 @@
           "result": "rD <- -rX*Y + imm32*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
@@ -5681,14 +5251,10 @@
           "result": "rD <- rX*Y + W + imm16*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -5738,17 +5304,12 @@
           "result": "rD <- rX*Y + W + imm24*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
@@ -5796,17 +5357,12 @@
           "result": "rD <- rX*Y + W + imm32*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
@@ -5854,14 +5410,10 @@
           "result": "rD <- -rX*Y + W + imm16*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "inferred"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "7",
               "kind": "documented",
               "tag": "op2 = 010 -> c = imm16"
             }
@@ -5911,17 +5463,12 @@
           "result": "rD <- -rX*Y + W + imm24*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
@@ -5969,17 +5516,12 @@
           "result": "rD <- -rX*Y + W + imm32*Z",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.2",
               "kind": "documented",
               "tag": "measured"
             },
             {
-              "source": "docs/NOTES.md",
-              "section": "line 933",
               "kind": "measured",
-              "tool": "re/dspmacfit.py",
-              "line": 933
+              "tool": "re/dspmacfit.py"
             }
           ],
           "evidence_note": "bit 9 set with an immediate coefficient: the corpus shows the combination, no measurement pins it down",
@@ -5996,7 +5538,6 @@
     },
     {
       "name": "transfer",
-      "$section": "5.3",
       "form": "transfer",
       "layout": "transfer",
       "status": "exact",
@@ -6036,14 +5577,10 @@
           "result": "rR <- mem[ref]",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9",
               "kind": "documented",
               "tag": "measured"
             }
@@ -6077,14 +5614,10 @@
           "result": "mem[ref] <- rR",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.3",
               "kind": "documented",
               "tag": "exact"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9",
               "kind": "documented",
               "tag": "measured"
             }
@@ -6130,8 +5663,6 @@
           "result": "same address as fe; the assembler always writes fe",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.3",
               "kind": "documented",
               "tag": "measured",
               "note": "ff/3e/0e/10/12 are the same access as fe"
@@ -6182,8 +5713,6 @@
           "result": "same address as fe",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.3",
               "kind": "documented",
               "tag": "measured",
               "note": "ff/3e/0e/10/12 are the same access as fe"
@@ -6212,8 +5741,6 @@
           "result": "rR <- bank0[floor(h6*16384) + Y]",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "exact"
             }
@@ -6241,8 +5768,6 @@
           "result": "bank0[floor(h6*16384) + Y] <- rR",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "exact"
             }
@@ -6270,8 +5795,6 @@
           "result": "rR <- bank5[floor(h6*16384) + Y]",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "exact, master DSP3 / slaves by audio",
               "tool": "re/dspb5idx.py"
@@ -6300,8 +5823,6 @@
           "result": "bank5[floor(h6*16384) + Y] <- rR",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "exact, master DSP3 / slaves by audio",
               "tool": "re/dspb5idx.py"
@@ -6330,8 +5851,6 @@
           "result": "rR <- bank5[floor(h7*16384) + Y]",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "exact, master DSP3 / slaves by audio",
               "tool": "re/dspb5idx.py"
@@ -6360,8 +5879,6 @@
           "result": "bank5[floor(h7*16384) + Y] <- rR",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "exact, master DSP3 / slaves by audio",
               "tool": "re/dspb5idx.py"
@@ -6401,8 +5918,6 @@
           "result": "rR <- bank5[N*16 + Y] with N = mode & 7",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.3",
               "kind": "documented",
               "tag": "measured",
               "note": "ff/3e/0e/10/12 are the same access as fe"
@@ -6435,14 +5950,10 @@
           "result": "flags of unit Y of this instruction -> condition group X-8 (X = 9..d -> groups 1..5)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.3",
               "kind": "documented",
               "tag": "measured 2026-10-17"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "8",
               "kind": "documented",
               "tag": "measured",
               "tool": "re/dspx9bflags.py"
@@ -6472,8 +5983,6 @@
           "result": "delay-tap request at address rR; results land in bank 2 at [h5..h5+2]",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.1",
               "kind": "documented",
               "tag": "measured"
             }
@@ -6489,7 +5998,6 @@
     },
     {
       "name": "cond",
-      "$section": "5.4",
       "form": "condition",
       "layout": "condition",
       "status": "measured",
@@ -6525,15 +6033,11 @@
           "result": "if cond then unit skip_true does not execute, else unit skip_false does not",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.4",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspcsweep.py"
             },
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "8",
               "kind": "documented",
               "tag": "measured"
             }
@@ -6549,7 +6053,6 @@
     },
     {
       "name": "jmp",
-      "$section": "5.4b",
       "form": "jump",
       "layout": "jump",
       "status": "measured",
@@ -6576,8 +6079,6 @@
           "result": "jump by the offset stored in a slot word",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "5.4b",
               "kind": "documented",
               "tag": "measured 2026-10-17",
               "tool": "re/dspflagsaw.py"
@@ -6590,7 +6091,6 @@
     },
     {
       "name": "hreg",
-      "$section": "9.0",
       "form": "hidden_reg",
       "layout": "hidden_reg",
       "status": "measured",
@@ -6626,8 +6126,6 @@
           "result": "h4 <- value (delay base for f6c)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "measured 2026-10-16"
             }
@@ -6652,8 +6150,6 @@
           "result": "h5 <- value (tap-result address)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "measured 2026-10-16"
             }
@@ -6678,8 +6174,6 @@
           "result": "h6 <- value (index of mode-28 transfers)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "measured 2026-10-16"
             }
@@ -6704,8 +6198,6 @@
           "result": "h7 <- value",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "9.0",
               "kind": "documented",
               "tag": "measured 2026-10-16"
             }
@@ -6720,7 +6212,6 @@
     },
     {
       "name": "empty",
-      "$section": "3",
       "form": "empty",
       "status": "exact",
       "words": 0,
@@ -6734,8 +6225,6 @@
           "result": "the one-word instruction 0001 (class 0x000)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "3",
               "kind": "documented",
               "tag": "exact"
             }
@@ -6745,7 +6234,6 @@
     },
     {
       "name": "raw",
-      "$section": "3",
       "form": "raw",
       "status": "raw",
       "words": "1..31",
@@ -6765,8 +6253,6 @@
           "result": "verbatim body words (an encoding without a known meaning)",
           "evidence": [
             {
-              "source": "docs/DSP_ISA_SPEC.md",
-              "section": "14",
               "kind": "documented",
               "tag": "do not emit"
             }

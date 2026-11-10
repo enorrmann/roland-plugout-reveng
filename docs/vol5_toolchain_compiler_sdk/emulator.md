@@ -282,6 +282,5 @@ Then: step 3 (bank 6, measurement on the device with the user), step 5 (`emu1.py
 ## 6. References
 
 [S8 voice-allocation log](../vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md) §6 (model of the slave, current emulator), [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §7–§10 (memory,
-communication, execution model), [Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) (services and banks of the ARM), [Vol. VI ch. 1](../vol6_reference_designs_applications/c_v4_system8_reference.md) (C-V4),
-[NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) ("Posibles próximos pasos: emulador", original plan with Unicorn and JIT).
+communication, execution model), [Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) (services and banks of the ARM), [Vol. VI ch. 1](../vol6_reference_designs_applications/c_v4_system8_reference.md) (C-V4).
 

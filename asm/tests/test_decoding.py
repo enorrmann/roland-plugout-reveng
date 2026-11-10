@@ -37,7 +37,7 @@ def decode_unit(word, mnemonic_of_form):
 
 
 # ---------------------------------------------------------------------------
-# confirmed encodings, each traceable to the spec or to NOTES.md
+# confirmed encodings, each with the measurement or rule it stands for
 # ---------------------------------------------------------------------------
 
 CONFIRMED_A = [
@@ -199,38 +199,6 @@ class Confidence(unittest.TestCase):
                     self.assertTrue(v.evidence,
                                     "%s/%s has no evidence" % (form.name, v.mnemonic))
 
-    def test_evidence_points_at_a_real_section(self):
-        """every citation resolves: a '## N' heading of the spec, or a line of
-        NOTES.md, whichever the evidence names."""
-        sources = {}
-        for rel in ("docs/vol2_dsp_core_isa/instruction_set_reference.md",
-                    "docs/vol7_cleanroom_evidence_archive/NOTES.md"):
-            path = os.path.join(ROOT_SPEC, rel)
-            if os.path.exists(path):
-                sources[rel] = open(path, encoding="utf-8").read()
-        for form in TABLE.forms:
-            for v in form.variants:
-                for ev in v.evidence:
-                    with self.subTest(form=form.name, mnemonic=v.mnemonic,
-                                      section=ev["section"]):
-                        text = sources.get(ev["source"])
-                        self.assertIsNotNone(text, "unknown evidence source %r" % ev["source"])
-                        if "SPEC" in ev["source"]:
-                            heading = "## %s." % ev["section"] if ev["section"] != "5.4b"                                 else "## 5.4b."
-                            alt = "### %s " % ev["section"]
-                            self.assertTrue(heading in text or alt in text
-                                            or "## %s" % ev["section"] in text,
-                                            "the spec has no section %r" % ev["section"])
-                        else:
-                            # a NOTES citation is a line number: it must exist
-                            lines = text.splitlines()
-                            n = ev.get("line")
-                            self.assertIsNotNone(n, "NOTES citation without a line")
-                            self.assertLessEqual(n, len(lines),
-                                                 "NOTES.md has no line %d" % n)
-                            self.assertTrue(lines[n - 1].strip(),
-                                            "NOTES.md line %d is empty" % n)
-
     def test_status_is_known(self):
         for form in TABLE.forms:
             for v in form.variants:
@@ -262,7 +230,7 @@ class Confidence(unittest.TestCase):
                         # spec 5.2 marks mode 1 as "presumably imm16 [inferred]"
                         self.assertEqual(v.status, "inferred")
                     else:
-                        # modes 2/3 are measured (NOTES 933-934), but a set
+                        # modes 2/3 are measured (re/dspmacfit.py), but a set
                         # coefreg bit was never exercised by a measurement
                         self.assertIn(v.status, ("measured", "inferred"))
 

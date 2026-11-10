@@ -7,8 +7,7 @@
 
 State 2026-10-20 (corpus_all 99.5 % decoded; every decoded line re-assembles to its own words; open items in
 [Vol. II ch. 8](isa_discrepancies.md)). Only what was **measured on the hardware** (master DSP4, live probes; see "Method"), each item
-marked with how sure it is. The history, raw evidence and dead ends are in [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) (sections from
-"ISA del DSP medido en el equipo por audio USB" on). Hardware context: [Vol. I ch. 1](../vol1_system_architecture/soc_overview.md).
+marked with how sure it is. Hardware context: [Vol. I ch. 1](../vol1_system_architecture/soc_overview.md).
 
 **This overview is behind the spec: where they differ, [Vol. II ch. 4](instruction_set_reference.md) wins.** **Technical specification for assembler / compiler writers: [Vol. II ch. 4](instruction_set_reference.md)** (bit layouts, all 118
 templates, immediate packing, execution semantics, encoding examples). This file is the short overview.

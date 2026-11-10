@@ -94,7 +94,7 @@ def st(r, addr):
     return [0x060 << 5 | 3, (8 + r) << 12 | 0xFE0, addr]
 
 
-SLOTS = {   # pitch in, outputs, state memory  (from Roland's SAW programs, NOTES.md)
+SLOTS = {   # pitch in, outputs, state memory  (from Roland's SAW programs)
     'dco2': {'A': (0x2207, (0x2221, 0x221D), 0x0670), 'B': (0x2214, (0x2229, 0x2225), 0x0680)},
     'dco1': {'A': (0x2201, (0x221F, 0x221B), 0x0470), 'B': (0x220E, (0x2227, 0x2223), 0x0480)},
 }

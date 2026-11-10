@@ -3,9 +3,14 @@
 > **Scope:** both; `asm/s1rules.py` and the proven forms are SYSTEM-1.
 
 > Sources: the module docstrings of `asm/*.py`, the data files of `asm/`, `tools/doccheck.py` and
-> `tools/check_optimized.py`. Usage and parameters of every script: [TOOLS.md](../TOOLS.md). Review of the assembler's
-> rules: [REVIEW.md](../vol7_cleanroom_evidence_archive/REVIEW.md). The ISA they implement:
+> `tools/check_optimized.py`. Usage and parameters of every script: [TOOLS.md](../TOOLS.md). The ISA they implement:
 > [Vol. II ch. 3](../vol2_dsp_core_isa/instruction_word_encoding.md) / [ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md).
+
+**The tools are the reference.** `asm/isa.json` and the code of `asm/` decide what is assembled and decoded; no tool
+and no test of `asm/` reads a document, and `isa.json` names none (its `evidence` entries give the kind of evidence,
+the tool that reproduces it and a note). The documentation describes the tools and is kept current with them: a new
+finding is written in both, the table (or code, with its test) and the chapter that describes it. After every change
+to `isa.json`, `python3 asm/isadoc.py` rewrites the class table and the mnemonic index of [Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md).
 
 ## 1. The pieces
 
@@ -26,7 +31,8 @@
 | `asm/bad_forms.txt` | op groups that hung the SYSTEM-1 (or that the DSP does not run) |
 | `asm/master_b_forms.txt` | single op forms that ran in a main program of the SYSTEM-1's master DSP B |
 | `asm/proven_addresses.txt` | addresses (plain `ld` / `st`) that builds which ran on the device used, per DSP |
-| `asm/tests/` | `test_asm.py`, `test_corpus.py`, `test_decoding.py`, `test_regressions.py`, `test_spec_examples.py`, `class_layouts.py`, `coverage.py`, `roundtrip_report.py`, `baseline.json` |
+| `asm/tests/` | `test_asm.py`, `test_corpus.py`, `test_decoding.py`, `test_regressions.py`, `test_spec_examples.py`, `coverage.py`, `roundtrip_report.py`, `baseline.json` |
+| `asm/isadoc.py` | writes the generated parts of [Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) from `isa.json`: the class table (§12) and the mnemonic index (§15) |
 | `tools/doccheck.py` | every ```` ```dsp ```` block of the documents must assemble |
 | `tools/check_optimized.py` | warnings `manual-wrap`, `filler`, `transfer-only`, `fusable` ([Vol. III ch. 6](../vol3_voice_allocation_scheduling/microcode_optimization.md) §2) |
 

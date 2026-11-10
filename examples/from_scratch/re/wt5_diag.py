@@ -7,7 +7,7 @@ Four independent checks:
 
 1. SIMULATOR. Builds the programs exactly as wt5.py does and runs them with the C reference (emu/dspref.Machine) into a memory
    preloaded with the same table stored at 0xA000 + BASE: the output must be the expected frame waveform
-   (resample to N points, linear interpolation, between frames). This is what NOTES.md calls "simulador exacto".
+   (resample to N points, linear interpolation, between frames).
 2. SHADOW. Replays the program writes dspown.load would send (dspown's EMPTY head, runs against state.json, 32-word
    chunks, head one 32-bit word at a time, start word last) into a shadow of the DCO2 slot and decodes it: the DSP
    must see the same words wt5.py compiled (a truncated/torn head shows up here).

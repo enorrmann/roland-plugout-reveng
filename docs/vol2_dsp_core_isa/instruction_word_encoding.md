@@ -10,7 +10,7 @@
 Roland BMC DSP as used by the SYSTEM-8 (and its PLUG-OUTs). State 2026-10-20 (delay memory, hidden registers,
 indexed transfers, buses, sqrt/log/frexp: §6.3–§9.1; assembler review of 2026-10-20: §4.3, §4.4, §5.2, §5.4b, §6.1,
 §9.0, §12–§14). Open discrepancies with the probe that closes each: [Vol. II ch. 8](isa_discrepancies.md). Practical uses of each feature: [Vol. II ch. 9](operation_uses.md). Overview and history:
-[Vol. II ch. 7](isa_overview.md), [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md). Hardware context: [Vol. I ch. 1](../vol1_system_architecture/soc_overview.md). Reference implementation of the
+[Vol. II ch. 7](isa_overview.md). Hardware context: [Vol. I ch. 1](../vol1_system_architecture/soc_overview.md). Reference implementation of the
 decoder and simulator: the C reference `emu/dspdec.h` + `emu/dspcore.h` (`emu/dspref.py`; `re/dspisa.py` archived 2026-10-29); measured template data: `re/dsp_templates.txt`, `re/dsp_units_ab.txt`.
 ARM-side memory map of the DSP banks (static analysis): [Vol. II ch. 6](memory_banks_dma.md). First own program: [Vol. VI ch. 6](../vol6_reference_designs_applications/custom_osc.md).
 

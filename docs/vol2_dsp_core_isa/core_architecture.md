@@ -4,7 +4,7 @@
 
 Single document, without history, for whoever wants to **write an assembler, a compiler or an emulator** for the
 DSP. Everything it says is measured on the device unless stated otherwise. Exhaustive detail (class table, examples,
-original measurements): [Vol. II ch. 4](instruction_set_reference.md). Work diary: [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md).
+original measurements): [Vol. II ch. 4](instruction_set_reference.md).
 
 Certainty: **[exact]** = verified bit by bit or in all cases; **[measured]** = measured on the device,
 representative cases; **[inferred]** = deduced from the corpus or from the ARM side, without direct measurement;
