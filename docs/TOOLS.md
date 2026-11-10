@@ -214,8 +214,9 @@ Only the payload is encrypted: file bytes [0x60 : 0x60 + size@0x44]. The 0x60-by
 clear header and the 0x40-byte clear trailer are never touched, which is what
 makes an encrypt -> decrypt round trip exact.
 
-Mechanism (ported from the MC-101 / ESC2 research in ../mc-101-re,
-tools/decrypt_c0a.py + docs/core0_boot_and_memory_architecture.md):
+Mechanism (ported from the MC-101 / ESC2 research, a separate repository next to this one:
+../mc-101-re/tools/decrypt_c0a.py + ../mc-101-re/docs/core0_boot_and_memory_architecture.md;
+in this repository it is specified in docs/vol4_firmware_container_protocol/container_formats.md §1.4.1a):
   * 3-key 3DES, ECB, 64-bit blocks.
   * hardware AXI FIFO word order: each 64-bit block is two 32-bit words that are
     big-endian packed and word-swapped -- [W1:W0] on the way in and on the way out.

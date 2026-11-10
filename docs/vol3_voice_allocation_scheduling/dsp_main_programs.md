@@ -18,7 +18,7 @@ the `22nn` mailbox (see [Vol. VI ch. 6](../vol6_reference_designs_applications/c
 
 | program | bytes | words (execution order) | function [inferred unless stated] |
 |---|---|---|---|
-| MAIN0 | 0x13CA | 2533 | envelopes ENV1 and ENV2, LFO (constants of the VST's render in [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) "ISA del DSP"), pitch of the voice; its outputs go via MXM (`8405`–`8416`) to DSP2 |
+| MAIN0 | 0x13CA | 2533 | envelopes ENV1 and ENV2, LFO (constants of the VST's render: below), pitch of the voice; its outputs go via MXM (`8405`–`8416`) to DSP2 |
 | MAIN1 | 0x139A | 2509 | the same as MAIN0 for the second voice of the pair (A/B with other addresses) |
 | MAIN2 | 0x0814 | — | DSP2 (oscillators): forwards what it reads from MXM (`8005`…) to its Z `8405`…; writes the sync and metal of DCO2 (`[2209]`, `[220a]`, `[220b]`) [measured by audio] |
 | MAIN3 | 0x07E2 | — | DSP3: like MAIN2, for the other pair of voices of the slave [inferred] |
@@ -57,7 +57,13 @@ Location in the listing of MAIN0 (`dsp/dump_main.py MAIN0`, instruction numberin
 - ENV1: attack `C02F`, decay/sustain `C030`/`C031`, release `C032`, state `[024E]`, lines 233–249.
 - ENV2: block at lines 289–305; attack `C033`, output in `r0` stored at `[025B]` and `[0261]` (lines 46–48); `[0261]`
   goes out through MXM `840A` (line 618).
-- LFO: rate `A028` ← `0x3EF`/`0x6CF`, shape `A02C` ← `0x6CD`, delay `A02D` ← `0x6CE` ([NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) "ISA del DSP").
+- LFO: rate `A028` ← `0x3EF`/`0x6CF`, shape `A02C` ← `0x6CD`, delay `A02D` ← `0x6CE`, `A026` ← `0x4A1`, `A027` ← `0x702`,
+  `A02A` ← `0x6D3`.
+- Constants of MAIN0 / MAIN1 as RAW immediates, the same as in the VST3 model
+  ([examples/from_scratch/re/README.md](../../examples/from_scratch/re/README.md)): LFO rate law
+  `0.466238·e^(5.283422·rate) − 0.413384` (`2775B5EA`, `45488E4F`, `A69D3813`), increment cap 0.015534 (`03FA0945`),
+  envelope drift −1.5e−5 (`8000FBA8`), envelope tick 1/192 per sample (`01555555`, four times: 2 voices × 2
+  envelopes). The sine polynomial of the VST (1.181, 1.8136, 1.3674) is not in the microcode.
 - Outputs of envelopes and LFO to MXM `8405`–`8416` (lines 613–636).
 
 Experiments ([S8 wave-bus log](../vol7_cleanroom_evidence_archive/historical_lab_logs/s8_wave_bus_log.md) §4k–§4p): with env2 = 0 the slow attack disappears even with env1 = 255, and

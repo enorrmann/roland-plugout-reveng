@@ -1,5 +1,5 @@
 /* saw_wrapper.c: the whole of the wrapper between a plain C sawtooth (saw_core.c) and an s1cc voice
- * (docs/examples_s1cc_saw_README.md §3). It is the only file that has to include the SDK.
+ * (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2). It is the only file that has to include the SDK.
  *
  *   S1_DSP_A      slave DSP A, every sample, all 8 voices (a note playing or not): trigger -> new note, one sample
  *                 of the library, x gate

@@ -66,6 +66,35 @@ rejected unless `allow_inferred=True` is passed, which admits `inferred` and `fi
 emitted by default either. Ambiguity is rejected: if more than one class can hold the units, or a field that must be
 preserved has no source, the line fails with the reason.
 
+### 2.1 What `asm.py` does and does not check
+
+`asm.py` encodes one line at a time. The cases below were run on 2026-11-10 (`Assembler().assemble(text)`):
+
+| source | result | what to write |
+|---|---|---|
+| `mov r3, #0.041666666666666664` | `0903 3050 0aaa` and a **note** (`is stored in 16 bits as 0.041656494140625`): an immediate without a width takes 16 bits | `#v:32` for the full value: `mov r3, #0.041666666666666664:32` → `0904 3070 0aaa aaab` (`#v@0:32` is the same with the byte given) |
+| `add r0, r1, r2` | error `add takes 2 operand(s) (D, Y), 3 given` | `addxy rD, rX, rY` for rD ← rX + Y |
+| `sub r1, #0.5` | `0903 11d0 2800` (`add r1, #0.5` is `0903 1190 2800`) | `sub` takes two operands (D, Y) like `add`; rD ← rX − rY is `subxy rD, rX, rY` (`subxy r1, r2, r3` → `0902 1e83`) |
+| `noop`, `nop` | errors (`the table does not place 'empty'`, `nop: field 'D' needs operand 'D'`) | the empty instruction is the word `0001` ([Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) §4): `.words 0x0001`, or a filler `mov rN, rN` |
+| `.class 0x00f0` + `ld r0, [0400]` | error `no class in the table holds these units (T)`; without the directive the line gives `0c03 0fe0 0400` | no `.class` on a single transfer |
+| `jmp nowhere` | error: `symbolic labels need a linker` | the offset by hand, in words from the end of the instruction: `jmp .+2` → `0b03 0090 0002` ([Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) §5.4b) |
+| `cond r0` | error `cond takes 3 operand(s) (cc, skip_true, skip_false), 1 given` | all three operands |
+| `ld r0, [0400]` then `mul r1, r0, #2.0` | assembles with no note, although the load has a latency of one instruction | see below |
+
+`asm.py` knows nothing about the program around a line: it does not check the load latency, the ring (a word stored
+at `S` is read at `S + 1` on the next sample), the instruction budget per sample or the SYSTEM-1 access rules, and it
+has no simulator. Those belong to the rest of the pipeline:
+
+| check | where |
+|---|---|
+| load latency and other dependencies between lines | the scheduler, §4 (the generators write the delay as a `mov rN, rN` filler) |
+| a scheduled program equal to the plain one, on random states | `dspbuild.build` step 4, §5 (the emulator's C core) |
+| SYSTEM-1 access rules | `asm/s1rules.py`, §6 |
+| instruction count against the budget | not automatic: count instructions ([Vol. III ch. 4](../vol3_voice_allocation_scheduling/execution_timing_budgets.md)); `tools/check_optimized.py` only reports cycles spent for nothing |
+| simulation of whole programs | the emulator ([ch. 5](emulator.md)) |
+
+Open in the encoder itself: D8 and D10 of [Vol. II ch. 8](../vol2_dsp_core_isa/isa_discrepancies.md).
+
 ## 3. Disassembler (`asm/disasm.py`)
 
 ```python

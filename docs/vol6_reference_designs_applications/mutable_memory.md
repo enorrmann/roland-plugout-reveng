@@ -37,7 +37,7 @@ What does **not** need memory was ported even though the original uses tables: t
 | bank 5 (`A000`–`A3FF`) | 1024 words, shared by DSP A and B of the slave; free today ~`A070`–`A150` and `A200`–`A3FF` [code, SYSTEM-S1CC] | the ARM (`FD6C`) and the DSP | `da` / `db` (h6 / h7) | [measured] on the SYSTEM-8 slaves ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §7.4); on the S1 built (MP-CSAW2-LUT, `LFO_LUT`), **untested** |
 | delay memory (bank 2, `tapreq`) | megawords (S8: 2 M per BMC) | the DSP (input `4300`) | taps with base `h4` and result `h5`; ≥ 24 taps per sample, fraction 1/64 | on the S1 only the OS's effect on the **master** B uses it ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §16.3); on the S1 slaves **not measured** [open] |
 | parameters (bank 6, `C060`–`C0FF`) | 160 words per DSP | the ARM (`FCEC`) | no (the kernel reads fixed ids) | [measured] 1000 writes/s per id, exact ([Vol. I ch. 6](../vol1_system_architecture/s1_arm_clock.md) §2) |
-| memory of the ARM (region 1 of the PLUG-OUT) | ≤ 1 MiB compressed per region (~0.94 MB of PCM) | — | the ARM copies it to banks 5 / 6 | [measured] on the S8 ([NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md), «Muestras largas») |
+| memory of the ARM (region 1 of the PLUG-OUT) | ≤ 1 MiB compressed per region (~0.94 MB of PCM) | — | the ARM copies it to banks 5 / 6 | [measured] on the S8, 2026-10-17: the container's LZSS makes 16-bit PCM larger (ratio 1.114), so 1 MiB compressed holds ≈ 0.94 MB of PCM (≈ 470 000 samples); region 1 already carries 200–280 KiB of code |
 
 > Later (§4.1, §4.2 below, measured 2026-11-05/06): on the S1 slave, bank 5 at `A200` or above is **not** reliable; the
 > usable range for tables is `A000`–`A1FF` (`asm/s1rules.py` rule R10).
@@ -608,7 +608,7 @@ How to read the result:
 
 Conclusion: **the ARM's access to the EDM through the port with the DSPs' DMA active locks the EDM and the audio**; it is
 the reason for the self-test's frame (routes and maps disconnected) and it agrees with the writes that never arrived on
-the S8 (NOTES.md «Muestras largas»). W is not attempted in this form.
+the S8 ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md), delay line). W is not attempted in this form.
 
 Registers of the controller `0x40100000` (32 words, before / after the read) [measured]:
 

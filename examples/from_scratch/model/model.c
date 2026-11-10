@@ -1,7 +1,7 @@
 /* Region 0 (the model) of the from-scratch PLUG-OUT: runs on the master BMC
  * (core 0, next to the OS). Freestanding, no library, no foreign code.
  *
- * What the OS needs from region 0 (see docs/vol7_cleanroom_evidence_archive/NOTES.md):
+ * What the OS needs from region 0 (see examples/from_scratch/model/README.md):
  *   SYNINFO +0x24  init(): returns the descriptor; called many times
  *   SYNINFO +0x28  parameter record list (model_list.h, from params.py)
  *   base+0x8000    slot memory: patches and edit buffers (storage.bin)

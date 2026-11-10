@@ -5,7 +5,7 @@
 
 The SYSTEM-8 v1.32 firmware, rebuilt as a PLUG-OUT named `S8LAB` (id `0x20`, version 0.01), installed in **PLG1**
 (slot 1). Its only change is the identity; the engine is Roland's, so the tests below probe the stock SYSTEM-8
-behaviour and the audio/MIDI tools around it. Plan and history: `docs/PLAN.md`.
+behaviour and the audio/MIDI tools around it. The dated record of the plan and its steps is `docs/vol7_cleanroom_evidence_archive/PLAN.md` (frozen); the static findings about the image are in `docs/vol4_firmware_container_protocol/base_engine.md` §5.4.
 
 ## Commands (run from `examples/sys8_lab/`; the device on USB, no other MIDI tool running)
 
@@ -33,7 +33,7 @@ spectral centroid and level, and restores the patch values it changed.
 Measurement notes:
 - The centroid of a single note is noisy. Use the same value twice to see the spread before reading a change.
 - Level is low (RMS about 0.003 in the smoke test); the centroid of COLOR 93 measured 2212 Hz now against 4677 Hz
-  in PLAN.md (step 2). The difference is not explained yet; compare runs made in the same session only.
+  on 2026-10-20 in the first run. The difference is not explained yet; compare runs made in the same session only.
 - `dspaudio.record` and `amidi` are the same helpers the other labs use (`examples/from_scratch/re/dspaudio.py`).
 
 ## Layout facts used by the tests

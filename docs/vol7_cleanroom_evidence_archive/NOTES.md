@@ -31,7 +31,7 @@ Direcciones = JX-3P slot 1 (`plugout_build.py unpack ... --relocs-from Code8_2`)
 ## Región 1 (slaves; slave 0 voces 0-3, slave 1 voces 4-7)
 * init 0x60A0FCCC devuelve D=desc+4: D[0]=slot, D[1]=create, D[2]=destroy, D[5]=objeto
   principal (CPrmDSPJx3pSys8, vtable 0x60A445CC). SYNINFO+0x28 apunta a 0xFFFFFFFF (lista vacía).
-* Slave (s_boot, UpdateSynthPlugout 0x01104226): D=init(); D[1](); D[5]->vt[0](../examples/from_scratch/obj); D[0]=slot.
+* Slave (s_boot, UpdateSynthPlugout 0x01104226): D=init(); D[1](); D[5]->vt[0](obj); D[0]=slot.
   Otros: vt+8 / vt+0xC (0x011041EE), vt+0x24/vt+0x28 (0x01105B6E).
 * Parámetros (UpdateSynthParam 0x01103F2C): obj->vt[0x30](obj, id, 0, valor) para cada id
   (patch 0x6CD.., voces 0x429.., 0x43A..0x44A con valor de 0x0110666A).

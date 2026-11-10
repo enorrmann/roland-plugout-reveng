@@ -882,6 +882,13 @@ The version screen (`0x60076130`) names the parts the way Roland does:
   debug console (`<CORE1 Debug Console (Adrs=%08Xh)>`).
 * Signals: `SIGABRT`, `SIGPVFN` (pure virtual) handlers at `0x60074178`.
 
+**Parameter-name pointer array** (`dumps/os_full.bin`, base `0x60000000`; re-read 2026-11-10): 303 pointers to the
+label strings start at `0x602AC5E4` (index 0 `VOCODER`, 7 `OCT_UP`, 125 `OSC1_COLOR`, 132 `OSC2_COLOR`, 137
+`OSC3_COLOR`). The array is not indexed by parameter id. Records with ranges and defaults precede it from about
+`0x602AC5B4`; their stride and id field are not decoded. The strings themselves hold no ids: the id of a SYSTEM-8
+parameter comes from the patch structure of `plugins/SYSTEM-8/Script/Script.xml` (OSC1 COLOR = `0x6D5`, the word after
+OSC1 WAVE `0x6D4`; [examples/sys8_lab/README.md](../../examples/sys8_lab/README.md)).
+
 ### 8.5 Master core 1: DSP control and global effects (`m1_tcm` + `m1_sdram`)
 
 48 RTTI classes / 1417 virtual methods in `m1_tcm`, 19 in `m1_sdram`:

@@ -176,6 +176,45 @@ the JUNO-106 equivalent reads `…JUNO CH1 JUNO CH2…`.
 ~19 KB (`0x118000…0x11CB47` in slot 0) holds the model region's code: the
 `CAssign*` class and its helpers.
 
+### 5.4 DSP program descriptors of `p0s` **[H]**
+
+The slot-0 engine carries its DSP microcode the same way a PLUG-OUT engine does
+([ch. 2](plugout_virtual_machine.md) §7 "DSP microcode in the engine"): 16-byte records
+
+```c
+struct { uint32_t slot; uint32_t bytes; uint32_t bytes; uint32_t program; };   /* program = address in the image */
+```
+
+`slot` is the byte offset of the slot in the DSP's program memory, `bytes` (twice) the program size **in bytes**,
+`program` an address inside the image (file offset = address − `0x60800000`). Scan of the image
+(`work/sys8_proj/region1.bin` = `p0s`, 536 308 bytes; repeated 2026-11-10):
+
+| slot | records | file offsets of the records | programs |
+|---|---|---|---|
+| `0x0100` (main) | 6, in the order DSP0…DSP5 | `0x023EE0`, `0x025480`, `0x0265F8`, `0x027654`, `0x02832C`, `0x029668` | 5952, 5438, 4382, 4034, 3136, 4836 bytes, at `0x60822790`, `0x60823F30`, `0x608254B8`, `0x60826670`, `0x608276CC`, `0x60828374` |
+| `0x6000` (oscillator 1) | 48 | `0x026608` … `0x0532CC` (interleaved with the next row) | sizes in bytes (count): 3614 (6), 2758 (2), 2410 (2), 2362 (2), 2306 (2), 2190 (2), 2126 (2), 2106 (2), 2046 (2), 1950 (2), 1918 (2), 1854 (2), 1822 (2), 1794 (2), 1614 (2), 1366 (2), 1294 (4), 1238 (2), 1166 (2), 14 (4) |
+| `0xB000` (oscillator 2) | 37 | same range | 3618 (6), 2414 (2), 2110 (2), 2050 (2), 1954 (2), 1858 (2), 1618 (2), 1370 (2), 1330, 1298 (4), 1242 (2), 1220, 1170 (2), 1068, 974, 784, 736, 14 (3) |
+
+* The 85 oscillator records point at **79 distinct programs** (SHA-256 of the bytes). They are extracted as word
+  listings in `examples/sys8_lab/progs/` (`d1_…` = slot `0x6000`, `d2_…` = slot `0xB000`; the name carries the
+  program address and the size in words). Every program ends with `0b02 00f8 0001`, like the PLUG-OUT ones.
+* The 14-byte programs are the empty slot program.
+* Records of the same shape exist for the slots `0x8000` (8 records) and `0x16E8` (6 records); their role is not
+  established.
+* **Relation to the JUPITER-8 PLUG-OUT [I]:** the `0xB000` programs share 90 % of their 32-byte fragments with the
+  JUPITER-8 oscillator-2 programs, each one 14 bytes longer (JUPITER-8 770 bytes ↔ 784 bytes at `0x60851A20`;
+  722 ↔ 736 at `0x60851D58`). The last six `0xB000` descriptors of the JUPITER-8 engine have no `0x6000` pair
+  (770, 722, 1316, 1054, 976, 1236 bytes; scan of `work/unpack/JUPITER-8/region1.bin` repeated 2026-11-10), and its
+  script lists six waves (`oscWave = SAW, PWM, TRI, SIN, SQR, NOISE`).
+  Which program is which wave is **not established**: the program at `0x60851A20` (392 words), loaded into the
+  oscillator-2 slot of the JX-3P-based lab, gives no sound (RMS 0.0, 2026-10-20). It contains none of the slot
+  addresses of the JX-3P layout (`2207`, `0670`, `0680`, `2221`, `221D`, `2214`), so the SYSTEM-8 main programs use a
+  different slot interface, and a test needs those main programs loaded too.
+* The JX-3P SAW program (`dco1_saw`, `examples/from_scratch/engine/programs.py`) is not in `p0s`: the best
+  candidate position matches 5.7 % of the bytes.
+* Which code selects a record for a given (WAVE, COLOR, variation) is the selector of
+  [ch. 9](plugout_vs_base.md) §2; the map from its values to these records is not established.
+
 ## 6. What this does and does not give you
 
 * Gives: a complete, patchable, reproducible set of the engine and model

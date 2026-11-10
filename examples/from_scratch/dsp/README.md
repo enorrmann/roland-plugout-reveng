@@ -23,7 +23,7 @@ Resultado actual: `assembled 62 instruction(s), rejected 0, 0 note(s)`; diferenc
 ## Precisión de la constante 1/24
 
 `mov r3, #1/24` con 16 bits daba un error de 1.45·10⁻⁶ a tono alto. Se usa la forma de 32 bits
-`mov r3, #0.041666666666666664:32` (sintaxis no documentada en `asm/`, ver `docs/ASM_PENDIENTES.md` falencia 2).
+`mov r3, #0.041666666666666664:32` (`docs/vol5_toolchain_compiler_sdk/assembler_disassembler_tools.md` §2.1).
 Con ella `check_saw.py` da diferencia **0** y el umbral es 1e-6.
 
 ## Qué hace el programa (en cada muestra, por voz)

@@ -107,7 +107,7 @@ What this project is not:
 | `C-V4`: fully own PLUG-OUT (own region 0, engine and all six main DSP programs, no Roland microcode), eight voices on both slaves | works (sawtooth with gate only) | [`docs/vol6_reference_designs_applications/c_v4_system8_reference.md`](docs/vol6_reference_designs_applications/c_v4_system8_reference.md), [`docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md`](docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md) §7 |
 | Wavetable player (WAV → bank 5 → DSP) and `C-WTLIVE` live table | works | `examples/wt_live/`, `examples/from_scratch/re/wt5.py` |
 | Live DSP peek and poke from the host | works | [Vol. II ch. 1](docs/vol2_dsp_core_isa/core_architecture.md), `examples/from_scratch/re/dsplive.py` |
-| S8LAB lab image in PLG1: OSC1 COLOR changes the timbre | works (not monotonic) | `examples/sys8_lab/`, [PLAN.md](docs/vol7_cleanroom_evidence_archive/PLAN.md) |
+| S8LAB lab image in PLG1: OSC1 COLOR changes the timbre | works (not monotonic) | [`examples/sys8_lab/README.md`](examples/sys8_lab/README.md) |
 
 ### 3.2 Not done or not verified (SYSTEM-8)
 
@@ -118,7 +118,7 @@ What this project is not:
 * **Wavetable budget.** A table that exceeds the DSP cycle budget can need a power cycle of the device
   (`examples/from_scratch/re/wav2dco.py`, [Vol. VI ch. 6](docs/vol6_reference_designs_applications/custom_osc.md), [examples/wt_morph/OPTIONS.md](examples/wt_morph/OPTIONS.md)).
 * **The SYSTEM-8 modulation paths.** How an LFO or envelope reaches COLOR or OSC1 cross mod is not found: the
-  patch cords and the EXTEND matrix did not change the sound in the tests ([PLAN.md](docs/vol7_cleanroom_evidence_archive/PLAN.md), steps 3 to 8).
+  patch cords and the EXTEND matrix did not change the sound in the tests ([`examples/sys8_lab/README.md`](examples/sys8_lab/README.md); DSP program table of the SYSTEM-8 engine: [Vol. IV ch. 8](docs/vol4_firmware_container_protocol/base_engine.md) §5.4).
 * **Bootloader and updater.** Both are encrypted (ECB); the key is in the BMC chip. The OS image is decoded
   (local dump, not in git).
 * **Long samples.** Writing the EDM delay memory from ARM code is open on the SYSTEM-8. On the SYSTEM-1, own EDM
@@ -231,7 +231,7 @@ microcode (`emu/sigcheck.py` checks the builds).
 | `tools/check_optimized.py` | warns about unoptimized DSP microcode; every build runs it ([`docs/vol3_voice_allocation_scheduling/microcode_optimization.md`](docs/vol3_voice_allocation_scheduling/microcode_optimization.md)) |
 | `tools/tools_usage.py` | regenerates [`docs/TOOLS.md`](docs/TOOLS.md) |
 | `tools/test_sys8fw.py`, `tools/test_plugout.py`, `tools/test_plugout_build.py` | tests (`python3 -m unittest discover -s tools`) |
-| `asm/` | DSP assembler and disassembler ([`docs/vol2_dsp_core_isa/instruction_set_reference.md`](docs/vol2_dsp_core_isa/instruction_set_reference.md), [`docs/vol7_cleanroom_evidence_archive/REVIEW.md`](docs/vol7_cleanroom_evidence_archive/REVIEW.md)) |
+| `asm/` | DSP assembler and disassembler ([`docs/vol2_dsp_core_isa/instruction_set_reference.md`](docs/vol2_dsp_core_isa/instruction_set_reference.md), [`docs/vol5_toolchain_compiler_sdk/assembler_disassembler_tools.md`](docs/vol5_toolchain_compiler_sdk/assembler_disassembler_tools.md)) |
 | `firmware/sys8_sys_v132/SYSTEM8_UP.BIN` | official SYSTEM-8 updater (v1.32); see [`docs/vol4_firmware_container_protocol/firmware_versions.md`](docs/vol4_firmware_container_protocol/firmware_versions.md) |
 
 ## 9. Requirements

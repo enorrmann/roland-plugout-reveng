@@ -236,7 +236,7 @@ DCO2 slot of DSP2 and DSP3, silences DCO1 and carries the master peek (`PEEK`) i
 cd examples/from_scratch/re
 O=$PWD/dspexp/own; A=$PWD/dspexp/audio
 DSPLIVE=1 PEEK=1 python3 -c "import dspaudio as da; da.build('dco1_=$A/z_dco1.txt,t0=$O/lab_pad.txt,t1=$O/lab_pad.txt'); da.install()"
-# (then reset work/dsplive/state.json to the lab program, see NOTES.md) and select PLG3 once
+# (then make work/dsplive/state.json describe the installed lab program: the words of lab_pad.txt) and select PLG3 once
 python3 dspown.py load dspexp/own/fold_dco2.txt      # any program <= 2048 words, in seconds
 python3 dspown.py notes NAME --notes 48 69 81           # measure
 python3 dspown.py restore                               # back to the lab program
@@ -412,4 +412,4 @@ some change) → **≈ 11 s**. With `--code` ≈ 2 min. `python3 re/dspown.py re
   Tables/Basics): frame 0 = sine of 437 points (harmonics ≤ 1 %), notes 48/60/72; last frame (2 × 218) = the table's
   saw (1, 0.76, 0.50, 0.34…). `--scan` sounds but the measurement did not validate it (not verified).
 * Open: verify `--scan`; morph by a panel parameter (now an internal LFO); anti-aliasing per octave (fewer
-  points/frames, band-limited according to the note); larger tables in the EDM ([NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) "Muestras largas").
+  points/frames, band-limited according to the note); larger tables in the EDM ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md), delay line; [Vol. VI ch. 7](mutable_memory.md)).

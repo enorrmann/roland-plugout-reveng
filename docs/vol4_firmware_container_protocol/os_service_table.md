@@ -44,9 +44,31 @@ entries are named in the documents by their address (`FC30` = `0x0100FC30`, `FD6
 | `+0xC0` | `sync_fn` | `void (*)(int a, int b, int c, int d)`; called `(3, 0, 0, 1)` before swapping the DCOs and `(4, 0, 3, 1)` before swapping the effect | Roland calls it in the same place (r0 = 3, r3 = 1; r0 = 4 for the effect): "meaning unknown" (ch. 2 §7). Our code's comment says "wait for the DSP frame": an interpretation, not a measurement | `engine.c:35,290,303`; ch. 2 §7 |
 | `+0xF0` | `slave_fn` | `int (*)(void)`; `slave_index() = fn() ? 1 : 0` | called first in the engine start routine; result tested for 0 | `engine.c:33,42`; `examples/from_scratch/v3/engine_v3.c:425` (`first = 4 · slave`: the voices 4–7 of C-V4 on slave 1 are measured, [Vol. III ch. 1](../vol3_voice_allocation_scheduling/system8_voice_allocation.md)) ; ch. 2 §7 |
 
-Related, not in the table: the kernel's `UpdateSynthParam` at `0x01103F2C` receives the parameters on the slave
-([Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §2), and the engine's own exports are the vtable entries
-`vt+8` (load), `vt+0x30(id, value)` (parameter) and the others listed in [ch. 2](plugout_virtual_machine.md) §7.
+### 2.1 What the slave calls in the engine
+
+The other direction of the interface: `init` (SYNINFO `+0x24` of region 1) returns a pointer `D` into the engine's
+descriptor, and the slave's `UpdateSynthPlugout` (`s_boot` `0x01104226`) runs `D = init(); D[1](); D[5]->vt[0](obj);
+D[0] = slot`.
+
+| `D[n]` | content | | `vt` offset of the main object `D[5]` | called for (`examples/from_scratch/engine/engine.c`) |
+|---|---|---|---|---|
+| 0 | slot, written by the slave | | `+0x00` | init: the engine asks `+0xF0` which slave it is on |
+| 1 | `create()` | | `+0x08` | load: register slots, programs and data (`+0x28` / `+0x40` / `+0x58`) |
+| 2 | `destroy()` | | `+0x0C` | start: `+0xC0`, one `+0x70` per slot program, ramps (a slot program only runs once `+0x70` has enabled its task) |
+| 3, 4 | 0 | | `+0x10` / `+0x18` | mute / unmute |
+| 5 | main object (the JX-3P's is `CPrmDSPJx3pSys8`, vtable `0x60A445CC`) | | `+0x24` | refresh (argument 1 = send the whole state) |
+| | | | `+0x30` | parameter: `vt[0x30](obj, id, 0, value)`, from `UpdateSynthParam` (`0x01103F2C`), for the patch ids `0x6CD…`, the voice ids `0x429…` and `0x43A…0x44A` |
+
+The vtable has 28 entries; the ones not listed are no-ops in our engine, which runs on the device with them
+(`+0x28` is also called by the slave, from `0x01105B6E`). The parameter list of region 1 (SYNINFO `+0x28`) is empty: it
+points at a word `0xFFFFFFFF`. Program and data descriptors are **six words**, `{dsp_addr, bytes, bytes, src, 0, 0}`:
+the OS uses the last two, so each descriptor serves one DSP and one program only (the JX-3P keeps separate tables for
+DSP2 and DSP3, `0x60A0B878` / `0x60A0B87C`, and a data descriptor after each program).
+
+The kernel's `UpdateSynthParam` at `0x01103F2C` receives the parameters on the slave
+([Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §2). The master sends ranges of changed ids (the kernel
+keeps the lowest and highest changed id, `0x01011B7E`) and the slave notifies every id of the range; the kernel clips
+each value to the id's minimum and maximum (`0x01010C24`).
 
 ## 3. SYSTEM-1 (`0x0100FC00`)
 

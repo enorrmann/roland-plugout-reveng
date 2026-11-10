@@ -349,8 +349,9 @@ Write `[4300] ← x`; base with `40TY` + `f6c`; result destination `0b03 4050 <a
 ignored); request `Xa9Y`; in the same sample `[a]`, `[a+1]`, `[a+2]` = two neighbouring samples + fraction for
 interpolating. Address unit = 16384 samples. **6-bit fraction (1/64), truncated; ≥ 24 requests per sample** (each
 with its destination) **[measured 2026-10-17]**. Line of `f7dc` = EDM 0x110000–0x1FFFFF (983 040 words, 10.24 s);
-the EDM has 0x200000 words per BMC, readable by the ARM through an indirect port (sys+0x40/+0x44, 0x41158000), ARM
-write not achieved; the DMA writes `[4300]` every sample even if the program does not store (refresh it like a loop)
+the EDM has 0x200000 words per BMC, readable by the ARM through an indirect port (address → sys+0x40, `0xA0000000` → sys+0x44, data at 0x41158000 IEEE /
++8 RAW; driver `s_boot` 0x01112150), ARM write not achieved (the driver's sequence `s_boot` 0x01111D8C / 0x01111DE0 /
+0x0111210A, address then data at +0 / +4 / +8, leaves nothing; `s_boot` 0x01114560 is the object interface over them); the DMA writes `[4300]` every sample even if the program does not store (refresh it like a loop)
 **[measured 2026-10-17]**. It only works where the ARM connected the window. Details: [Vol. II ch. 4](instruction_set_reference.md) §9.1.
 
 ### 8.5 ARM ↔ DSP
