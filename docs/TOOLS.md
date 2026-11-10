@@ -1009,6 +1009,26 @@ Everything the codec needs comes from the JSON: field positions, variant
 selectors, fixed bits, operand wiring and status tags.
 ```
 
+### `asm/isadoc.py`
+
+```
+Write the generated parts of the ISA chapter from asm/isa.json (isa.json is the reference; the chapter follows it).
+
+    python3 asm/isadoc.py            # rewrite the generated blocks of docs/vol2_dsp_core_isa/instruction_set_reference.md
+    python3 asm/isadoc.py --stdout   # print the blocks instead
+
+Two blocks, each between `<!-- isadoc:NAME -->` and `<!-- /isadoc:NAME -->` in the chapter:
+
+* `classes` (§12): every class of isa.json with its layout and status, plus what the local corpus of Roland
+  programs (work/corpus_all, work/corpus_s1) shows for it: lengths, uses, most frequent instruction. Without the
+  corpus the corpus columns are left empty. Corpus classes missing from isa.json are listed under the table.
+* `mnemonics` (§15): every variant of every form, in isa.json order, with the field values that select it, its
+  result and status, followed by the forms' `$doc` texts.
+
+Run it after every change to isa.json. The text outside the blocks is not touched. Nothing in asm/ reads the chapter;
+this tool only writes it.
+```
+
 ### `asm/layout.py`
 
 ```

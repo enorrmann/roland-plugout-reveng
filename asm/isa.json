@@ -2282,7 +2282,7 @@
             "D",
             "Y"
           ],
-          "result": "rD <- sign*2^-e (0 when 2^-e >= 512), r(D+1) <- ~1/m, rY <- m (|rY| = m 2^e)",
+          "result": "rD <- sign*2^-e (0 when 2^-e >= 512), r(D+1) <- ~1/m (exactly the seed ROM value R[k]), rY <- m (|rY| = m 2^e)",
           "evidence": [
             {
               "kind": "documented",
@@ -2542,7 +2542,7 @@
             "D",
             "Y"
           ],
-          "result": "rY <- m in [1,4), r(D+1) <- ~1/sqrt m, r7 <- sign*2^-k",
+          "result": "rY <- m in [1,4), r(D+1) <- ~1/sqrt m, r(D+3) <- sign*2^-k (measured; emu/dspcore.h)",
           "evidence": [
             {
               "kind": "documented",

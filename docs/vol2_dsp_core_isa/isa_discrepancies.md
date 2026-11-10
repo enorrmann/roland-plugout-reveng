@@ -68,10 +68,10 @@ The `c0` names were kept; their meaning is written in their `$doc`/evidence.
 
 ## Open
 
-### D4. Spec §12 layouts that the corpus contradicts
-The table keeps the layout that reassembles more corpus instances:
+### D4. Layouts of classes 0x240, 0x572, 0x592 chosen by reassembly only
+`isa.json` holds the layout that reassembles more corpus instances than the alternative letter pattern:
 
-| class | spec §12 | table | instances reassembling: spec / table |
+| class | alternative | table | instances reassembling: alternative / table |
 |---|---|---|---|
 | 0x240 | `MAANCCC` | `MAACN` | 0 / 7 |
 | 0x572 | `ATACTTRRRC` | `AAACTTRRRC` | 0 / 8 |
