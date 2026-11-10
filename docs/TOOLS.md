@@ -309,6 +309,8 @@ Pure Python, no dependencies.
 ```
 Check the code examples of the technical documents: every ```dsp block must assemble.
 
+    python3 tools/doccheck.py                 # no argument: every document (docs/, system-1/)
+
     python3 tools/doccheck.py docs/vol1_system_architecture/bus_interconnect.md docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md system-1/*.md
     python3 tools/doccheck.py --show docs/vol1_system_architecture/bus_interconnect.md      # also print the words of each block
 
