@@ -1,6 +1,6 @@
-"""Mutable Instruments' fixed-point conventions -> the number model of our DSP (docs/MUTABLE_SDK.md §2).
+"""Mutable Instruments' fixed-point conventions -> the number model of our DSP (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §2).
 
-Our DSP computes with signed numbers up to +-512 (29-bit mantissa, results truncated toward zero; DSP_HARDWARE.md),
+Our DSP computes with signed numbers up to +-512 (29-bit mantissa, results truncated toward zero; docs/vol2_dsp_core_isa/core_architecture.md),
 at 96 kHz like Braids. Each MI quantity has one place in that model:
 
   MI (Braids / Plaits)                          here
@@ -67,7 +67,7 @@ def ratio(semitones):
 
 def on_grid(x):
     """x on the register grid (multiples of 2^-32 below 0.125, the core's quant), so a parameter used by the instruction
-    right after its load gives the same bits packed and unpacked (MICROCODE_OPTIMIZATION.md rule 6)"""
+    right after its load gives the same bits packed and unpacked (docs/vol3_voice_allocation_scheduling/microcode_optimization.md rule 6)"""
     return math.floor(x * 2 ** 32) / 2 ** 32 if abs(x) < 0.125 else x
 
 

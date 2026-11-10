@@ -1,4 +1,4 @@
-"""Reading an s1cc kernel (.s1k, docs/S1CC.md §8) and placing it at real addresses: the glue between s1cc (C++)
+"""Reading an s1cc kernel (.s1k, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §8) and placing it at real addresses: the glue between s1cc (C++)
 and the repo's Python assembler / scheduler / emulator. Used by s1check.py and by examples that embed a kernel
 (examples/mutable_system OSC=...).
 

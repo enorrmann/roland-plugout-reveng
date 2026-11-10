@@ -1,19 +1,21 @@
 # Volume I — Chapter 2: Memory Maps (ARM address spaces and DSP windows)
 
+> **Scope:** both (each table says which chip and device).
+
 > The addresses of both devices in one place, each with its source. The same address means different things on
 > different chips: every table says which chip it is for. Sources: [ch. 1](soc_overview.md) §2, §4,
 > [Vol. IV ch. 1](../vol4_firmware_container_protocol/container_formats.md) §4,
 > [Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) §7,
 > [Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §6.2, §8,
 > [Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) §1 and
-> [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §2, §4.
+> [Vol. I ch. 1](soc_overview.md) §6.4, §4.
 
 ## 1. The trap: addresses are per chip
 
 `0x60000000` is the OS on the SYSTEM-8 master and `s_data` on a slave; `0x01100000` is `m1_tcm` on the master's core 1
 and `s_boot` on a slave. That is why the engine (region 1) cannot call the master's OS: it jumps into other code and
 hangs; it can call the slave's services (`0x0113FC00`) ([ch. 1](soc_overview.md) §2). The same holds on the SYSTEM-1
-for `0x60000000` and `0x0100FC00` ([system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §2).
+for `0x60000000` and `0x0100FC00` ([Vol. I ch. 1](soc_overview.md) §6.4).
 
 ## 2. SYSTEM-8, ARM address spaces
 
@@ -91,7 +93,7 @@ for the slaves. The EDM and WMEM rows come from [Vol. II ch. 1](../vol2_dsp_core
 
 ## 4. SYSTEM-1, ARM address spaces
 
-From [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §2:
+From [Vol. I ch. 1](soc_overview.md) §6.4:
 
 | chip | address | what |
 |---|---|---|
@@ -107,7 +109,7 @@ A single slot, without relocation ([ch. 1](soc_overview.md) §6).
 
 ## 5. SYSTEM-1, DSP windows seen from the slave ARM [code, partial]
 
-Translated from [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §4 (tags of that document):
+Translated from [Vol. I ch. 1](soc_overview.md) §6.6 (tags of that document):
 
 | address | what | state |
 |---|---|---|

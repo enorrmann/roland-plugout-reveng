@@ -16,7 +16,7 @@ import dspasm   # noqa: E402
 
 # measured 2026-10-16: a DSP runs ~930-950 instructions per sample (slaves by audio, master DSP3 with
 # re/dspbudget.py; an A/A/B instruction costs the same as a single-op one). Main2/3 takes 189, so the two DCO slots
-# of a DSP share ~750 (CUSTOM_OSC.md). Over budget voice B fails and the device may need a power cycle.
+# of a DSP share ~750 (docs/vol6_reference_designs_applications/custom_osc.md). Over budget voice B fails and the device may need a power cycle.
 BUDGET = 750
 MARGIN = 40             # the edge is not sharp (925-945); stay this far below it
 

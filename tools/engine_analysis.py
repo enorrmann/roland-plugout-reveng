@@ -1,7 +1,7 @@
 """
 engine_analysis.py -- static analysis of SYSTEM-8 engine images (Thumb-2).
 
-Used by base-engine/ReadMe + PLUGOUT_VS_BASE.md. Recovers functions from the
+Used by base-engine/ReadMe + docs/vol4_firmware_container_protocol/plugout_vs_base.md. Recovers functions from the
 vtable methods (sys8fw symbols), follows direct calls, and classifies what
 each function does: parameter translation (reads a value, maps it, sends it
 to the DSP through the OS table) versus real computation (loops, float math,

@@ -4,7 +4,7 @@
  *   x (from DSP A) -> filter (MP_FILTER, default the SVF low pass) -> x the AMP envelope (s1_env(0)) -> out
  * The cutoff moves with the FILTER envelope (s1_env(1)) times FILTER ENV AMOUNT, with the key (KEY TRACK) and with
  * the host LFO (s1_lfo_filter, LFO TO FILTER); the AMP envelope is multiplied by the LFO's tremolo (s1_lfo_amp).
- * Both envelopes are SYSTEM-S1CC's ADSRs in assembly on DSP B (docs/examples_system_s1cc_README.md §3.1).
+ * Both envelopes are SYSTEM-S1CC's ADSRs in assembly on DSP B (examples/system_s1cc/README.md §3.1).
  *   FILTER CUTOFF 20 Hz .. 17 kHz, RESONANCE, ENV AMOUNT -8 .. +8 octaves (128 = 0), KEY TRACK 0 .. 1 (pitch).
  * MP_FILTER: MP_SVF_LP (default), MP_SVF_BP, MP_SVF_HP, MP_LADDER, MP_LPG (the AMP envelope drives the gate),
  * MP_NONE (VCA only). A kernel with a DSP B of its own does not include this file: it writes S1_DSP_B itself from

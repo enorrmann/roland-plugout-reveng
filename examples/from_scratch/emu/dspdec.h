@@ -1,6 +1,6 @@
 /* Decoder of DSP instructions (the reference; it replaces re/dspisa.py's template / Layout / Imm, archived
  * 2026-10-29 in archive/dspisa.py): class templates, the slot area, the immediate bit stream, units, conditions,
- * jumps, and the decoded form (Op / Cond) that dspcore.c executes. docs/DSP_ISA_SPEC.md, docs/DSP_HARDWARE.md.
+ * jumps, and the decoded form (Op / Cond) that dspcore.c executes. docs/vol2_dsp_core_isa/instruction_set_reference.md, docs/vol2_dsp_core_isa/core_architecture.md.
  *
  * An instruction = header (class << 5 | length) + body words. The class is a template: one letter per body word
  *     A  ALU op            B  unit-B op         M  MAC first word (w1)     N  MAC second word (w2)
@@ -253,7 +253,7 @@ static double hidden_static(const DLayout *L, int pos, int w)
 static const int FLAG_GROUP[16] = {[0x9] = 1, [0xA] = 2, [0xB] = 3, [0xC] = 4, [0xD] = 5};
 
 /* the MAC coefficient's byte in the slot array (2026-10-29, re/dspnative.py and the class sweeps of
- * DSP_ISA_DISCREPANCIES.md D8): byte C, plus 8 when bit 9 of the second word is set; Y register or immediate,
+ * docs/vol2_dsp_core_isa/isa_discrepancies.md D8): byte C, plus 8 when bit 9 of the second word is set; Y register or immediate,
  * with or without transfers */
 static int mac_coef_byte(int w2) { return ((w2 >> 6) & 7) + ((w2 >> 9) & 1 ? 8 : 0); }
 

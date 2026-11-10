@@ -1,5 +1,7 @@
 # Volume IV — Chapter 8: What the Decoded Base Engine Contains
 
+> **Scope:** SYSTEM-8.
+
 > The folder of artefacts is described in [base-engine/README.md](../../base-engine/README.md).
 
 

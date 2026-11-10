@@ -1,5 +1,7 @@
 # Volume III — Chapter 4: Execution Time and Instruction Budgets
 
+> **Scope:** both; each budget names its device.
+
 > The measured time budgets, each with its source. Certainty tags: [measured] / [M] on the device, [E] / [sim]
 > emulator, [C] our code, [L] / [code] read in Roland's code, [est] estimate.
 
@@ -36,7 +38,7 @@ slaves unstable is open (ch. 1 §11 item 7).
 | limit | value | source |
 |---|---|---|
 | SYSTEM-1 main program | **6 KiB** (`0x0100`–`0x18FF`): 6534 bytes / 702 instructions and 6740 / 578 hung; 5854 / 703 ran (2026-10-28). Whether it is the region size or the bytes executed per sample is open | [ch. 3](slot_program_model.md) §3.3 [measured] |
-| size of an instruction | 1–31 words (2–62 bytes); average 6–8 bytes in Roland's programs, ≈ 8–10 in ours; 6 KiB ≈ 600–750 of our instructions | ch. 1 §1; [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §1.0 |
+| size of an instruction | 1–31 words (2–62 bytes); average 6–8 bytes in Roland's programs, ≈ 8–10 in ours; 6 KiB ≈ 600–750 of our instructions | ch. 1 §1; [Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §6.2 |
 | SYSTEM-8 program window | 64 KiB per DSP; main space `0x0100`–`0x5FFF` (DSP2–5) or `0x7FFF` (DSP0/1); each DCO slot `0x5000` | ch. 3 §2.1 [code] |
 
 ## 4. What the known programs cost
@@ -65,4 +67,4 @@ slaves unstable is open (ch. 1 §11 item 7).
 * Native ops that replace sequences (shifts, SFU, `add3`, two-product MAC, indexed loads):
   [Vol. II ch. 10](../vol2_dsp_core_isa/native_ops.md).
 * The SYSTEM-S1CC build applies the SYSTEM-1 limits by itself (`make_s1cc.py`: `BUDGET_A` / `BUDGET_B` /
-  `MAIN_BYTES`) and chooses how many voices fit ([system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §1.0).
+  `MAIN_BYTES`) and chooses how many voices fit ([Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §6.2).

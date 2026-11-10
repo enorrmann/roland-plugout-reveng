@@ -2,7 +2,7 @@
 (emu/dspref.Machine, with this file's access hook).
 
 Only what is measured is simulated. Anything else stops the run with an error that names the missing piece:
-  - the condition-flag context of the DSP (--context; only the measured ones, DSP_HARDWARE.md §6)
+  - the condition-flag context of the DSP (--context; only the measured ones, docs/vol2_dsp_core_isa/core_architecture.md §6)
   - a hidden register h4-h7 the program reads before loading it with 40TY (--hidden)
   - a bank-0, bank-5 or bank-6 word that was never given (--input); the ARM writes banks 5 and 6
   - reads of banks that depend on other DSPs or on the ARM: 1, 2, 3 (IOMD), 4 (MXM), 7
@@ -17,8 +17,8 @@ with other random register values and reports the samples where a recorded word 
 Input file: one "t addr value" per line (addr hex, absolute; value = the DSP's RAW value, as the reference uses it).
   t = 0 is the state before sample 0 (bank 0, 5 and 6 words); t > 0 is written before sample t (banks 5 and 6 only).
 Ring: bank 0 is a 0x800-word ring. Between samples every word moves +1 (mod 0x800): stored at S in sample n, read at
-S+1 in sample n+1 (DSP_HARDWARE.md §7.2). Nothing else is reset between samples: flags, hidden registers, r0-r7 and
-memory carry over (measured, DSP_HARDWARE.md §2).
+S+1 in sample n+1 (docs/vol2_dsp_core_isa/core_architecture.md §7.2). Nothing else is reset between samples: flags, hidden registers, r0-r7 and
+memory carry over (measured, docs/vol2_dsp_core_isa/core_architecture.md §2).
 """
 import argparse, os, random, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))

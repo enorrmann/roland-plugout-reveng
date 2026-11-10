@@ -1,11 +1,11 @@
-"""The model of one BMC slave (six DSPs) and of the two slaves, for the voice chain studies of docs/VOICE_ALLOCATION.md:
+"""The model of one BMC slave (six DSPs) and of the two slaves, for the voice chain studies of docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md:
 Model (the hardware hypotheses), Program (a decoded program), access_violations, helpers. The emulator itself is the
 C core (cchain.py / dspcore.c); the Python Slave of this file was archived 2026-10-29 (archive/chain.py).
 
 The banks, per DSP (dspcore.h rd / wr):
 
     bank 0 (0nnn)  ring of 0x800 words: what is stored at R in sample n is read at R+1 in sample n+1
-                   [medido, DSP_HARDWARE.md 7.2]
+                   [medido, docs/vol2_dsp_core_isa/core_architecture.md 7.2]
     bank 1 (2nnn)  0x800 words; a ring like bank 0 when Model.ring1 (hypothesis of question D), else plain memory;
                    Model.shared1 = pairs of DSPs with one bank 1 (question E)
     bank 3 (6nnn)  IOMD: one block for the six DSPs; writes persist [medido, 8.3]. Ownership is not modelled.
@@ -26,7 +26,7 @@ What is NOT modelled: the ARM timing (engine writes are injected between samples
 
 The emulator contains no Roland code: the programs are passed in by the caller. Today the tests pass ours (v3/make_v3.py,
 v4/make_v4.py); running Roland's programs, loaded at run time from the local copy, is allowed for study (the
-no-Roland-microcode rule applies only to our own plug-outs, docs/log/VOICE_ALLOCATION_LOG.md §7).
+no-Roland-microcode rule applies only to our own plug-outs, docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md §7).
 """
 import os
 import sys
@@ -47,7 +47,7 @@ RING = 0x800
 
 @dataclass
 class Model:
-    """the hardware hypotheses; the defaults are the model that agrees with every measurement (docs/log/VOICE_ALLOCATION_LOG.md §6)"""
+    """the hardware hypotheses; the defaults are the model that agrees with every measurement (docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md §6)"""
     ring1: bool = True                 # D: bank 1 is a ring like bank 0
     main_first: bool = True            # F: main program before the slot programs, in the same DSP
     mxm_shift: int = 0                 # G: Z[0x400+i] -> M[i + shift]
@@ -67,11 +67,11 @@ STRICT = True     # Program refuses code that breaks the hardware's per-instruct
 
 def access_violations(ins_list):
     """[(instruction index, what)] for instructions that break the per-instruction memory-access limits of the DSP
-    (docs/DSP_HARDWARE.md 7.3): bank-0 loads <= 2 (more: only the last is valid), bank-0 stores <= 2 (more never
+    (docs/vol2_dsp_core_isa/core_architecture.md 7.3): bank-0 loads <= 2 (more: only the last is valid), bank-0 stores <= 2 (more never
     appears in Roland's code; 3 hung the SYSTEM-1, C-S1JXH MAIN3 instruction 55, 2026-10-23), bank-6 loads <= 2 (the
     same: more never appears; 3 hung the SYSTEM-1, C-S1JXH1 MAIN1 instruction 48), bank-5 loads <= 1 and
     bank-5 stores <= 1 (more: none is done; on the SYSTEM-1 a program with such instructions hung the device, C-S1JXQ
-    2026-10-22, docs/examples_system_1_jx_README.md section 10), transfers <= 6. The interpreter does not model these limits (it
+    2026-10-22, examples/system_1_jx/README.md section 10), transfers <= 6. The interpreter does not model these limits (it
     performs every access), so a program that breaks them would pass the emulator and fail on the device: hence the
     check. Literal (mode fe) and indexed transfers (X28Y bank 0, XdaY/Xd0Y.. bank 5) are counted."""
     out = []
@@ -150,7 +150,7 @@ class Bmc2:
 
 
 # ---------------- helpers ----------------
-AUDIBLE = (0x6020, 0x6021)          # the IOMD words heard at the output (slave 0, docs/WAVE_BUS.md 4b) [medido]
+AUDIBLE = (0x6020, 0x6021)          # the IOMD words heard at the output (slave 0, docs/vol1_system_architecture/bus_interconnect.md 4b) [medido]
 
 
 def freq(seq, fs=FS):

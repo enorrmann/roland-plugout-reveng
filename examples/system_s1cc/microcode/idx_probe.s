@@ -1,5 +1,5 @@
 ;; SYSTEM-S1CC host microcode: IDX_PROBE, what indexed loads read on the SYSTEM-1's slave DSP A when there are several
-;; hset per sample (docs/MUTABLE_MEMORY.md §4.2). Template syntax: make_s1cc.py frag(); scheduled (asm/dspsched.py).
+;; hset per sample (docs/vol6_reference_designs_applications/mutable_memory.md §4.2). Template syntax: make_s1cc.py frag(); scheduled (asm/dspsched.py).
 ;; Region 1 writes bank 5 A080 + i = (i + 1) / 128 (i = 0 .. 127). Each test k sets its own h, reads one word and
 ;; stores it at IDXP_R + 2k; a test of bank 0 reads, with ldidx, a constant the program stored the sample before.
 ;; Every result multiplies a saw of its own frequency (IDXP_F[k]); a reference saw (value 1) at IDXP_FREF; the sum

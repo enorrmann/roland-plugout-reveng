@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Reference checker written ONLY from docs/data-formats.md and
-docs/protocol-spec.md (no import of the tools/ package).
+Reference checker written ONLY from docs/vol7_cleanroom_evidence_archive/functional_and_data_requirements.md and
+docs/vol7_cleanroom_evidence_archive/cleanroom_protocol_spec.md (no import of the tools/ package).
 
 It re-derives every field listed in container-vectors.json from the raw
 Code*.Dat files. A conforming independent implementation must obtain the same

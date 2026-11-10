@@ -1,5 +1,7 @@
 # Volume II — Chapter 5: Special-Function Unit, Seed ROMs and Phase Operations
 
+> **Scope:** both (same ISA).
+
 > The non-linear operations in one place; sources: [ch. 1](core_architecture.md) §5.1–§5.3,
 > [ch. 4](instruction_set_reference.md) §6.2–§6.4 and [ch. 9](operation_uses.md). The ROM contents were checked
 > against the C reference `examples/from_scratch/emu/dspcore.h` (`recip_seed`, `RSQRT_Q`, `EXP_ROM`).

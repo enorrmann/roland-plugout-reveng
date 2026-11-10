@@ -1,5 +1,7 @@
 # Volume VII — Chapter 1: Clean-Room Boundary — Team Separation and Authorised Material
 
+> **Scope:** both.
+
 > The clean-room specification is a separate track from the tools: it describes the PLUG-OUT firmware and protocol
 > from the evidence, without the tools' code. Its parts are chapters 1–5 of this volume.
 

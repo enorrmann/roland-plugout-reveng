@@ -1,4 +1,4 @@
-"""The delay line of the C reference (emu/dspcore.h tap / EDM, DSP_HARDWARE.md §8.4) against the device: dsptap.py's
+"""The delay line of the C reference (emu/dspcore.h tap / EDM, docs/vol2_dsp_core_isa/core_architecture.md §8.4) against the device: dsptap.py's
 counter program in master DSP4 slot 0xF7DC (the slot whose bank-2 window the ARM wired to the delay memory) for
 several delays, whole and fractional; the reference runs the same program on dspref.Machine with set_edm() for as many
 samples as the delay needs. Compared: counter - tap1, counter - tap2 (in samples) and the fraction tap3.

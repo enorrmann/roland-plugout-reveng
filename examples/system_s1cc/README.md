@@ -173,7 +173,7 @@ maestro B (s1mm1 @0x1000)  6006 / 6007 × VOLUME (C01C)                 → env�
   temporales + bandera de primera muestra. Esclavo A desde `0x0300`, esclavo B desde `0x0600`, salidas de B en
   `0x0400`+: las zonas que usaron nuestros programas probados en el equipo (C-S1V8, C-S1SY, MUTABLE-SYSTEM). No hay
   tope de 16 palabras como en MUTABLE-SYSTEM; el límite es que las `NV` voces entren hasta `0x07FF`. Lo de abajo de
-  `0x0018` es del OS ([../system-1/DSP_BANKS.md](../../system-1/DSP_BANKS.md)).
+  `0x0018` es del OS ([Vol. II ch. 6](../../docs/vol2_dsp_core_isa/memory_banks_dma.md) §7).
 * **Parámetros.** Las tablas `S1_PARAM` van a `C070`… del DSP A y `C060`… del DSP B, por `panel_id`. El ARM
   escribe la fila de la posición de la perilla cada vez que llega, y las vuelve a escribir en cada nota. Al cargar,
   el modelo del maestro hace `touch` de los controles `0x160`–`0x18F` del grupo 3 y `flush`: el OS le manda al

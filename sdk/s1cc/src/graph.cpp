@@ -1,4 +1,4 @@
-// The voice functions of the LLVM module as dataflow graphs (s1cc.h, docs/S1CC.md §4).
+// The voice functions of the LLVM module as dataflow graphs (s1cc.h, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §4).
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -42,7 +42,7 @@ void fail(const std::string &code, const std::string &msg) {
     fprintf(stderr, "s1cc: error %s: %s\n", code.c_str(), msg.c_str());
     if (debugLevel() >= 1) {
         printSource();
-        fprintf(stderr, "s1cc: debug: cause and fix of %s: docs/S1CC.md §9.2\n", code.c_str());
+        fprintf(stderr, "s1cc: debug: cause and fix of %s: docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §9.2\n", code.c_str());
     }
     exit(1);
 }
@@ -282,7 +282,7 @@ bool ignoredIntrinsic(const IntrinsicInst *II, const std::string &base) {
            base == "experimental";
 }
 
-// a call or instruction the graph builder rejects: error code (docs/S1CC.md §9.2) and text; code "" = none
+// a call or instruction the graph builder rejects: error code (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §9.2) and text; code "" = none
 struct Problem {
     std::string code, msg;
     bool empty() const { return code.empty(); }
@@ -1287,7 +1287,7 @@ bool isConstExpr(const Node *n) {
     return r;
 }
 
-// ---- affine simplification of integer sums (docs/S1CC.md §4.8) ----
+// ---- affine simplification of integer sums (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §4.8) ----
 // Braids' BEGIN_INTERPOLATE_PHASE_INCREMENT with size 1 is prev + (prev < cur ? cur - prev : ~(prev - cur)), that is
 // cur or cur - 1; LLVM leaves it, and the lowering would compute it with wraps modulo 2^32. A sum whose terms cancel
 // (through one select, whose arms are taken apart) is rebuilt from what is left: modulo 2^bits it is the same value.
@@ -1807,7 +1807,7 @@ void speculation(Dsp &S) {
     }
 }
 
-// knob-derived columns (docs/S1CC.md §4.6): a value computed from one S1_PARAM table only (and constants) is a
+// knob-derived columns (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §4.6): a value computed from one S1_PARAM table only (and constants) is a
 // function of that knob, known exactly at its 256 positions (`prof sweep`). The heavy ones that feed the rest of the
 // voice become tables of their own, written by the ARM with the knob: no DSP work, no fit (Braids' `intervals[p >> 9]`,
 // Plaits' per-block coefficients from a knob). Run after islands(), so the island ids stay those of the profile.

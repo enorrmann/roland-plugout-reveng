@@ -1,5 +1,7 @@
 # Volume V — Chapter 2: The s1cc SDK Header (`s1dsp.h`, `s1panel.h`) — API Reference
 
+> **Scope:** SYSTEM-1.
+
 > Written from the headers `sdk/s1cc/include/s1dsp.h` and `sdk/s1cc/include/s1panel.h`. What each part does when
 > compiled is [ch. 1](s1cc_compiler_internals.md) §3 (program model and intrinsics) and §7.6 (native ops); where the
 > header and that chapter differ, it is said below.
@@ -62,17 +64,14 @@ after it); `S1_FN` = `const, nothrow` (a function of its arguments only).
 "A / B only" restrictions are enforced by the compiler with errors E114/E115 (export/import), E117 (`s1_env` in A) and
 E119 (`s1_color` in B) ([ch. 1](s1cc_compiler_internals.md) §9.2.2, §9.2.7).
 
-### 2.1 Differences between the header and the specification
+### 2.1 Notes
 
-* **`s1_exp2` / `s1_exp` cost.** The header's comment says "expsplit + degree 4, 8 ops, 3e-5 (result below 512)". The
-  specification says: up to ±8 octaves of range, Taylor + 4 squarings, 10 ops; wider (up to 20 octaves), `expsplit` +
-  a degree-6 polynomial, 10 ops, 6·10⁻⁸ ([ch. 1](s1cc_compiler_internals.md) §3, §7.3; §7.6 says 8–10 ops).
-* **Section numbers.** The header points to "[Vol. V ch. 1](s1cc_compiler_internals.md) §4.5" for the native-op table; that table is §7.6 of the
-  specification (now [ch. 1](s1cc_compiler_internals.md) §7.6). Its other references ([Vol. V ch. 1](s1cc_compiler_internals.md) §3.1, §3.2, §3.3,
-  §11.1) match.
-* **`s1_ldb5`** is in the header but not in the intrinsic table of the specification (version 1.0 of 2026-10-24). Its
-  use (the wavetable frame loaded over USB) is described in [Vol. VI ch. 7](../vol6_reference_designs_applications/mutable_memory.md)
-  §4.5 (the former [Vol. VI ch. 7](../vol6_reference_designs_applications/mutable_memory.md)).
+* **`s1_exp2` / `s1_exp` cost** (as `lower.cpp` builds it): up to ±8 octaves of range, Taylor + 4 squarings, 10 ops;
+  wider (up to 20 octaves), `expsplit` + a degree-6 polynomial, 10 ops, 6·10⁻⁸ ([ch. 1](s1cc_compiler_internals.md)
+  §3, §7.3, §7.6).
+* **`s1_ldb5(i)`** (`S1_DSP_A` only): word i (0..126) of the wavetable frame in bank 5 (`A080`…), the frame that the
+  host or the USB loader writes; one `hset` + `ldb5` (an indexed bank-5 load), the only way to read a run-time table
+  by a computed index. Its use: [Vol. VI ch. 7](../vol6_reference_designs_applications/mutable_memory.md) §4.5.
 
 ## 3. Panel ids (`s1panel.h`)
 

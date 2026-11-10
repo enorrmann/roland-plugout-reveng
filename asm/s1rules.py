@@ -1,6 +1,6 @@
 """The SYSTEM-1 access rules, checked on scheduled programs (one instruction per line, units joined by ' | ').
 
-Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, measured by on-device bisection):
+Breaking one of them hung the device (examples/system_1_jx/README.md §5, measured by on-device bisection):
     R2  bank 5: at most 1 load and 1 store per instruction
     R3  bank 0: at most 2 loads and 2 stores per instruction
     R4  bank 6: at most 2 loads per instruction
@@ -13,7 +13,7 @@ Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, m
     R6  at most 2 loads of banks 5 + 6 + IOMD per instruction (the S1 never has more)  [inferred]
     R7  a slave DSP stores to bank 5 only in A100..A1FF (A000..A0FF is what the ARM writes)
     R10 a slave DSP never accesses bank 5 at A200 or above: ldb5/FD6C reach only A000..A1FF reliably on the device
-        (measured 2026-11-06, docs/MUTABLE_MEMORY.md §4.1; a static frame at A200 came out corrupt at 127 and 256
+        (measured 2026-11-06, docs/vol6_reference_designs_applications/mutable_memory.md §4.1; a static frame at A200 came out corrupt at 127 and 256
         points). The emulator declares bank 5 as 1024 words (bank5_own[0x400]) but only A000..A1FF is reliable
     R8  ops sharing an instruction: only the groups proven on the device (asm/proven_forms.txt)
     R9  never a group asm/bad_forms.txt forbids (signatures and patterns: `family:minmax + family:minmax`, `mac_*:*`)

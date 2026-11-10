@@ -1,5 +1,7 @@
 # Volume VII — Chapter 5: Clean-Room Specification — Transfer Protocol and State Machines
 
+> **Scope:** both.
+
 > The protocol as implemented by the tools (with code addresses) is
 > [Vol. IV ch. 4](../vol4_firmware_container_protocol/usb_sysex_protocol_spec.md).
 

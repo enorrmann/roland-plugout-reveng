@@ -1,5 +1,7 @@
 # Volume II — Chapter 7: ISA Overview (measured)
 
+> **Scope:** both (same ISA); measured on the SYSTEM-8 master and slaves.
+
 > Overview. The normative definitions are [Vol. II ch. 3](instruction_word_encoding.md) /
 > [ch. 4](instruction_set_reference.md) and [Vol. II ch. 1](core_architecture.md).
 

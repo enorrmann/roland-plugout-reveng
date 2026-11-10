@@ -1,5 +1,7 @@
 # Volume III — Chapter 8: SYSTEM-1 Optimizations (SYSTEM-S1CC): Catalogue
 
+> **Scope:** SYSTEM-1.
+
 What can be got out of the SYSTEM-1 slave DSPs and how much, measured with the emulator on real builds. Reference:
 MP-CSAW2 (`sdk/s1cc/build/mp_csaw2`, compiled with `--regs-a 0,1,2,3 --regs-b 0,1,2,3`), `CMOD_IDX=1 MOD_DSP=B`, 8
 voices. Measured limits: DSP A 703 and DSP B 708 instructions per sample. State as of 2026-10-29. What is measured on
@@ -119,8 +121,10 @@ instructions. On 2026-10-29, `sdk/s1cc/build/mp_csaw2` had been left compiled th
 
 ## 9. Pending tests on the device, in order
 
-1. ~~C-S1RAMP, end-of-ramp chain~~: **works** (2026-10-30). Still to do with 16 parameters at once on the slave: that is
-   seen directly with `ARM_ENV`.
-2. **MP-CSAW2-LUT** (`plugins/`): first indexed load of bank 5 on the S1; LFO shapes and the `sq` curve.
-3. ~~C-S1RAMP, distance~~: the duration depends only on `y` (2026-10-30).
-4. **PLUG-OUT with a jump** (§5).
+1. The end-of-ramp chain (measured with C-S1RAMP, 2026-10-30) with 16 parameters at once on the slave: seen directly
+   with `ARM_ENV`.
+2. **MP-CSAW2-LUT** (`plugins/`): LFO shapes and the `sq` curve from bank-5 tables (indexed bank-5 loads run on the S1:
+   WT-SLAVE5, [Vol. VI ch. 7](../vol6_reference_designs_applications/mutable_memory.md) §4.1).
+3. **PLUG-OUT with a jump** (§5).
+
+The ramp duration depends only on `y` (C-S1RAMP, 2026-10-30).

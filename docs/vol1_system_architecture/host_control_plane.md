@@ -1,8 +1,10 @@
 # Volume I — Chapter 4: The ARM Side — Processors, Programs, RTOS, FPU and Panel CPU
 
+> **Scope:** both (each row says which device).
+
 > What is known of the ARM side of both devices; every row names its source. The full analyses are
 > [Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §8 (anatomy of the SYSTEM-8 OS),
-> [ch. 1](soc_overview.md) §2 and [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) (SYSTEM-1). The exact Cortex-M
+> [ch. 1](soc_overview.md) §2 and [Vol. I ch. 1](soc_overview.md) §6 (SYSTEM-1). The exact Cortex-M
 > core of the BMC is not known (§4).
 
 ## 1. SYSTEM-8: the six programs of `App1_Main`
@@ -60,11 +62,11 @@ high-density F103), TIM4 `0x40000800`, **USART1 `0x40013800` (link to the master
 the master side runs the tasks `KbdRx`/`KbdWdg` and can reflash it. The packet format on the UART is not documented.
 
 SYSTEM-1: the updater brings no image of another micro; how its panel is read is open
-([system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §1).
+([Vol. I ch. 1](soc_overview.md) §6.1).
 
 ## 4. Floating point: the SYSTEM-8 has an FPU, the SYSTEM-1 does not
 
-Translated from [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §1.1 ([code]):
+Translated from [Vol. I ch. 1](soc_overview.md) §6.3 ([code]):
 
 The ARMs of the SYSTEM-8 BMCs have a floating-point unit (VFP, single precision) and all their code uses it; those of the
 SYSTEM-1 do not use it in any binary. Count of VFP instructions (`python3 system-1/vfp_count.py`; random data gives ≈ 1
@@ -94,13 +96,13 @@ Consequences for our PLUG-OUTs:
   patterns in integer registers); C-S1V4 precomputes them on the PC (`make_s1.py`). Doing `float` arithmetic on the
   SYSTEM-1 ARM is possible with gcc's software emulation (`libgcc`: `__aeabi_fmul`, …), slower.
 * The ARM code of a SYSTEM-8 PLUG-OUT (e.g. the JX-3P engine) **does not run on the SYSTEM-1** as it is: besides
-  another interface and other services, it uses VFP. It has to be ported or rewritten (`system-1/DSP_FIT.md`).
+  another interface and other services, it uses VFP. It has to be ported or rewritten ([Vol. III ch. 9](../vol3_voice_allocation_scheduling/system1_polyphony_studies.md) §3).
 * The DSPs are not affected: they do their own arithmetic ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md)),
   the same on both devices.
 
 ## 5. SYSTEM-1: code on each processor
 
-Translated from [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §2:
+Translated from [Vol. I ch. 1](soc_overview.md) §6.4:
 
 | processor | code | where it lives |
 |---|---|---|

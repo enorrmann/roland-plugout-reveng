@@ -1,5 +1,5 @@
 ;; SYSTEM-S1CC host microcode: EDM_WT, a wavetable stored whole in the delay memory of master B
-;; (docs/MUTABLE_MEMORY.md §3.3.8). Template syntax: make_s1cc.py frag()
+;; (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8). Template syntax: make_s1cc.py frag()
 ;;
 ;; One own line at WT_A: write word WT_W, read word WT_R at age WT_LEN - 1 (map table, model.c wt_load), so the line
 ;; is a loop of WT_LEN samples that keeps what it holds (each sample re-writes what it read). Region 0 fills it at the
@@ -174,7 +174,7 @@ mov r2, #0.0
 
 
 .fragment master_wt_s
-;; WT_SLAVE (docs/MUTABLE_MEMORY.md §4.4): the loop as master_wt; each voice ONE request (frame f = COLOR's nearest,
+;; WT_SLAVE (docs/vol6_reference_designs_applications/mutable_memory.md §4.4): the loop as master_wt; each voice ONE request (frame f = COLOR's nearest,
 ;; WT_PFRAME) -> its sample to the slave by 600E + v (WT-M2S: arrives with our master A main, MA_MAIN); then the
 ;; slave's mix 6006 / 6007 x VOLUME -> the OS effect sends, as microcode/master.s master. Ages at WT_AGEB + 4v,
 ;; results WT_RES + 8v.

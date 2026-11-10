@@ -203,8 +203,8 @@ class Confidence(unittest.TestCase):
         """every citation resolves: a '## N' heading of the spec, or a line of
         NOTES.md, whichever the evidence names."""
         sources = {}
-        for rel in ("docs/DSP_ISA_SPEC.md",
-                    "docs/NOTES.md"):
+        for rel in ("docs/vol2_dsp_core_isa/instruction_set_reference.md",
+                    "docs/vol7_cleanroom_evidence_archive/NOTES.md"):
             path = os.path.join(ROOT_SPEC, rel)
             if os.path.exists(path):
                 sources[rel] = open(path, encoding="utf-8").read()

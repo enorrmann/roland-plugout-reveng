@@ -1,6 +1,6 @@
 #!/bin/sh
 # C-S1RAMP: C-S1V4 (examples/system_1) plus the measurement of the parameter ramps FCE4
-# (docs/examples_system_1_ramp_README.md).
+# (examples/system_1_ramp/README.md).
 #   examples/system_1_ramp/build.sh           -> plugins/C-S1RAMP/Script/Code1.Dat (and Code.Dat, the same file)
 #   TONE=1 NAME=C-S1TONE examples/system_1/build.sh   bring-up build: voice 0 sounds all the time (no notes needed)
 #   PARAMLOG=1 TONE=1 NAME=C-S1LOG ...   diagnostic: the model sends every parameter it receives to the PC (model.c)
@@ -13,7 +13,7 @@ NAME=${NAME:-C-S1RAMP}
 MODEL_ID=${MODEL_ID:-0x0010}
 mkdir -p "$B"
 python3 "$HERE/make_s1.py" ${TONE:+--tone}
-python3 "$ROOT/tools/check_optimized.py" "$HERE"/s1m0.s "$HERE"/s1m1.s "$HERE"/s1mm1.s || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
+python3 "$ROOT/tools/check_optimized.py" "$HERE"/s1m0.s "$HERE"/s1m1.s "$HERE"/s1mm1.s || true    # warnings: unoptimized microcode (docs/vol3_voice_allocation_scheduling/microcode_optimization.md)
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
  -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG}"
 for r in 0 1; do

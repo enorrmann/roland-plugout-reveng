@@ -1,18 +1,18 @@
 """When each bank-5 mailbox word between the two DSPs of a SYSTEM-1 chip is written and read inside the sample, against
-the latency the SYSTEM-8 had (docs/examples_system_1_jx_README.md section 13).
+the latency the SYSTEM-8 had (examples/system_1_jx/README.md section 13).
 
     python3 timing.py [samples]     # default 300 samples of the emulated SYSTEM-1 layout, random inputs
 
 The two DSPs of a chip (master A/B, slave A/B) run AT THE SAME TIME on the device and share bank 5. A word that one
 writes and the other reads is seen in the same sample only if the write comes before the read in cycles (1 cycle per
-instruction, docs/DSP_HARDWARE.md). The emulator runs the DSPs one after the other, so it cannot show this: here the
+instruction, docs/vol2_dsp_core_isa/core_architecture.md). The emulator runs the DSPs one after the other, so it cannot show this: here the
 executed instruction sequence of every DSP comes from the emulator's trace, and the cycle of each instruction is its
 position in that sequence plus the programs the OS runs before ours (frame header at 0x0000; master A: the output
 program at 0x82). [inferred] both DSPs of a chip start the sample on the same cycle; the exact visibility edge
 (pipeline) is a few cycles, hence the margin.
 
 Latency the S8 had, per mailbox kind (s1jx.py Plan keys):
-  MZ / MS  MXM: 1 sample (latched bus, DSP_HARDWARE.md)
+  MZ / MS  MXM: 1 sample (latched bus, docs/vol2_dsp_core_isa/core_architecture.md)
   DCO      main -> its DCO slot: 0 (same S8 DSP, the main ran first); DCO -> main: 1 (the main reads it at +1 of the
            bank-1 ring, the value of the sample before)
   REG      r2 / r3 handoff (main -> DCO): 0

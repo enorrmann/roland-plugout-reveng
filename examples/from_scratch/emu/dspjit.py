@@ -1,4 +1,4 @@
-"""Native translation of DSP programs for the C core (docs/EMULATOR.md §3.6 point 2), and the thread groups.
+"""Native translation of DSP programs for the C core (docs/vol5_toolchain_compiler_sdk/emulator.md §3.6 point 2), and the thread groups.
 
 Every program becomes one C function: the instruction words are constants, jumps are gotos, the conditions are
 tests of a local flags word, and the units call the inline functions of dspcore.h that the interpreter uses (with

@@ -1,5 +1,7 @@
 # Volume IV — Chapter 4: PLUG-OUT USB Install Protocol
 
+> **Scope:** both (the same protocol; the device differences are stated).
+
 > Used by `tools/plugout_tool.py`. The browser installer that implements the same protocol is
 > [Vol. IV ch. 5](web_installer.md); the clean-room specification of the same transfer (written without the tools'
 > code) is [Vol. VII ch. 5](../vol7_cleanroom_evidence_archive/cleanroom_protocol_spec.md).

@@ -255,7 +255,7 @@ Pure stdlib except pycryptodome/pycryptodomex for the DES3 primitive.
 ### `tools/check_optimized.py`
 
 ```
-Check that our own DSP microcode uses the optimized forms (docs/MICROCODE_OPTIMIZATION.md); warn where it does not.
+Check that our own DSP microcode uses the optimized forms (docs/vol3_voice_allocation_scheduling/microcode_optimization.md); warn where it does not.
 
     python3 tools/check_optimized.py FILE...          .s (our assembly) or .hex / .txt (program words, '#' comments)
     python3 tools/check_optimized.py --strict FILE... exit code 1 when there is any warning
@@ -270,7 +270,7 @@ costs a cycle of the per-sample budget for nothing:
   transfer-only an instruction with loads / stores and no op: the transfers fit into an op's instruction (pack())
   fusable       two adjacent single-op instructions, independent (the second does not read or write the first's
                 result) and encodable as one instruction `op1 | op2` (A+B, A+A, as Roland). An estimate: the
-                assembler decides the encoding; the cost of each fused class is in docs/MICROCODE_OPTIMIZATION.md
+                assembler decides the encoding; the cost of each fused class is in docs/vol3_voice_allocation_scheduling/microcode_optimization.md
 
 Build scripts run it on the programs they generate (examples/system_1_synth/build.sh, ...).
 ```
@@ -308,10 +308,10 @@ Pure Python, no dependencies.
 ```
 Check the code examples of the technical documents: every ```dsp block must assemble.
 
-    python3 tools/doccheck.py docs/WAVE_BUS.md docs/VOICE_ALLOCATION.md system-1/*.md
-    python3 tools/doccheck.py --show docs/WAVE_BUS.md      # also print the words of each block
+    python3 tools/doccheck.py docs/vol1_system_architecture/bus_interconnect.md docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md system-1/*.md
+    python3 tools/doccheck.py --show docs/vol1_system_architecture/bus_interconnect.md      # also print the words of each block
 
-A ```dsp block is DSP assembly in the syntax of asm/ (docs/DSP_ISA.md): one instruction per line, ';' comments.
+A ```dsp block is DSP assembly in the syntax of asm/ (docs/vol2_dsp_core_isa/isa_overview.md): one instruction per line, ';' comments.
 Blocks are assembled one by one with asm.Assembler; a block that fails is reported with its file and line and the
 exit code is 1. ```c blocks are not compiled (they call OS services); keep them to code that exists in the repo.
 ```
@@ -321,7 +321,7 @@ exit code is 1. ```c blocks are not compiled (they call OS services); keep them 
 ```
 engine_analysis.py -- static analysis of SYSTEM-8 engine images (Thumb-2).
 
-Used by base-engine/ReadMe + PLUGOUT_VS_BASE.md. Recovers functions from the
+Used by base-engine/ReadMe + docs/vol4_firmware_container_protocol/plugout_vs_base.md. Recovers functions from the
 vtable methods (sys8fw symbols), follows direct calls, and classifies what
 each function does: parameter translation (reads a value, maps it, sends it
 to the DSP through the OS table) versus real computation (loops, float math,
@@ -407,7 +407,7 @@ appears as subdevice 1 ("hw:N,0,1", sometimes named "SYSTEM-8 MIDI 2").
 
 ```
 os_analyze.py -- static analysis of the decrypted SYSTEM-8 OS image
-(dumps/os_full.bin, run address 0x60000000, docs/BASE_FIRMWARE.md §7.14/§8).
+(dumps/os_full.bin, run address 0x60000000, docs/vol4_firmware_container_protocol/base_firmware.md §7.14/§8).
 
 Linear Thumb-2 sweep with capstone, then:
   * functions  = targets of BL (and of the scatter-load / reset entry),
@@ -441,7 +441,7 @@ patch_read.py -- try to read patch names from a SYSTEM-8 slot with RQ1.
 
     python3 tools/patch_read.py --slot 3 --patches 0-7 [--plugin plugins/JX-3P]
 
-The plugin protocol only documents DT1 writes of the patch bank (docs/PROTOCOL.md
+The plugin protocol only documents DT1 writes of the patch bank (docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md
 sec. 6); no read has been seen. This sends the standard Roland read request
 (RQ1 = address + 4-byte size) for the NAME0 leaf of `fm.usrX` of each patch and
 prints whatever comes back (decoded as 2 nibbles per character). Only RQ1 is
@@ -475,7 +475,7 @@ firmware (JUNO-60.vst3 @ 0x1803551a5..0x1803552d0 and 0x180355af0).
   memory concatenated in Script.xml order.
 * Device addresses: computed per slot / patch / struct (@ 0x18036d270).
 
-See docs/PROTOCOL.md section 6.
+See docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md section 6.
 ```
 
 ### `tools/plugout.py`
@@ -485,7 +485,7 @@ plugout.py -- Roland PLUG-OUT firmware containers (Script/Code*.Dat) and the
 USB-MIDI install protocol used by the JUNO-60 / JX-3P / SH-101 plugins.
 
 Everything here was taken from the plugins' own code (JUNO-60.vst3 addresses are
-given; JX-3P and SH-101 contain the same routines). See docs/PROTOCOL.md.
+given; JX-3P and SH-101 contain the same routines). See docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md.
 
 Pure stdlib. The MIDI transport lives in midi_io.py.
 ```
@@ -507,7 +507,7 @@ plugout_build.py -- unpack, modify and rebuild PLUG-OUT firmware (Code*.Dat).
 
 A project directory holds plugout.json, region<n>.bin (decompressed images)
 and relocs.json (pointer offsets, needed to build for another slot). The
-format is described in docs/CUSTOM_PLUGOUTS.md.
+format is described in docs/vol4_firmware_container_protocol/plugout_virtual_machine.md.
 ```
 
 | option | help | default |
@@ -544,7 +544,7 @@ format is described in docs/CUSTOM_PLUGOUTS.md.
 ```
 plugout_image.py -- the firmware carried inside a Code*.Dat, and how to rebuild it.
 
-Layers (see docs/CUSTOM_PLUGOUTS.md):
+Layers (see docs/vol4_firmware_container_protocol/plugout_virtual_machine.md):
 
     Code*.Dat (XOR container, plugout.py)
       -> 4096 (SYSTEM-8) / 2048 (SYSTEM-1) records of 512 flash bytes
@@ -573,7 +573,7 @@ SYSTEM-8 / SYSTEM-1 over USB MIDI, without the VST plugin.
     python3 tools/plugout_tool.py inspect JUNO-60/Script/Code8_1.Dat
 
 Replicates the plugin's install routine (JUNO-60.vst3 @ 0x1803547c0); see
-docs/PROTOCOL.md for the reverse-engineered details.
+docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md for the reverse-engineered details.
 ```
 
 | option | help | default |
@@ -616,7 +616,7 @@ list them, and add the ones a TRY_FORMS build tested on the device.
     python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by MP-CSAW-TRY
     python3 tools/proven_forms.py promote 'mad:reg + mul:imm; add:imm + mov:i32' --by MP-CSAW-TRY
 
-Workflow (docs/examples_system_s1cc_README.md §4.1):
+Workflow (examples/system_s1cc/README.md §4.1):
   1. KERNEL=dir python3 examples/system_s1cc/make_s1cc.py --forms
        the groups not on the list that would shorten the slave programs, and how many instructions each saves
   2. KERNEL=dir NAME=X-TRY TRY_FORMS='GROUP; GROUP' sh examples/system_s1cc/build.sh   (or TRY_FORMS=all)
@@ -678,7 +678,7 @@ shows whether RQ1 follows the live edit buffer or only the stored patch).
 
 ```
 Play a note on the SYSTEM-1 and record its audio over USB -- the capture rig used to check a PLUG-OUT on the
-device (docs/S1_AUDIO_CAPTURE.md). One MIDI client at a time: do not run another SYSTEM-1 tool at the same time,
+device (docs/vol5_toolchain_compiler_sdk/audio_capture.md). One MIDI client at a time: do not run another SYSTEM-1 tool at the same time,
 and do not touch the keyboard while it records (your notes mix into the capture).
 
     python3 tools/s1_capture.py                         # note 60 on ch 5, 1.5 s -> harmonic summary
@@ -718,7 +718,7 @@ functions it points to.
 Every aligned u32 is classified:
   * odd value inside the kernel image (0x01000400..0x01019A08): Thumb function
     (the code at 0x01000400 is a RAM copy of image 0x602B9774..., see
-    docs/BASE_FIRMWARE.md section 6)
+    docs/vol4_firmware_container_protocol/base_firmware.md section 6)
   * value inside the OS image (0x60000000..0x602CDA70): pointer into the image
   * value in RAM (0x01xxxxxx / 0x20xxxxxx): data pointer
   * small values: counters / flags
@@ -798,7 +798,7 @@ Environment: `NAME` (default default)
 ### `tools/wt_load.py`
 
 ```
-Load a wavetable frame into a running SYSTEM-S1CC bank-5 PLUG-OUT over USB -- no reinstall (docs/MUTABLE_MEMORY.md
+Load a wavetable frame into a running SYSTEM-S1CC bank-5 PLUG-OUT over USB -- no reinstall (docs/vol6_reference_designs_applications/mutable_memory.md
 §4.5). The plug-out must be built with SL_LOAD=1 (a SL_WT=b5 kernel, e.g. sdk/s1cc/examples/wavetable/jp8_saw.c):
 
     SL_LOAD=1 WT_WAV=".../Jupiter 8 Saw.wav" KERNEL=sdk/s1cc/build/jp8_saw sh examples/system_s1cc/build.sh
@@ -841,7 +841,7 @@ UNPROVEN on hardware as of 2026-11-06 (that bend / CC1 reach region 1). Uses onl
 ### `asm/asm.py`
 
 ```
-Assembler: dspasm source -> program words (DSP_ISA_SPEC.md §3, §4, §12).
+Assembler: dspasm source -> program words (docs/vol2_dsp_core_isa/instruction_set_reference.md §3, §4, §12).
 
     result = Assembler().assemble(text)
     result.words        flat 16-bit words in execution order
@@ -866,7 +866,7 @@ Directives, each on the line before the instruction it changes:
 Immediates (spec 4.4): `#v@b:w` is a value read at byte b of the slot array,
 w bits wide. A MAC coefficient `#v@c` is read at byte c (its C field; + 8 in
 the `...r` variants, bit 9 set), Y a register or an immediate (measured
-2026-10-29, docs/DSP_ISA_DISCREPANCIES.md D8). An immediate with no byte is
+2026-10-29, docs/vol2_dsp_core_isa/isa_discrepancies.md D8). An immediate with no byte is
 placed by the assembler at the first byte where its bits agree with the stream
 (a coefficient: bytes 0-7, written into C).
 
@@ -878,7 +878,7 @@ encodings kept verbatim, so re-assembling them takes the same explicit option.
 
 Ambiguity is rejected: if more than one class can hold the units, or a field
 that must be preserved has no source, the line fails with the reason.
-See docs/REVIEW.md for the 2026-10-20 review that set these rules.
+See docs/vol7_cleanroom_evidence_archive/REVIEW.md for the 2026-10-20 review that set these rules.
 ```
 
 ### `asm/codec.py`
@@ -931,7 +931,7 @@ the reason `report["reassembly"]` exists; on the corpus it is 0.
 ### `asm/dspbuild.py`
 
 ```
-General build pipeline for our DSP microcode, SYSTEM-1 and SYSTEM-8 (docs/MICROCODE_OPTIMIZATION.md §6).
+General build pipeline for our DSP microcode, SYSTEM-1 and SYSTEM-8 (docs/vol5_toolchain_compiler_sdk/assembler_disassembler_tools.md §5).
 
 A generator only writes the plain program: one op or one transfer per line, load delays as "mov rN, rN" fillers,
 ';' comments. Everything else is here, the same for every plug-out:
@@ -958,7 +958,7 @@ build() runs, in order (each can be turned off for one call, or for every build 
 ### `asm/dspsched.py`
 
 ```
-List scheduler for our DSP microcode (SYSTEM-1 and SYSTEM-8: same ISA). docs/MICROCODE_OPTIMIZATION.md §5.
+List scheduler for our DSP microcode (SYSTEM-1 and SYSTEM-8: same ISA). docs/vol3_voice_allocation_scheduling/microcode_optimization.md §5.
 
     import dspsched
     packed = dspsched.schedule(lines)          # one-unit lines (with "mov rN, rN" fillers) -> instruction texts
@@ -969,7 +969,7 @@ an instruction ("op1 | op2 | op3"), loads and stores go into op instructions, th
 reordered as far as the dependencies allow (pack() of make_synth.py only merged a line into the instruction before
 it, in program order).
 
-Semantics the schedule keeps (the emulator's, measured on the hardware; DSP_HARDWARE.md, pack() comment):
+Semantics the schedule keeps (the emulator's, measured on the hardware; docs/vol2_dsp_core_isa/core_architecture.md, pack() comment):
   * every unit of an instruction reads before any unit writes;
   * a loaded register is usable from the next instruction on; a store reads the register as the instruction starts;
   * memory: a load after a store to the same address comes one instruction later; a store after a load may share
@@ -1040,7 +1040,7 @@ and kept in work/roland_forms.json (local: it comes from Roland's code, it is no
 ```
 The SYSTEM-1 access rules, checked on scheduled programs (one instruction per line, units joined by ' | ').
 
-Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, measured by on-device bisection):
+Breaking one of them hung the device (examples/system_1_jx/README.md §5, measured by on-device bisection):
     R2  bank 5: at most 1 load and 1 store per instruction
     R3  bank 0: at most 2 loads and 2 stores per instruction
     R4  bank 6: at most 2 loads per instruction
@@ -1053,7 +1053,7 @@ Breaking one of them hung the device (docs/examples_system_1_jx_README.md §5, m
     R6  at most 2 loads of banks 5 + 6 + IOMD per instruction (the S1 never has more)  [inferred]
     R7  a slave DSP stores to bank 5 only in A100..A1FF (A000..A0FF is what the ARM writes)
     R10 a slave DSP never accesses bank 5 at A200 or above: ldb5/FD6C reach only A000..A1FF reliably on the device
-        (measured 2026-11-06, docs/MUTABLE_MEMORY.md §4.1; a static frame at A200 came out corrupt at 127 and 256
+        (measured 2026-11-06, docs/vol6_reference_designs_applications/mutable_memory.md §4.1; a static frame at A200 came out corrupt at 127 and 256
         points). The emulator declares bank 5 as 1024 words (bank5_own[0x400]) but only A000..A1FF is reliable
     R8  ops sharing an instruction: only the groups proven on the device (asm/proven_forms.txt)
     R9  never a group asm/bad_forms.txt forbids (signatures and patterns: `family:minmax + family:minmax`, `mac_*:*`)
@@ -1068,7 +1068,7 @@ that ran on the device (PROVEN_PROGRAMS: C-S1V8, C-S1SY13).
 ### `asm/slots.py`
 
 ```
-The slot array of one instruction (DSP_ISA_SPEC.md §4.3).
+The slot array of one instruction (docs/vol2_dsp_core_isa/instruction_set_reference.md §4.3).
 
     The slot array = every word after the last T.  Slot k = the (k+1)-th word.
     N words come first (one per M). Among the remaining slots, the ones a
@@ -1094,7 +1094,7 @@ Two facts from §4.3 that a count of R words cannot express:
 ### `examples/from_scratch/emu/allplugouts.py`
 
 ```
-The data-flow facts of docs/log/VOICE_ALLOCATION_LOG.md §6, checked on every Roland PLUG-OUT image in the repo (study only).
+The data-flow facts of docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md §6, checked on every Roland PLUG-OUT image in the repo (study only).
 
     python3 allplugouts.py            images: work/unpack/*/region1.bin and the JX-3P of engine/build/jx
 
@@ -1128,14 +1128,14 @@ as the interpreter (native=False, threads=False).
 ### `examples/from_scratch/emu/chain.py`
 
 ```
-The model of one BMC slave (six DSPs) and of the two slaves, for the voice chain studies of docs/VOICE_ALLOCATION.md:
+The model of one BMC slave (six DSPs) and of the two slaves, for the voice chain studies of docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md:
 Model (the hardware hypotheses), Program (a decoded program), access_violations, helpers. The emulator itself is the
 C core (cchain.py / dspcore.c); the Python Slave of this file was archived 2026-10-29 (archive/chain.py).
 
 The banks, per DSP (dspcore.h rd / wr):
 
     bank 0 (0nnn)  ring of 0x800 words: what is stored at R in sample n is read at R+1 in sample n+1
-                   [medido, DSP_HARDWARE.md 7.2]
+                   [medido, docs/vol2_dsp_core_isa/core_architecture.md 7.2]
     bank 1 (2nnn)  0x800 words; a ring like bank 0 when Model.ring1 (hypothesis of question D), else plain memory;
                    Model.shared1 = pairs of DSPs with one bank 1 (question E)
     bank 3 (6nnn)  IOMD: one block for the six DSPs; writes persist [medido, 8.3]. Ownership is not modelled.
@@ -1156,7 +1156,7 @@ What is NOT modelled: the ARM timing (engine writes are injected between samples
 
 The emulator contains no Roland code: the programs are passed in by the caller. Today the tests pass ours (v3/make_v3.py,
 v4/make_v4.py); running Roland's programs, loaded at run time from the local copy, is allowed for study (the
-no-Roland-microcode rule applies only to our own plug-outs, docs/log/VOICE_ALLOCATION_LOG.md §7).
+no-Roland-microcode rule applies only to our own plug-outs, docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md §7).
 ```
 
 ### `examples/from_scratch/emu/dspcomp.py`
@@ -1172,7 +1172,7 @@ flags, hidden registers, memory) is left to the C core.
 ### `examples/from_scratch/emu/dspjit.py`
 
 ```
-Native translation of DSP programs for the C core (docs/EMULATOR.md §3.6 point 2), and the thread groups.
+Native translation of DSP programs for the C core (docs/vol5_toolchain_compiler_sdk/emulator.md §3.6 point 2), and the thread groups.
 
 Every program becomes one C function: the instruction words are constants, jumps are gotos, the conditions are
 tests of a local flags word, and the units call the inline functions of dspcore.h that the interpreter uses (with
@@ -1234,13 +1234,13 @@ and MAIN1 carry the envelope patches of programs.py, which do not touch any bus 
 asm/disasm.py, as dsp/dump_main.py does.
 
     python3 listing.py MAIN4                  loads and stores of banks 1, 3, 4, 5 per instruction
-    python3 listing.py --summary              the cross-program facts used by docs/log/VOICE_ALLOCATION_LOG.md §6
+    python3 listing.py --summary              the cross-program facts used by docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md §6
 ```
 
 ### `examples/from_scratch/emu/sigcheck.py`
 
 ```
-Signature check: no Roland microcode in a build or in our programs (docs/log/VOICE_ALLOCATION_LOG.md §7).
+Signature check: no Roland microcode in a build or in our programs (docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md §7).
 
     python3 sigcheck.py FILE...      FILE = a built region (.bin) or a program (.hex / .txt, 16-bit words)
 
@@ -1264,7 +1264,7 @@ python3 voices.py v3|v4 [SAMPLES]        one voice at a time on slave 0: level a
 
 ```
 Bus references of every main program of a Roland region 1 image: MXM (bank 4, 8nnn), IOMD (6nnn) and bank 5
-(annn), read and written, from the disassembly (asm/disasm.py). Used for docs/VOICE_ALLOCATION.md.
+(annn), read and written, from the disassembly (asm/disasm.py). Used for docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md.
 
     python3 alloc_mxm.py region1.bin BASE_HEX OFFSET:SIZE [OFFSET:SIZE ...]
     e.g. python3 alloc_mxm.py region1.bin 60A00000 015270:5066 016918:5018
@@ -1275,7 +1275,7 @@ The program words are read as dump_main.py does (uint32 little-endian, upper hal
 
 ```
 Descriptor table of a Roland region 1 image: every DSP program descriptor (slot address, size, size, program
-pointer) with its slot. Used for docs/VOICE_ALLOCATION.md.
+pointer) with its slot. Used for docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md.
 
     python3 alloc_scan.py region1.bin 60A00000     # BASE = the slot run address of the region 1 image (slot 1)
 ```
@@ -1361,7 +1361,7 @@ stride 0x16. Words that never change are operations.
 ### `examples/from_scratch/re/dspasm.py`
 
 ```
-Minimal assembler for the established DSP subset (DSP_ISA_SPEC.md) + our own SAW oscillator.
+Minimal assembler for the established DSP subset (docs/vol2_dsp_core_isa/instruction_set_reference.md) + our own SAW oscillator.
 
     python3 dspasm.py saw dco2 [--fs 48000] [-o prog.txt]   # oscillator for the DCO2 (or dco1) slot
     python3 dspasm.py sim prog.txt --pitch 4.75 [--n 400]    # run it in the C reference (emu/dspref.py), print period
@@ -1568,7 +1568,7 @@ so differences between the four reads (in samples) tell whether the bus is live 
 
 ```
 One device session that captures every pending measurement of the DSP's ops, then offline checks against the C
-reference (emu/dspref.py) as often as needed, without the device (docs/NATIVE_OPS.md).
+reference (emu/dspref.py) as often as needed, without the device (docs/vol2_dsp_core_isa/native_ops.md).
 
     python3 dspcapture.py run [-o work/captures/NAME] [-n 96]   # SYSTEM-8, lab PEEK in slot 3, PLG3 selected
     python3 dspcapture.py check [-o work/captures/NAME]          # no device: the reference against the capture
@@ -1883,7 +1883,7 @@ the output words; the ARM reads the IOMD RAW block. Shows whether IOMD links DSP
 
 ```
 ARCHIVED 2026-10-29 (user decision): the Python DSP reference is no longer used. The reference is the C core
-(examples/from_scratch/emu/dspcore.h + dspcomp; docs/EMULATOR.md). The old code is in archive/dspisa.py, kept only
+(examples/from_scratch/emu/dspcore.h + dspcomp; docs/vol5_toolchain_compiler_sdk/emulator.md). The old code is in archive/dspisa.py, kept only
 to validate the C port against it; do not import it from tools.
 ```
 
@@ -1983,7 +1983,7 @@ DSP microcode helpers: blob bytes -> 16-bit words in execution order.
 The DSP executes each 32-bit little-endian word upper half first. A blob of
 4n+2 bytes is followed in the image by the halfword 0x0001, which is its real
 last instruction; the blob's own last halfword (0x0000) is never written to
-program memory (verified on the master DSP4, docs/CUSTOM_PLUGOUTS.md).
+program memory (verified on the master DSP4, docs/vol4_firmware_container_protocol/plugout_virtual_machine.md).
 ```
 
 ### `examples/from_scratch/re/dspmodescan.py`
@@ -2026,7 +2026,7 @@ same S word twice in one sample (a, then a2).
 
 ```
 The DSP's native ops (shifts, SFU, Newton step, 3-operand add, two-product MAC) on the SYSTEM-8 master, exact,
-against the C reference (emu/dspref.py): before s1cc and the SYSTEM-1 host use them (docs/DSP_HARDWARE.md §5).
+against the C reference (emu/dspref.py): before s1cc and the SYSTEM-1 host use them (docs/vol2_dsp_core_isa/core_architecture.md §5).
 
     python3 dspnative.py [TEST ...] [-n 24] [--list] [--save FILE]   (needs the PEEK PLUG-OUT selected, dsppeek.py ping)
     python3 dspnative.py --check FILE [TEST ...]                      (no device: the reference against saved cases)
@@ -2283,7 +2283,7 @@ Environment: `TAPDEST` (default '1'), `TAPINC` (default -12), `TAPREQ` (default 
 ### `examples/from_scratch/re/dsptapcheck.py`
 
 ```
-The delay line of the C reference (emu/dspcore.h tap / EDM, DSP_HARDWARE.md §8.4) against the device: dsptap.py's
+The delay line of the C reference (emu/dspcore.h tap / EDM, docs/vol2_dsp_core_isa/core_architecture.md §8.4) against the device: dsptap.py's
 counter program in master DSP4 slot 0xF7DC (the slot whose bank-2 window the ARM wired to the delay memory) for
 several delays, whole and fractional; the reference runs the same program on dspref.Machine with set_edm() for as many
 samples as the delay needs. Compared: counter - tap1, counter - tap2 (in samples) and the fraction tap3.
@@ -2471,13 +2471,13 @@ python3 re/r0list.py region0.bin [base]
 ### `examples/from_scratch/re/review_probes.py`
 
 ```
-Hardware probes for the open items of DSP_ISA_DISCREPANCIES.md (2026-10-20), on master DSP3 via dspprobe.
+Hardware probes for the open items of docs/vol2_dsp_core_isa/isa_discrepancies.md (2026-10-20), on master DSP3 via dspprobe.
 
     python3 review_probes.py            # run all, print expected / measured, write work/review_probes.json
 
 Each probe is a list of instructions: ('asm', text) is assembled with asm/ (allow_inferred), ('hex', words)
 is taken as it is. The registers start at dspprobe.REGS; the probe stores r0..r7 and prints what changed.
-Needs the lab plugin installed in slot 3 and PLG3 selected (see DSP_ISA_DISCREPANCIES.md).
+Needs the lab plugin installed in slot 3 and PLG3 selected (see docs/vol2_dsp_core_isa/isa_discrepancies.md).
 ```
 
 ### `examples/from_scratch/re/run_jx.py`
@@ -2717,7 +2717,7 @@ python3 examples/from_scratch/dsp/check_saw.py      (from the repository root)
 
 ```
 Listing of a Roland main program (engine/build/programs.h, from the JX-3P) with its bus references:
-IOMD (bank 3, 6nnn), MXM (bank 4, 8nnn) and bank 5 (Annn). Used for docs/WAVE_BUS.md.
+IOMD (bank 3, 6nnn), MXM (bank 4, 8nnn) and bank 5 (Annn). Used for docs/vol1_system_architecture/bus_interconnect.md.
 
     python3 dump_main.py MAIN5 > main5.txt      (needs engine/build, i.e. engine/build.sh run once)
 ```
@@ -2726,7 +2726,7 @@ IOMD (bank 3, 6nnn), MXM (bank 4, 8nnn) and bank 5 (Annn). Used for docs/WAVE_BU
 
 ```
 Channel map of the slave output words (MAIN5 copies [2204]-[221D] into IOMD B0-B7 at the end of each sample,
-see docs/WAVE_BUS.md). The DSP5 slot writes one fixed sawtooth per word: B0 = 110 Hz ... B7 = 495 Hz, 55 Hz steps.
+see docs/vol1_system_architecture/bus_interconnect.md). The DSP5 slot writes one fixed sawtooth per word: B0 = 110 Hz ... B7 = 495 Hz, 55 Hz steps.
 A single capture then shows which word reaches which output channel (both slaves run the same program).
 
     python3 make_bmap.py      -> bmap.s, bmap.hex
@@ -2740,9 +2740,9 @@ Environment: `BMAP_WORDS`
 Two-DSP chain for the gate plug-out, all our own asm (asm/asm.py), no Roland code and no envelope or LFO.
 
     DSP2 (DCO1 slot): SAW at the pitch the ARM writes to bank 5 id 0x21 ([A021]); the phase is the only state.
-                      Output -> MXM Z 0x404, which DSP4 reads as its M 0x005 (routing of docs/DSP_ARM_SIDE.md).
+                      Output -> MXM Z 0x404, which DSP4 reads as its M 0x005 (routing of docs/vol2_dsp_core_isa/memory_banks_dma.md).
     DSP4 (DCO1 slot): output = SAW from DSP2 times the gate the ARM writes to bank 5 id 0x22 ([A022]),
-                      stored in IOMD 6020 (canal 1) and 6021 (canal 0) (docs/WAVE_BUS.md).
+                      stored in IOMD 6020 (canal 1) and 6021 (canal 0) (docs/vol1_system_architecture/bus_interconnect.md).
 
 The gate is 0 or 1 with no smoothing: the note starts and stops at once.
 
@@ -2753,7 +2753,7 @@ The gate is 0 or 1 with no smoothing: the note starts and stops at once.
 ### `examples/from_scratch/dsp/make_iomd_test.py`
 
 ```
-Hardware test of the slave's output path (docs/FROM_SCRATCH.md §11).
+Hardware test of the slave's output path (docs/vol6_reference_designs_applications/c_v4_system8_reference.md §11).
 
 Writes three fixed-pitch sawtooths, each sample, to three candidate IOMD words of the slave's output bus:
   60B0 = 440 Hz (IOMD0 B0, DSP5 store), 60B1 = 660 Hz (IOMD0 B1), 6020 = 880 Hz (IOMD0 20, DSP4 store).
@@ -2775,7 +2775,7 @@ vibrato, times the envelope. The four voices are summed (scale 1/4) into IOMD 60
     python3 make_poly.py          -> poly.s, poly.hex
     python3 make_poly.py --opt    -> also poly_opt.s / poly_opt.hex: the same voice with ph_wrap (Roland's form)
                                      instead of the manual wraps, scheduled by asm/dspsched.py
-                                     (docs/MICROCODE_OPTIMIZATION.md); poly.hex (tested on the device) stays
+                                     (docs/vol3_voice_allocation_scheduling/microcode_optimization.md); poly.hex (tested on the device) stays
     python3 make_poly.py --sim    -> four voices in the C reference (emu/dspref.py): each gate pulse must give its own pitch
 ```
 
@@ -2830,7 +2830,7 @@ Patch ids of the JX-3P panel parameters, from the plugin's own Script.xml (no ha
     python3 patch_ids.py                 -> base check and the ENV, PIT and FLT tables
     python3 patch_ids.py "ENV2 ATTACK"   -> id of one name
 
-Method (2026-10-21, docs/log/WAVE_BUS_LOG.md §4l-§4m):
+Method (2026-10-21, docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_wave_bus_log.md §4l-§4m):
   1. Read every <value> that has <name>, <range> and <default> in document order (system fields without range are skipped).
   2. Find the base b such that id = b + index matches the INIT patch of model/params.py (100 % of its entries).
   3. Check the names against the model (engine/model_spec.py: env_value uses 0x6ef / 0x6f4 for ENV1 / ENV2).
@@ -2843,7 +2843,7 @@ Run one Roland main program (engine/build/programs.h, copied from the JX-3P) sam
 (emu/dspref.Machine, with this file's access hook).
 
 Only what is measured is simulated. Anything else stops the run with an error that names the missing piece:
-  - the condition-flag context of the DSP (--context; only the measured ones, DSP_HARDWARE.md §6)
+  - the condition-flag context of the DSP (--context; only the measured ones, docs/vol2_dsp_core_isa/core_architecture.md §6)
   - a hidden register h4-h7 the program reads before loading it with 40TY (--hidden)
   - a bank-0, bank-5 or bank-6 word that was never given (--input); the ARM writes banks 5 and 6
   - reads of banks that depend on other DSPs or on the ARM: 1, 2, 3 (IOMD), 4 (MXM), 7
@@ -2858,8 +2858,8 @@ with other random register values and reports the samples where a recorded word 
 Input file: one "t addr value" per line (addr hex, absolute; value = the DSP's RAW value, as the reference uses it).
   t = 0 is the state before sample 0 (bank 0, 5 and 6 words); t > 0 is written before sample t (banks 5 and 6 only).
 Ring: bank 0 is a 0x800-word ring. Between samples every word moves +1 (mod 0x800): stored at S in sample n, read at
-S+1 in sample n+1 (DSP_HARDWARE.md §7.2). Nothing else is reset between samples: flags, hidden registers, r0-r7 and
-memory carry over (measured, DSP_HARDWARE.md §2).
+S+1 in sample n+1 (docs/vol2_dsp_core_isa/core_architecture.md §7.2). Nothing else is reset between samples: flags, hidden registers, r0-r7 and
+memory carry over (measured, docs/vol2_dsp_core_isa/core_architecture.md §2).
 ```
 
 | option | help | default |
@@ -2903,12 +2903,12 @@ Does a SYSTEM-8 PLUG-OUT's DSP microcode fit in the SYSTEM-1? Time per DSP, traf
     python3 system-1/dsp_fit.py --voices 2            # only the voice-0/1 chain (DSP0 -> DSP2 -> DSP4)
     python3 system-1/dsp_fit.py --budget 900 --reserve-ma 60 --samples 4000
 
-Study only (docs/log/VOICE_ALLOCATION_LOG.md §7 scope): Roland's programs are read at run time from the local copy
+Study only (docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md §7 scope): Roland's programs are read at run time from the local copy
 `examples/from_scratch/engine/build/programs.h` (made by engine/build.sh from plugins/JX-3P), run in the C emulator
 (`examples/from_scratch/emu/cchain.py`) and disassembled with `emu/listing.py`. Nothing is copied into the repo.
 MAIN0/MAIN1 of programs.h carry the same-size envelope patches of engine/programs.py; the count is the same.
 
-What it measures (system-1/DSP_FIT.md):
+What it measures (docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md):
  1. per program: bytes, static instructions, executed instructions per sample (min / mean / max over the run, with
     random bank-5 inputs and parameters changed every 250 samples, so the jumps take both ways);
  2. links between the six SYSTEM-8 DSPs, in words per sample: MXM (Z 84nn -> M 80nn / O 82nn of DSP n+2, S 86nn
@@ -2936,7 +2936,7 @@ What it measures (system-1/DSP_FIT.md):
 extract_fw.py -- extract the SYSTEM-1 OS images (master app, slave app, updater).
 
 Two sources, both with the same region format as the PLUG-OUTs ("SYSTEM-1:..." 0x40-byte
-header + LZSS, docs/CUSTOM_PLUGOUTS.md §2-3):
+header + LZSS, docs/vol4_firmware_container_protocol/plugout_virtual_machine.md §2-3):
 
   * firmware/sys1_sys_v130/SYSTEM1_UPD.BIN  Roland's updater, 4 MiB flash image, NOT encrypted:
         0x000000 loader "ESC91.000" (raw)
@@ -2980,7 +2980,7 @@ For each program of region 0 (master) and region 1 (slave), found as {address, b
 program sets: the address (0x0100 main, 0x1000 master B, 0x1900/0x3100 voice sections), static instructions,
 instructions executed per sample in the C emulator (random bank-5 / parameter / IOMD inputs; equal to static when
 the program has no jumps), the IOMD words it loads and stores (600E-6021 master -> slave, 6006-600D and
-6026-602D slave -> master) and the bank-5 words it stores. Used by system-1/DSP_FIT.md §4 to compare how far each
+6026-602D slave -> master) and the bank-5 words it stores. Used by docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md §3.4 to compare how far each
 mono synth could be made polyphonic. Needs the unpacked Code1.Dat:
 `python3 tools/plugout_build.py unpack plugins/<NAME>/Script/Code1.Dat work/unpack/<NAME>_S1_Code1`.
 ```
@@ -2996,7 +2996,7 @@ Count ARM VFP (floating-point unit) instructions in binary images: does the code
 Scans every halfword pair as Thumb-2: coprocessor instructions (first halfword ECxx/EDxx/EExx, the forms a
 compiler emits; FFxx/EFxx match mostly data) whose coprocessor
 field is 10 or 11 (VFP single / double). Data words also match by chance, so a count of about 1 per 10 KiB is the
-noise floor; real VFP code gives tens per 10 KiB. Result and interpretation: system-1/ARCHITECTURE.md §1.1.
+noise floor; real VFP code gives tens per 10 KiB. Result and interpretation: docs/vol1_system_architecture/soc_overview.md §6.3.
 ```
 
 ### `system-1/voice_sets.py`
@@ -3015,7 +3015,7 @@ The slave app loads DSP programs in "sets". A set is a run of 12-byte entries
 
 i.e. four voice slots of 0x1800 bytes in one program memory. Programs are stored as
 32-bit words with the two halfwords swapped (as everywhere else in the corpus).
-Cost = number of DSP instructions (1 cycle each, DSP_HARDWARE.md; budget about 925-945
+Cost = number of DSP instructions (1 cycle each, docs/vol2_dsp_core_isa/core_architecture.md; budget about 925-945
 per sample, the exact edge depends on the DSP).
 
     python3 system-1/voice_sets.py [work/sys1_v130/app_slave.bin] [--entries]
@@ -3026,7 +3026,7 @@ per sample, the exact edge depends on the DSP).
 ### `examples/system_1/build.sh`
 
 ```
-C-S1V4: the C-V4 from-scratch PLUG-OUT ported to the SYSTEM-1 (docs/examples_system_1_README.md).
+C-S1V4: the C-V4 from-scratch PLUG-OUT ported to the SYSTEM-1 (examples/system_1/README.md).
 examples/system_1/build.sh                -> plugins/C-S1V4/Script/Code1.Dat (and Code.Dat, the same file)
 TONE=1 NAME=C-S1TONE examples/system_1/build.sh   bring-up build: voice 0 sounds all the time (no notes needed)
 PARAMLOG=1 TONE=1 NAME=C-S1LOG ...   diagnostic: the model sends every parameter it receives to the PC (model.c)
@@ -3036,12 +3036,12 @@ Needs arm-none-eabi-gcc/ld/objcopy and Python 3. No Roland file is read: all cod
 ### `examples/system_1/make_s1.py`
 
 ```
-C-S1V4: our own DSP programs for the SYSTEM-1 port of C-V4 (no Roland bytes; docs/examples_system_1_README.md).
+C-S1V4: our own DSP programs for the SYSTEM-1 port of C-V4 (no Roland bytes; examples/system_1/README.md).
 
 The SYSTEM-1 has two DSPs per BMC (A and B, queues 0x0100FC30 / 0x0100FC34), and in PLUG-OUT mode the audio goes
 slave DSP A/B -> IOMD 6006..600D -> master DSP B (program at 0x1000) -> bank 5 A118/A119 -> the OS's own output
 program of master DSP A (at 0x82: A118/A119 -> DC filter -> x C004 -> 6000/6001). Found in the SH-2 and SH-101
-images and the OS 1.30 (study only, nothing copied; docs/examples_system_1_README.md section 2).
+images and the OS 1.30 (study only, nothing copied; examples/system_1/README.md section 2).
 
 C-V4's flow on SYSTEM-8 was DSP0/1 pitch -> DSP2/3 saw slot -> DSP4/5 gate -> 6020. Here one DSP does it all:
 
@@ -3063,7 +3063,7 @@ Environment: `VOICES` (default '4')
 ### `examples/system_1/paramlog.py`
 
 ```
-Listen to a PARAMLOG build and list the parameters the device hands to the PLUG-OUT model (docs/examples_system_1_README.md §6).
+Listen to a PARAMLOG build and list the parameters the device hands to the PLUG-OUT model (examples/system_1/README.md §6).
 
 The PARAMLOG build of C-S1V4 (PARAMLOG=1 build.sh) sends one SysEx per call of the model's vt+0x30:
     F0 7D 06 <id >> 7> <id & 7F> <flag> <value: bits 31-28, 27-21, 20-14, 13-7, 6-0> F7
@@ -3091,7 +3091,7 @@ Uses `amidi -d` (alsa-utils). Do not run it while another tool talks to the devi
 
 ```
 C-S1RAMP: C-S1V4 (examples/system_1) plus the measurement of the parameter ramps FCE4
-(docs/examples_system_1_ramp_README.md).
+(examples/system_1_ramp/README.md).
 examples/system_1_ramp/build.sh           -> plugins/C-S1RAMP/Script/Code1.Dat (and Code.Dat, the same file)
 TONE=1 NAME=C-S1TONE examples/system_1/build.sh   bring-up build: voice 0 sounds all the time (no notes needed)
 PARAMLOG=1 TONE=1 NAME=C-S1LOG ...   diagnostic: the model sends every parameter it receives to the PC (model.c)
@@ -3101,12 +3101,12 @@ Needs arm-none-eabi-gcc/ld/objcopy and Python 3. No Roland file is read: all cod
 ### `examples/system_1_ramp/make_s1.py`
 
 ```
-C-S1V4: our own DSP programs for the SYSTEM-1 port of C-V4 (no Roland bytes; docs/examples_system_1_README.md).
+C-S1V4: our own DSP programs for the SYSTEM-1 port of C-V4 (no Roland bytes; examples/system_1/README.md).
 
 The SYSTEM-1 has two DSPs per BMC (A and B, queues 0x0100FC30 / 0x0100FC34), and in PLUG-OUT mode the audio goes
 slave DSP A/B -> IOMD 6006..600D -> master DSP B (program at 0x1000) -> bank 5 A118/A119 -> the OS's own output
 program of master DSP A (at 0x82: A118/A119 -> DC filter -> x C004 -> 6000/6001). Found in the SH-2 and SH-101
-images and the OS 1.30 (study only, nothing copied; docs/examples_system_1_README.md section 2).
+images and the OS 1.30 (study only, nothing copied; examples/system_1/README.md section 2).
 
 C-V4's flow on SYSTEM-8 was DSP0/1 pitch -> DSP2/3 saw slot -> DSP4/5 gate -> 6020. Here one DSP does it all:
 
@@ -3129,7 +3129,7 @@ Environment: `VOICES` (default '4')
 
 ```
 Read C-S1RAMP's reports (model.c ramp_report: SysEx F0 7D 07) and show what master DSP B measured of each FCE4
-ramp (docs/examples_system_1_ramp_README.md).
+ramp (examples/system_1_ramp/README.md).
 
     python3 examples/system_1_ramp/ramp.py -t 300 --log work/captures/ramp.txt   listen (C-S1RAMP selected)
     python3 examples/system_1_ramp/ramp.py --file work/captures/ramp.txt         decode a saved log again
@@ -3174,7 +3174,7 @@ Options (environment variables):
                   0 the first all-at-once design (silent on the device; reference only)
   SCHED=0|1     schedule with asm/dspsched.py instead of pack() (default 1 from STEP 12)
   FUSE=0|1      fuse independent ops into one instruction as Roland (default 1 from STEP 11, docs/
-                MICROCODE_OPTIMIZATION.md); every build runs tools/check_optimized.py on the programs
+                docs/vol3_voice_allocation_scheduling/microcode_optimization.md); every build runs tools/check_optimized.py on the programs
   FOLD=1        (with STEP=13) the triangle of each oscillator wavefolded by its COLOR knob (0x168 / 0x16D);
                 FOLD_MAX=x = gain at COLOR 255 (default 5). Doc §7.5
   PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit
@@ -3206,7 +3206,7 @@ Examples:
 ### `examples/system_1_synth/make_synth.py`
 
 ```
-C-S1SY: an 8-voice subtractive synth for the SYSTEM-1, all our own microcode (docs/examples_system_1_synth_README.md).
+C-S1SY: an 8-voice subtractive synth for the SYSTEM-1, all our own microcode (examples/system_1_synth/README.md).
 
 Extends C-S1V8 (examples/system_1): per voice two independent oscillators (wave + level each, DCO2 detuned), an
 ADSR VCA, a 4-pole low-pass filter (cutoff, resonance, key track) and a second ADSR for the cutoff.
@@ -3235,7 +3235,7 @@ Environment: `CHDIAG`, `CHFRAC` (default 'mod2'), `ENS` (default '2'), `FOLD` (d
 ### `examples/system_1_synth/paramlog.py`
 
 ```
-Listen to a PARAMLOG build and list the parameters the device hands to the PLUG-OUT model (docs/examples_system_1_README.md §6).
+Listen to a PARAMLOG build and list the parameters the device hands to the PLUG-OUT model (examples/system_1/README.md §6).
 
 The PARAMLOG build of C-S1V4 (PARAMLOG=1 build.sh) sends one SysEx per call of the model's vt+0x30:
     F0 7D 06 <id >> 7> <id & 7F> <flag> <value: bits 31-28, 27-21, 20-14, 13-7, 6-0> F7
@@ -3262,7 +3262,7 @@ Uses `amidi -d` (alsa-utils). Do not run it while another tool talks to the devi
 ### `examples/system_1_jx/build.sh`
 
 ```
-C-S1JX: the JX-3P's own DSP microcode (one DCO, 4 voices) on the SYSTEM-1 (docs/examples_system_1_jx_README.md).
+C-S1JX: the JX-3P's own DSP microcode (one DCO, 4 voices) on the SYSTEM-1 (examples/system_1_jx/README.md).
 examples/system_1_jx/build.sh            -> plugins/C-S1JX/Script/Code1.Dat (and Code.Dat, the same file)
 SLAVE_TEST=1 NAME=C-S1JXS ...             diagnostic: JX-3P on the slave only, minimal master program (model.c)
 RUNTIME_MODEL=1 ...                       the parameter model evaluated on the ARM (soft float) instead of the table
@@ -3322,8 +3322,8 @@ Environment: `DSPTEST`
 ### `examples/system_1_jx/s1jx.py`
 
 ```
-C-S1JX: the JX-3P's own DSP microcode (one DCO) on the SYSTEM-1, 4 voices (system-1/DSP_FIT.md, docs in
-docs/examples_system_1_jx_README.md).
+C-S1JX: the JX-3P's own DSP microcode (one DCO) on the SYSTEM-1, 4 voices (docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md, docs in
+examples/system_1_jx/README.md).
 
 The JX-3P's six SYSTEM-8 slave DSPs become the four DSPs of the SYSTEM-1, one chain of two voices per chip:
 
@@ -3357,7 +3357,7 @@ Environment: `DCO1` (default 'saw'), `NOJUMP` (default ''), `TRUNC` (default '')
 ### `examples/system_1_jx/sigdiff.py`
 
 ```
-Instruction signatures of the C-S1JX programs that no Roland SYSTEM-1 program has (docs/examples_system_1_jx_README.md
+Instruction signatures of the C-S1JX programs that no Roland SYSTEM-1 program has (examples/system_1_jx/README.md
 section 12).
 
     python3 sigdiff.py              # the final programs of the plan (as the build makes them)
@@ -3389,20 +3389,20 @@ Features of one instruction (each one checked on its own, then the whole signatu
 
 ```
 When each bank-5 mailbox word between the two DSPs of a SYSTEM-1 chip is written and read inside the sample, against
-the latency the SYSTEM-8 had (docs/examples_system_1_jx_README.md section 13).
+the latency the SYSTEM-8 had (examples/system_1_jx/README.md section 13).
 
     python3 timing.py [samples]     # default 300 samples of the emulated SYSTEM-1 layout, random inputs
 
 The two DSPs of a chip (master A/B, slave A/B) run AT THE SAME TIME on the device and share bank 5. A word that one
 writes and the other reads is seen in the same sample only if the write comes before the read in cycles (1 cycle per
-instruction, docs/DSP_HARDWARE.md). The emulator runs the DSPs one after the other, so it cannot show this: here the
+instruction, docs/vol2_dsp_core_isa/core_architecture.md). The emulator runs the DSPs one after the other, so it cannot show this: here the
 executed instruction sequence of every DSP comes from the emulator's trace, and the cycle of each instruction is its
 position in that sequence plus the programs the OS runs before ours (frame header at 0x0000; master A: the output
 program at 0x82). [inferred] both DSPs of a chip start the sample on the same cycle; the exact visibility edge
 (pipeline) is a few cycles, hence the margin.
 
 Latency the S8 had, per mailbox kind (s1jx.py Plan keys):
-  MZ / MS  MXM: 1 sample (latched bus, DSP_HARDWARE.md)
+  MZ / MS  MXM: 1 sample (latched bus, docs/vol2_dsp_core_isa/core_architecture.md)
   DCO      main -> its DCO slot: 0 (same S8 DSP, the main ran first); DCO -> main: 1 (the main reads it at +1 of the
            bank-1 ring, the value of the sample before)
   REG      r2 / r3 handoff (main -> DCO): 0
@@ -3410,12 +3410,12 @@ Verdict per word: OK (S1 latency = S8), LATE (S1 one sample later), EARLY (S1 se
 before) or RACE (writes and reads interleave, or the margin is under MARGIN cycles: depends on the exact timing).
 ```
 
-## Mutable Instruments port toolkit (docs/MUTABLE_SDK.md) (`sdk/mport/`)
+## Mutable Instruments port toolkit (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md) (`sdk/mport/`)
 
 ### `sdk/mport/bench.py`
 
 ```
-A component alone on one emulated DSP (docs/MUTABLE_SDK.md §6): the port measured without a host program.
+A component alone on one emulated DSP (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §6): the port measured without a host program.
 
     import bench
     out, info = bench.run(SawSwarm(), note=69, knobs={'ratio': 128, 'hp': 0}, n=9600)
@@ -3430,7 +3430,7 @@ runs on the C core of the emulator (examples/from_scratch/emu/cchain.py).
 ### `sdk/mport/cli.py`
 
 ```
-sdk/mport command line (docs/MUTABLE_SDK.md §8).
+sdk/mport command line (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §8).
 
 python3 sdk/mport/cli.py list                         ported components
 python3 sdk/mport/cli.py check saw_swarm              port vs the original C++ (and the integer model)
@@ -3457,13 +3457,13 @@ python3 sdk/mport/cli.py lut braids ws_moderate_overdrive --odd 9 [--xmax 0.875]
 ### `sdk/mport/compare.py`
 
 ```
-Port against reference: the numbers port-check prints (docs/MUTABLE_SDK.md §6).
+Port against reference: the numbers port-check prints (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §6).
 ```
 
 ### `sdk/mport/component.py`
 
 ```
-What a ported component is (docs/MUTABLE_SDK.md §5).
+What a ported component is (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §5).
 
 A Mutable Instruments render function splits in two:
 
@@ -3491,7 +3491,7 @@ MUTABLE-SYSTEM example (examples/mutable_system).
 ### `sdk/mport/kernel.py`
 
 ```
-Per-sample kernels written with values instead of registers -> our DSP microcode (docs/MUTABLE_SDK.md §3).
+Per-sample kernels written with values instead of registers -> our DSP microcode (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §3).
 
 A ported component describes its sample loop as operations on values; the kernel picks the registers, writes one
 unit per line (the form every generator of this repo writes: make_synth.py, make_poly.py) and puts the load-delay
@@ -3512,7 +3512,7 @@ Operations (x: a value; y: a value, -value (negated register) or a number = imme
     min(x, y), max(x, y)       mov(y)                     wrap(x): into [-1, 1)
     tri(x) = 1 - 2 |wrap(-x - 1.5)|   clamp(x) to [-1, 1]  (the phase ops of unit B, Roland's form X = r3)
 
-Semantics kept from the hardware (DSP_ISA.md §9): all units of an instruction read before they write (a result may
+Semantics kept from the hardware (docs/vol2_dsp_core_isa/isa_overview.md §9): all units of an instruction read before they write (a result may
 take the register of an operand that dies there); a loaded register is usable one instruction later (filler in the
 plain program, removed by the scheduler). Only op kinds already run on the SYSTEM-1 are emitted (the OPS set of
 dspsched; asm/proven_forms.txt for the fused pairs).
@@ -3521,7 +3521,7 @@ dspsched; asm/proven_forms.txt for the fused pairs).
 ### `sdk/mport/lut.py`
 
 ```
-Lookup tables of the Mutable Instruments sources -> what our DSP can run (docs/MUTABLE_SDK.md §4).
+Lookup tables of the Mutable Instruments sources -> what our DSP can run (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §4).
 
 The modules read their curves from int16 / uint16 tables in resources.cc (generated by resources/*.py). On our DSP
 an audio-rate table read costs an indexed load and a hidden-register set per point; a short polynomial costs a few
@@ -3542,9 +3542,9 @@ Environment: `EURORACK` (default os.path.expanduser('~/git/eurorack')
 ### `sdk/mport/mi.py`
 
 ```
-Mutable Instruments' fixed-point conventions -> the number model of our DSP (docs/MUTABLE_SDK.md §2).
+Mutable Instruments' fixed-point conventions -> the number model of our DSP (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §2).
 
-Our DSP computes with signed numbers up to +-512 (29-bit mantissa, results truncated toward zero; DSP_HARDWARE.md),
+Our DSP computes with signed numbers up to +-512 (29-bit mantissa, results truncated toward zero; docs/vol2_dsp_core_isa/core_architecture.md),
 at 96 kHz like Braids. Each MI quantity has one place in that model:
 
   MI (Braids / Plaits)                          here
@@ -3564,7 +3564,7 @@ runs at build time in Python, at every knob value, and reaches the DSP as parame
 ### `sdk/mport/reference.py`
 
 ```
-Reference renders from the original Mutable Instruments C++ (docs/MUTABLE_SDK.md §6).
+Reference renders from the original Mutable Instruments C++ (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §6).
 
 The eurorack checkout (EURORACK, default ~/git/eurorack) is compiled as it is, with the small stmlib stand-ins of
 sdk/mport/ref/stmlib (the submodule is empty there). The binary goes to sdk/mport/build/ (not in git) and is rebuilt
@@ -3574,12 +3574,12 @@ when a source is newer.
     x = reference.braids(shape=1, note=69, p1=16000, p2=10922, n=9600)    # numpy float array, int16 / 32768
 ```
 
-## s1cc glue: kernel placement and emulator check (docs/S1CC.md) (`sdk/s1cc/tools/`)
+## s1cc glue: kernel placement and emulator check (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) (`sdk/s1cc/tools/`)
 
 ### `sdk/s1cc/tools/s1check.py`
 
 ```
-s1cc check: a built kernel on the emulator against the native reference of the same C / C++ (docs/S1CC.md §10).
+s1cc check: a built kernel on the emulator against the native reference of the same C / C++ (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §10).
 
     sdk/s1cc/s1cc check OUTDIR [--note 57] [--n 9600] [name=knob ...] [--show]
 
@@ -3607,7 +3607,7 @@ scheduled with asm/dspsched.py (only the proven op groups unless --all-forms). P
 ### `sdk/s1cc/tools/s1kernel.py`
 
 ```
-Reading an s1cc kernel (.s1k, docs/S1CC.md §8) and placing it at real addresses: the glue between s1cc (C++)
+Reading an s1cc kernel (.s1k, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §8) and placing it at real addresses: the glue between s1cc (C++)
 and the repo's Python assembler / scheduler / emulator. Used by s1check.py and by examples that embed a kernel
 (examples/mutable_system OSC=...).
 
@@ -3626,7 +3626,7 @@ usage: [VAR=value ...] sh examples/mutable_system/build.sh [--help]
 Builds MUTABLE-SYSTEM for the SYSTEM-1 -> plugins/<NAME>/Script/Code1.Dat (and Code.Dat, the same file):
 C-S1SY13F (examples/system_1_synth: LFO, ADSRs, 4-pole low-pass, OS delay / reverb) with Braids' SAW_SWARM
 (7 detuned saws, tanh waveshaper, high-pass) in place of DCO1 + DCO2, ported with sdk/mport
-(docs/examples_mutable_system_README.md, docs/MUTABLE_SDK.md).
+(examples/mutable_system/README.md, docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md).
 Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force --no-patches -y
 Then select the PLUG-OUT on the panel.
 
@@ -3637,7 +3637,7 @@ is C-S1SY13's.
 Options (environment variables):
   KERNEL=DIR    a voice compiled from C / C++ by s1cc (sdk/s1cc/s1cc build ... -o DIR) instead of the oscillator:
                 its DSP A code on DSP A, its DSP B code first in the voice of DSP B, its S1_PARAM tables on their panel ids
-                (docs/S1CC.md §12, e.g. KERNEL=sdk/s1cc/build/braids_saw_swarm_s1 NAME=MUTABLE-S1CC)
+                (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §12, e.g. KERNEL=sdk/s1cc/build/braids_saw_swarm_s1 NAME=MUTABLE-S1CC)
   SWARM=0|1     1 (default without KERNEL): SAW_SWARM written in Python (sdk/mport); 0: C-S1SY's DCO1 + DCO2
   WS_DEGREE=n   degree of the odd polynomial that replaces Braids' ws_moderate_overdrive table (default 9:
                 21 LSB worst case; 7: 97 LSB, 2 instructions per voice less)
@@ -3657,7 +3657,7 @@ Examples:
 
 ```
 MUTABLE-SYSTEM: C-S1SY13F (examples/system_1_synth) with Braids' SAW_SWARM in place of DCO1 + DCO2, ported with
-the sdk/mport toolkit (docs/examples_mutable_system_README.md, docs/MUTABLE_SDK.md). A copy of make_synth.py: the
+the sdk/mport toolkit (examples/mutable_system/README.md, docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md). A copy of make_synth.py: the
 steps below are the history of C-S1SY, kept as they were; SWARM=1 (default) is what this example adds:
 
     slave A  per voice: LFO (step 11) -> pitch -> increment -> 7 saws + waveshaper (sdk component SawSwarm.osc)
@@ -3669,7 +3669,7 @@ steps below are the history of C-S1SY, kept as they were; SWARM=1 (default) is w
 
 The original header of make_synth.py follows.
 
-C-S1SY: an 8-voice subtractive synth for the SYSTEM-1, all our own microcode (docs/examples_system_1_synth_README.md).
+C-S1SY: an 8-voice subtractive synth for the SYSTEM-1, all our own microcode (examples/system_1_synth/README.md).
 
 Extends C-S1V8 (examples/system_1): per voice two independent oscillators (wave + level each, DCO2 detuned), an
 ADSR VCA, a 4-pole low-pass filter (cutoff, resonance, key track) and a second ADSR for the cutoff.
@@ -3698,7 +3698,7 @@ Environment: `CHDIAG`, `CHFRAC` (default 'mod2'), `ENS` (default '2'), `FOLD` (d
 ### `examples/mutable_system/paramlog.py`
 
 ```
-Listen to a PARAMLOG build and list the parameters the device hands to the PLUG-OUT model (docs/examples_system_1_README.md §6).
+Listen to a PARAMLOG build and list the parameters the device hands to the PLUG-OUT model (examples/system_1/README.md §6).
 
 The PARAMLOG build of C-S1V4 (PARAMLOG=1 build.sh) sends one SysEx per call of the model's vt+0x30:
     F0 7D 06 <id >> 7> <id & 7F> <flag> <value: bits 31-28, 27-21, 20-14, 13-7, 6-0> F7
@@ -3729,17 +3729,17 @@ usage: KERNEL=DIR [VAR=value ...] sh examples/system_s1cc/build.sh [--help]
 
 Builds SYSTEM-S1CC for the SYSTEM-1 -> plugins/<NAME>/Script/Code1.Dat (and Code.Dat, the same file): the voice is
 an s1cc kernel and nothing else (S1_DSP_A on the slave's DSP A, S1_DSP_B on its DSP B); the master only applies
-VOLUME and sends the mix through the OS delay / reverb (docs/examples_system_s1cc_README.md).
+VOLUME and sends the mix through the OS delay / reverb (examples/system_s1cc/README.md).
 Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force --no-patches -y
 Then select the PLUG-OUT on the panel.
 
 Panel: the kernel's S1_PARAM tables on their panel ids (sdk/s1cc/include/s1panel.h; row 128 until the control
 moves); VOLUME, DELAY and REVERB as the OS does them. A kernel that calls s1_color also gets OSC1 / OSC2 COLOR with
 COLOR MOD (manual, LFO, pitch env, filter env, amp env, sub osc) and the LFO SHAPE / RATE and PITCH ENV A / D
-controls (docs/examples_system_s1cc_README.md §3.2); every other control does nothing.
+controls (examples/system_s1cc/README.md §3.2); every other control does nothing.
 
 Options (environment variables; every one but KERNEL may also come from the kernel's C source,
-S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment variable wins):
+S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.3; an environment variable wins):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
   (the number of voices is not an option: make_s1cc.py VOICES=auto computes the most, 8 down to 1, whose slave
   programs fit the measured limits, instructions per sample and the 6 KiB of the main program, before it builds,
@@ -3754,26 +3754,26 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
                 on the device: python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by NAME
   LFO_PITCH=0   the host LFO does not modulate the pitch / s1_dt / s1_rdt words (saves ~18 instructions per voice)
   LFO_LUT=1     the host LFO's shapes from bank-5 tables (sine, triangle, saw; square = clamp(256 saw)): ~3 more
-                DSP B instructions per voice; the sine is a true sine (docs/examples_system_s1cc_README.md §3.6)
+                DSP B instructions per voice; the sine is a true sine (examples/system_s1cc/README.md §3.6)
   SPLIT=auto|n  a kernel built with s1cc --fused: voices 0..n-1 run the whole voice on DSP A, the rest on DSP B;
-                auto (default) balances the two DSPs (docs/examples_system_s1cc_README.md §1.3)
-  EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.5):
+                auto (default) balances the two DSPs (examples/system_s1cc/README.md §1.3)
+  EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5):
                 the kernel makes the excitation; AMP DECAY / AMP RELEASE = feedback held / released, FILTER CUTOFF =
                 brightness (sdk/s1cc/examples/edm/edm_string.c)
-  EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.8, §4.4):
+  EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8, §4.4):
                 WT_WAV=file (Serum WAV, frames of 2048), filled at the first notes, OSC1 COLOR = position. The frames
                 that fit are kept from the start, the rest dropped with a warning: at most 127 (the delay line), and
                 as many as region 0 holds (the build retries with fewer, WT_MAXF=n to set it)
-  EDM_PORT=r|w|d  probe of the ARM's indirect port to the delay memory (docs/MUTABLE_MEMORY.md §3.3.7), needs
+  EDM_PORT=r|w|d  probe of the ARM's indirect port to the delay memory (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.7), needs
                 PARAMLOG=1: at every note region 0 reads 64 words over 4M + a test block and logs them; w: also
                 writes 64 words at the first note (EDM_PORT_W0=n, default 0x380000) and reads them back;
                 d: the port registers before / after one read, restored after it; p: only the counter +0x48
   SL_LOAD=1  (SL_WT=b5) load a new bank-5 frame over USB without reinstalling: the PC (tools/wt_load.py) sends
-                the 127 samples, region 1 writes them into A080.. with FD6C (engine.c wt_load.h, docs/MUTABLE_MEMORY.md
+                the 127 samples, region 1 writes them into A080.. with FD6C (engine.c wt_load.h, docs/vol6_reference_designs_applications/mutable_memory.md
                 §4.5). UNPROVEN on hardware (2026-11-06); _TEST until it is
   MA_MAIN=0     do not load our (empty) master DSP A main at 0x0100 (default 1: load it, as the stock PLUG-OUTs do;
                 without it master A runs what an earlier mode left there, which overwrites the master -> slave words
-                600E..6021: docs/MUTABLE_MEMORY.md §4.3)
+                600E..6021: docs/vol6_reference_designs_applications/mutable_memory.md §4.3)
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
 
@@ -3807,7 +3807,7 @@ Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force -
 ### `examples/system_s1cc/make_s1cc.py`
 
 ```
-SYSTEM-S1CC: a SYSTEM-1 PLUG-OUT that is only an s1cc kernel (docs/examples_system_s1cc_README.md).
+SYSTEM-S1CC: a SYSTEM-1 PLUG-OUT that is only an s1cc kernel (examples/system_s1cc/README.md).
 
 No oscillator, envelope, filter or LFO of its own: everything a voice does is the kernel's C (sdk/s1cc). Around it
 only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the hardware:
@@ -3827,13 +3827,13 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                             the build counts; a binary search on it, then one build, and one voice less only if that
                             build still does not fit)
     BUDGET_A=n, BUDGET_B=n  instructions per sample the slave's DSP A / DSP B may have, measured on the device
-                            (docs/examples_system_1_synth_README.md §4): DSP A 703 ran (MP-CSAW 8 voices,
+                            (examples/system_1_synth/README.md §4): DSP A 703 ran (MP-CSAW 8 voices,
                             2026-10-28), 826 hung; DSP B 708 ran. Defaults 703 / 708. BUDGET=n sets both
     MAIN_BYTES=n            the size each slave main program may have: 6144 bytes, its region 0x0100..0x18FF before
-                            section 2 (docs/DSP_PROGRAM_MEMORY.md §3.1); 5854 bytes ran, 6534 and 6740 hung the
+                            section 2 (docs/vol3_voice_allocation_scheduling/slot_program_model.md §3.1); 5854 bytes ran, 6534 and 6740 hung the
                             device (2026-10-28). Above a budget or the size the build stops (exit code 3)
     SPLIT=auto|n            a fused kernel (s1cc --fused): the kernel of voices 0..n-1 on DSP A, the rest on DSP B;
-                            auto: the n that leaves the busier DSP least loaded (docs/examples_system_s1cc_README.md §1.3)
+                            auto: the n that leaves the busier DSP least loaded (examples/system_s1cc/README.md §1.3)
     OUTDIR=dir              where everything generated goes: the programs (.s / .hex), s1_programs.h,
                             try_forms.txt (default: build/ next to this file, build.sh's folder)
 

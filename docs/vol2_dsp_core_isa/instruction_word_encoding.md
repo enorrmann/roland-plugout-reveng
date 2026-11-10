@@ -1,5 +1,7 @@
 # Volume II — Chapter 3: Instruction Encoding (DSP ISA specification, part 1: §1–§5)
 
+> **Scope:** both (same ISA); measured on the SYSTEM-8 unless stated.
+
 > Part 1 of the ISA specification (§1–§5), for assembler and compiler writers. Part 2 (§6–§14: ALU / MAC semantics,
 > predication, transfers and memory, execution semantics, encoding examples, the template table, method and open
 > items) is [Vol. II ch. 4](instruction_set_reference.md). A reference "§n" with n ≤ 5 points to this chapter, n ≥ 6

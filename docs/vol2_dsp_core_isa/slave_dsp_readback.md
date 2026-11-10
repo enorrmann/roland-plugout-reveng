@@ -1,5 +1,7 @@
 # Volume II — Chapter 11: Reading the Memory of the Slave DSPs (investigation, 2026-10-21)
 
+> **Scope:** SYSTEM-8. On the SYSTEM-1 there is no read path from the PC either ([Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §6.7).
+
 Goal: to be able to read, from the host, the memory of a DSP of a slave BMC (program, bank 0, bank 5, bank 6) to
 compare it with a simulator. Without this MAIN0, which runs on the voices (slaves), cannot be validated.
 

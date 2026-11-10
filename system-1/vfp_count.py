@@ -6,7 +6,7 @@
 Scans every halfword pair as Thumb-2: coprocessor instructions (first halfword ECxx/EDxx/EExx, the forms a
 compiler emits; FFxx/EFxx match mostly data) whose coprocessor
 field is 10 or 11 (VFP single / double). Data words also match by chance, so a count of about 1 per 10 KiB is the
-noise floor; real VFP code gives tens per 10 KiB. Result and interpretation: system-1/ARCHITECTURE.md §1.1.
+noise floor; real VFP code gives tens per 10 KiB. Result and interpretation: docs/vol1_system_architecture/soc_overview.md §6.3.
 """
 import os
 import struct

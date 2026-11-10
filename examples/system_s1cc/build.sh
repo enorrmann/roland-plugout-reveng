@@ -1,5 +1,5 @@
 #!/bin/sh
-# SYSTEM-S1CC: a SYSTEM-1 PLUG-OUT that is only an s1cc kernel (docs/examples_system_s1cc_README.md). sh build.sh --help
+# SYSTEM-S1CC: a SYSTEM-1 PLUG-OUT that is only an s1cc kernel (examples/system_s1cc/README.md). sh build.sh --help
 # Needs arm-none-eabi-gcc/ld/objcopy and Python 3 with numpy. No Roland file is read.
 usage() {
     cat <<'TXT'
@@ -7,17 +7,17 @@ usage: KERNEL=DIR [VAR=value ...] sh examples/system_s1cc/build.sh [--help]
 
 Builds SYSTEM-S1CC for the SYSTEM-1 -> plugins/<NAME>/Script/Code1.Dat (and Code.Dat, the same file): the voice is
 an s1cc kernel and nothing else (S1_DSP_A on the slave's DSP A, S1_DSP_B on its DSP B); the master only applies
-VOLUME and sends the mix through the OS delay / reverb (docs/examples_system_s1cc_README.md).
+VOLUME and sends the mix through the OS delay / reverb (examples/system_s1cc/README.md).
 Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force --no-patches -y
 Then select the PLUG-OUT on the panel.
 
 Panel: the kernel's S1_PARAM tables on their panel ids (sdk/s1cc/include/s1panel.h; row 128 until the control
 moves); VOLUME, DELAY and REVERB as the OS does them. A kernel that calls s1_color also gets OSC1 / OSC2 COLOR with
 COLOR MOD (manual, LFO, pitch env, filter env, amp env, sub osc) and the LFO SHAPE / RATE and PITCH ENV A / D
-controls (docs/examples_system_s1cc_README.md §3.2); every other control does nothing.
+controls (examples/system_s1cc/README.md §3.2); every other control does nothing.
 
 Options (environment variables; every one but KERNEL may also come from the kernel's C source,
-S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment variable wins):
+S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.3; an environment variable wins):
   KERNEL=DIR    required: an s1cc build directory (sdk/s1cc/s1cc build VOICE.c ... -o DIR)
   (the number of voices is not an option: make_s1cc.py VOICES=auto computes the most, 8 down to 1, whose slave
   programs fit the measured limits, instructions per sample and the 6 KiB of the main program, before it builds,
@@ -32,26 +32,26 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/S1CC.md §3.3; an environment vari
                 on the device: python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by NAME
   LFO_PITCH=0   the host LFO does not modulate the pitch / s1_dt / s1_rdt words (saves ~18 instructions per voice)
   LFO_LUT=1     the host LFO's shapes from bank-5 tables (sine, triangle, saw; square = clamp(256 saw)): ~3 more
-                DSP B instructions per voice; the sine is a true sine (docs/examples_system_s1cc_README.md §3.6)
+                DSP B instructions per voice; the sine is a true sine (examples/system_s1cc/README.md §3.6)
   SPLIT=auto|n  a kernel built with s1cc --fused: voices 0..n-1 run the whole voice on DSP A, the rest on DSP B;
-                auto (default) balances the two DSPs (docs/examples_system_s1cc_README.md §1.3)
-  EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.5):
+                auto (default) balances the two DSPs (examples/system_s1cc/README.md §1.3)
+  EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5):
                 the kernel makes the excitation; AMP DECAY / AMP RELEASE = feedback held / released, FILTER CUTOFF =
                 brightness (sdk/s1cc/examples/edm/edm_string.c)
-  EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/MUTABLE_MEMORY.md §3.3.8, §4.4):
+  EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8, §4.4):
                 WT_WAV=file (Serum WAV, frames of 2048), filled at the first notes, OSC1 COLOR = position. The frames
                 that fit are kept from the start, the rest dropped with a warning: at most 127 (the delay line), and
                 as many as region 0 holds (the build retries with fewer, WT_MAXF=n to set it)
-  EDM_PORT=r|w|d  probe of the ARM's indirect port to the delay memory (docs/MUTABLE_MEMORY.md §3.3.7), needs
+  EDM_PORT=r|w|d  probe of the ARM's indirect port to the delay memory (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.7), needs
                 PARAMLOG=1: at every note region 0 reads 64 words over 4M + a test block and logs them; w: also
                 writes 64 words at the first note (EDM_PORT_W0=n, default 0x380000) and reads them back;
                 d: the port registers before / after one read, restored after it; p: only the counter +0x48
   SL_LOAD=1  (SL_WT=b5) load a new bank-5 frame over USB without reinstalling: the PC (tools/wt_load.py) sends
-                the 127 samples, region 1 writes them into A080.. with FD6C (engine.c wt_load.h, docs/MUTABLE_MEMORY.md
+                the 127 samples, region 1 writes them into A080.. with FD6C (engine.c wt_load.h, docs/vol6_reference_designs_applications/mutable_memory.md
                 §4.5). UNPROVEN on hardware (2026-11-06); _TEST until it is
   MA_MAIN=0     do not load our (empty) master DSP A main at 0x0100 (default 1: load it, as the stock PLUG-OUTs do;
                 without it master A runs what an earlier mode left there, which overwrites the master -> slave words
-                600E..6021: docs/MUTABLE_MEMORY.md §4.3)
+                600E..6021: docs/vol6_reference_designs_applications/mutable_memory.md §4.3)
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
 
@@ -78,7 +78,7 @@ MODEL_ID=${MODEL_ID:-$(kopt MODEL_ID)}
 MODEL_ID=${MODEL_ID:-0x0010}
 [ -n "${PARAMLOG+x}" ] || PARAMLOG=$(kopt PARAMLOG)
 [ "$PARAMLOG" = 0 ] && PARAMLOG=
-# EDM_KS=1 (docs/MUTABLE_MEMORY.md §3.3): region 0 makes the OS's delay a Karplus string at the last note's period;
+# EDM_KS=1 (docs/vol6_reference_designs_applications/mutable_memory.md §3.3): region 0 makes the OS's delay a Karplus string at the last note's period;
 # EDM_SCALE = bank-5 A101 value per sample of delay (1/16384: the line's address unit, measured)
 [ -n "${EDM_KS+x}" ] || EDM_KS=$(kopt EDM_KS)
 [ "$EDM_KS" = 0 ] && EDM_KS=
@@ -93,11 +93,11 @@ EDM_FB=${EDM_FB:-0.975}
 [ "$EDM_CALL" = 0 ] && EDM_CALL=
 [ -n "$EDM_CALL" ] && EDM_TAP=1
 # EDM_ECF=1 (make_s1cc.py option): two lines of our own in the delay memory; region 0 maps their bank-2 words in
-# master B's map table (model.c edm_ecf, docs/MUTABLE_MEMORY.md §3.3.4)
+# master B's map table (model.c edm_ecf, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.4)
 [ -n "${EDM_ECF+x}" ] || EDM_ECF=$(kopt EDM_ECF)
 [ "$EDM_ECF" = 0 ] && EDM_ECF=
 # EDM_STR=1 (make_s1cc.py option): a Karplus string per voice in its own delay-memory line (model.c edm_str,
-# microcode/edm_str.s, docs/MUTABLE_MEMORY.md §3.3.5)
+# microcode/edm_str.s, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5)
 [ -n "${EDM_STR+x}" ] || EDM_STR=$(kopt EDM_STR)
 [ "$EDM_STR" = 0 ] && EDM_STR=
 # EDM_GLIDE=1 (with EDM_KS): region 0 patches the effect's delay-time smoothing in the OS's copy of its master-B set
@@ -107,7 +107,7 @@ EDM_FB=${EDM_FB:-0.975}
 [ -n "${EDM_WT+x}" ] || EDM_WT=$(kopt EDM_WT)
 [ "$EDM_WT" = 0 ] && EDM_WT=
 # SL_LOAD=1 (SL_WT=b5): load a new bank-5 frame over USB without reinstalling (engine.c wt_load.h, tools/wt_load.py,
-# docs/MUTABLE_MEMORY.md §4.5). UNPROVEN on hardware as of 2026-11-06
+# docs/vol6_reference_designs_applications/mutable_memory.md §4.5). UNPROVEN on hardware as of 2026-11-06
 [ -n "${SL_LOAD+x}" ] || SL_LOAD=$(kopt SL_LOAD)
 [ "$SL_LOAD" = 0 ] && SL_LOAD=
 # WTL_WITNESS_TEST=1 (with SL_LOAD): diagnostic -- a transport id arriving at region 1 writes an audible frame
@@ -127,7 +127,7 @@ rm -f "$B"/s1mb?.*                      # EDM_ENTRY's program: only when this bu
 VOICES=auto OUTDIR="$B" python3 "$HERE/make_s1cc.py" > "$B/make_s1cc.log" 2>&1 || { cat "$B/make_s1cc.log"; exit 1; }
 cat "$B/make_s1cc.log"
 NV=$(sed -n 's/^#define NV \([0-9]*\)$/\1/p' "$B/s1_programs.h")
-python3 "$ROOT/tools/check_optimized.py" "$B"/s1m0.s "$B"/s1m1.s $(ls "$B"/s1a?.s "$B"/s1b?.s 2>/dev/null) "$B"/s1mm1.s || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
+python3 "$ROOT/tools/check_optimized.py" "$B"/s1m0.s "$B"/s1m1.s $(ls "$B"/s1a?.s "$B"/s1b?.s 2>/dev/null) "$B"/s1mm1.s || true    # warnings: unoptimized microcode (docs/vol3_voice_allocation_scheduling/microcode_optimization.md)
 if [ -n "$EDM_KS" ]; then
     python3 - "$B/edm_ks.h" "$EDM_SCALE" "$EDM_FB" <<'PY'
 import struct, sys
@@ -212,5 +212,5 @@ python3 "$ROOT/tools/plugout_build.py" show "$OUT/Code1.Dat"
 echo "plugin folder: $ROOT/plugins/$NAME"
 echo "$NAME: $NV voices"
 if [ -n "$EDM_WT" ]; then
-    sed -n 's|^/\* EDM_WT (microcode/edm_wt.s, docs/MUTABLE_MEMORY.md §3.3.8): \(.*\) \*/$|wavetable: \1|p' "$B/s1_programs.h"
+    sed -n 's|^/\* EDM_WT (microcode/edm_wt.s, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8): \(.*\) \*/$|wavetable: \1|p' "$B/s1_programs.h"
 fi

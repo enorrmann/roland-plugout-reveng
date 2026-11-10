@@ -1,5 +1,7 @@
 # Volume VI — Chapter 2: C-S1V4 / C-S1V8 — the Own PLUG-OUT C-V4 Ported to the SYSTEM-1
 
+> **Scope:** SYSTEM-1.
+
 > The full description (Spanish: use, SYSTEM-1 PLUG-OUT interface, audio chain, test order, risks, parameter capture
 > PARAMLOG, eight voices) is [examples/system_1/README.md](../../examples/system_1/README.md); every fact below comes
 > from it unless another source is named; section numbers in parentheses are those of the README.
@@ -49,7 +51,7 @@ master DSP A  (the OS's program at 0x82): A118 / A119 -> DC filter -> x C004 -> 
 
 If the model loads nothing on master B, the PLUG-OUT is silent: that is why `model.c` loads its own DSP-B program at
 `0x1000`, as the SH-2 does (§2.2). The verified microcode of `s1m1` and `s1mm1` is reproduced in
-[system-1/WAVE_BUS.md](../../system-1/WAVE_BUS.md) §4.1 and §5.1; the first voice of `s1m0` in
+[Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §14.1 and §5.1; the first voice of `s1m0` in
 [Vol. III ch. 2](../vol3_voice_allocation_scheduling/system1_voice_allocation.md) §5.1.
 
 | program | where | what it does (§2.3) |
@@ -66,9 +68,8 @@ A 440 → 440 crossings per second, a 4-note chord reaches 0.78 peak, no notes g
 and switches off the OS's eight voice sections (`FC44(i, 0)`). The comparison main-vs-sections is in §2.4 of the
 README and in [Vol. III ch. 3](../vol3_voice_allocation_scheduling/slot_program_model.md) §3.
 
-> Note: §2.4 of the README gives "about 925 instructions per sample and DSP" for the SYSTEM-1 (the SYSTEM-8 figure).
-> The later measurement on the SYSTEM-1 slave is 703 ran / 826 hung for DSP A and 708 ran for DSP B
-> ([Vol. III ch. 4](../vol3_voice_allocation_scheduling/execution_timing_budgets.md) §2).
+Time per sample on the SYSTEM-1 slave: DSP A 703 instructions ran, 826 hung; DSP B 708 ran
+([Vol. III ch. 4](../vol3_voice_allocation_scheduling/execution_timing_budgets.md) §2).
 
 ## 4. Eight voices: C-S1V8 (§7)
 

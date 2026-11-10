@@ -1,4 +1,4 @@
-/* native_new.c: the native ops measured on the SYSTEM-8 on 2026-10-29, as s1cc uses them (docs/NATIVE_OPS.md):
+/* native_new.c: the native ops measured on the SYSTEM-8 on 2026-10-29, as s1cc uses them (docs/vol2_dsp_core_isa/native_ops.md):
  * s1_mac2 with a constant factor (the MAC's immediate coefficient K) and with two (Y immediate and K), s1_sqrt and
  * s1_rsqrt (sqrtsplit + Newton). The voice is a mix of the results; tests/test_s1cc.py compares it sample by sample
  * with the C reference (SNR) and checks the ops are there (the kernel listing).

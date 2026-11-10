@@ -1,4 +1,4 @@
-"""Listen to a PARAMLOG build and list the parameters the device hands to the PLUG-OUT model (docs/examples_system_1_README.md §6).
+"""Listen to a PARAMLOG build and list the parameters the device hands to the PLUG-OUT model (examples/system_1/README.md §6).
 
 The PARAMLOG build of C-S1V4 (PARAMLOG=1 build.sh) sends one SysEx per call of the model's vt+0x30:
     F0 7D 06 <id >> 7> <id & 7F> <flag> <value: bits 31-28, 27-21, 20-14, 13-7, 6-0> F7

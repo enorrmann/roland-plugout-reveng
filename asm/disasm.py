@@ -394,7 +394,7 @@ def mac_text(table, w1, w2, stream):
     The hardware reads the MAC's immediates at bytes of the slot array: Y at byte
     Y, the coefficient at byte C (+ 8 when bit 9 of the second word is set, the
     `...r` variants), W at byte W; Y a register or an immediate, with or without
-    transfers (measured 2026-10-29, docs/DSP_ISA_DISCREPANCIES.md D8). The text
+    transfers (measured 2026-10-29, docs/vol2_dsp_core_isa/isa_discrepancies.md D8). The text
     names the C field (`@C`).
     """
     form = forms_for(table, "M")[0]

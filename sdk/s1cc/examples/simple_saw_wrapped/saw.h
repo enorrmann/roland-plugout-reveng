@@ -1,4 +1,4 @@
-/* saw.h: a naive sawtooth oscillator, plain C (docs/examples_simple_saw_wrapped_README.md). Nothing of the DSP: it
+/* saw.h: a naive sawtooth oscillator, plain C (sdk/s1cc/examples/simple_saw_wrapped/README.md). Nothing of the DSP: it
  * could be any C library. The wrapper (simple_saw_wrapped.c) is the only file that knows about s1cc. */
 #ifndef SAW_H_
 #define SAW_H_

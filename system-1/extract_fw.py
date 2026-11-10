@@ -3,7 +3,7 @@
 extract_fw.py -- extract the SYSTEM-1 OS images (master app, slave app, updater).
 
 Two sources, both with the same region format as the PLUG-OUTs ("SYSTEM-1:..." 0x40-byte
-header + LZSS, docs/CUSTOM_PLUGOUTS.md §2-3):
+header + LZSS, docs/vol4_firmware_container_protocol/plugout_virtual_machine.md §2-3):
 
   * firmware/sys1_sys_v130/SYSTEM1_UPD.BIN  Roland's updater, 4 MiB flash image, NOT encrypted:
         0x000000 loader "ESC91.000" (raw)

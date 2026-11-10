@@ -1,6 +1,6 @@
 /* C-S1SY region 0 (the model; the same as C-S1V8's, examples/system_1/model.c): runs on the SYSTEM-1 master BMC, next to OS 1.30. Freestanding, no library, no
  * foreign code. Port of the C-V4 model (examples/from_scratch/model/model.c) to the SYSTEM-1 interface
- * (docs/examples_system_1_README.md section 3):
+ * (examples/system_1/README.md section 3):
  *
  *   SYNINFO +0x24 create, +0x28 destroy, +0x2C the key assigner, +0x30 the model object
  *   assigner  9-entry vtable: reset, changed, note_off, note_on, cc, part 0x81, bend, -, -
@@ -247,7 +247,7 @@ static void param_log(int id, int flag, int value)
 #endif
 
 #ifdef PARAMLOG
-/* FX diagnostic (system-1/FX_CHAIN.md §6): the parameter blocks of the master DSPs as the OS's set_param writes them
+/* FX diagnostic (docs/vol1_system_architecture/bus_interconnect.md §16.7): the parameter blocks of the master DSPs as the OS's set_param writes them
  * (0x01008D26: sel 0 -> 0x4014C000, sel 1 -> 0x4016C000, + 16 id; words +0 mode, +4 / +8 value, +C 0). Sent as
  * param_log(0x3000 + (sel << 8) + id, word index, word) for B C000..C03F and A C000..C00F. */
 static void fx_dump(void)

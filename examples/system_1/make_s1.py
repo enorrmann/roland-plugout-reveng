@@ -1,9 +1,9 @@
-"""C-S1V4: our own DSP programs for the SYSTEM-1 port of C-V4 (no Roland bytes; docs/examples_system_1_README.md).
+"""C-S1V4: our own DSP programs for the SYSTEM-1 port of C-V4 (no Roland bytes; examples/system_1/README.md).
 
 The SYSTEM-1 has two DSPs per BMC (A and B, queues 0x0100FC30 / 0x0100FC34), and in PLUG-OUT mode the audio goes
 slave DSP A/B -> IOMD 6006..600D -> master DSP B (program at 0x1000) -> bank 5 A118/A119 -> the OS's own output
 program of master DSP A (at 0x82: A118/A119 -> DC filter -> x C004 -> 6000/6001). Found in the SH-2 and SH-101
-images and the OS 1.30 (study only, nothing copied; docs/examples_system_1_README.md section 2).
+images and the OS 1.30 (study only, nothing copied; examples/system_1/README.md section 2).
 
 C-V4's flow on SYSTEM-8 was DSP0/1 pitch -> DSP2/3 saw slot -> DSP4/5 gate -> 6020. Here one DSP does it all:
 

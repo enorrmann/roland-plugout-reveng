@@ -1,5 +1,7 @@
 # Volume VI — Chapter 3: CZ-SYSTEM — Casio CZ Phase Distortion as an s1cc Kernel for SYSTEM-S1CC
 
+> **Scope:** SYSTEM-1.
+
 > The full description (Spanish) is [sdk/s1cc/examples/casio_cz/README.md](../../sdk/s1cc/examples/casio_cz/README.md);
 > section numbers in parentheses are those of the README. Source of the description of the CZ used by the example:
 > Michael Rickard, *Casio CZ-1 Spelunking* (https://www.kasploosh.com/cz/).

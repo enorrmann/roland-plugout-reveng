@@ -1,4 +1,4 @@
-"""Load a wavetable frame into a running SYSTEM-S1CC bank-5 PLUG-OUT over USB -- no reinstall (docs/MUTABLE_MEMORY.md
+"""Load a wavetable frame into a running SYSTEM-S1CC bank-5 PLUG-OUT over USB -- no reinstall (docs/vol6_reference_designs_applications/mutable_memory.md
 §4.5). The plug-out must be built with SL_LOAD=1 (a SL_WT=b5 kernel, e.g. sdk/s1cc/examples/wavetable/jp8_saw.c):
 
     SL_LOAD=1 WT_WAV=".../Jupiter 8 Saw.wav" KERNEL=sdk/s1cc/build/jp8_saw sh examples/system_s1cc/build.sh

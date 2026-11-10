@@ -369,7 +369,7 @@ def test_memory():
 
 def test_access_limits():
     """every final program respects the per-instruction access limits (emulator check chain.access_violations,
-    DSP_HARDWARE.md 7.3); positive control: the relocation before split_bank5 / the ring mailboxes is refused"""
+    docs/vol2_dsp_core_isa/core_architecture.md 7.3); positive control: the relocation before split_bank5 / the ring mailboxes is refused"""
     pl, words = plan()
     for s1, addr, units, w in pl.programs():
         bad = chain.access_violations([i for _, i in R.dspdis.instructions(w)])
@@ -395,7 +395,7 @@ def test_access_limits():
 
 # what the LAST installed version of each diagnostic build did on the device (2026-10-22/23; plugins/<NAME> holds that
 # version) and which slave sections it switched on (set order: 0 = A). Rebuilding a name changes its entry: keep
-# this table in step (docs/examples_system_1_jx_README.md section 10). None = hung for a cause the checks do not
+# this table in step (examples/system_1_jx/README.md section 10). None = hung for a cause the checks do not
 # explain yet (C-S1JXS 8th and C-S1JXB 3rd versions, 2026-10-23: with rules 1-6 they still hang, section 10.7).
 DEVICE = {'C-S1JXS': (None, {0, 1}), 'C-S1JXB': (None, {0}), 'C-S1JXK': (True, {0}), 'C-S1JXM': (False, {0}), 'C-S1JXP': (False, set()),
           'C-S1JXQ': (False, {0}), 'C-S1JXR': (False, {0}), 'C-S1JX5': (False, set()), 'C-S1JX6': (False, set()),

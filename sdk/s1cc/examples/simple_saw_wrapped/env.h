@@ -1,4 +1,4 @@
-/* env.h: an ADSR envelope with one-pole segments, plain C (docs/examples_simple_saw_wrapped_README.md). Nothing of the
+/* env.h: an ADSR envelope with one-pole segments, plain C (sdk/s1cc/examples/simple_saw_wrapped/README.md). Nothing of the
  * DSP: the wrapper (simple_saw_env.c) gives it the gate, the note starts and the coefficients. */
 #ifndef ENV_H_
 #define ENV_H_

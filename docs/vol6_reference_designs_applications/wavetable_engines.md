@@ -1,5 +1,7 @@
 # Volume VI — Chapter 5: Wavetable Engines
 
+> **Scope:** both (SYSTEM-8 and SYSTEM-1 sections).
+
 > The wavetable work of both devices, with pointers to the details; each fact names its source. SYSTEM-8:
 > [ch. 6](custom_osc.md) (sections "Wavetable from a single-cycle WAV" and "Real wavetable in bank 5") and
 > [examples/wt_pwm/README.md](../../examples/wt_pwm/README.md),

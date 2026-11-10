@@ -1,4 +1,4 @@
-"""Tests of sdk/mport (docs/MUTABLE_SDK.md §9): python3 -m unittest discover -s sdk/mport/tests
+"""Tests of sdk/mport (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §9): python3 -m unittest discover -s sdk/mport/tests
 
   * the kernel's register allocation gives the same numbers as the same expressions in Python (emulator, C core);
   * the scheduled bench program equals the plain one sample by sample;

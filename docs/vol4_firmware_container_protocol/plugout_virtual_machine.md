@@ -1,5 +1,7 @@
 # Volume IV — Chapter 2: PLUG-OUT Code, the OS Interface and Run-Time Experiments
 
+> **Scope:** SYSTEM-8 (the JX-3P PLUG-OUT and the SYSTEM-8 OS). The SYSTEM-1 PLUG-OUT interface: [Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §6 and [examples/system_1/README.md](../../examples/system_1/README.md).
+
 > Status, layers, region header, LZSS, images / SYNINFO / slots, relocation, `SYSTEM8_UP.BIN` and the workflow
 > (§1–§6) are [Vol. IV ch. 1](container_formats.md). The list of OS services, checked against the code of the
 > repository, is [Vol. IV ch. 3](os_service_table.md).
@@ -448,9 +450,9 @@ after the PLUG-OUT's `init` has run (at install end or at slot activation).
 Writes done *at init* are therefore lost. Comparison with the name channel
 therefore could not be completed through RQ1: read-back 4/70 bytes only match
 by chance (the original name), the 70 OS bytes never reach the host this way.
-Next step: do the same write from a hook that runs *later* — the engine's
-parameter sender hook (`examples/mem_name/press.s`, runs on the first knob
-move) with `DEST = 0x60445957` — then RQ1 NAME0. Mode 1 of `scanfill.c`
+Open: the same write from a hook that runs *later* — the engine's parameter
+sender hook (`JX-3P-MEM-STEP`, below) with `DEST = 0x60445957` — then RQ1
+NAME0. Mode 1 of `scanfill.c`
 (each byte as two nibbles, 140 bytes) is there for that: it survives the 7-bit
 SysEx data and decodes exactly. Raw bytes `>= 0x80` may be masked by the
 device.
@@ -515,38 +517,41 @@ data records carry no index, so it would also move region 1 from block 2048 to
 for this experiment: with an END error the names read back are stale, not data.
 Never run two loops on the same device: the names are shared state.
 
-#### Stepping through memory with the panel: `JX-3P-MEM-STEP` (built, not yet tested on hardware)
+#### Stepping through memory with the panel: `JX-3P-MEM-STEP` (built, not run on hardware)
 
-`examples/mem_name/press.s` + `engine_build.sh` + `make_plugout.sh`. The
-init hook above is kept; additionally the entry of the DSP parameter sender
-(`0x60A0B41E`, reached by every knob / button / switch of the panel) is
-replaced by a `B.W` to a 112-byte hook in the region 1 cave (`0x60A07000`, slot
-1). Each call increments a counter stored in the cave, reads 7 bytes at
-`SRC + 7·counter`, writes them as 14 hex digits over the name in region 0
-(`image + 0x10`, found PC-relative) and runs the 3 displaced instructions
-(`ldr r0,[pc,#0x50]`, `push {r3,lr}`, `ldr r0,[r0]`) before continuing at
-`0x60A0B424`. Arguments, `s0` and flags the sender needs are preserved.
+`examples/mem_name/press.s`, `step_read.py`, `engine_build.sh`, `make_plugout.sh`. The entry of the DSP parameter
+sender (`0x60A0B41E` in slot 1, reached by every knob / button / switch of the panel) is replaced by a `B.W` to a hook
+in the region-1 cave (108 bytes at `0x60E07000` in the slot-3 file). The hook runs the 3 displaced instructions
+(`ldr r0,[pc,#0x50]`, `push {r3,lr}`, `ldr r0,[r0]`) before continuing at the sender (`0x60A0B424` in slot 1);
+arguments, `s0` and flags the sender needs are preserved. On every panel parameter change it writes 128 nibble bytes
+into the RAM image of `NAME0` of preset 1 (`0x60445957`, slot 3 only), which `RQ1` reads back: 4 bytes big-endian
+address + 60 bytes of OS memory (`SRC + 60 · counter`). `NAME0` is a 128-byte leaf of which a name uses 32, so the write
+stays inside the leaf. The counter lives in region 0 (`name + 0x70`, zero area, known writable); the region-0 init hook
+is only installed with `INIT=1`. Verified only on the built slot-3 file (relocated pointers aside, only the hook and
+the `b.w` at the sender entry differ from stock).
 
 ```bash
 examples/mem_name/make_plugout.sh                  # SRC=0x60000000
 examples/mem_name/make_plugout.sh 0x0113FC00       # other start address
 python3 tools/plugout_tool.py install plugins/JX-3P-MEM-STEP --slot 3 --dry-run
 python3 tools/plugout_tool.py install plugins/JX-3P-MEM-STEP --slot 3
+python3 examples/mem_name/step_read.py --slot 3 -o os_step.bin    # host side
 ```
 
-Notes: the first press shows `SRC+7`; the name at slot selection is `SRC`. It
-advances on any parameter change (it may also fire on non-panel parameter
-traffic, e.g. notes), and whether the OS re-reads the name after init is the
-open question this build tests — if the display does not change, the next step
-is a different sink (a parameter label or the patch name).
+Measured with a version of the hook that wrote 7 bytes as hex over the PLUG-OUT name at each call: the slot always
+showed `MEM STEP`, the name set at install. That the hook ran is not proven (the only proven witness of a running hook
+is the EFFECT TONE cave hook, [Vol. IV ch. 6](base_firmware.md) §7.9).
+
+Open: whether the hook runs on selecting the slot, whether the OS restores `NAME0` after the write (as it did after
+init), whether `DEST` is the same cell without sending the patch bank (`--no-patches`), and whether MIDI-driven
+parameter changes also reach the sender (that would remove the manual knob).
 
 #### Tools and negative results (2026-10-13)
 
-* **Faster build**: `dump_loop.py` no longer recompresses the image each
-  iteration (LZSS in Python was 7 of 7.4 s). The hook's `SRC` is encoded once
-  as a unique sentinel (stored as 4 literal bytes); each build patches those
-  bytes and the region byte sum. Build 7.4 s → 0.2 s; output verified
-  byte-identical to the slow path. Floor stays ~12 s install + 2 s read-back
+* **Build of `dump_loop.py`**: the image is compressed once; the hook's `SRC`
+  is a unique sentinel (stored as 4 literal bytes) and each build patches those
+  bytes and the region byte sum: 0.2 s per build (7.4 s when recompressing with
+  the Python LZSS), output byte-identical. Floor ~12 s install + 2 s read-back
   per 7 bytes.
 * **Minimal PLUG-OUTs hang the device** (`examples/mem_name/make_min.py`):
   region 0 of 180 B with a stub descriptor, with and without a stub engine
@@ -563,22 +568,6 @@ is a different sink (a parameter label or the patch name).
   Untested: whether the OS truncates at NUL, passes bytes >= 0x80, and whether
   version is taken from the runtime image. Do not use the model id (the OS may
   key behaviour on it).
-* **`JX-3P-MEM-STEP` reworked** (`press.s`, `step_read.py`): the engine hook
-  no longer writes the PLUG-OUT name (the slot always showed `MEM STEP`); on
-  every panel parameter change it writes 128 nibble bytes into the RAM image of
-  `NAME0` of preset 1 (`0x60445957`, slot 3 only), which `RQ1` reads back:
-  4 bytes big endian address + 60 bytes of OS memory (`SRC + 60 * counter`).
-  `NAME0` is a 128-byte leaf of which a name uses 32, so the write stays inside
-  the leaf. The counter lives in region 0 (`name + 0x70`, zero area, known
-  writable) instead of the engine image; the region 0 init hook is only
-  installed with `INIT=1`. Host side: `python3 examples/mem_name/step_read.py
-  --slot 3 -o os_step.bin`. Verified only on the built slot 3 file (relocated
-  pointers aside, only the 108-byte hook at `0x60E07000` and the `b.w` at the
-  sender entry differ from stock). **Not yet run on hardware**; open points:
-  whether the hook runs on selecting the slot, whether the OS restores NAME0
-  after the write (as it did after init), whether `DEST` is the same cell
-  without sending the patch bank (`--no-patches`), and whether MIDI-driven
-  parameter changes also reach the sender (that would remove the manual knob).
 
 ### Risks
 

@@ -1,5 +1,7 @@
 # Volume VII — Chapter 3: Clean-Room Test Plan and Evidence Register
 
+> **Scope:** both.
+
 > The test vectors and their checker are described in
 > [cleanroom/test-vectors/README.md](../../cleanroom/test-vectors/README.md).
 
@@ -119,8 +121,6 @@ relocation (EV-05) · H10 presets (EV-06) · H11 hardware tests (EV-04).
 | C1 | `README.md` ("patches only tested against simulator") vs. EV-04 (real installs) | was the patch phase transmitted on hardware? | There is no record that phase 4 was verified on a device; treated as **[H] host / not verified on device** (TEST-008 must record it). |
 | C2 | `JX-3P/Code1.Dat`: container `SYSTEM-8`/`0x0005`, `SYSTEM-1` signatures, `CDSPSystem8*` classes | model name vs. content | Documented as an anomaly (overview §4); not used. |
 | C3 | `Code1` versions (`0x14FA`, `0x0C6D`, `0x08D9`) vs. Code8 (`0x0101`/`0x0108`) | field 0x26/0x22 does not always seem to be a "version" | Treat as opaque `u16` in Code1 [?]. |
-| C4 | [Vol. IV ch. 4](../vol4_firmware_container_protocol/usb_sysex_protocol_spec.md) history: "70 30 01 09 = ACK" and "70 10 00 01 at the start" | earlier erroneous version | Already resolved in the repo; the specification uses the corrected version (REQ-PROTO-006/007). |
-| C5 | JUNO-60 region 1 reloc count in earlier docs (1474) vs. JX-3P (1473) | none: different plugins | Both match EV-05. |
 
 ### 4. Priority unknowns (ordered by impact)
 

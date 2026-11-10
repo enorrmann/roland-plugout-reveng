@@ -1,5 +1,7 @@
 # Volume V — Chapter 6: Capturing Audio and Sending Notes to the SYSTEM-1
 
+> **Scope:** SYSTEM-1.
+
 > The SYSTEM-8 counterpart (USB capture with `arecord -D hw:SYSTEM8,0 -f FLOAT_LE -r 96000 -c 2`, `re/dspaudio.py`)
 > is described in [Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §4.7 and
 > [Vol. II ch. 11](../vol2_dsp_core_isa/slave_dsp_readback.md).

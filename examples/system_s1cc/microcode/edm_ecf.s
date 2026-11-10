@@ -1,4 +1,4 @@
-;; EDM_ECF (docs/MUTABLE_MEMORY.md §3.3.4): our own lines in the delay memory, written and read by plain bank-2
+;; EDM_ECF (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.4): our own lines in the delay memory, written and read by plain bank-2
 ;; transfers from our master B main (0x1000). Which bank-2 word reaches which delay-memory address is not in the
 ;; program: it is the DSP's map table (master B 0x4016E000, 8 bytes per entry, OS 1.30 puts 34 entries there for its
 ;; delay and reverb). Region 0 (model.c edm_ecf) adds one write entry and one read entry per line:

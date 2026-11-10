@@ -4,7 +4,7 @@
  *
  *   bank 5 (B):      S8 DSP d, id -> b5_index[d][id - 0x20]: a bank-5 word of d's chip (0x0100FD6C(sel, obj, bits))
  *                    or, for parameters the program only reads, a bank-6 id (0x8000 | sel << 8 | id, FCEC)
- *                    (sel = word >> 8: A000+ / A100+; the same code on master and slave, system-1/DSP_FIT.md)
+ *                    (sel = word >> 8: A000+ / A100+; the same code on master and slave, docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md)
  *   bank 6 (P):      S8 DSP d, id -> SYSTEM-1 DSP b6_sel[d] of d's chip, id + b6_off[d], 0x0100FCEC(sel, id, bits)
  *
  * Even S8 DSPs (0, 2, 4: voices 0 and 1) are on the master, odd ones (1, 3, 5: voices 2 and 3) on the slave; each

@@ -47,7 +47,7 @@ sus unidades.
 | recurso | estado | qué componentes lo necesitan |
 |---|---|---|
 | estado en el anillo del banco 0 (2048 palabras por DSP, `ld S+1` / `st S`) | [medido] | todos |
-| retardo **fijo** de hasta 2047 muestras (21 ms): carga simple `[S + k]` o `ldidx` con `h6` constante | [medido] 15X ([../system-1/DSP_BANKS.md](../../system-1/DSP_BANKS.md) §4) | reverbs y difusores de tomas fijas |
+| retardo **fijo** de hasta 2047 muestras (21 ms): carga simple `[S + k]` o `ldidx` con `h6` constante | [medido] 15X ([Vol. II ch. 6](../../docs/vol2_dsp_core_isa/memory_banks_dma.md) §7.4) | reverbs y difusores de tomas fijas |
 | retardo **variable** (índice calculado → `hset h6`) | **[abierto]**: el chorus del paso 15 da tomas en silencio | cuerdas Karplus, comb, chorus, ensemble, pitch shifter, tablas de ondas leídas por fase |
 | tablas en el banco 5 (`A0xx`/`A1xx`, compartido A↔B, ≈ 0x400 palabras) | fijas [medido en el SYSTEM-8]; leer por fase = índice calculado [abierto] | wavetables, formantes |
 | tablas de control (ARM, `FCEC` → `C0xx`) | [medido] | todo lo que Mutable calcula por bloque (incrementos, coeficientes, tablas de knob) |

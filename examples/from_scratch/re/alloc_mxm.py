@@ -1,5 +1,5 @@
 """Bus references of every main program of a Roland region 1 image: MXM (bank 4, 8nnn), IOMD (6nnn) and bank 5
-(annn), read and written, from the disassembly (asm/disasm.py). Used for docs/VOICE_ALLOCATION.md.
+(annn), read and written, from the disassembly (asm/disasm.py). Used for docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md.
 
     python3 alloc_mxm.py region1.bin BASE_HEX OFFSET:SIZE [OFFSET:SIZE ...]
     e.g. python3 alloc_mxm.py region1.bin 60A00000 015270:5066 016918:5018

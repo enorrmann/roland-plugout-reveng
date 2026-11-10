@@ -1,4 +1,7 @@
-# Volume II — Chapter 6: DSP Memory Banks, Ports and ARM-Side Configuration
+# Volume II — Chapter 6: DSP Memory Banks, Ports and ARM-Side Configuration (SYSTEM-8 and SYSTEM-1)
+
+> **Scope:** §1–§6 SYSTEM-8 (ARM-side static analysis and corpus statistics); §7 SYSTEM-1 (banks per DSP). The bank
+> numbering (reference prefix = bank) is common to both.
 
 > Static analysis of the ARM side. The measured bank behaviour (ring, ports, MXM latch, IOMD ownership, indexed
 > transfers, delay DMA) is in [Vol. II ch. 1](core_architecture.md) §7–§8; the inter-DSP transport mechanisms of the
@@ -343,3 +346,84 @@ Tags: [listing] = disassembled microcode or ARM binary; [inferred] = deduction, 
 * **No ARM code writes MXM/IOMD** (§2.4): the link between slaves through IOMD (`6000`–`6003`, which MAIN4 adds) is
   set by the hardware or the master, not by the slave. Which word of slave 1 reaches which input of slave 0 is
   **open**.
+
+## 7. SYSTEM-1: data banks of the DSPs
+
+For each data bank of the SYSTEM-1 DSPs: its semantics, which words the OS (1.30) and the official SYSTEM-1 PLUG-OUTs
+(SH-2, SH-101, PROMARS) use in each DSP, and the rules our programs follow. Sources:
+`work/sys1_v130/app_{master,slave}.bin` (base `0x60000000`) and `work/unpack/<NAME>_S1_Code1/region{0,1}.bin`; the
+programs of each set with `system-1/s1_progs.py` (`sets`, `words`), disassembled with `asm/disasm.py`; ranges of the
+`ld`/`st` transfers of mode `fe` counted per program (2026-10-23). Tags: **[code]** · **[measured]** · **[inferred]** ·
+**[open]**. How the banks carry data between the DSPs and the chips: [Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) Part B.
+
+### 7.1 Banks and semantics
+
+| bank | addresses | semantics | written by | state |
+|---|---|---|---|---|
+| 0 | `0000`–`07FF` (11 bits) | **ring** per DSP: what is stored at S is read at S+k k samples later; also by index with `ldidx` (`hset h6`). On slave DSP A the ring has **1024 words: the addresses wrap at `0x0400`** | the DSP itself | [measured]: phase of the saws (S/S+1, C-S1V4); **delay line of 750 samples with a plain load and with `ldidx`: the same comb** (C-S1SY15X, USB capture, §7.4); wrap at `0x0400` measured with WT-ALIAS ([Vol. VI ch. 7](../vol6_reference_designs_applications/mutable_memory.md) §4.2) |
+| 1 | `2000`–`23FF` | ring like bank 0; mailbox between the main program and the voice sections; **on master B, send/return of the OS effect** ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §16.4) | DSP A / B of the same chip | [measured] for the effect (C-S1SY13) |
+| 2 | `4000`–`5FFF` | DMA window of the **delay memory** (`tapreq`, `h4`/`h5`) | the OS effect on master B, the slave's counter | [code]; own use on master B: [Vol. VI ch. 7](../vol6_reference_designs_applications/mutable_memory.md) |
+| 3 | `6000`–`7FFF` | **IOMD**: between DSPs and between chips; `6000`/`6001` output, `6006`–`600D` slave → master, `600E`–`6021` master → slave | — | [measured] `6006`/`6007`, `6000`/`6001` |
+| 5 | `A000`–`A3FF` (+ `A400`–`A7FF` pair window) | plain memory; the ARM writes it with `FD6C` (`sel` 0 → `A0xx`, `sel` 1 → `A1xx`); the slave's DSPs A and B share `A1xx` | ARM and DSP | [measured] (C-S1SY: `A030`–`A06F` notes, `A151`–`A1FF` transport A → B) |
+| 6 | `C000`–`C1FF` | **parameters** per DSP, read-only for the DSP; the ARM writes them with `FCEC(sel, id, bits)` (16-byte blocks at `0x4014C000` / `0x4016C000 + 16·id` of the master) | ARM | [measured] |
+| 7 | `E000`–`E0FF` | hardware counters / state: `E000` frame counter (the `7FF2` closings), `E013`, `E01A`, `E020`, `E021` (the effect and the OS start-up) | hardware | [code] |
+
+### 7.2 What the official programs use [code]
+
+`ld`/`st` of mode `fe` per bank (grouped ranges), without the indexed transfers.
+
+**Master:**
+
+| program | bank 0 | bank 1 | bank 2 | IOMD | bank 5 | bank 6 |
+|---|---|---|---|---|---|---|
+| OS, delay + reverb effect (set 12, `0x0`) | `0000`–`0033` | `2000`–`2002` | `4001`–`402D` | — | `A000`–`A003` | `C000`–`C00C` |
+| OS, output (set 11, `0x82`) | — | `2000`–`2008` | — | st `6000`–`6001` | ld `A118`–`A119` | `C001`–`C004` |
+| OS, stock modulation (set 14, `0x100`) | `0018`–`016A` | — | — | st `600E`–`6021` | ld `A038`–`A048`, st `A100`–`A117` | `C008`–`C068` |
+| OS, stock mixer (set 15, `0x1000`) | `007C`–`0153` | `2000`–`2003` | — | ld `6006`–`600D` | st `A118`–`A11D` | `C01C`–`C040` |
+| SH-2 / SH-101 / PROMARS, main A `0x100` | `0018`–`00C7` | ld `200A`–`2012`, st `2013`–`2023` | — | ld `6006`–`602D`, st `600E`–`6021` | `A005`–`A15D` | `C008`–`C032` |
+| SH-2 / SH-101 / PROMARS, main B `0x1000` | `007C`–`013F` | `2000`–`2003` (send / return of the effect) | — | ld `6006`–`600D` | st `A118`–`A11D` | `C01C`–`C037` |
+| C-S1SY (step 13), main B `0x1000` | — | `2000`–`2003` | — | ld `6006`/`6007` | st `A118`–`A11D` | `C01C` |
+
+**Slave:**
+
+| program | bank 0 | IOMD | bank 5 | bank 6 |
+|---|---|---|---|---|
+| OS, main / closings (sets 0, 2) | `0000`–`000D` | st `6006`–`600D` | `A000` | `C000`–`C005` |
+| OS, stock voices (sections `0x1900`/`0x3100`/`0x4900`/`0x6100`) | `00E0`–`00FC`, `01A8`–`01C0`, `0270`–`028C`, `0338`–`0350` (one zone per section) | — | — | — |
+| SH-2 main A `0x100` | `0018`–`0047` | ld `600E`–`601E`, st `6009`–`600D` | `A003`–`A143` | `C003`–`C006` |
+| SH-2 sections `0x1900` / `0x3100` | `00E0`–`0118` / `01A8`–`01E5` | — | — | `C058`–`C05C` / `C062`–`C065` |
+| SH-101 main A `0x100` (everything in the main program) | `0018`–`009C` | ld `600E`–`6021` | `A003`–`A115` | `C003`–`C00F` |
+| PROMARS main A / section `0x1900` | `0018`–`0084` / `00E0`–`0135` | — | — | `C003`–`C013` / `C058`–`C05C` |
+| C-S1SY A `0x100` | voices `0300`–`037F`, noise `0240`–`028D` | — | `A030`–`A06F`, `A151`–`A1FF` | `C044`–`C065` |
+| C-S1SY B `0x100` | voices `0400`–`04FF`; step ≥ 14: `0080`–`0095`, line `0100`–`02FD` | st `6006`–`600D` | `A151`–`A1FF` | `C040`–`C05A` |
+
+Observations:
+* All programs keep their bank-0 state above `0018` (below is the OS's: `0000`–`0017`). Each voice section has its
+  own zone.
+* Bank 1 of master B (`2000`–`2003`) is touched only by the mixer (stock or the PLUG-OUT's) and by the effect: it is
+  the send/return. On the slave it is the mailbox of the voice sections
+  ([Vol. III ch. 2](../vol3_voice_allocation_scheduling/system1_voice_allocation.md) §3.2).
+* No official SYSTEM-1 program uses `hset h6` / `ldidx` on the master. The SYSTEM-8's SYSTEM-100 uses them to read
+  delayed control signals.
+
+### 7.3 Rules for our programs
+
+1. Bank-0 state above `0017`. **Nothing stores at S+1 … S+kmax of a delay line** (the ring: any store in that range
+   would overwrite samples of the line). On slave DSP A every line / table of bank 0 stays below the wrap at `0x0400`.
+2. On master B, bank 1 `2000`–`2003` is the send/return of the OS effect: write the send to `2000`/`2002`, read the
+   return at `2001`/`2003` ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §16.4).
+3. New parameters: in a free range of the DSP (C-S1SY: master B `C01C`; slave B `C040`–`C05A`; slave A `C044`–`C065`).
+
+### 7.4 Measurement: the delay line and `ldidx` on slave B [measured, 2026-10-23]
+
+C-S1SY15X (`CHDIAG=1`):
+* slave B stores the mix at `0100` every sample;
+* L = (x + `[0100 + 750]`)/2, read with a plain ring load;
+* R = (x + tap)/2, the same tap read with `mov r5, #(0x100 + 750 + 0.5)/16384` + `hset h6, r5` + `ldidx r2, 0`.
+
+USB capture (`arecord -D hw:SYSTEM1,0 -f S32_LE -r 96000 -c 2`) of A2 (110 Hz):
+* L = R sample by sample;
+* harmonics 1–12: 1.00 0.36 0.10 0.05 0.14 0.17 0.15 0.13 0.09 0.03 0.02 0.05. A saw through the comb of 750 samples
+  gives 1.00 0.35 0.09 0.06 0.13 0.16 0.16 0.13 0.08 0.03 0.02 0.05.
+
+**The bank-0 ring keeps at least 750 samples and `ldidx` reads the same as the plain load.**

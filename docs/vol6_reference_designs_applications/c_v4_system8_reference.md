@@ -1,5 +1,7 @@
 # Volume VI — Chapter 1: Own PLUG-OUT from Scratch (C-V4, SYSTEM-8): How It Is Made and How to Rebuild It
 
+> **Scope:** SYSTEM-8.
+
 > Paths are relative to `examples/from_scratch/` unless stated otherwise.
 
 State: 2026-10-22. **C-V4 works on the device**: eight voices (four per slave) with their note, single and in chords,
@@ -301,17 +303,14 @@ Rules: one installation at a time and, after each one, select PLG3 again; never 
 ```sh
 cd examples/from_scratch/emu
 python3 voices.py v4            # each voice alone: level and frequency at 6020
-python3 test_chain.py           # 20 tests (A–H and regression), about 20 minutes
+python3 test_chain.py           # 20 tests (A–H and regression), about 5 s
 python3 test_chain.py A D       # only some
 ```
 
-`cchain.py` (C core; before, `chain.py` on `re/dspisa.py`, archived on 2026-10-29) runs our programs and models the
+`cchain.py` (the C core, [Vol. V ch. 5](../vol5_toolchain_compiler_sdk/emulator.md)) runs our programs and models the
 banks, MXM, the pair mailbox, IOMD and the link between slaves. Each hardware rule is a field of `Model`, so a test can
 compare the measured model with the alternative. **Before installing a microcode change, it has to go through the
 emulator**: a program the emulator gives silent will almost certainly be silent on the device.
-
-> Note: the "about 20 minutes" of `test_chain.py` is the time before the C core; on the C core it runs 20/20 in ≈ 5 s
-> ([Vol. V ch. 5](../vol5_toolchain_compiler_sdk/emulator.md) §4, §5.1).
 
 ## 9. Map of files
 
@@ -329,7 +328,7 @@ emulator**: a program the emulator gives silent will almost certainly be silent 
 | `model/` | region 0 (`model.c`, `params.py`, `storage.S`, `link.ld`, `build.sh`) |
 | `engine/programs.py`, `engine/gen_model.py`, `engine/model_spec.py`, `engine/expr.py`, `engine/link.ld`, `engine/build.sh` | shared build pieces (not modified) |
 
-**v3 (previous version, measured: only voice 0 sounded)**
+**v3 (C-V3, measured: only voice 0 sounds; C-V4 builds on it)**
 
 | file | what it is |
 |---|---|

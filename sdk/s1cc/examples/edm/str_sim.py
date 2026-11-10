@@ -1,6 +1,6 @@
 """EDM_STR check without the device: build/s1mm1.s (master B, microcode/edm_str.s) on the C emulator, the bank-2
 words through a model of the map table (a read entry at + d gives the word stored d + 1 samples earlier, measured
-§3.3.4); 8 notes, one burst each; prints each string's pitch against the note. docs/MUTABLE_MEMORY.md §3.3.5
+§3.3.4); 8 notes, one burst each; prints each string's pitch against the note. docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5
     KERNEL=sdk/s1cc/build/edm_string sh examples/system_s1cc/build.sh && python3 sdk/s1cc/examples/edm/str_sim.py"""
 import sys, struct, numpy as np
 import os

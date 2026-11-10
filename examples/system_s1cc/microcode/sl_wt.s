@@ -1,4 +1,4 @@
-;; SYSTEM-S1CC host microcode: SL_WT, a wavetable oscillator on the slave's DSP A (docs/MUTABLE_MEMORY.md §4.1).
+;; SYSTEM-S1CC host microcode: SL_WT, a wavetable oscillator on the slave's DSP A (docs/vol6_reference_designs_applications/mutable_memory.md §4.1).
 ;; Template syntax: make_s1cc.py frag(). Scheduled like the rest of the slave programs (asm/dspsched.py).
 ;;
 ;; The frame being played lives in a loop of SL_L words in DSP A's bank 0 (the ring: stored at S, read at S + k k
@@ -161,7 +161,7 @@ st r0, [{XV[v]:04x}]
 
 
 .fragment sl_wt5_voice v
-;; SL_WT=b5 (first test, docs/MUTABLE_MEMORY.md §4.1): the frame in bank 5 SL_STG .. + SL_N (SL_N points and a guard
+;; SL_WT=b5 (first test, docs/vol6_reference_designs_applications/mutable_memory.md §4.1): the frame in bank 5 SL_STG .. + SL_N (SL_N points and a guard
 ;; copy of point 0), written by region 1 (FD6C sel 0) whenever COLOR moves; voice {v}: phase p (0 .. 1) += s1_dt,
 ;; x = p SL_N, two indexed bank-5 loads (ldb5, h6 = the point's word), linear interpolation -> its output word
 ; SL_WT=b5 voice {v}
@@ -192,7 +192,7 @@ mul r1, r1, #{(v + 1) / 8!r}
 st r1, [{XV[v]:04x}]
 
 
-;; SL_WT=m voice {v} (EDM_WT WT_SLAVE, docs/MUTABLE_MEMORY.md §4.4): master B reads the voice's sample from the table in
+;; SL_WT=m voice {v} (EDM_WT WT_SLAVE, docs/vol6_reference_designs_applications/mutable_memory.md §4.4): master B reads the voice's sample from the table in
 ;; the delay memory and sends it by the master -> slave word 600E + v (one sample late); here it only becomes the voice's
 ;; output, which DSP B filters and amplifies as any oscillator
 .fragment sl_m2s_voice v col nfm1

@@ -1,4 +1,4 @@
-/* mp_dsp_a.h: DSP A building blocks of the mutable_ported kernels (oscillators, noise, folding) (docs/examples_mutable_ported_README.md), written for the
+/* mp_dsp_a.h: DSP A building blocks of the mutable_ported kernels (oscillators, noise, folding) (sdk/s1cc/examples/mutable_ported/README.md), written for the
  * SYSTEM-1 slave DSPs as s1cc compiles them:
  *   - no division in the voice: what depends on a knob goes to an S1_PARAM table (runs on the PC), what depends on
  *     the note comes from the host's per-note words (s1_dt, s1_rdt); recipseed, the hardware reciprocal, is not

@@ -1,4 +1,4 @@
-"""Assembler: dspasm source -> program words (DSP_ISA_SPEC.md §3, §4, §12).
+"""Assembler: dspasm source -> program words (docs/vol2_dsp_core_isa/instruction_set_reference.md §3, §4, §12).
 
     result = Assembler().assemble(text)
     result.words        flat 16-bit words in execution order
@@ -23,7 +23,7 @@ Directives, each on the line before the instruction it changes:
 Immediates (spec 4.4): `#v@b:w` is a value read at byte b of the slot array,
 w bits wide. A MAC coefficient `#v@c` is read at byte c (its C field; + 8 in
 the `...r` variants, bit 9 set), Y a register or an immediate (measured
-2026-10-29, docs/DSP_ISA_DISCREPANCIES.md D8). An immediate with no byte is
+2026-10-29, docs/vol2_dsp_core_isa/isa_discrepancies.md D8). An immediate with no byte is
 placed by the assembler at the first byte where its bits agree with the stream
 (a coefficient: bytes 0-7, written into C).
 
@@ -35,7 +35,7 @@ encodings kept verbatim, so re-assembling them takes the same explicit option.
 
 Ambiguity is rejected: if more than one class can hold the units, or a field
 that must be preserved has no source, the line fails with the reason.
-See docs/REVIEW.md for the 2026-10-20 review that set these rules.
+See docs/vol7_cleanroom_evidence_archive/REVIEW.md for the 2026-10-20 review that set these rules.
 """
 
 import re

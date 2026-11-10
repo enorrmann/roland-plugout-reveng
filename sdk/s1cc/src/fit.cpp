@@ -1,4 +1,4 @@
-// Fitting an island (a function of one value, sampled by the profiling run; docs/S1CC.md §6).
+// Fitting an island (a function of one value, sampled by the profiling run; docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §6).
 // Domain: t = ta V + tb in [-1, 1] (V = the root's value); models, cheapest first that meets the tolerance
 // (99.5th percentile of |error| / output span; the maximum is reported too):
 //   poly   P(t), degree 1..maxDeg (odd P when the domain and the function are symmetric)

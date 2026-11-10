@@ -1,5 +1,7 @@
 # Volume VI — Chapter 6: Custom Oscillator (Own DSP Microcode, C-SAW) — Technical Description
 
+> **Scope:** SYSTEM-8.
+
 > Paths `re/…` are relative to `examples/from_scratch/`.
 
 
@@ -322,7 +324,7 @@ oscillator (§4–§8 work without them).
 * **C-WAVE PLUG-OUT** (`NAME=C-WAVE WAVETABLE=1 OWN_PROGS=dco1_w0=…,dco2_w5=… engine/build.sh`): six own programs
   per DCO, one per waveform position (`re/dspexp/own/wt/dco{1,2}_w{0..5}.txt`). DCO2: AKWF eorgan, epiano,
   clavinet, hvoice, fmsynth, vgame (32 points). DCO1: Echo Sound Works frames with 32/48/64/84/100/120 points.
-* **Time budget, not memory**: the first version (one op per instruction, 5 per point) failed on **voice B** of
+* **Time budget, not memory**: the version with one op per instruction (5 per point) fails on **voice B** of
   every DSP (the second half of the program; alternate notes of a scale sound something else) — live in the lab
   above 401 instructions in DCO2 (DCO1 empty), installed already with DCO1 401 + DCO2 391. Roland's DSP2/3 load
   is main 189 + DCO1 325 + DCO2 357 instructions, but with several ops per instruction. The 2-instruction version

@@ -1,5 +1,7 @@
 # Volume VII — Chapter 2: Clean-Room Specification — Overview, Logical Architecture, Functional Requirements, Data Formats
 
+> **Scope:** both.
+
 > The protocol and the state machines are [ch. 5](cleanroom_protocol_spec.md); the test plan and the evidence
 > register, [ch. 3](test_vectors_verification_plan.md).
 

@@ -1,5 +1,7 @@
 # Volume VI — Chapter 7: Mutable Oscillators That Need Memory — Where They Could Live in the SYSTEM-1
 
+> **Scope:** SYSTEM-1.
+
 Study specification (2026-11-03, with the dated additions up to 2026-11-06). For each shape of `~/git/eurorack` that
 cannot be written without memory (delay line or data table), which memory of the SYSTEM-1 serves it, how much fits,
 what is missing in s1cc and in the host, and in which order it is best done. The shapes without memory are ported in
@@ -30,10 +32,10 @@ What does **not** need memory was ported even though the original uses tables: t
 
 | memory | size | who writes | read with a computed index | state |
 |---|---|---|---|---|
-| bank 0 of the slave (ring) | DSP A: **1024 words**, the addresses wrap at `0x0400` (measured, WT-ALIAS, §4.2 rule 6); DSP B: separate, size not measured (`0000`–`0017` of the OS), shared with the whole state of the kernel | the DSP | **yes**: `hset h6` + `ldidx` (relative to the ring) | [measured] a line of 750 samples with a normal load and with `ldidx` (C-S1SY15X, [system-1/DSP_BANKS.md](../../system-1/DSP_BANKS.md) §4); `hset` from a register in MP-CSAW2-8 (COLOR MOD, 2026-10-29) |
-| bank 1 of the slave (ring) | 1024 words (`2000`–`23FF`) | the DSP | `ldidx` does not address it [code] | main ↔ sections mailbox ([system-1/VOICE_ALLOCATION.md](../../system-1/VOICE_ALLOCATION.md) §3.2) |
+| bank 0 of the slave (ring) | DSP A: **1024 words**, the addresses wrap at `0x0400` (measured, WT-ALIAS, §4.2 rule 6); DSP B: separate, size not measured (`0000`–`0017` of the OS), shared with the whole state of the kernel | the DSP | **yes**: `hset h6` + `ldidx` (relative to the ring) | [measured] a line of 750 samples with a normal load and with `ldidx` (C-S1SY15X, [Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) §7.4); `hset` from a register in MP-CSAW2-8 (COLOR MOD, 2026-10-29) |
+| bank 1 of the slave (ring) | 1024 words (`2000`–`23FF`) | the DSP | `ldidx` does not address it [code] | main ↔ sections mailbox ([Vol. III ch. 2](../vol3_voice_allocation_scheduling/system1_voice_allocation.md) §3.2) |
 | bank 5 (`A000`–`A3FF`) | 1024 words, shared by DSP A and B of the slave; free today ~`A070`–`A150` and `A200`–`A3FF` [code, SYSTEM-S1CC] | the ARM (`FD6C`) and the DSP | `da` / `db` (h6 / h7) | [measured] on the SYSTEM-8 slaves ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §7.4); on the S1 built (MP-CSAW2-LUT, `LFO_LUT`), **untested** |
-| delay memory (bank 2, `tapreq`) | megawords (S8: 2 M per BMC) | the DSP (input `4300`) | taps with base `h4` and result `h5`; ≥ 24 taps per sample, fraction 1/64 | on the S1 only the OS's effect on the **master** B uses it ([system-1/FX_CHAIN.md](../../system-1/FX_CHAIN.md) §3); on the S1 slaves **not measured** [open] |
+| delay memory (bank 2, `tapreq`) | megawords (S8: 2 M per BMC) | the DSP (input `4300`) | taps with base `h4` and result `h5`; ≥ 24 taps per sample, fraction 1/64 | on the S1 only the OS's effect on the **master** B uses it ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §16.3); on the S1 slaves **not measured** [open] |
 | parameters (bank 6, `C060`–`C0FF`) | 160 words per DSP | the ARM (`FCEC`) | no (the kernel reads fixed ids) | [measured] 1000 writes/s per id, exact ([Vol. I ch. 6](../vol1_system_architecture/s1_arm_clock.md) §2) |
 | memory of the ARM (region 1 of the PLUG-OUT) | ≤ 1 MiB compressed per region (~0.94 MB of PCM) | — | the ARM copies it to banks 5 / 6 | [measured] on the S8 ([NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md), «Muestras largas») |
 
@@ -62,28 +64,21 @@ not for audio or for delays.
 **Bank 0 with `ldidx`** (what already works on the slave). The line is a stretch of the ring: the kernel stores the input
 at `S + b` every sample and reads `S + b + d` with `hset h6 = (b + d)/16384` and `ldidx` (d computed: the pitch of the
 note; two reads and a linear interpolation for the fractional delay). Nothing else of the DSP may store into
-`S + b + 1 … S + b + dmax` ([system-1/DSP_BANKS.md](../../system-1/DSP_BANKS.md) §3, rule 1).
+`S + b + 1 … S + b + dmax` ([Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) §7.3, rule 1).
 
-| voices | free words per voice (2048 − OS − state of kernel and host) | lowest note of a string |
-|---|---|---|
-| 8 | ~140 | 690 Hz (F5) |
-| 6 | ~225 | 430 Hz (A4) |
-| 4 | ~385 | 250 Hz (B3) |
-| 2 | ~870 | 110 Hz (A2) |
-
-[estimated from `make_s1cc.py bank0_top`: with `mp_saw` and 8 voices the state of DSP A reaches `0x0384` (each state
-word takes two of the ring, `S` and `S + 1`), about 100 words per voice plus about 100 fixed ones]
+Room: slave DSP A's ring has **1024 words** (the addresses wrap at `0x0400`, §4.2 rule 6) [measured]. With `mp_saw`
+and 8 voices the state of DSP A reaches `0x0384` (each state word takes two of the ring, `S` and `S + 1`: about 100
+words per voice plus about 100 fixed ones; `make_s1cc.py bank0_top`), which leaves ≈ 120 words for lines [estimated].
+A line of d samples gives a lowest note of 96 000 / d Hz. Slave DSP B holds a line of at least 750 samples (measured:
+[Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) §7.4); its total size is not measured.
 
 For lower notes without more memory: the line at half rate (the Plaits string runs at 48 kHz): write one sample every two
-with the condition `X9bY` (untested on the S1) or averaging in pairs, and read with `d/2`. It doubles the reach (8 voices:
-345 Hz) with a loop filter at 48 kHz, like the original.
-
-> Note: the "2048" of the table's heading is the size first assumed; §2 above and §4.2 rule 6 give 1024 words for DSP A
-> (measured later, WT-ALIAS).
+with the condition `X9bY` (untested on the S1) or averaging in pairs, and read with `d/2`. It doubles the reach with a loop
+filter at 48 kHz, like the original.
 
 **Delay memory (`tapreq`)** on the slaves: if it exists, it is the only one that gives strings at any pitch, chorus /
 ensemble, Rings / Elements and Clouds buffers. On the S1 it was only seen on the master; the OS does not use it on the
-slaves and no official PLUG-OUT does either ([system-1/FX_CHAIN.md](../../system-1/FX_CHAIN.md) §2). On the S8 slaves
+slaves and no official PLUG-OUT does either ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §16.2). On the S8 slaves
 there are taps in the programs `p0s_*` (window not measured). Missing test, in this order: (1) a kernel of a slave with
 the `tapreq` sequence of the master ([Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) §9.1: `[4300] ← x`, the base instruction,
 `0b03 4050 0301`, `3a90`) and the tap read into a word of the transport; (2) a USB capture of a fixed comb of 5000
@@ -96,12 +91,11 @@ What was measured and read [code unless stated]:
 
 * The delay memory (EDM, bank 2 of the DSPs, `tapreq`) only answers **where the ARM connected the DT2 window**
   ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §8.4; on the S8 a single slot of the master, DSP4 `f7dc`). On the SYSTEM-1 the OS
-  connects it for its delay + reverb effect, program `0x0` of **master B** ([system-1/FX_CHAIN.md](../../system-1/FX_CHAIN.md)
-  §3: base `h4` = 256, interpolation between two samples, write `4001`). No slave program of the S1 uses bank 2, and the
+  connects it for its delay + reverb effect, program `0x0` of **master B** ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §16.3: base `h4` = 256, interpolation between two samples, write `4001`). No slave program of the S1 uses bank 2, and the
   register map of the S1's BMC (`0x401xxxxx`) does not have the constants of the S8 (`0x41158000`, `0xC0200000`): we do
   not know yet how to configure the window ourselves.
 * The slave sends the master 8 IOMD words per sample: `6006`/`6007` (the mix of SYSTEM-S1CC) and `6008`–`600D`, which
-  today are 0 ([system-1/DSP_BANKS.md](../../system-1/DSP_BANKS.md) §1). They are **6 free audio channels per sample,
+  today are 0 ([Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) §7.1). They are **6 free audio channels per sample,
   slave → master** [measured: `6006`/`6007`; the rest, same mechanism].
 * The master's ARM (region 0, `model.c`) assigns the voices: it knows the note of each voice and can write parameters of
   master B with `FCEC`.
@@ -153,7 +147,7 @@ master B does not go back to its state by itself when another PLUG-OUT is chosen
 MP-EDMKS silent again without notes and the string at 130.79 Hz (note 48) and 260.87 Hz (note 60). Since then
 `model.c` sets the feedback to 0 at load and writes it only with the first note (by default 0.975).
 
-Reading: **it was already measured** ([system-1/WAVE_BUS.md](../../system-1/WAVE_BUS.md) §5.3, rule 1 of
+Reading: **it was already measured** ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §15.3, rule 1 of
 [examples/system_1_jx/README.md](../../examples/system_1_jx/README.md) §5): a PLUG-OUT **never queues `0x0000`**; it is the
 header the DSP is executing. Roland's engines have it in their tables but pass the next entry to `FC30` / `FC34`
 (executed in Unicorn). The EDMOWN / EDMENT tests broke that rule: hence the hang, the switch-off and the silences (and the
@@ -268,7 +262,7 @@ instruction, not decoded, before the first tap, or a map of the bank-2 window th
 the controller, `0x40100100…`). Possible next step: read the EDM from the ARM with the indirect port (`0x40100050` /
 `+0x54` / `+0x800`) to find where the OS's line falls.
 
-**Resolved in §3.3.4**: the address of each write is set by the DSP's map table, not by the program.
+The address of each write is set by the DSP's map table, not by the program (§3.3.4).
 
 What can already be done without an own write: everything that **reads** the OS's line with own taps (chorus / ensemble,
 multi-tap, granular over what enters the delay), with the signal our main program sends to `2000` / `2002`.
@@ -437,7 +431,7 @@ exact; on the device the fine tuning was not measured).
 
 Plan for COLOR MOD on the master (not implemented, 2026-11-04):
 * Transport: the slave sends master B 8 tested words, `6006`–`600D`; 6 already carry the audio of the voices.
-  `6026`–`602D` are read by **master A** in the stock synths ([system-1/WAVE_BUS.md](../../system-1/WAVE_BUS.md)), they
+  `6026`–`602D` are read by **master A** in the stock synths ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) Part B), they
   do not serve for B. `600C` / `600D` remain: **multiplex** the 12 colors (6 voices × 2) on them, `600C` = value, `600D` =
   slot number / 16; each color is renewed every 12 samples (8 kHz).
 * Slave (DSP B, `host_b.s`): the colors of each voice (`s1_color(0/1)` of the kernel through `s1_export`, or the COLOR MOD
@@ -457,7 +451,7 @@ table at each note: `NAME=MP-EDMSTRL PARAMLOG=1` (id `0x3D00` state, `0x3D01 + k
 | piece | where | what |
 |---|---|---|
 | excitation | `edm_string.c` (slave, DSP A of the kernel) | noise burst of 1–16 ms (OSC1 COLOR) × OSC1 MIX at each note, like `edm_pluck.c` |
-| transport | `host_b.s head_b`, `.if EDM_STR` | no mix: the output of voice v × `C000` → IOMD `6006 + v` (8 words, the ones the OS's stock mixer reads on the master: [code], §1 of [system-1/WAVE_BUS.md](../../system-1/WAVE_BUS.md)) |
+| transport | `host_b.s head_b`, `.if EDM_STR` | no mix: the output of voice v × `C000` → IOMD `6006 + v` (8 words, the ones the OS's stock mixer reads on the master: [code], §1 of [Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) Part B) |
 | lines | `model.c edm_str`, in `load` | one `FC3C` data queue `{0x110, 41 × 8 bytes}`: per voice one write `[4040 + 8v]` → `0x440000 + 0x4000 v` and four reads `[4041/43/45/47 + 8v]` ← that address `+ d … + d + 3`; a zero entry behind (entries 34–74 of the table). Even words write, odd words read (the OS's convention) |
 | pitch | `model.c edm_str_note`, at each note | another `FC3C` queue with the voice's four reads (`d` of the note) and `f` at `C020 + v` (`FCEC`) |
 | loop | `microcode/edm_str.s master_str` (main program of master B, 220 instructions, one per line like `edm_ecf.s`) | `F0 = a (y0 + y2) + c y1`, `F1 = a (y1 + y3) + c y2` (linear-phase filter `[a, 1 − 2a, a]`, 1 sample), `z = F0 + f (F1 − F0)`, `w = x + fb z` → `[4040 + 8v]`; the sum × 0.5 × VOLUME → send of the effect |
@@ -686,17 +680,13 @@ carry the build lines in their header comment.
 They are not delays: they are fixed data read by phase. Bank 0 does not serve (the ring would move them, and a fixed
 table in bank 0 is only possible if the DSP stores nothing in bank 0 [measured on the S8]). The place is **bank 5**:
 
-* the ARM writes the waves with `FD6C` at load and when the wave changes (§3.1); 1024 words, ~600 free with SYSTEM-S1CC:
-  two waves of 256 points (morph of WAVE_MAP / Plaits *wavetable* between two neighbouring waves), or four of 128;
+* the ARM writes the waves with `FD6C` at load and when the wave changes (§3.1); on the slave only `A000`–`A1FF` is
+  reliable and the host leaves the window `A080`–`A0FF` free: one frame of 127 points + guard (§4.1);
 * the DSP reads `da` (h6) / `db` (h7) with h = base + phase · N, and a second load for the linear interpolation: ~8
   instructions per voice, 8 voices [estimated];
 * per-voice COLOR (COLOR MOD) no: the 8 voices share the two waves the ARM put; the morph between them is per voice.
 
-Blocker: the indexed load of bank 5 (`ldb5` / `ldb5h7`) is not tested on the S1. `MP-CSAW2-LUT` (`LFO_LUT=1`) is that
-test and it is already built ([Vol. II ch. 10](../vol2_dsp_core_isa/native_ops.md) §3, step 2).
-
-> Note: the two paragraphs above are from the first version of this section (2026-11-03). Later in this chapter
-> (§4.1, 2026-11-05/06) `ldb5` runs on the S1 slave (WT-SLAVE5, 8 voices) and only `A000`–`A1FF` of bank 5 is reliable.
+The indexed load of bank 5 (`ldb5`) runs on the S1 slave: WT-SLAVE5, 8 voices (§4.1).
 
 ### 4.1 Wavetable on the slave: WT-SLAVE5, WT-SLAVE768 (2026-11-05, **they work: 8 voices**)
 
@@ -717,7 +707,7 @@ has no stable period — the ARM refills it in blocks of 64 points every 12 ms, 
 deforms the harmonic balance and adds wide-band noise. `SL_WT=b5` is written only once → perfect period. **For
 single-cycle: bank 5.** The only loss of b5 is the highest octave (63 harmonics).
 
-**More points in b5: `A200` turned out NOT reliable (measured 2026-11-06).** The b5 frame lives by default at `A080`–`A0FF`
+**More points in b5: `A200` is NOT reliable (measured 2026-11-06).** The b5 frame lives by default at `A080`–`A0FF`
 (128 words = 127 points + guard). The `ldb5` builds the address with a 10-bit offset (`SL_STG & 0x3FF`), so it reaches the
 1024 low words of bank 5 (`A000`–`A3FF`); the host only uses `A000`–`A1FF`, leaving `A200`–`A3FF` (512 words) free in
 theory. The options `SL_STG` (default `0xA080`) and `SL_N` (default 127, b5) were added and a frame of 256 points / 128
@@ -845,8 +835,7 @@ Measured (USB capture `work/captures/wt_edm_192818.wav`, 8 held notes one after 
 
 **Incident:** the first time the freshly installed PLUG-OUT was chosen and notes were played, **the device switched
 off**; after switching it on, the first notes were slow to start (the filling blocks up to 500 ms per note) and then it
-worked. Cause not determined. Before, a switch-off like this was caused by a direct store of the ARM into the map table
-(§3.3.4); here the table is loaded with `FC3C` in `load`, as in MP-EDMWT8, which did not switch off. Differences with
+worked. Cause not determined. A direct store of the ARM into the map table causes such a switch-off (§3.3.4); here the table is loaded with `FC3C` in `load`, as in MP-EDMWT8, which did not switch off. Differences with
 MP-EDMWT8: the own main program of master A (`MA_MAIN`), 6 requests per sample (MP-EDMWT8: also 6, 3 voices × 2), the
 assigner of region 0 instead of its own. Working rule that already existed (§3.3.8): after installing, switch off and on
 before choosing the PLUG-OUT.
@@ -864,7 +853,7 @@ Cause [measured]: the constant of the limit of `c`, `mov r3, #11.49609` (`WT_LEN
 on master B as 5.748** (half); the assembler and the emulator read it as 11.496 (that is why `wt_sim` / the simulation of
 ages were right). With `c` of half a turn, half the time the age pointed half a table off. The same was in MP-EDMWT8
 (probable cause of its correlation 0.90). Fix: the limit with one op, `mov r3, #11.5` (`4b80`) + `addxy r3, r3, #−2^−15`
-(also exact: the old constant gave 64 samples fewer per turn). **Verified** (`wt_edm_fix_194906.wav`, note held 10 s):
+(also exact; `#11.49609` gives 64 samples fewer per turn). **Verified** (`wt_edm_fix_194906.wav`, note held 10 s):
 level and timbre even the whole time (centroid 516–564 Hz, no jumps), periodic (164.67 Hz, correlation 0.96). Which 16-bit
 immediates the device decodes differently is not measured: `#127.0` (slave) and `#5.75`, `#0.125` (master B) run fine;
 `4b7f` (mantissa with its 7 low bits at 1) does not.
@@ -886,7 +875,7 @@ the device**; exact values go through parameters (`FCEC`) or are built with ops 
 **Per-voice COLOR MOD: WT-EDM-CMOD (2026-11-05, works, 6 voices).** `sdk/s1cc/examples/wavetable/wt_edm_cmod.c`
 (`WT_CMOD=1`): the kernel reads `s1_color(0)`, so the host builds the COLOR of each voice with its COLOR MOD source (knob +
 LFO / envelopes / sub); the slave's DSP A takes it to a position of the table (`sl_wt.s sl_m2s_voice`: color × (frames −
-1), step `WT_CQ`) and sends it to the master through **`6008 + v`** (slave → master, 6 words; DSP B no longer writes zeros
+1), step `WT_CQ`) and sends it to the master through **`6008 + v`** (slave → master, 6 words; DSP B does not write
 there); master B uses it instead of `C036` for that voice. `WT_CQ`: 1 = by frame, 2 = half, 4 = quarter, 0 = by sample
 (the cycle is the end of frame k and the start of k + 1, the boundary moves with COLOR: continuous, with a small jump at
 the joint if the frames differ).
@@ -1067,7 +1056,7 @@ None of these appears in the emulator (model of the SYSTEM-8); they cost the tes
 | 2 | an indexed load uses the register its `hset` named **as it is at load time**: do not write it between the `hset` and the last indexed load (nor in the same instruction) | IDX-PROBE head: two loads read the index of another value of the register; WT-SLAVE5: `mov r6, #1.0 \| ldb5 r1, 0` | `asm/dspsched.py` (`hset_src`, `HSET_HOLD`) |
 | 3 | a single indexed load per instruction: `ldidx r1, 0 \| ldidx r2, 1` gives both the word of the second | IDX-PROBE (bank-0 pair: 0.757 / 0.752 for 0.625 / 0.75) | `asm/dspsched.py` (`Ins.fits`) |
 | 4 | **DSP A and B of a slave run at the same time**: a bank-5 word that A writes twice per sample (the kernel's 0, then the wave) can be read by B in between. A single store per sample on each shared word | WT-SLAVE5 with the kernel writing `A151 + v`: only the voice that B reads before the 0 sounded (voice 0; with the order reversed, the first two and the last two); with the kernel in bank 0 (`SL_KOUT`): the 8 | `make_s1cc.py addresses` (`SL_WT`) |
-| 6 | **bank 0 of DSP A has 1024 words: the addresses wrap at `0x0400`** (measured, WT-ALIAS; corrects the earlier inference "one per chip"). Every line / table of bank 0 must stay in `0x0018`–`0x03FF` and outside the stores of DSP A modulo `0x0400`; those of DSP B do not touch it | WT-SLAVE0 (loop `0x0360` + 1024: overwrites itself), WT-SLAVE0L, WT-SLAVE1K, WT-ALIAS (§4.1) | `make_s1cc.py` (`SL_S`, `SL_L`) |
+| 6 | **bank 0 of DSP A has 1024 words: the addresses wrap at `0x0400`** (measured, WT-ALIAS). Every line / table of bank 0 must stay in `0x0018`–`0x03FF` and outside the stores of DSP A modulo `0x0400`; those of DSP B do not touch it | WT-SLAVE0 (loop `0x0360` + 1024: overwrites itself), WT-SLAVE0L, WT-SLAVE1K, WT-ALIAS (§4.1) | `make_s1cc.py` (`SL_S`, `SL_L`) |
 | 5 | the distance `hset` → load 2 is enough (8 changed nothing); the loads and the SFU with distance 1 are fine | WT-SLAVE5B (`HSET_DIST=8`), WT-SLAVE5L (`LAT2=1`): the same as without them | `HSET_DIST`, `LAT2` stay as test options |
 
 Master B (§3.3.8): our main program at `0x1000` reads bank 5 as 0; `sign` only as `sign rX, rX` (`asm/master_b_forms.txt`).
@@ -1133,21 +1122,19 @@ notes `0x110+v` and velocities `0x120+v`, also of group 2, do arrive). If it doe
 | `S1_FRAMES(name, panel_id, n)` | control frames that the tick writes with `FCEC` (speech) | `engine.c` (tick), `make_s1cc.py` |
 | emulator | the ring of bank 0 is already exact; indexed bank 5 too (`emu/dspcore.h`) | — |
 
-> Note: the SDK header now declares `s1_ldb5(i)` (a word of the wavetable frame at `A080..`), see
-> [Vol. V ch. 2](../vol5_toolchain_compiler_sdk/s1dsp_api_reference.md) §2; `S1_TABLE` / `s1_delay_*` / `S1_FRAMES` are
-> not in it.
+The SDK header declares `s1_ldb5(i)` (a word of the wavetable frame at `A080..`,
+[Vol. V ch. 2](../vol5_toolchain_compiler_sdk/s1dsp_api_reference.md) §2.1); `S1_TABLE` / `s1_delay_*` / `S1_FRAMES` are not in it.
 
 ## 6. Proposed order
 
-1. **Test `MP-CSAW2-LUT` on the device** (indexed bank 5 on the S1). If it works: `S1_TABLE` and the wavetables of Braids /
-   Plaits (WAVETABLES, WAVE_MAP, WAVE_LINE, *wavetable* engine), 8 voices.
-2. **`s1_delay_*` in bank 0**: PLUCKED, SAW_COMB and the Plaits string with 4 voices (≥ 250 Hz), 2 voices (≥ 110 Hz), or
-   twice the reach at half rate [estimated].
-3. **Per-voice strings on master B**: MP-EDMSTR (§3.3.5) **works with 6 voices** (2026-11-04). Then MP-EDMIDX (§3.3.6) to
-   know whether `tapreq` is absolute: wavetable and granular in the EDM depend on it. Before: **`tapreq` on master B**
-   (§3.3, the 0.5 s echo test): if it works, PLUCKED / strings at any pitch with 6 voices (excitation through
-   `6008`–`600D`), chorus of the *string machine*, granular buffer. Then, `tapreq` on a slave (§3.2) for BOWED / BLOWN /
-   FLUTED.
+1. **`S1_TABLE` in s1cc** and the wavetables of Braids / Plaits (WAVETABLES, WAVE_MAP, WAVE_LINE, *wavetable* engine),
+   8 voices: indexed bank 5 works on the S1 (WT-SLAVE5, §4.1); `MP-CSAW2-LUT` is built, not tested on the device.
+2. **`s1_delay_*` in bank 0**: PLUCKED, SAW_COMB and the Plaits string within the room of §3.2, or twice the reach at
+   half rate [estimated].
+3. **The EDM on master B**: per-voice strings work (MP-EDMSTR, §3.3.5, 6 voices) and so does reading at a computed
+   position (WT-EDM, §4.4); the probe MP-EDMIDX (§3.3.6) is built, not run. Next: PLUCKED / strings at any pitch with 6
+   voices (excitation through `6008`–`600D`), chorus of the *string machine*, granular buffer. `tapreq` on a slave
+   (§3.2) for BOWED / BLOWN / FLUTED is [open].
 4. **Frames by the tick**: the Plaits *speech* engine (LPC) with `S1_FRAMES`.
 5. Chorus / ensemble of the *string machine* on master B (the delay memory that the OS already uses for its delay): only
    if the OS leaves room in that memory [open].

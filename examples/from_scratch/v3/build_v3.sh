@@ -1,7 +1,7 @@
 #!/bin/sh
 # v3 plug-out = engine/build.sh with v3/engine_v3.c: our own main programs (make_v3.py) in Roland's voice layout, our saw
 # in the DCO2 slots of DSP2 / DSP3, our null program in the DCO1 slots. No Roland microcode is copied (checked by
-# the signature test of docs/VOICE_ALLOCATION.md); engine/ is not modified.
+# the signature test of docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md); engine/ is not modified.
 #   examples/from_scratch/v3/build_v3.sh [src-plugin-dir] [out-plugin-dir]
 set -e
 V3=$(cd "$(dirname "$0")" && pwd)

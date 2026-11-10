@@ -1,4 +1,4 @@
-"""List scheduler for our DSP microcode (SYSTEM-1 and SYSTEM-8: same ISA). docs/MICROCODE_OPTIMIZATION.md §5.
+"""List scheduler for our DSP microcode (SYSTEM-1 and SYSTEM-8: same ISA). docs/vol3_voice_allocation_scheduling/microcode_optimization.md §5.
 
     import dspsched
     packed = dspsched.schedule(lines)          # one-unit lines (with "mov rN, rN" fillers) -> instruction texts
@@ -9,7 +9,7 @@ an instruction ("op1 | op2 | op3"), loads and stores go into op instructions, th
 reordered as far as the dependencies allow (pack() of make_synth.py only merged a line into the instruction before
 it, in program order).
 
-Semantics the schedule keeps (the emulator's, measured on the hardware; DSP_HARDWARE.md, pack() comment):
+Semantics the schedule keeps (the emulator's, measured on the hardware; docs/vol2_dsp_core_isa/core_architecture.md, pack() comment):
   * every unit of an instruction reads before any unit writes;
   * a loaded register is usable from the next instruction on; a store reads the register as the instruction starts;
   * memory: a load after a store to the same address comes one instruction later; a store after a load may share
@@ -44,7 +44,7 @@ IDX = re.compile(r'^ldidx r(\d), (\d+)$')            # bank 0 [h6 + Y] (X28Y): a
 IDX5 = re.compile(r'^ldb5(?:h7)? r(\d), (\d+)$')    # bank 5 [h6 / h7 + Y] (XdaY / XdbY): the same, a fixed table
 HSET = re.compile(r'^hset h(\d), r(\d)$')
 # instructions from a hset to the indexed loads that use it: 2 measured on the SYSTEM-8 master (dspverify); the
-# environment's HSET_DIST overrides it (SYSTEM-1 ldb5 probe, docs/MUTABLE_MEMORY.md §4.1)
+# environment's HSET_DIST overrides it (SYSTEM-1 ldb5 probe, docs/vol6_reference_designs_applications/mutable_memory.md §4.1)
 HSET_DIST = int(os.environ.get('HSET_DIST', '2'))
 # instructions between a hset and the next write of the register it reads (SYSTEM-1, IDX-PROBE 2026-11-05: a write in
 # the very next instruction reached the hset); the environment's HSET_HOLD overrides it
@@ -63,7 +63,7 @@ MAC_FORMS = frozenset({'mac_p1w', 'mac_p1p2w', 'mac_p1p2', 'mac_p1p2wp2'} |
 
 
 def _native(mn, r):
-    """the native ops (DSP_HARDWARE.md §5, measured exact on the SYSTEM-8 master with re/dspnative.py 2026-10-28):
+    """the native ops (docs/vol2_dsp_core_isa/core_architecture.md §5, measured exact on the SYSTEM-8 master with re/dspnative.py 2026-10-28):
     r = the operand registers in text order -> (registers written, registers read), or None for an unknown op.
     Several write more than their D: recipseed / atanhsplit r(D), r(D+1) and rY; newton r(D), r(D+1), rY"""
     d = r[0]
@@ -95,7 +95,7 @@ def _native(mn, r):
 NATIVE = {'shl', 'shr', 'shrn', 'floor', 'ceil', 'sign', 'expsplit', 'log2split', 'recipseed', 'atanhsplit', 'frexp',
           'newton', 'add3', 'sum8', 'sqrtsplit', 'mac_p1'} | MAC_FORMS
 MAX_OPS, MAX_XFER = 3, 3
-# op families (DSP_HARDWARE.md §5.2-5.4), for the patterns of asm/bad_forms.txt (`family:minmax + family:minmax`)
+# op families (docs/vol2_dsp_core_isa/core_architecture.md §5.2-5.4), for the patterns of asm/bad_forms.txt (`family:minmax + family:minmax`)
 B_FAMILY = {**{m: 'macp2' for m in MAC_FORMS},          # the MAC ops with a P2 term
             **{m: 'minmax' for m in ('min', 'max', 'minn', 'maxn', 'absx', 'absy')},
             **{m: 'e' for m in ('cmp', 'bic', 'divseed', 'ph_add', 'ph_sub', 'ph_abs', 'ph_clamp', 'ph_wrap', 'ph_tri',
@@ -210,7 +210,7 @@ def dependencies(units):
             need(last_write.get(w), 1)
             for i in reads_since.get(w, ()):
                 need(i, HSET_HOLD if units[i].hset else 0)
-            # SYSTEM-1 (IDX-PROBE / WT-SLAVE5, 2026-11-05, docs/MUTABLE_MEMORY.md §4.2): an indexed load uses the
+            # SYSTEM-1 (IDX-PROBE / WT-SLAVE5, 2026-11-05, docs/vol6_reference_designs_applications/mutable_memory.md §4.2): an indexed load uses the
             # register its hset named AS IT IS when the load runs: that register is not written before the last
             # indexed load of the hset (same instruction included)
             for h, (src, hj) in hset_src.items():
@@ -395,7 +395,7 @@ def _bad():
 class Ins:
     allowed = None                     # set of op signatures that may share an instruction (None: any)
     one_bank5 = False                  # True: one bank-5 access per instruction, load or store (the SYSTEM-1 rule 5,
-                                       # docs/examples_system_1_jx_README.md §5; a load with a store of bank 5 was in
+                                       # examples/system_1_jx/README.md §5; a load with a store of bank 5 was in
                                        # the half of C-S1JX's MAIN3 that hung the device)
     shapes = None                      # [(Counter of 'ld5' / 'st0' ..., number of ops)]: an instruction may only be
                                        # part of one of these (asm/s1rules.py proven_shapes); None: any
@@ -463,7 +463,7 @@ MAC_ALT = True                                         # mad -> mac_p1 when that
 
 def mac_alt(u):
     """`mad rD, rX, Y` as the MAC's `mac_p1 rD, rX, Y, rD` (rD <- rX Y + rD) and `mul rD, rX, Y` as
-    `mac_p1 rD, rX, Y, #0` (the same values; DSP_HARDWARE.md §5.4): the MAC unit beside A / B ops, as Roland's
+    `mac_p1 rD, rX, Y, #0` (the same values; docs/vol2_dsp_core_isa/core_architecture.md §5.4): the MAC unit beside A / B ops, as Roland's
     SYSTEM-1 programs do (class MA, a one-product MAC). None for any other unit"""
     if not MAC_ALT or u.kind != 'op':
         return None

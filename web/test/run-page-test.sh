@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs web/test/page-test.html in headless Chrome against a local server of the repo
-# (docs/WEB_INSTALLER.md §5). No real MIDI port is opened: the page gets a fake Web MIDI.
+# (docs/vol4_firmware_container_protocol/web_installer.md §5). No real MIDI port is opened: the page gets a fake Web MIDI.
 #   sh web/test/run-page-test.sh [/path/from/repo/root/Code1.Dat]
 # Exit code 0 = PASS. CHROME=... picks the browser (default: google-chrome, chromium).
 set -e

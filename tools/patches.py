@@ -10,7 +10,7 @@ firmware (JUNO-60.vst3 @ 0x1803551a5..0x1803552d0 and 0x180355af0).
   memory concatenated in Script.xml order.
 * Device addresses: computed per slot / patch / struct (@ 0x18036d270).
 
-See docs/PROTOCOL.md section 6.
+See docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md section 6.
 """
 
 from __future__ import annotations

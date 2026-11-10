@@ -1,5 +1,5 @@
 """Listing of a Roland main program (engine/build/programs.h, from the JX-3P) with its bus references:
-IOMD (bank 3, 6nnn), MXM (bank 4, 8nnn) and bank 5 (Annn). Used for docs/WAVE_BUS.md.
+IOMD (bank 3, 6nnn), MXM (bank 4, 8nnn) and bank 5 (Annn). Used for docs/vol1_system_architecture/bus_interconnect.md.
 
     python3 dump_main.py MAIN5 > main5.txt      (needs engine/build, i.e. engine/build.sh run once)
 """

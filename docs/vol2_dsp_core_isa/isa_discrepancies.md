@@ -1,5 +1,7 @@
 # Volume II — Chapter 8: ISA Discrepancies (measured ISA vs assembler vs disassembler)
 
+> **Scope:** both (same ISA; the assembler serves both devices).
+
 What is still open, and the device results that closed the others. A closed entry is removed from the open
 list; its result is written into [Vol. II ch. 4](instruction_set_reference.md) (or [Vol. II ch. 7](isa_overview.md)). Settled questions are not repeated.
 

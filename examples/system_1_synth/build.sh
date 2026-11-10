@@ -1,5 +1,5 @@
 #!/bin/sh
-# C-S1SY: C-S1V8 + DCO2, ADSR VCA, low-pass filter, filter ADSR (docs/examples_system_1_synth_README.md). sh build.sh --help
+# C-S1SY: C-S1V8 + DCO2, ADSR VCA, low-pass filter, filter ADSR (examples/system_1_synth/README.md). sh build.sh --help
 # Needs arm-none-eabi-gcc/ld/objcopy and Python 3. No Roland file is read: all code and microcode are ours.
 usage() {
     cat <<'TXT'
@@ -26,7 +26,7 @@ Options (environment variables):
                   0 the first all-at-once design (silent on the device; reference only)
   SCHED=0|1     schedule with asm/dspsched.py instead of pack() (default 1 from STEP 12)
   FUSE=0|1      fuse independent ops into one instruction as Roland (default 1 from STEP 11, docs/
-                MICROCODE_OPTIMIZATION.md); every build runs tools/check_optimized.py on the programs
+                docs/vol3_voice_allocation_scheduling/microcode_optimization.md); every build runs tools/check_optimized.py on the programs
   FOLD=1        (with STEP=13) the triangle of each oscillator wavefolded by its COLOR knob (0x168 / 0x16D);
                 FOLD_MAX=x = gain at COLOR 255 (default 5). Doc §7.5
   PACK=0|1      pack loads / stores into the ops' instructions as Roland does (default 1). PACK=0 = one unit
@@ -64,7 +64,7 @@ NAME=${NAME:-C-S1SY}
 MODEL_ID=${MODEL_ID:-0x0010}
 mkdir -p "$B"
 python3 "$HERE/make_synth.py"
-python3 "$ROOT/tools/check_optimized.py" "$HERE"/s1m0.s "$HERE"/s1m1.s "$HERE"/s1mm1.s || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
+python3 "$ROOT/tools/check_optimized.py" "$HERE"/s1m0.s "$HERE"/s1m1.s "$HERE"/s1mm1.s || true    # warnings: unoptimized microcode (docs/vol3_voice_allocation_scheduling/microcode_optimization.md)
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
  -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG}"
 for r in 0 1; do

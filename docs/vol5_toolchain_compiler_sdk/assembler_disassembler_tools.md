@@ -1,5 +1,7 @@
 # Volume V — Chapter 4: The Microcode Toolchain — Assembler, Disassembler, Scheduler, Rules and Checks
 
+> **Scope:** both; `asm/s1rules.py` and the proven forms are SYSTEM-1.
+
 > Sources: the module docstrings of `asm/*.py`, the data files of `asm/`, `tools/doccheck.py` and
 > `tools/check_optimized.py`. Usage and parameters of every script: [TOOLS.md](../TOOLS.md). Review of the assembler's
 > rules: [REVIEW.md](../vol7_cleanroom_evidence_archive/REVIEW.md). The ISA they implement:
@@ -116,9 +118,7 @@ dspbuild.write('s1m0', out_dir, b)            # s1m0.s / s1m0.hex + check_optimi
    random states for 6 samples each; every register, flag and memory word must be equal. Verified programs are
    remembered by their words (`asm/build/verified.txt`).
 
-Command line: `python3 asm/dspbuild.py FILE.s [--s1|--s8] [-o DIR]`. (The docstring cites "[Vol. III ch. 6](../vol3_voice_allocation_scheduling/microcode_optimization.md)
-§6"; the original of that document, now [Vol. III ch. 6](../vol3_voice_allocation_scheduling/microcode_optimization.md),
-has sections §1–§5 only: the pipeline is documented here and in the docstring.)
+Command line: `python3 asm/dspbuild.py FILE.s [--s1|--s8] [-o DIR]`.
 
 ## 6. SYSTEM-1 access rules (`asm/s1rules.py`)
 

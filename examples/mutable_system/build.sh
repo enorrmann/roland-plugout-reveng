@@ -1,5 +1,5 @@
 #!/bin/sh
-# MUTABLE-SYSTEM: C-S1SY13F with Braids' SAW_SWARM (docs/examples_mutable_system_README.md). sh build.sh --help
+# MUTABLE-SYSTEM: C-S1SY13F with Braids' SAW_SWARM (examples/mutable_system/README.md). sh build.sh --help
 # Needs arm-none-eabi-gcc/ld/objcopy, Python 3 with numpy, and the Mutable Instruments eurorack checkout (EURORACK,
 # default ~/git/eurorack: the waveshaper table is fitted from braids/resources.cc). No Roland file is read.
 usage() {
@@ -9,7 +9,7 @@ usage: [VAR=value ...] sh examples/mutable_system/build.sh [--help]
 Builds MUTABLE-SYSTEM for the SYSTEM-1 -> plugins/<NAME>/Script/Code1.Dat (and Code.Dat, the same file):
 C-S1SY13F (examples/system_1_synth: LFO, ADSRs, 4-pole low-pass, OS delay / reverb) with Braids' SAW_SWARM
 (7 detuned saws, tanh waveshaper, high-pass) in place of DCO1 + DCO2, ported with sdk/mport
-(docs/examples_mutable_system_README.md, docs/MUTABLE_SDK.md).
+(examples/mutable_system/README.md, docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md).
 Install: python3 tools/plugout_tool.py install plugins/<NAME> --slot 1 --force --no-patches -y
 Then select the PLUG-OUT on the panel.
 
@@ -20,7 +20,7 @@ is C-S1SY13's.
 Options (environment variables):
   KERNEL=DIR    a voice compiled from C / C++ by s1cc (sdk/s1cc/s1cc build ... -o DIR) instead of the oscillator:
                 its DSP A code on DSP A, its DSP B code first in the voice of DSP B, its S1_PARAM tables on their panel ids
-                (docs/S1CC.md §12, e.g. KERNEL=sdk/s1cc/build/braids_saw_swarm_s1 NAME=MUTABLE-S1CC)
+                (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §12, e.g. KERNEL=sdk/s1cc/build/braids_saw_swarm_s1 NAME=MUTABLE-S1CC)
   SWARM=0|1     1 (default without KERNEL): SAW_SWARM written in Python (sdk/mport); 0: C-S1SY's DCO1 + DCO2
   WS_DEGREE=n   degree of the odd polynomial that replaces Braids' ws_moderate_overdrive table (default 9:
                 21 LSB worst case; 7: 97 LSB, 2 instructions per voice less)
@@ -45,7 +45,7 @@ NAME=${NAME:-MUTABLE-SYSTEM}
 MODEL_ID=${MODEL_ID:-0x0010}
 mkdir -p "$B"
 python3 "$HERE/make_mutable.py"
-python3 "$ROOT/tools/check_optimized.py" "$HERE"/s1m0.s "$HERE"/s1m1.s "$HERE"/s1mm1.s || true    # warnings: unoptimized microcode (docs/MICROCODE_OPTIMIZATION.md)
+python3 "$ROOT/tools/check_optimized.py" "$HERE"/s1m0.s "$HERE"/s1m1.s "$HERE"/s1mm1.s || true    # warnings: unoptimized microcode (docs/vol3_voice_allocation_scheduling/microcode_optimization.md)
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
  -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG}"
 for r in 0 1; do

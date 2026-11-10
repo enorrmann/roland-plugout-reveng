@@ -1,5 +1,7 @@
 # Volume III — Chapter 6: Optimized Microcode — Mandatory Rules (SYSTEM-1 and SYSTEM-8)
 
+> **Scope:** both; the SYSTEM-1-only rules (proven forms, access rules) are marked.
+
 Specification for all own DSP microcode, on both devices (the ISA is the same). Each instruction costs one cycle of
 the sample's budget:
 * SYSTEM-1 slave: maximum tested 708, hangs at 826 ([examples/system_1_synth/README.md](../../examples/system_1_synth/README.md) §4);

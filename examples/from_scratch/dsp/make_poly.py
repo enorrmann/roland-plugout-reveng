@@ -7,7 +7,7 @@ vibrato, times the envelope. The four voices are summed (scale 1/4) into IOMD 60
     python3 make_poly.py          -> poly.s, poly.hex
     python3 make_poly.py --opt    -> also poly_opt.s / poly_opt.hex: the same voice with ph_wrap (Roland's form)
                                      instead of the manual wraps, scheduled by asm/dspsched.py
-                                     (docs/MICROCODE_OPTIMIZATION.md); poly.hex (tested on the device) stays
+                                     (docs/vol3_voice_allocation_scheduling/microcode_optimization.md); poly.hex (tested on the device) stays
     python3 make_poly.py --sim    -> four voices in the C reference (emu/dspref.py): each gate pulse must give its own pitch
 """
 import math
@@ -27,7 +27,7 @@ GATE = [0xA068 + k for k in range(NV)]         # bank 5 ids 0x68+k (ARM: gate)
 PHASE = [0x0670 + 4 * k for k in range(NV)]    # ring state, store at S, read at S+1 next sample
 ENV = [0x0690 + 4 * k for k in range(NV)]
 LFO, LFOV = 0x06A0, 0x06B0                     # LFOV: this sample's LFO value (same-sample store and load)
-OUT_L, OUT_R = 0x6020, 0x6021                  # canal 1, canal 0 (docs/WAVE_BUS.md)
+OUT_L, OUT_R = 0x6020, 0x6021                  # canal 1, canal 0 (docs/vol1_system_architecture/bus_interconnect.md)
 KA, KR = 0.01, 0.0002
 LFO_HZ, DEPTH = 5.5, 0.02
 K = 2 * 440.0 / 96000.0

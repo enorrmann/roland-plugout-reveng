@@ -1,5 +1,7 @@
 # Volume III — Chapter 7: Roland's Oscillators in the SYSTEM-8 and SYSTEM-1 PLUG-OUTs
 
+> **Scope:** both (Roland's SYSTEM-8 and SYSTEM-1 PLUG-OUTs, each marked).
+
 Study specification (read only, no bytes are ever copied: [Vol. VII ch. 1](../vol7_cleanroom_evidence_archive/cleanroom_boundary_contract.md)). How
 Roland's oscillator programs compute the waveforms and which instructions they use so that they fit in the budget of
 each sample. The rules that come out of here for our microcode are in

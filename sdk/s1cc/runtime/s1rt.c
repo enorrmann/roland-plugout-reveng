@@ -1,4 +1,4 @@
-/* s1cc runtime (docs/S1CC.md §5): the s1_* intrinsics on the PC, for the reference build and the profiling build
+/* s1cc runtime (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §5): the s1_* intrinsics on the PC, for the reference build and the profiling build
  * of a voice program (same LLVM IR; s1cc prof adds the __s1p_* calls to the profiling one).
  *
  *   PROG tables FILE                     every S1_PARAM table at knob 0..255 ("p name panel count" + 256 rows)
@@ -98,7 +98,7 @@ void s1_export(int i, float v) { g_export[i & 15] = v; }
 float s1_import(int i) { return g_export[i & 15]; }
 /* s1_ldb5(i): the wavetable frame in bank 5 (A080..). Here (native reference / profiling / check) a band-limited saw
  * stands in for whatever the host / USB loader wrote; on the device the DSP reads the loaded frame. 127 points +
- * a guard copy of point 0, peak 0.8, as make_s1cc's sl_frames() (docs/MUTABLE_MEMORY.md §4.1, §4.5). */
+ * a guard copy of point 0, peak 0.8, as make_s1cc's sl_frames() (docs/vol6_reference_designs_applications/mutable_memory.md §4.1, §4.5). */
 #define S1_WT_N 127
 static float g_ldb5[S1_WT_N + 1];
 static int g_ldb5_ready;
@@ -216,7 +216,7 @@ static void reset(void) {
 static float note_pitch(double note) { return (float)((note - 12.0) / 12.0); }
 
 /* profiling: the range of every state word at the start of a sample (a state whose first access in the sample is a
-   store before any load has no load record of its own: docs/S1CC.md §5) */
+   store before any load has no load record of its own: docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §5) */
 static int st_track;
 static double st_lo[4096], st_hi[4096], st_buf[4096];
 
@@ -328,7 +328,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (!strcmp(argv[1], "sweep")) {
-        /* PROG sweep OUT: knob-derived columns (docs/S1CC.md §4.6). Every knob over 0..255, the others at 128, a few
+        /* PROG sweep OUT: knob-derived columns (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §4.6). Every knob over 0..255, the others at 128, a few
            samples of 3 notes each; per knob and record "w KNOB ID v0 .. v255" (signed view), when the record was seen
            at every position and changes with the knob. s1cc lower keeps those of values that depend on that knob only */
         static const int notes[] = {57, 0, 127};

@@ -1,5 +1,5 @@
 // Reference renderer: Mutable Instruments' original Braids DigitalOscillator, compiled on the PC
-// (sdk/mport/reference.py builds it against the eurorack checkout; docs/MUTABLE_SDK.md §6).
+// (sdk/mport/reference.py builds it against the eurorack checkout; docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §6).
 //   braids_render SHAPE PITCH P1 P2 N [SEED] [BLOCK] [STRIKE]  -> N int16 samples (little endian) on stdout
 // SHAPE = DigitalOscillatorShape index (OSC_SHAPE_SAW_SWARM = 1), PITCH = Braids pitch (MIDI note << 7),
 // P1 / P2 = parameters 0..32767 (TIMBRE / COLOR), SEED = stmlib Random state before the first render (default 1),

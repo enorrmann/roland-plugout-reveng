@@ -1,4 +1,4 @@
-/* native_check2.c: the native ops measured on the SYSTEM-8 on 2026-10-29 (docs/NATIVE_OPS.md), checked on the
+/* native_check2.c: the native ops measured on the SYSTEM-8 on 2026-10-29 (docs/vol2_dsp_core_isa/native_ops.md), checked on the
  * SYSTEM-1 by ear, as native_check.c: each op is compared with an identity that does not use it; the voice is a
  * sawtooth times (1 - clamp(K error)): a clean saw at full level when every selected op is right, quieter / silent /
  * rough when one is wrong.

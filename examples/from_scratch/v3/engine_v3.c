@@ -338,7 +338,7 @@ static void read_params(engine_t *e)
 /* program slot of OSC osc (0 DCO1 = 0x6000, 1 DCO2 = 0xB000) on DSP dsp */
 static volatile uint32_t *live_prog(int dsp, int osc) { return (volatile uint32_t *)(0x41480000u + dsp * 0x100000u + (osc ? SLOT_DCO2 : SLOT_DCO1)); }
 
-/* bank 5 (DPC) of slave DSP n, RAW view (as the master's, DSP_ARM_SIDE.md: 0x41114000 + n * 0x4000 + 0x2000) */
+/* bank 5 (DPC) of slave DSP n, RAW view (as the master's, docs/vol2_dsp_core_isa/memory_banks_dma.md: 0x41114000 + n * 0x4000 + 0x2000) */
 static volatile uint32_t *live_bank5(int dsp) { return (volatile uint32_t *)(0x41114000u + dsp * 0x4000u + 0x2000u); }
 
 /* 18-bit two's complement x = value * 2^17 -> DSP RAW word (sign-magnitude, value = +-M / 2^(32 - 4 s), smallest s

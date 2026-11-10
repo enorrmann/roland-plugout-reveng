@@ -1,5 +1,7 @@
 # Volume III — Chapter 3: DSP Program Memory — Main Program, Slots and Sections (SYSTEM-8 and SYSTEM-1)
 
+> **Scope:** both: SYSTEM-8 slots and SYSTEM-1 sections, each in its own section.
+
 State: 2026-10-22 (with the dated additions of 2026-10-28). It gathers what is known about how the program memory of
 a DSP is divided, who runs which part, how much fits in each and which usage variants are possible. It serves to decide
 where to put an own program. Detail of the ISA and of the time: [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md); loading from the
@@ -74,7 +76,7 @@ Two DSPs per BMC (A and B). Program memory of 32 KiB (the highest thing written 
 
 ```
 0x0000 ─ header (written by the OS: stock sets {0x0000, 0x1E bytes, …}). The PLUG-OUTs do NOT queue it: doing so
-         hangs the device [measured, C-S1JX7, 2026-10-22; ../system-1/WAVE_BUS.md §5.3]
+         hangs the device [measured, C-S1JX7, 2026-10-22; Vol. I ch. 3 §15.3]
 0x0100 ─ MAIN ─────────────────── up to 0x18FF (6 KiB)
 0x1900 ─ section 2 ────────────── up to 0x30FF (6 KiB)
 0x3100 ─ section 3                up to 0x48FF
@@ -104,7 +106,7 @@ On the **master** these are also used: DSP A `0x0082` (output program that the O
     **off** bit: `on = 1` clears it (switches the section on), `on = 0` sets it [code]. The OS switches the sections off
     when reloading (`bic 0x3E`).
   * Index → (DSP, section, address): 0 → A/2 `0x1900`, 4 → A/3 `0x3100`, 1 → A/4 `0x4900`, 5 → A/5 `0x6100`, 2 → B/2,
-    6 → B/3, 3 → B/4, 7 → B/5 ([system-1/SH101_POLY.md](../../system-1/SH101_POLY.md) §2).
+    6 → B/3, 3 → B/4, 7 → B/5 ([Vol. III ch. 9](system1_polyphony_studies.md) §2.2).
   * A section runs **after the main program, in the same sample**, with the same registers and the same memory; its
     instructions add to the same time budget: they give space, not time [measured: SYSTEM-S1CC with voice 6 in section 2
     sounds the same as the others].

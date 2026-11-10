@@ -4,7 +4,7 @@
  *
  *   node web/test/test-protocol.js [path/to/Code*.Dat ...]
  *
- * A fake synth answers every question the page asks (docs/PROTOCOL.md §2, §5)
+ * A fake synth answers every question the page asks (docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md §2, §5)
  * and records every message the library sends, so the whole install runs
  * without hardware. For each Code*.Dat (default: every plugins/<name>/Script/
  * Code1.Dat and Code8_*.Dat found) it also checks that the JavaScript decoder

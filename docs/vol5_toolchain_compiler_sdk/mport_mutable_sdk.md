@@ -1,5 +1,7 @@
 # Volume V — Chapter 3: `sdk/mport` — Porting Mutable Instruments DSP Code to the Microcode of Roland's BMCs
 
+> **Scope:** SYSTEM-1 (MUTABLE-SYSTEM).
+
 > For new ports the tool is s1cc ([ch. 1](s1cc_compiler_internals.md)); mport is the study and the SAW_SWARM bench.
 
 Specification. State: 2026-10-24, version 1.0.

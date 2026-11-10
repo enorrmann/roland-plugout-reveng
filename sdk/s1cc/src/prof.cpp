@@ -1,4 +1,4 @@
-// `s1cc prof`: the module with profiling calls (docs/S1CC.md §5). After every value of the voice functions:
+// `s1cc prof`: the module with profiling calls (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §5). After every value of the voice functions:
 //   __s1p_v(id, signed view, unsigned view)                       range
 //   __s1p_o(id, wrapped as signed, wrapped as unsigned)           integer add / sub / mul / shl overflow
 // plus, per island candidate, `double __s1p_isl_<k>(double x)`: a clone of the island with x as its root, listed

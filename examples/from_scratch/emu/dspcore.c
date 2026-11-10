@@ -1,4 +1,4 @@
-/* C core of the DSP emulator and the reference of the DSP's semantics (docs/EMULATOR.md; the Python model
+/* C core of the DSP emulator and the reference of the DSP's semantics (docs/vol5_toolchain_compiler_sdk/emulator.md; the Python model
  * re/dspisa.py and chain.py Slave were archived 2026-10-29).
  * dspdec.h decodes every instruction once (dspcomp.py calls it); this file interprets the decoded form, or calls the
  * native translation of a program (dspjit.py) when one is attached. Both use the inline functions of dspcore.h.

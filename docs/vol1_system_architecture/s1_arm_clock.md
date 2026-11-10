@@ -1,5 +1,7 @@
 # Volume I — Chapter 6: SYSTEM-1 Slave ARM Clock (1 ms tick) and Writing DSP Parameters
 
+> **Scope:** SYSTEM-1.
+
 A SYSTEM-1 PLUG-OUT can run its own code on the slave's ARM **every 1 ms**, without its own task or its own interrupt,
 and from there write DSP parameters that the DSP program reads in the next sample. It is the basis of the envelopes and
 the LFO on the ARM of SYSTEM-S1CC (`ARM_ENV`, `ARM_LFO`, [examples/system_s1cc/README.md](../../examples/system_s1cc/README.md)

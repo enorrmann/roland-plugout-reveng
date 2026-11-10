@@ -1,4 +1,4 @@
-/* wt_edm_cmod.c: WT-EDM-CMOD, WT-EDM (wt_edm.c, docs/MUTABLE_MEMORY.md §4.4) with COLOR MOD per voice: the host makes
+/* wt_edm_cmod.c: WT-EDM-CMOD, WT-EDM (wt_edm.c, docs/vol6_reference_designs_applications/mutable_memory.md §4.4) with COLOR MOD per voice: the host makes
  * each voice's OSC1 COLOR with its COLOR MOD source (s1_color(0): knob + LFO / pitch env / filter env / amp env / sub);
  * slave A turns it into the voice's frame and sends it to master B (WT_CMOD, 6008 + v), which reads that voice's
  * frame of the whole table. The kernel's own output is not used (SL_WT=m replaces it); reading s1_color(0) is what

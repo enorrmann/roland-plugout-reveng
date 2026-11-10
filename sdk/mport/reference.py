@@ -1,4 +1,4 @@
-"""Reference renders from the original Mutable Instruments C++ (docs/MUTABLE_SDK.md §6).
+"""Reference renders from the original Mutable Instruments C++ (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §6).
 
 The eurorack checkout (EURORACK, default ~/git/eurorack) is compiled as it is, with the small stmlib stand-ins of
 sdk/mport/ref/stmlib (the submodule is empty there). The binary goes to sdk/mport/build/ (not in git) and is rebuilt

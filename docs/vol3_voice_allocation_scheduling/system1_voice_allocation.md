@@ -1,12 +1,12 @@
 # Volume III — Chapter 2: SYSTEM-1 Voice Allocation to the DSPs
 
-> English version of [system-1/VOICE_ALLOCATION.md](../../system-1/VOICE_ALLOCATION.md) (technical specification
-> v2.0, Spanish), with the same section numbers. If the two ever differ, the Spanish file is the source.
+> **Scope:** SYSTEM-1. The SYSTEM-8 counterpart is [ch. 1](system8_voice_allocation.md); the studies of more voices
+> (patching the OS, polyphonic SH-101, SYSTEM-8 microcode) are [ch. 9](system1_polyphony_studies.md).
 
 | | |
 |---|---|
 | Version | 2.0 (2026-10-22). Measurements behind each fact: [lab log](../vol7_cleanroom_evidence_archive/historical_lab_logs/s1_voice_allocation_log.md) |
-| Scope | How a note reaches a voice, which DSP computes each voice in the stock synth, in Roland's PLUG-OUTs and in ours, the program memory (main and sections) and the number of voices. Transport between DSPs: [system-1/WAVE_BUS.md](../../system-1/WAVE_BUS.md) |
+| Scope | How a note reaches a voice, which DSP computes each voice in the stock synth, in Roland's PLUG-OUTs and in ours, the program memory (main and sections) and the number of voices. Transport between DSPs: [Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) |
 | Device | SYSTEM-1, OS 1.30. SYSTEM-8: [ch. 1](system8_voice_allocation.md) |
 | Reference code | C-S1V4 / C-S1V8 (`examples/system_1/`, measured); C-S1JX (`examples/system_1_jx/`, not installed) |
 
@@ -122,8 +122,8 @@ Each DSP of the SYSTEM-1 has 32 KiB of program ([ch. 3](slot_program_model.md) �
 
 * The programs are loaded in **sets** `{address, bytes, pointer}` terminated by `{0, 0, 0}`, queued with `FC30` (DSP A)
   or `FC34` (DSP B) from `load` (master: vt[2] of the model; slave: vt+0x08 of the engine) [L], [M]. **Never with the
-  entry `0x0000`** (the OS header): queuing it hangs the device [M] ([system-1/WAVE_BUS.md](../../system-1/WAVE_BUS.md)
-  §5.3, with the `load` sequence of Roland's PLUG-OUTs). An own voice **section** is placed with `FC40`; queued with
+  entry `0x0000`** (the OS header): queuing it hangs the device [M] ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md)
+  §15.3, with the `load` sequence of Roland's PLUG-OUTs). An own voice **section** is placed with `FC40`; queued with
   `FC30` it is copied but does not run [M] ([ch. 3](slot_program_model.md) §3.2). Example, slave of C-S1JX (main + a
   section switched on; this build queues the section with `FC30`):
 
@@ -162,7 +162,7 @@ static void e_load(engine_t *e)                                           /* vt+
 | **C-S1JX** | 4 | MAIN5 + section MAIN3 (voices 2, 3) | MAIN1 + section DCO1 (voices 2, 3) | MAIN2 + MAIN4 (voices 0, 1) | MAIN0 + DCO1 + tail (voices 0, 1) | [C], [E] |
 
 Instructions of Roland's PLUG-OUTs: executed per sample in the emulator (they have no jumps: static = executed),
-`system-1/s1_progs.py` ([system-1/DSP_FIT.md](../../system-1/DSP_FIT.md) §4).
+`system-1/s1_progs.py` ([Vol. III ch. 9](system1_polyphony_studies.md) §3.4).
 
 ### 5.1 C-S1V4: words per voice [M]
 
@@ -240,8 +240,8 @@ static void dsp_bank(int dsp, int id, float v)
 | the OS delivers more than 4 voices to a PLUG-OUT assigner | **yes, 8**: C-S1V8 sounds with 8 held notes and the slave receives `0x114`–`0x117` / `0x124`–`0x127` [M] |
 | more than 8 | the block of velocities ends at `0x127` (`0x128` starts the trigger block); the notes have room for 16. Another way of sending the gate would be needed [A] |
 | DSP time | slave A: 703 instructions per sample ran, 826 hung; slave B: 708 ran [M] ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §1; C-S1SY, [examples/system_1_synth/README.md](../../examples/system_1_synth/README.md) §4); C-S1V8 uses 269 on slave A |
-| voices of the JX-3P with its microcode | 4 complete ones do not fit (3748 of ≈ 3660 instructions); 4 with one DCO do (3098) [E] ([system-1/DSP_FIT.md](../../system-1/DSP_FIT.md)) |
-| voices of SH-101 / SH-2 / PROMARS with their microcode | 2 at most [E] ([system-1/DSP_FIT.md](../../system-1/DSP_FIT.md) §4) |
+| voices of the JX-3P with its microcode | 4 complete ones do not fit (3748 instructions); 4 with one DCO (3098) do not fit the measured budget (4 × 703 − 40 = 2772) [E] ([Vol. III ch. 9](system1_polyphony_studies.md) §3) |
+| voices of SH-101 / SH-2 / PROMARS with their microcode | 2 at most [E] ([Vol. III ch. 9](system1_polyphony_studies.md) §3.4) |
 
 ---
 
@@ -258,7 +258,7 @@ static void dsp_bank(int dsp, int id, float v)
 
 | datum | source |
 |---|---|
-| voice ids, stock assigner (`0x604A26B0`), "4 voices" sites | [system-1/VOCES_6.md](../../system-1/VOCES_6.md) §3–§4; [s1_voice_allocation_log.md](../vol7_cleanroom_evidence_archive/historical_lab_logs/s1_voice_allocation_log.md) §2 |
+| voice ids, stock assigner (`0x604A26B0`), "4 voices" sites | [Vol. III ch. 9](system1_polyphony_studies.md) §1.3–§1.4; [s1_voice_allocation_log.md](../vol7_cleanroom_evidence_archive/historical_lab_logs/s1_voice_allocation_log.md) §2 |
 | C-S1V4 and C-S1V8 measured | [examples/system_1/README.md](../../examples/system_1/README.md) §4, §7 |
-| sections, indices of `FC44` | [system-1/SH101_POLY.md](../../system-1/SH101_POLY.md) §2; [ch. 3](slot_program_model.md) §3 |
-| costs of Roland's PLUG-OUTs | [system-1/DSP_FIT.md](../../system-1/DSP_FIT.md) §4 |
+| sections, indices of `FC44` | [Vol. III ch. 9](system1_polyphony_studies.md) §2.2; [ch. 3](slot_program_model.md) §3 |
+| costs of Roland's PLUG-OUTs | [Vol. III ch. 9](system1_polyphony_studies.md) §3.4 |

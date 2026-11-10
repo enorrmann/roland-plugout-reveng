@@ -59,7 +59,7 @@ Los BMC del SYSTEM-1 no tienen FPU (ningún binario usa VFP) **[código]**: se c
 ### 2.2 La cadena de audio en modo PLUG-OUT [código]
 
 Cada BMC tiene dos DSP (A y B) con su cola de programas: servicios `0x0100FC30` (A) y `0x0100FC34` (B); `FC38`/`FC3C`
-son colas de bloques de datos; `FC28`/`FC2C` las rellena el propio OS. (`system-1/SH101_POLY.md` §2 suponía seis
+son colas de bloques de datos; `FC28`/`FC2C` las rellena el propio OS. ([Vol. III ch. 9](../../docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md) §2.2 suponía seis
 DSP; el SH-2 y el reinicio de colas del OS indican dos por BMC.)
 
 ```
@@ -119,7 +119,7 @@ La memoria de programa de cada DSP del SYSTEM-1 está dividida así [código]:
 
 Cada sección mide `0x1800` bytes y el OS la enciende o apaga con `FC44(índice, on)` (8 índices = 4 secciones × DSP
 A/B); el principal corre siempre y, por lo visto en los programas de Roland, antes que las secciones [inferido]. El
-tiempo de DSP es el mismo en los dos casos: unas 925 instrucciones por muestra y DSP, sumando principal y secciones.
+tiempo de DSP es el mismo en los dos casos: en el esclavo A, 703 instrucciones por muestra corren y 826 cuelgan (en el B, 708 corren), sumando principal y secciones ([Vol. III ch. 4](../../docs/vol3_voice_allocation_scheduling/execution_timing_budgets.md) §2).
 
 | | principal (C-S1V4, SH-101) | secciones (sinte de serie, SH-2) |
 |---|---|---|
@@ -134,7 +134,7 @@ sino de lo que haga el sonido. Para C-V4 (cuatro sierras con puerta, 137 instruc
 simple y deja `make_s1.py` igual de paramétrico. Las secciones convienen cuando cada voz es un programa grande que
 se quiere cambiar por separado (por ejemplo, formas de onda distintas por oscilador, como el sinte de serie), o para
 apagar voces y ahorrar ciclos. Pasar C-S1V4 a secciones sería: cuatro programas `s1v0`–`s1v3` en `0x1900`…`0x6100`
-del DSP A, `FC44(0/1/4/5, 1)` según el índice → sección de `system-1/SH101_POLY.md` §2, y el principal sólo con la
+del DSP A, `FC44(0/1/4/5, 1)` según el índice → sección de [Vol. III ch. 9](../../docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md) §2.2, y el principal sólo con la
 suma; no está hecho.
 
 ## 3. La interfaz PLUG-OUT del SYSTEM-1 (OS 1.30)
@@ -236,7 +236,7 @@ de parámetro, en el SYSTEM-1 y (con otro punto de enganche, §6.3) en el SYSTEM
 * La build `PARAMLOG=1` (`model.c`, `param_log`) reenvía cada llamada al PC como SysEx no comercial:
   `F0 7D 06 <id>>7> <id&7F> <flag> <valor: bits 31–28, 27–21, 20–14, 13–7, 6–0> F7`.
 * Envío: la misma función que usa el OS 1.30 para sus respuestas DT1 (`0x60019D2A`):
-  `send(0x605F20D4, buf, len, cable 3, máscara 1)` en `0x600065B0` (`system-1/FIRMWARE.md` §3.2). Antes se mira el
+  `send(0x605F20D4, buf, len, cable 3, máscara 1)` en `0x600065B0` ([Vol. IV ch. 6](../../docs/vol4_firmware_container_protocol/base_firmware.md) §9.3). Antes se mira el
   byte de guarda `0x6009BF08` bit 0 (el objeto ya construido; lo está después de cualquier consulta de
   `plugout_tool.py info`); si no, el mensaje se descarta. **Verificado**: los mensajes llegan por `hw:N,0,0`
   (MIDI 1) [medido].
@@ -292,7 +292,7 @@ Lo propio de cada equipo es sólo el punto de enganche y la función de envío; 
 | ids | `0x110`–`0x113`, `0x120`–`0x123` | `0x110`–`0x117`, `0x120`–`0x127` |
 | banco 5 del esclavo | tono `A030`–`A033`, puerta `A038`–`A03B` | tono `A030`–`A037`, puerta `A038`–`A03F` |
 | fase (banco 0) | `0300`–`0331` | `0300`–`0371` |
-| `s1m0` (DSP A del esclavo) | 137 instrucciones | **269** de ≈ 925 por muestra |
+| `s1m0` (DSP A del esclavo) | 137 instrucciones | **269** de 703 por muestra |
 | nivel por voz | 1/4 | 1/8 (un acorde de 8 no satura: 0,57 de pico en la simulación) |
 
 Resultado [medido, a oído]: las ocho voces suenan a la vez y ninguna nota corta a otra. Por lo tanto:

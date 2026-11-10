@@ -1,5 +1,7 @@
 # Volume VI — Chapter 4: Mutable Instruments Ports
 
+> **Scope:** SYSTEM-1.
+
 > The full descriptions (Spanish) are [examples/mutable_system/README.md](../../examples/mutable_system/README.md)
 > (MUTABLE-SYSTEM), [examples/mutable_system/CANDIDATES.md](../../examples/mutable_system/CANDIDATES.md) (what else can
 > be ported) and [sdk/s1cc/examples/mutable_ported/README.md](../../sdk/s1cc/examples/mutable_ported/README.md) (the
@@ -70,5 +72,5 @@ low-pass gate, phase distortion or Z oscillator, Warps modulator, a fixed-tap di
 tables read by phase need the computed index ([ch. 7](mutable_memory.md)). Budget of MUTABLE-SYSTEM: slave DSP A 638 used, slave DSP B 564,
 master DSP B 7 (limits: [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §1).
 
-> Note: CANDIDATES.md and the MUTABLE-SYSTEM README predate the s1cc ports; most of the oscillators they list as
-> candidates now exist as `mp_*` kernels (§3), and the memory-based shapes are covered by [ch. 7](mutable_memory.md).
+Most of the oscillators that CANDIDATES.md and the MUTABLE-SYSTEM README list as candidates exist as `mp_*` kernels
+(§3); the shapes that need memory are [ch. 7](mutable_memory.md).

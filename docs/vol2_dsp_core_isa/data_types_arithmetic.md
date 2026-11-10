@@ -1,5 +1,7 @@
 # Volume II — Chapter 2: Data Types and Arithmetic
 
+> **Scope:** both (same arithmetic on both devices).
+
 > Every statement has its authority in [ch. 1](core_architecture.md) §3, §5, [ch. 3](instruction_word_encoding.md) §2,
 > [ch. 4](instruction_set_reference.md) §8, §10, or in the tools named in the text. Certainty tags as in ch. 1:
 > **[exact]** verified bit by bit or in all cases, **[measured]**.
@@ -93,7 +95,7 @@ instruction of latency; the flags persist until rewritten. Group 0 reads `0111` 
 * SYSTEM-8: the OS services that write bank 5 (`+0xB0`) and bank 6 (`+0xA4`, `+0xA0`) take a C `float`; the OS
   converts it to RAW ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §4.5–§4.6).
 * SYSTEM-1: the services `FD6C` and `FCEC` receive the IEEE-754 bit pattern of a `float` in an integer register
-  (the SYSTEM-1 ARM has no FPU) ([system-1/WAVE_BUS.md](../../system-1/WAVE_BUS.md) §4.2–§4.3;
-  [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §1.1).
+  (the SYSTEM-1 ARM has no FPU) ([Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) §14.2–§14.3;
+  [Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §6.3).
 
 > Paths `re/…` and `emu/…` are relative to `examples/from_scratch/`.

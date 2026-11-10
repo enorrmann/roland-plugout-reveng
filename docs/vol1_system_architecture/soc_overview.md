@@ -1,14 +1,13 @@
-# Volume I — Chapter 1: System Architecture — Hardware, What Code Runs Where, and Our Tools
+# Volume I — Chapter 1: System Architecture — Hardware, What Code Runs Where, and Our Tools (SYSTEM-8 and SYSTEM-1)
 
-> §1–§6 describe the SYSTEM-8; §7 puts the SYSTEM-1 side by side (its own document is
-> [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md)).
+> **Scope:** §1–§5 SYSTEM-8; §6 SYSTEM-1. Common to both: the DSP instruction set ([Vol. II](../vol2_dsp_core_isa/core_architecture.md))
+> and the PLUG-OUT model of two regions (region 0 on the master, region 1 on the slaves).
 
-Summary to find one's way. The SYSTEM-1 has its own document: `system-1/ARCHITECTURE.md` (1 slave, 2 DSPs per BMC,
-another PLUG-OUT interface). The detail and the tests are in [Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §8 (anatomy of the OS),
-[Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) (PLUG-OUT interfaces, microcode) and [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) (own PLUG-OUT, DSP ISA). State:
-2026-10-15.
+Summary to find one's way. The detail and the tests are in [Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §8 (anatomy of the
+SYSTEM-8 OS), [Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) (PLUG-OUT interfaces, microcode) and
+[NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) (own PLUG-OUT, DSP ISA). State: 2026-10-15.
 
-## 1. Hardware components
+## 1. Hardware components (SYSTEM-8)
 
 ```
                       USB (to the PC): MIDI 1 / MIDI 2, USB audio 96 kHz, installation of PLUG-OUTs
@@ -46,7 +45,7 @@ another PLUG-OUT interface). The detail and the tests are in [Vol. IV ch. 6](../
   master, and from there to the DAC (WM2418) and to USB audio. Which link carries the audio of the slaves to the
   master was not investigated.
 
-## 2. What code runs on each processor
+## 2. What code runs on each processor (SYSTEM-8)
 
 | Processor | Code | Where it lives / where it comes from |
 |---|---|---|
@@ -64,7 +63,7 @@ another PLUG-OUT interface). The detail and the tests are in [Vol. IV ch. 6](../
 (region 1) **cannot call the master's OS**: it jumps into other code and hangs. It can, however, call the slave's
 services (`0x0113FC00`). Each slave runs its own copy of the engine.
 
-## 3. How they connect (flows)
+## 3. How they connect (flows) (SYSTEM-8)
 
 | Flow | Path |
 |---|---|
@@ -75,7 +74,7 @@ services (`0x0113FC00`). Each slave runs its own copy of the engine.
 | Audio | DSPs of the slaves (voices) → master (effects, master) → DAC / USB audio (`arecord -D hw:SYSTEM8,0`). Slave 1 arrives through slave 0: its DSP4 adds the IOMD inputs `6000`–`6003` to its output `6020`/`6021` [measured 2026-10-22, [S8 voice-allocation log](../vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md) §6.7] |
 | MIDI to the PC | only from the master: region 0 or hooks calling the OS router. The slaves have **no** output |
 
-## 4. Memory map of a DSP (the same on master and slaves, each sees its own)
+## 4. Memory map of a DSP (SYSTEM-8; the same on master and slaves, each sees its own)
 
 Capacity of each DSP: ≈ 925–945 instructions per sample (1 cycle each, whatever their content; going over hangs the
 slave), up to 3 ops and 6 transfers per instruction, program of up to 64 KiB in main + slots ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §1,
@@ -89,7 +88,7 @@ slave), up to 3 ops and 6 transfers per instruction, program of up to 64 KiB in 
 | `0x41114000 + n·0x4000` | bank 5 / DPC (refs `A0nn`, `+0xB0`) | read and write |
 | `0x41400000 + n·0x100000 + 0xA0000` | ramped parameter block (refs `C0nn`, `+0xA0`) | write via the OS |
 
-## 5. Our tools and what they touch
+## 5. Our tools and what they touch (SYSTEM-8)
 
 | Tool | Runs on | What it touches | What for |
 |---|---|---|---|
@@ -104,33 +103,45 @@ slave), up to 3 ops and 6 transfers per instruction, program of up to 64 KiB in 
 The important distinction: **dsplive** acts on the DSPs of the **slaves** (voices, observed by audio) and **dsppeek**
 on those of the **master** (effects, read directly). There is no known way to read the memory of a slave from the PC.
 
-## 6. Differences with the SYSTEM-1 (2026-10-22)
+## 6. SYSTEM-1
 
-Summary; detail in `system-1/ARCHITECTURE.md`. The SYSTEM-1 has a single slave and **two DSPs per BMC** (A and B), its
-ARMs have no FPU (the SYSTEM-8's do, VFP: count in `system-1/ARCHITECTURE.md` §1.1, `system-1/vfp_count.py`; the ARM
-code of a SYSTEM-8 PLUG-OUT does not run there without porting it), region 0 goes at `0x60800000` and region 1 at
-`0x60200000` (a single slot, no relocation), the two service tables are at `0x0100FC00`, and the per-voice modulation
-of the stock synth is computed on the master. Its region 0 has a model object that receives the parameters
-(`vt+0x30`); on the SYSTEM-8 that point does not exist, which matters for capturing parameters
-([examples/system_1/README.md](../../examples/system_1/README.md) §6.3). Its slave DSPs have less time (DSP A: 703 instructions per sample ran, 826
-hung) and a main program of 6 KiB that cannot be exceeded (`system-1/ARCHITECTURE.md` §1.0).
+State: 2026-10-22, capacity figures 2026-10-28. Sources: OS 1.30 ([Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md)
+§9), the SYSTEM-1 PLUG-OUTs SH-2 / SH-101 / PROMARS (read only) and what was measured with C-S1V4
+([examples/system_1/README.md](../../examples/system_1/README.md)). Voices: [Vol. III ch. 2](../vol3_voice_allocation_scheduling/system1_voice_allocation.md);
+audio path: [ch. 3](bus_interconnect.md) Part B; program memory: [Vol. III ch. 3](../vol3_voice_allocation_scheduling/slot_program_model.md).
+Tags: **[measured]** · **[code]** · **[inferred]** · **[open]**.
 
-## 7. SYSTEM-8 and SYSTEM-1 side by side (added)
+### 6.1 Hardware components
 
-From [system-1/ARCHITECTURE.md](../../system-1/ARCHITECTURE.md) §1 (state 2026-10-22; tags of that document:
-[code] read in the code, [measured], [inferred], [open]):
+```
+                 USB (to the PC): MIDI 1 (hw:N,0,0) / MIDI 2 (hw:N,0,1), PLUG-OUT install
+                                │
+ ┌──────────────────────────────┴───────────────────────────────┐
+ │ "master" BMC                                                  │
+ │  ARM (Cortex-M, no FPU) ── the OS: panel, MIDI, USB, patches, │
+ │      PLUG-OUT management + PLUG-OUT REGION 0 ("model")        │
+ │  DSP A, DSP B ── per-voice modulation, mix, output (+effects) │
+ └──────┬────────────────────────────────────────────────────────┘
+        │ slave image, parameters, notes; wave bus (IOMD 6006–6021)
+ ┌──────┴─────────────────────────────┐
+ │ "slave" BMC (the 4 voices)         │
+ │  ARM (no FPU): slave OS            │
+ │   + PLUG-OUT REGION 1 ("engine")   │
+ │  DSP A, DSP B: VOICES              │
+ └────────────────────────────────────┘
+```
 
 | | SYSTEM-8 | SYSTEM-1 |
 |---|---|---|
 | BMC | master + 2 slaves | **master + 1 slave** (one slave image, one region 1) [code] |
 | DSPs per BMC | 6 + DSPM | **2 (A, B)** (`FC30`/`FC34`; accesses with `sel` 0/1) [code] |
 | ARM | Cortex-M with VFP (core 0/1 on the master) | **Cortex-M without FPU**: no binary uses VFP [code]; one core on the master [inferred: a single application program] |
-| voices | 8 | 4 |
+| voices of the stock synth | 8 | 4 (own PLUG-OUTs: 8, C-S1V8) |
 | PLUG-OUT slots | 3 | 1 |
 | sampling | 96 kHz | 96 kHz [inferred: the saw calibrated at 96 kHz sounds in tune, by ear] |
-| panel | STM32F103 over UART | [open]: the updater brings no image of another micro (`system-1/FIRMWARE.md` §2.1) |
+| panel | STM32F103 over UART | [open]: the updater brings no image of another micro ([Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §9.2) |
 
-Capacity of the SYSTEM-1 slave DSPs (what fits in a PLUG-OUT), from its §1.0:
+### 6.2 Capacity of the slave DSPs (what fits in a PLUG-OUT)
 
 | resource | DSP A | DSP B | certainty / detail |
 |---|---|---|---|
@@ -140,9 +151,97 @@ Capacity of the SYSTEM-1 slave DSPs (what fits in a PLUG-OUT), from its §1.0:
 | size of an instruction | 2–62 bytes; ≈ 8–10 in ours: 6 KiB are ≈ 600–750 instructions | | [measured] |
 | ops per instruction | up to 3 (only the groups of `asm/proven_forms.txt`) and 3 transfers, with the rules R2–R8 | | [measured], `asm/s1rules.py`, [Vol. III ch. 6](../vol3_voice_allocation_scheduling/microcode_optimization.md) |
 | registers | r0–r7 shared by all the programs of the DSP; two halves r0–r3 / r4–r7 (two voices in pairs, [examples/system_s1cc/README.md](../../examples/system_s1cc/README.md) §4.2) | | [measured] |
-| data memory | bank 0 (ring, 0x800 words), 1, 5 (0x400, the one the ARM and the DSPs write: `A100`–`A1FF` for the DSPs), 6 (parameters, read-only) | | [measured], `system-1/DSP_BANKS.md`, [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §7 |
+| data memory | bank 0 (ring, 0x800 words), 1, 5 (0x400, the one the ARM and the DSPs write: `A100`–`A1FF` for the DSPs), 6 (parameters, read-only) | | [measured], [Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) §7, [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §7 |
 
 The build of SYSTEM-S1CC applies these limits (`make_s1cc.py`: `BUDGET_A` / `BUDGET_B` / `MAIN_BYTES`) and chooses by
 itself how many voices fit.
+
+### 6.3 Floating point: the SYSTEM-8 has an FPU, the SYSTEM-1 does not [code]
+
+The ARMs of the SYSTEM-8 BMCs have a floating-point unit (VFP, single precision) and all their code uses it; those of
+the SYSTEM-1 do not use it in any binary. Count of VFP instructions (`python3 system-1/vfp_count.py`; data gives by
+chance ≈ 1 per 10 KiB, which is the noise):
+
+| image | VFP instructions | per 10 KiB |
+|---|---|---|
+| SYSTEM-8, OS (master + slaves, `dumps/os_full.bin`) | 3054 | 10.6 |
+| SYSTEM-8, JX-3P region 1 (engine of the slaves) | 679 | 24.6 |
+| SYSTEM-8, SH-2 region 1 | 992 | 47.5 |
+| SYSTEM-8, JX-3P region 0 (master) | 0 | 0 (no floating-point arithmetic, but the chip has an FPU) |
+| SYSTEM-1, OS 1.30 master | 3 | 0.0 |
+| SYSTEM-1, OS 1.30 slave | 24 | 0.7 |
+| SYSTEM-1, SH-2 / PROMARS regions 0 and 1 | 5–8 | 0.2–0.4 |
+
+The exact chip of the BMCs is not known (they are Roland's); hence "with VFP" and "without VFP", not Cortex-M4 versus
+Cortex-M3. That the SYSTEM-1 has no FPU is **[inferred]**: no code uses it, but executing a VFP instruction on the
+device has not been tried (without an FPU it would raise a usage fault and probably hang the chip).
+
+Consequences for our PLUG-OUTs:
+
+* Compile for the SYSTEM-1 with `-mcpu=cortex-m3 -mfloat-abi=soft` (`examples/system_1/build.sh`); for the SYSTEM-8
+  with `-mcpu=cortex-m4 -mfloat-abi=hard -mfpu=fpv4-sp-d16` (`examples/from_scratch/engine/build.sh`).
+* On the SYSTEM-1 the values that go to the DSPs are still IEEE `float` (the services `FD6C`, `FCEC` take them as bit
+  patterns in integer registers); C-S1V4 precomputes them on the PC (`make_s1.py`). `float` arithmetic on the
+  SYSTEM-1 ARM is possible with gcc's software emulation (`libgcc`: `__aeabi_fmul`, …), slower.
+* The ARM code of a SYSTEM-8 PLUG-OUT (e.g. the JX-3P engine) **does not run on the SYSTEM-1** as is: besides another
+  interface and other services, it uses VFP. It has to be ported or rewritten
+  ([Vol. III ch. 9](../vol3_voice_allocation_scheduling/system1_polyphony_studies.md) §3).
+* The DSPs are not affected: they do their own arithmetic ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md)), the same on both devices.
+
+### 6.4 What code runs on each processor
+
+| Processor | Code | Where it lives |
+|---|---|---|
+| master, ARM | **OS** (`"SYSTEM-1:Appli"`, `0x60000000`), fast code at `0x01000300`, **services for PLUG-OUTs at `0x0100FC00`** (162 entries) | flash `SYSTEM1_UPD.BIN` + `0x30000` |
+| master, ARM | **PLUG-OUT region 0**: SYNINFO, assigner (`+0x2C`), model object (`+0x30`: loads the master's DSPs, receives the parameters), 64 patches at `+0x1000` | **`0x60800000`** |
+| master, DSP A/B | per-voice modulation, mixer, output (`0x82` in PLUG-OUT mode); in PLUG-OUT mode DSP B is set by the PLUG-OUT (`0x1000`) | loaded by the OS / region 0 |
+| slave, ARM | slave OS (`0x60000000` of the slave), fast code `0x01000300`, **services `0x0100FC00`** (the same addresses as on the master, other code) | flash + `0x130000`, sent by the master |
+| slave, ARM | **PLUG-OUT region 1**: SYNINFO, engine (`+0x30`; vtable of 22: `load`, `refresh`, `param`) | **`0x60200000`** of the slave |
+| slave, DSP A/B | voices: stock main + 4 sections per DSP; PLUG-OUTs their own (C-S1V4: everything in the main program of A, output in B) | loaded by the slave's ARM |
+
+**The same trap as on the SYSTEM-8**: `0x60000000` and `0x0100FC00` exist on both chips with different contents;
+region 1 can only call the slave's services, and only region 0 (master) can send MIDI. Region 0 has a model object
+that receives the parameters (`vt+0x30`); on the SYSTEM-8 that point does not exist, which matters for capturing
+parameters ([examples/system_1/README.md](../../examples/system_1/README.md) §6.3). There is a single slot, so there is
+no relocation.
+
+### 6.5 How they connect (flows)
+
+| flow | path |
+|---|---|
+| install | PC → USB MIDI 2 → master OS → flash (`Code1.Dat`, 2048 records, `70 10 00 00`). On load: region 1 → slave, region 0 → `0x60800000`; the OS checks SYNINFO (`+0x000`, `+0x1B4`) and calls `create` (`+0x24`) on both [measured: C-S1V4 accepted] |
+| switching to the PLUG-OUT | master: `get_b()` → `vt[0]`, `get_a()` = assigner; master queues emptied, the OS's PLUG-OUT-mode sets, `model->vt[2]` (load). Slave: `get_b()` → `vt[0]`, queues emptied, sections switched off, `engine->vt[2]` [code, measured] |
+| note | OS → assigner `note_on` → `set(2, 0x110+v / 0x120+v)` → master (its DSP) and slave (`engine vt+0x30(id, 0, value)`) → the engine writes bank 5 (`FD6C`) [measured] |
+| panel control | OS → `model vt+0x30(id, flag, value)` on the master (VOLUME = `0x100`) and, for groups 0–3, `engine vt+0x30` on the slave [measured with PARAMLOG] |
+| panel values when entering the PLUG-OUT | the OS does not resend them; the model does `touch(3, id)` of `0x160`–`0x18F` and `flush(3)` in `load` and the OS sends them to the engine (`examples/system_s1cc/model.c resend_panel`) [measured 2026-10-28: the synth's controls are group 3] |
+| audio | slave A → B (bank 5) → IOMD `6006`–`600D` → master B → `A118`/`A119` → master A (`0x82`) → `6000`/`6001` → output [measured] |
+| modulation (stock synth) | master (program of 696 instructions) → IOMD `600E`–`6021` → slave A [code] |
+| MIDI to the PC | only from the master: region 0 can use the OS's send (`0x600065B0`, object `0x605F20D4`, cable 3, mask 1) → goes out on MIDI 1 [measured] |
+
+### 6.6 DSP memory seen from the slave's ARM [code, partial]
+
+| address | what | state |
+|---|---|---|
+| `0x40101000 + 4·i` | bank 5 (`A000+i`), IEEE view; `+0x400` = `A100+i` (`FD6C`, `sel` 1) | `A0xx` [measured with C-S1V4]; `A1xx` [inferred] |
+| `0x4014C000 + 16·id` / `0x4016C000 + 16·id` | parameters (bank 6, `C0id`) of DSP A / B (`FCEC` immediate, `FCE4` with ramp: `mode<<28 \| …`) | [code]; `FCEC` on the master [measured: VOLUME] |
+| `0x40140000`, `0x40160000` (+`0xE000`, +`0x10000`) | blocks of each DSP; `+0x10000` is the destination of DMA copies in blocks of `0x200` (program or data memory) | [open] |
+| `0x40100000` | common control | [open] |
+
+Program memory (sections, closings): [Vol. III ch. 3](../vol3_voice_allocation_scheduling/slot_program_model.md) §3.
+
+### 6.7 Tools for the SYSTEM-1
+
+| tool | runs on | touches | for |
+|---|---|---|---|
+| `tools/plugout_tool.py info / install` | PC | master OS (MIDI 2) | install in slot 1 (`--slot 1 --force --no-patches`) |
+| `tools/plugout_build.py unpack / pack / show` | PC | `Code1.Dat` | unpack and build (exact round trip with the SH-2) |
+| `examples/system_1/build.sh` (`TONE=1`, `PARAMLOG=1`) | PC | builds C-S1V4 / C-S1TONE / C-S1LOG | own PLUG-OUT and tests |
+| `examples/system_1/make_s1.py --sim` | PC | nothing (simulates slave A, B and master B with the C reference of the DSP, `emu/dspref.py`) | check the programs before installing |
+| `examples/system_1/paramlog.py` | PC + `PARAMLOG` build on the master | listens on MIDI 1/2 | which id each control sends ([examples/system_1/README.md](../../examples/system_1/README.md) §6) |
+| `tools/s1_capture.py` | PC | USB audio + MIDI | capture the output and send notes ([Vol. V ch. 6](../vol5_toolchain_compiler_sdk/audio_capture.md)) |
+| `system-1/extract_fw.py`, `voice_sets.py`, `fnmatch.py`, `asgn_sites.py`, `s1_progs.py`, `dsp_fit.py`, `vfp_count.py` | PC | OS and PLUG-OUT images | static study ([system-1/README.md](../../system-1/README.md)) |
+
+Not available on the SYSTEM-1: reading DSP memory from the PC (like the SYSTEM-8's `dsppeek`) and live writing
+(`dsplive`).
 
 > Paths `re/…` and `emu/…` in §5 are relative to `examples/from_scratch/`.

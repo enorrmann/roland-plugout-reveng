@@ -1,4 +1,4 @@
-/* simple_saw_export.c: s1_export / s1_import, and nothing else new (docs/examples_simple_saw_wrapped_README.md §8).
+/* simple_saw_export.c: s1_export / s1_import, and nothing else new (sdk/s1cc/examples/simple_saw_wrapped/README.md §8).
  * Two saws on DSP A; on DSP B a low-pass whose cutoff follows the note (key tracking). DSP B needs the note's
  * frequency, and DSP A has already computed it: DSP A exports it, DSP B imports it.
  *
@@ -40,7 +40,7 @@
  *
  * WHEN THE VALUE ARRIVES. In the native reference (s1rt.c: the slot is an array) and in the emulator (it runs DSP A,
  * then DSP B), DSP B reads the value of the same sample. On the device the two DSPs of the chip run at the same time
- * (docs/examples_system_1_jx_README.md §13): B gets this sample's value only if A's store comes before B's load in
+ * (examples/system_1_jx/README.md §13): B gets this sample's value only if A's store comes before B's load in
  * cycles, otherwise the value of the sample before. make_s1cc.py prints it for every crossing ("A -> B export 0: ..."):
  * here voice 0 a race (store and load within 8 cycles: one or the other, always the same), voices 1..7 one sample
  * late. For a frequency that is 10 us late: inaudible. x itself crosses the same way (here one sample late, a fixed

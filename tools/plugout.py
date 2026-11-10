@@ -4,7 +4,7 @@ plugout.py -- Roland PLUG-OUT firmware containers (Script/Code*.Dat) and the
 USB-MIDI install protocol used by the JUNO-60 / JX-3P / SH-101 plugins.
 
 Everything here was taken from the plugins' own code (JUNO-60.vst3 addresses are
-given; JX-3P and SH-101 contain the same routines). See docs/PROTOCOL.md.
+given; JX-3P and SH-101 contain the same routines). See docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md.
 
 Pure stdlib. The MIDI transport lives in midi_io.py.
 """

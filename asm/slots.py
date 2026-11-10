@@ -1,4 +1,4 @@
-"""The slot array of one instruction (DSP_ISA_SPEC.md §4.3).
+"""The slot array of one instruction (docs/vol2_dsp_core_isa/instruction_set_reference.md §4.3).
 
     The slot array = every word after the last T.  Slot k = the (k+1)-th word.
     N words come first (one per M). Among the remaining slots, the ones a

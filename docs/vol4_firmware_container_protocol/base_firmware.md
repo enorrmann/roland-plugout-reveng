@@ -1,4 +1,6 @@
-# Volume IV — Chapter 6: SYSTEM-8 Base Firmware (`SYSTEM8_UP.BIN`)
+# Volume IV — Chapter 6: Base Firmware — SYSTEM-8 (`SYSTEM8_UP.BIN`) and SYSTEM-1 (`SYSTEM1_UPD.BIN`)
+
+> **Scope:** §1–§8 SYSTEM-8; §9 SYSTEM-1. The region format (header, LZSS, SYNINFO) is common to both.
 
 Findings on Roland's official updater (OS 1.32, build 2022/04/28) and the
 toolchain built around it: `tools/sys8fw.py`. Companion to
@@ -704,32 +706,17 @@ python3 examples/midi_send/bulk_loop.py --start 0x60000000 --end 0x60100000 -o p
 Timing: ~40 s per 64 KiB chunk (build + 16.5 s install/capture incl. 3 s idle
 wait + info query), ~1.6 KB/s overall, ~30 min for the whole OS.
 
-**Early stop of the capture — tried and REVERTED (2026-10-14):** a version
-of `bulk_dump.py` stopped the capture as soon as all `COUNT` messages were
-decoded (raw size ≥ `COUNT × (12 + 2·LEN)`, plus 8 bytes of CC/PC
-`B3 00 55  B3 20 00  C3 00` that the install puts on USB1), skipping the
-3 s `--idle` wait (16.5 s → 13.6 s). One chunk later the next install
-stuck on the device display at "receiving plg 3" (`no reply on 71 30 03 00
-after 3 x 5 s`, no info answer, power-cycle needed). The device seems to need
-the pause after an install before the next one; the 3 s idle wait is kept
-(25 chunks in a row without problems with it).
-After the power-cycle the same chunk `0x60190000` dumped cleanly with the
-idle wait back, so the address was not the cause. `bulk_loop.py` also waits
-`--settle` s (default 3) before every install, as an extra margin.
+**The 3 s idle wait after each install is needed** [measured 2026-10-14]: a version of `bulk_dump.py` that stopped
+the capture as soon as all `COUNT` messages were decoded (16.5 s → 13.6 s per chunk) made the next install stick on
+the display at "receiving plg 3" (`no reply on 71 30 03 00 after 3 x 5 s`, no info answer, power cycle needed); with the
+wait, 25 chunks ran in a row without problems, and the same chunk (`0x60190000`) dumped cleanly. `bulk_loop.py` also
+waits `--settle` s (default 3) before every install.
 
 Pitfall: killing `bulk_loop.py`/`bulk_dump.py` from outside (not Ctrl-C) can
 leave an `amidi -r` capture running for up to 63 s, holding the USB1 port;
 wait for it to exit (or kill it) before the next run.
 
-**Run (2026-10-14):** a first version wrote one file per chunk; 6 chunks
-(`0x60000000`–`0x6005FFFF`) were merged into `os_full.bin` (the overlap with
-`bulk_2048.bin` is identical) and the new loop resumed from 384 KiB.
-Stopped at 55.7 % by the hang above: `os_full.bin` = 1638400 bytes
-(`0x60000000`–`0x6018FFFF`, complete chunks only); resume from `0x60190000`.
-
-**Result: COMPLETE.** After the power-cycle the loop resumed and ran the
-remaining 20 chunks without a single retry (859 s, ~43 s per chunk with
-idle wait + settle). `dumps/os_full.bin` = **2939504 bytes (`0x2CDA70`),
+**Result (2026-10-14): complete** (~43 s per chunk with idle wait + settle). `dumps/os_full.bin` = **2939504 bytes (`0x2CDA70`),
 `0x60000000`–`0x602CDA6F`**, sha256 starts `2600b866f751f38a`.
 
 Verification against every earlier dump (slow channels and bulk):
@@ -969,18 +956,13 @@ side runs tasks `KbdRx`/`KbdWdg` and can reflash it (8.3, `Update Panel.`).
 
 ### 8.10 Open items for this analysis
 
-1. ~~Dump the kernel `0x01000000–0x01019A08`~~ (8.11) and ~~`0x20000000–0x20008A48`~~
-   (8.12) — done. Still to do: name the remaining kernel/runtime functions
-   behind the 247 veneers (`work/os/kernel/veneers.txt`).
+1. Name the remaining kernel/runtime functions behind the 247 veneers
+   (`work/os/kernel/veneers.txt`; kernel and `.data` dumps: 8.11, 8.12).
 2. Ghidra: load `work/os/<part>/<part>.elf` (Cortex-M, LE); the `fn_*`
    symbols come from `BL` targets only, so functions reached only through
    pointers (vtables, task entries) need the RTTI/vtable lists
    (`sys8fw.find_classes`) or Ghidra's own analysis.
-3. ~~Prove where region 1 runs~~ — slaves only (8.13). Old idea: a region 1 hook
-   that only writes a marker to its own memory, then read that address with
-   the bulk dump from the master.
-4. Dump the boot loader from QSPI flash (8.14).
-5. Decode the record layout at `0x60290498` (name scrambling, `0x6D0`
+3. Decode the record layout at `0x60290498` (name scrambling, `0x6D0`
    stride) and the master `.rodata` tables (`0x60094800–0x60128000`).
 
 ### 8.11 Kernel RAM of master core 0 (`dumps/kernel_01000000.bin`, 2026-10-14)
@@ -1107,7 +1089,7 @@ So the engine code is not present in the master's address space; region 1
 runs on the slave BMCs. This is why any call from an engine hook into a
 master OS address hangs (§7.10): on a slave `0x60000000` is `s_data`.
 
-### 8.14 Boot loader: not in the dumps; it is in QSPI flash at offset 0
+### 8.14 Boot loader and updater: in QSPI flash, dumped, encrypted
 
 None of the dumps (`os_full.bin`, `kernel_01000000.bin`,
 `ram_20000000.bin`) contains the loader: no `Roland P1Y01` image trailer,
@@ -1135,8 +1117,7 @@ Flash read function: **`0x6004306A(0, 0, &{offset, length, dst})`**
 (QSPI controller `0x40010000`, guarded by a semaphore; 29 callers, used by
 `LoadPlugout` and the version screen). A region 0 hook can therefore read
 flash `0x0–0x60000` (loader + updater) into a buffer and send it with the
-bulk SysEx path (§7.13). The loader is what decrypts `App1_Main`; if it is
-stored in clear, it holds the cipher and the key (§2, §5).
+bulk SysEx path (§7.13).
 
 **Dumped 2026-10-14** (`dumps/flash_loader.bin`, flash `0x0–0x10000`, one
 install, 43 s, `FLASH OK`):
@@ -1183,3 +1164,121 @@ the device look hung — all-zero capture, `NO RESPONSE`.)
   from both the loader (`7999E9A16AA6D322`) and `App1_Main`
   (`6B4C9A852C732831`). So all three flash images are encrypted, and the key
   is held by the BMC, not by any of them.
+
+## 9. SYSTEM-1 firmware images
+
+What each image of the SYSTEM-1 operating system contains, where it comes from and which addresses are known. Static
+analysis, except where a measurement is named.
+
+### 9.1 The device
+
+`python3 tools/plugout_tool.py info` (2026-10-22, ports `SYSTEM-1 MIDI 1` = `hw:3,0,0`, `MIDI 2` = `hw:3,0,1`; the
+tool uses MIDI 2):
+
+```
+device   : SYSTEM-1
+firmware : 1.30   patches per slot: 64
+  (base)  slot 0: SH-2 id 0x0002 version 14.FA
+  PLUG-OUT slot 1: SH-2 id 0x0002 version 14.FA
+```
+
+Slot 1 held the SH-2. Why slot 0 also reports SH-2 is not explained (perhaps the device reports the active mode;
+unchecked) [open].
+
+### 9.2 Sources
+
+| File | What it is | Version |
+|---|---|---|
+| `firmware/sys1_sys_v130.zip` → `sys1_sys_v130/SYSTEM1_UPD.BIN` | Roland's official updater: **complete flash image, 4 MiB + 16 bytes, not encrypted** | 1.30 (2016-10-26) = the device's |
+| `plugins/SYSTEM-1/Script/Code1.Dat` (= `Code.Dat`) | OS update carried by the SYSTEM-1 plug-in. **Not a PLUG-OUT** | 1.20 (2015-09-24) |
+
+`python3 system-1/extract_fw.py` unpacks both into `work/` (outside git):
+
+| Output | Origin | Size |
+|---|---|---|
+| `work/sys1_v130/updater.bin` | `SYSTEM1_UPD.BIN` + `0x008000`, `"SYSTEM-1:Updater"` 14-0303 | 174 428 |
+| `work/sys1_v130/app_master.bin` | + `0x030000`, `"SYSTEM-1:Appli"` 16-1026_16:53:27 | 703 420 |
+| `work/sys1_v130/app_slave.bin` | + `0x130000`, `"SYSTEM-1:Appli"` 16-1026_16:53:27 | 372 760 |
+| `work/sys1_v120/app_master.bin` | `Code1.Dat` blocks 0–839 | 702 520 |
+| `work/sys1_v120/app_slave.bin` | `Code1.Dat` blocks 2048–2312 | 373 604 |
+
+Unlike the SYSTEM-8 (encrypted OS, §2), the SYSTEM-1 updater carries the complete code in clear: no dump of the
+device is needed; a dump would only add the live state of the RAM.
+
+**`SYSTEM1_UPD.BIN`:**
+
+| Offset | Contents |
+|---|---|
+| `0x000000` | loader `"ESC91.000"`, in clear (from `+0x30` it looks like a Cortex-M vector table: `0x01011698`, `0x01000BDD`, …; not studied) |
+| `0x004000` | another copy of the `"ESC91.000"` header |
+| `0x008000` | region `"SYSTEM-1:Updater"` |
+| `0x030000` | region `"SYSTEM-1:Appli"`: application of the master |
+| `0x130000` | region `"SYSTEM-1:Appli"`: application of the slave |
+| rest | `0xFF` up to 4 MiB; 16 final bytes `30 00 00 00 2f 02 00 00 00 10 00 00 00 00 40 00` (not studied) |
+
+Region format: that of the PLUG-OUTs ([Vol. IV ch. 1](container_formats.md) §2–3): 0x40-byte header, load and entry
+`0x60000000`, LZSS with the ring at zero, 32-bit sum of the compressed stream. The three sums match. The board has no
+image of a panel micro in the updater (the SYSTEM-8's STM32 image, §8.7, has no counterpart here).
+
+**`Code1.Dat` of the SYSTEM-1 plug-in:** container `PLUGOUT_SYS_INF` named `UPD_POUT_INFO`, version `0x0120`, 4096
+records. START `70 20 00 00` and END `70 20 00 01` (data `01 05 03 02`); the PLUG-OUTs use `70 10 00 00`/`70 10 00 01`
+and 2048 records. It is the system update the plug-in can send. **It cannot be installed in the PLUG-OUT slot.**
+
+### 9.3 Application of the master (1.30)
+
+* CPU **Cortex-M** (Thumb-2; `msr basepri` at the entry), without FPU use ([Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §6.3).
+  No RTTI. The source paths remain in the asserts (`midi\task_asgn.cpp`, `dsp_firm\dsp_mgr.cpp`, …).
+* Start-up: table of triples {destination, size, source} at `+0x100`, emulated with Unicorn up to the jump to the entry:
+
+  | | 1.20 | 1.30 |
+  |---|---|---|
+  | fast code → `0x01000300` | `0x6009BFF0`, 0xF26C bytes | `0x6009BF0C`, 0xF6D0 bytes |
+  | data → `0x01010000` | `0x600AB4E0`, 0xA0 | `0x600AB864`, 0xA0 |
+  | **PLUG-OUT service table → `0x0100FC00`** | `0x600AB25C`, 0x284 | `0x600AB5DC`, 0x288 |
+  | zeros | `0x0100F56C`, `0x010100A0`, `0x20000000`… | `0x0100F9D0`, `0x010100A0`, `0x20000000`… |
+  | entry | `0x01007501` | `0x01007555` |
+* The stock synth is organised as a "slot-0 PLUG-OUT" **compiled into the OS**: `SYSTEM1_SYNINFO` `"SYSTEM-1"` on the
+  master and on the slave. There are no separate regions like the SYSTEM-8's `p1y01_p0m/p0s`.
+
+**Putting the SYSTEM-1 synth into slot 1 (like S8LAB) is a port, not a change of identity** [code]. S8LAB
+(`examples/sys8_lab/build_s8lab.sh`) works because `SYSTEM8_UP.BIN` carries the slot-0 synth as two
+`SYSTEM-8:Plugout` regions (`p1y01_p0m.bin` → region 0 at `0x60800000`, `p1y01_p0s.bin` → region 1 at `0x60200000`)
+with SYNINFO `create`/`destroy`, so changing the identity and packing for slot 1 is enough. On the SYSTEM-1:
+
+* `SYSTEM1_UPD.BIN` only holds data at `0x0000` (loader), `0x4000` (header), `0x8000` (Updater), `0x30000` and
+  `0x130000` (the two applications); the rest is `0xFF`. There is no `SYSTEM-1:Plugout` region.
+* The OS's `SYSTEM1_SYNINFO` "SYSTEM-1" (master 1.30 `0x6007BA48`, slave `0x60007784`) has id `0x0000`, version
+  `0x0100` and **the four function pointers at zero**. In the SH-2 for SYSTEM-1, instead, they are
+  `create`/`destroy`/getters (`0x608090D9`… in region 0 and `0x602010D9`… in region 1). The stock synth is not a module
+  with entry points: it is compiled into the OS.
+
+Having it in slot 1 means **building** the two regions: extract from the OS the code of the model (master) and of the
+engine (slave), relink it at `0x60800000`/`0x60200000`, give it `create`/`destroy` and connect it to the interface the
+PLUG-OUTs use (table `0x0100FC00`, descriptor). The `BL`s to the OS can be re-encoded, because `0x60800000` is less
+than 16 MiB from `0x60000000`.
+
+**Addresses (1.30 unless stated):**
+
+| Address | What | How it was found |
+|---|---|---|
+| `0x0100FC00` | PLUG-OUT service table (162 entries in 1.30, 161 in 1.20; reviewed in 1.20: almost all are DSP/parameter wrappers and **none sends MIDI**); the entries used by our PLUG-OUTs: [Vol. IV ch. 3](os_service_table.md) | start-up table, use from the SH-2's region 0 |
+| `0x600A195C` | note input object (counterpart of `CAssign`), vtable `0x60081008`: `+0x08` note off, `+0x0C` note on, `+0x10` CC, `+0x18` bend (id `0x130`) | constructor `0x60005B2E` |
+| `0x604A26B0` | **voice assigner** (pointer at `0x600094F4`); code `0x60009500`–`0x6000A400` | [Vol. III ch. 9](../vol3_voice_allocation_scheduling/system1_polyphony_studies.md) §1.4 |
+| `0x60008BD4` | `set(obj, group, id, value)` → service at `[0x60008FA8]` | |
+| `0x60006682` | **MIDI byte send**: `send(buf, len, cable, mask)` → `0x600065B0`; singleton `0x600409C8` | `fnmatch.py` from 1.20 `0x60006606` |
+
+`system-1/fnmatch.py` carries addresses from 1.20 to 1.30. Examples: `0x60006606` → `0x60006682`, `0x60006534` →
+`0x600065B0`, `0x60005AB2` → `0x60005B2E`. The small kernel functions have other shapes and do not match those of
+the SYSTEM-8.
+
+**MIDI send (`0x600065B0`, 1.30):** `send(obj, buf, len, cable, [sp] = mask)` turns the bytes into USB-MIDI packets
+(`0x60005D20`, at most 86 packets) and sends them according to the mask: bit 0 cable 0 and bit 1 cable 1 through
+`0x60008860` (object `0x6009BDE0`; in 1.20 `0x600087DE`/`0x6009BEC4`, which first checks whether there is a
+connection); bit 2 through the queue of `midi_drv`; bit 3 to the internal engine. In 1.20 the OS's own DT1 answers use
+mask 1. **Measured from region 0**: object `0x605F20D4`, cable 3, mask 1 → out on MIDI 1 ([Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §6.5;
+PARAMLOG, [examples/system_1/README.md](../../examples/system_1/README.md) §6).
+
+### 9.4 Application of the slave (1.30)
+
+DSP driver (`esc2_dsp_drv`), keyboard, MIDI, `SYSTEM1_SYNINFO` "SYSTEM-1" at `0x7783` and presets
+`TSYS1-METAP 10HC`…`80HC`. The DSP programs and their allocation: [Vol. III ch. 9](../vol3_voice_allocation_scheduling/system1_polyphony_studies.md) §1.2.

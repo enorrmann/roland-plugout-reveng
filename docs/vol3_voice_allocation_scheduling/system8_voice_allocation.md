@@ -1,10 +1,12 @@
 # Volume III — Chapter 1: SYSTEM-8 Voice Allocation to the DSPs
 
+> **Scope:** SYSTEM-8. The SYSTEM-1 counterpart is [ch. 2](system1_voice_allocation.md).
+
 | | |
 |---|---|
 | Version | 2.0 (2026-10-22). Measurements behind each fact: [lab log](../vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md) |
 | Scope | How a note from the keyboard reaches a voice, which DSP computes each part of each voice, which words the ARM writes for each voice, the interface of the oscillator slots, the two families of Roland PLUG-OUTs and the voice limit. The transport mechanisms (MXM, rings, mailbox, IOMD) are in [Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) |
-| Device | SYSTEM-8 (master + 2 slaves, 6 DSPs per slave). SYSTEM-1: [system-1/VOICE_ALLOCATION.md](../../system-1/VOICE_ALLOCATION.md) (summary in [ch. 2](system1_voice_allocation.md)) |
+| Device | SYSTEM-8 (master + 2 slaves, 6 DSPs per slave). SYSTEM-1: [Vol. III ch. 2](system1_voice_allocation.md) (summary in [ch. 2](system1_voice_allocation.md)) |
 | Reference code | assigner `examples/from_scratch/model/model.c`; engines `examples/from_scratch/engine/engine.c` (JX-3P with Roland's microcode) and `v3/engine_v3.c` (C-V4, own microcode) |
 
 Evidence: **[M]** measured on the device · **[L]** read in Roland's microcode or ARM code · **[C]** our code · **[E]**
@@ -145,7 +147,7 @@ The chain of voices 2/3 is the same with DSP1 → DSP3 (`Z 8400`–`8410` → `O
 | DSP2 / DSP3 | MAIN2 + DCO1 SAW + DCO2 SAW | 839 / 834 |
 | DSP4 / DSP5 | MAIN4 / MAIN5 | 532 / 513 |
 
-Measured with `system-1/dsp_fit.py` (emulator; see [system-1/DSP_FIT.md](../../system-1/DSP_FIT.md)). DSP2/3 are at
+Measured with `system-1/dsp_fit.py` (emulator; see [Vol. III ch. 9](system1_polyphony_studies.md) §3). DSP2/3 are at
 90 % of the budget: that is why Roland puts **two** voices per oscillator DSP.
 
 ---
@@ -334,7 +336,7 @@ oscillators cost ≈ 160 per voice (DCO1 SAW: 325 for two voices) [E].
 
 Test that would decide the open point (not done): region 0 with `NV_MAX 12` and an engine that plays a fixed tone when
 it receives `0x431` (voice 8). If it sounds, the OS forwards ids above voice 7. On the SYSTEM-1 the equivalent was
-measured (8 voices with ids `0x114`–`0x117`, [system-1/VOICE_ALLOCATION.md](../../system-1/VOICE_ALLOCATION.md) §6).
+measured (8 voices with ids `0x114`–`0x117`, [Vol. III ch. 2](system1_voice_allocation.md) §6).
 
 ---
 

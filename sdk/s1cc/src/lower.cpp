@@ -1,4 +1,4 @@
-// `s1cc lower`: the graph -> kernel file (docs/S1CC.md §7).
+// `s1cc lower`: the graph -> kernel file (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §7).
 //
 // Every value V of the program is held as a register r with a scale s and an offset o: V = (r - o) s. Integer
 // fixed point (Q15 products, >> n, + constants, the uint32 phase of an oscillator) then costs nothing: a shift or
@@ -548,7 +548,7 @@ struct Lowerer {
         return r;
     }
 
-    // a b + c d + e in one MAC op (DSP_HARDWARE.md §5.4, measured exact on the SYSTEM-8): two register products
+    // a b + c d + e in one MAC op (docs/vol2_dsp_core_isa/core_architecture.md §5.4, measured exact on the SYSTEM-8): two register products
     // (mac_p1p2 / mac_p1w), or a constant factor as the MAC's immediate coefficient K (mac_p1p2c3 / mac_p1wc3: one
     // register less), or both products with a constant (Y immediate and K). A product of two constants and a constant
     // e go into W. Otherwise (no native ops, too few registers, no product left): multiplies and adds.
@@ -1843,7 +1843,7 @@ struct Lowerer {
                 s.init = it->second;                  // after S1_INIT (or the C initializer)
             double r0 = s.init / sr.first + sr.second;
             // a phase (modular word) that starts at 0 in the C starts at half a cycle in the ring: a fixed offset of
-            // a free-running oscillator, not worth a first-sample mad in every sample (docs/S1CC.md §11.1)
+            // a free-running oscillator, not worth a first-sample mad in every sample (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §11.1)
             bool phaseAtZero = sr.second == -1 && s.init == 0;
             if (phaseAtZero && std::fabs(r0) > 1e-12)
                 rep << "  state " << s.name << ": phase starting at 0, left at half a cycle (no first-sample "
@@ -2041,7 +2041,7 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
     std::string a = L.run(P.A, report);
     std::string b = P.B.fn ? L.run(P.B, report) : "";
     std::ostringstream o;
-    o << "; s1cc kernel (docs/S1CC.md §8): V = (r - o) s for every scaled word\n";
+    o << "; s1cc kernel (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §8): V = (r - o) s for every scaled word\n";
     if (P.fused)
         o << ".fused\n";                // one voice function: the host may run it on either DSP (§3.4)
     for (auto &s : P.states) {

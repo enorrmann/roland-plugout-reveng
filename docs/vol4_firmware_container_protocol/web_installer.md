@@ -1,5 +1,7 @@
 # Volume IV — Chapter 5: Web Installer of PLUG-OUTs (`web/`)
 
+> **Scope:** both.
+
 Page that installs a `Code*.Dat` into a slot of the SYSTEM-1 / SYSTEM-1m / SYSTEM-8 from the browser, through Web MIDI
 with SysEx. It sends exactly the same messages, in the same order, as `tools/plugout_tool.py install … --force
 --no-patches` ([Vol. IV ch. 4](usb_sysex_protocol_spec.md) §2 and §5), with a limit of bytes per second that replaces the tool's
@@ -149,7 +151,7 @@ The model name of the header does not tell the device: it is the name of the PLU
   *Disconnected*.
 * **Release**: after each round of queries and after the installation, `Port.close()` closes the input and the output
   (`MIDIPort.close()`), so that another program can open the device.
-  * [measured, 2026-10-23] With the previous version of the page open in Brave, `plugout_tool.py install` failed with
+  * [measured, 2026-10-23] With a version of the page that did not close its ports, open in Brave, `plugout_tool.py install` failed with
     `cannot open hw:3,0,1: Device or resource busy`: the ALSA clients `Chrome (input)` / `Chrome (output)` were
     subscribed to the two ports of the SYSTEM-1 (`/proc/asound/seq/clients`).
   * [open] Whether `close()` is enough for Chrome to release the ALSA port. Until that is checked: **close the tab
@@ -188,8 +190,8 @@ attempts), END. The only difference is the **pace**: the page limits the bytes p
   * 2048 records (60 KB) in ≈ 3 s;
   * the 40 blocks of region 2 (24 KB) went in in less than 1 s, that is ≥ 25–40 KB/s.
   * The device's ceiling is not measured [open].
-* **Waiting for answers**: by event (`_wait`): the promise resolves with the MIDI message itself. The first version
-  polled every 5 ms with `setTimeout`, which the browser throttles (≥ 1 s in a background tab).
+* **Waiting for answers**: by event (`_wait`): the promise resolves with the MIDI message itself (polling with
+  `setTimeout` is throttled by the browser: ≥ 1 s in a background tab).
 * **Diagnostic log** (*Show the MIDI traffic*), at record 32, every 512 and at the end:
   * accumulated time;
   * mean and maximum wait of the flow answers;

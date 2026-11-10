@@ -1,5 +1,7 @@
 # Volume II — Chapter 4: Instruction Set Reference (DSP ISA specification, part 2: §6–§14)
 
+> **Scope:** both (same ISA); measured on the SYSTEM-8 unless stated.
+
 > Part 2 of the ISA specification (§6–§14). Part 1 (§1–§5: machine model, RAW number format, program image,
 > instruction encoding, word formats) is [Vol. II ch. 3](instruction_word_encoding.md); a reference "§n" with n ≤ 5
 > points to chapter 3, n ≥ 6 to this chapter. Roland BMC DSP as used by the SYSTEM-8 (and its PLUG-OUTs). Status tags:

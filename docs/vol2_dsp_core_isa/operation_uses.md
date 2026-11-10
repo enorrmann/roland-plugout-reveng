@@ -1,5 +1,7 @@
 # Volume II — Chapter 9: What the Decoded Operations Are Good For
 
+> **Scope:** both (same ISA); measured on the SYSTEM-8.
+
 > The exact (bit-level) behaviour of the SFU operations is in [Vol. II ch. 1](core_architecture.md) §5.3 and
 > [ch. 5](sfu_and_accelerators.md); this chapter is about what each operation is used for.
 
@@ -242,7 +244,7 @@ of bank 0 land on other references because of the ring.
 * **A/A/B in one cycle** (class 0x160): three ops per instruction → wavetables of one point per instruction, chains
   of polynomials.
 * **Shared immediates**: the A/B ops of an instruction read one immediate stream, each at its own byte
-  ([Vol. II ch. 3](instruction_word_encoding.md) §4).
+  ([Vol. II ch. 3](instruction_word_encoding.md) §4.4).
 * **Condition flags** (`X9bY` + C, §5c): conditional ops and jumps; for a branch-free choice by data, min/max.
 
 ---

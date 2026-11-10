@@ -1,5 +1,7 @@
 # Volume II — Chapter 1: DSP Core Hardware Reference
 
+> **Scope:** both. The ISA and the arithmetic are the same on both devices; the measurements were made on the SYSTEM-8 unless a row names the SYSTEM-1, and the SYSTEM-1 limits (budget, main-program size, access rules) are given where they differ.
+
 Single document, without history, for whoever wants to **write an assembler, a compiler or an emulator** for the
 DSP. Everything it says is measured on the device unless stated otherwise. Exhaustive detail (class table, examples,
 original measurements): [Vol. II ch. 4](instruction_set_reference.md). Work diary: [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md).

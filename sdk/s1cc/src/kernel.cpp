@@ -1,4 +1,4 @@
-// Values -> registers -> one-unit lines (the form asm/dspsched.py packs; docs/S1CC.md §7). Same rules as
+// Values -> registers -> one-unit lines (the form asm/dspsched.py packs; docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §7). Same rules as
 // sdk/mport/kernel.py: linear scan in program order, a dying operand's register may take the result (all units of
 // an instruction read before they write), least recently freed register first, an accumulator read again later is
 // copied first, a "mov rS, rS" filler after a load whose register the next line uses.
@@ -178,7 +178,7 @@ KVal *Kernel::add(KVal *x, KOperand y) {
     if (fuseAbs && !y.v && std::fabs(y.imm) < 256)  // |a| + c: absadd with an immediate (the polyBLEP's |u| - 2)
         if (KVal *a = absOf(ops_, x))
             return op("absadd {d}, {0}, {1}", {KOperand::of(a), y});
-    if (fuseAbs && y.v && !y.neg) {                 // |a| + b: absadd (unit B, one op; DSP_HARDWARE.md §5.2)
+    if (fuseAbs && y.v && !y.neg) {                 // |a| + b: absadd (unit B, one op; docs/vol2_dsp_core_isa/core_architecture.md §5.2)
         if (KVal *a = absOf(ops_, x))
             return op("absadd {d}, {0}, {1}", {KOperand::of(a), y});
         if (KVal *a = absOf(ops_, y.v))
@@ -217,7 +217,7 @@ KVal *Kernel::sub(KVal *x, KOperand y) {
     return op("subxy {d}, {0}, {1}", {y, KOperand::of(x)});      // subxy d, X, Y = Y - X
 }
 
-// p q + r s as one MAC op (DSP_HARDWARE.md §5.4), the measured forms only: X Y + C Z with Y and C registers
+// p q + r s as one MAC op (docs/vol2_dsp_core_isa/core_architecture.md §5.4), the measured forms only: X Y + C Z with Y and C registers
 // (mac_p1w), Y a register and C an immediate K (mac_p1wc3), Y and K immediates; p and r registers. nullptr: no form
 KVal *Kernel::macOf(KOperand p, KOperand q, KOperand r, KOperand s) {
     if (!p.v)
@@ -334,7 +334,7 @@ KVal *Kernel::mac2(KVal *a, KVal *b, KVal *c, KVal *d, KVal *e) {
 }
 
 KVal *Kernel::mac2k(KVal *a, KOperand y, double k, KVal *z, KVal *e) {
-    // MAC unit, immediate coefficient (DSP_HARDWARE.md §5.4: read at byte C of the slot array; the assembler places
+    // MAC unit, immediate coefficient (docs/vol2_dsp_core_isa/core_architecture.md §5.4: read at byte C of the slot array; the assembler places
     // it): rD <- rX Y + K rZ (+ rW); text order D, X, Y, K, Z, W. Measured exact on the SYSTEM-8 (2026-10-29)
     if (e)
         return op("mac_p1p2c3 {d}, {0}, {1}, {2}, {3}, {4}",
@@ -343,7 +343,7 @@ KVal *Kernel::mac2k(KVal *a, KOperand y, double k, KVal *z, KVal *e) {
 }
 
 std::tuple<KVal *, KVal *, KVal *> Kernel::sqrtsplit(KVal *y) {
-    // sqrtsplit rB, rY: rY <- m, r(B+1) <- seed, r(B+3) <- sign 2^-k (r(B) is not written; DSP_HARDWARE.md §5.3)
+    // sqrtsplit rB, rY: rY <- m, r(B+1) <- seed, r(B+3) <- sign 2^-k (r(B) is not written; docs/vol2_dsp_core_isa/core_architecture.md §5.3)
     KVal *seed = multi("sqrtsplit r{b}, {0}", y, false, true, true);
     KOp &o = ops_.back();
     o.d3 = val();

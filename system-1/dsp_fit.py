@@ -6,12 +6,12 @@
     python3 system-1/dsp_fit.py --voices 2            # only the voice-0/1 chain (DSP0 -> DSP2 -> DSP4)
     python3 system-1/dsp_fit.py --budget 900 --reserve-ma 60 --samples 4000
 
-Study only (docs/log/VOICE_ALLOCATION_LOG.md §7 scope): Roland's programs are read at run time from the local copy
+Study only (docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md §7 scope): Roland's programs are read at run time from the local copy
 `examples/from_scratch/engine/build/programs.h` (made by engine/build.sh from plugins/JX-3P), run in the C emulator
 (`examples/from_scratch/emu/cchain.py`) and disassembled with `emu/listing.py`. Nothing is copied into the repo.
 MAIN0/MAIN1 of programs.h carry the same-size envelope patches of engine/programs.py; the count is the same.
 
-What it measures (system-1/DSP_FIT.md):
+What it measures (docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md):
  1. per program: bytes, static instructions, executed instructions per sample (min / mean / max over the run, with
     random bank-5 inputs and parameters changed every 250 samples, so the jumps take both ways);
  2. links between the six SYSTEM-8 DSPs, in words per sample: MXM (Z 84nn -> M 80nn / O 82nn of DSP n+2, S 86nn

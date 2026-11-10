@@ -1,5 +1,5 @@
-;; EDM_CALL (docs/MUTABLE_MEMORY.md §3.3.3): our own tapreq inside the OS's master B effect at 0x0, which is the only
-;; program whose requests the delay memory serves (§3.3). Nothing is queued at 0x0 (system-1/WAVE_BUS.md §5.3): region
+;; EDM_CALL (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.3): our own tapreq inside the OS's master B effect at 0x0, which is the only
+;; program whose requests the delay memory serves (§3.3). Nothing is queued at 0x0 (docs/vol1_system_architecture/bus_interconnect.md §15.3): region
 ;; 0 (model.c edm_call) writes these words live into master B's program memory (0x40170000 + byte address):
 ;;   edm_call_block  at byte 0x0C00 (free: the effect ends at 0x552, our main starts at 0x1000), after the OS's own
 ;;                   two instructions that the call replaces (copied there at run time from the DSP, not shipped)
@@ -47,7 +47,7 @@ f6 r2, -r4
 tapreq r2, 0
 cond 0, 15, 8
 
-;; EDM_CALL=idx (probe, docs/MUTABLE_MEMORY.md §3.3.6): is a tapreq address absolute? With EDM_ECF our writer
+;; EDM_CALL=idx (probe, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.6): is a tapreq address absolute? With EDM_ECF our writer
 ;; [4034] -> 0x440000 (h4 units: 272) gets the left send (master_edm EDM_WR). Two requests on that line:
 ;;   left  (EDM_RES[0]): the OS's form, base 272 + age - p (r4 = the effect's position counter): an echo at EDM_AGE
 ;;                       if the OS's convention carries over to a line of ours
@@ -69,7 +69,7 @@ tapreq r2, 0
 hset h4, #256@0:24
 cond 0, 15, 8
 
-;; EDM_STR with STR_TAP (docs/MUTABLE_MEMORY.md §3.3.5): the strings' reads by tapreq instead of map-table reads (the
+;; EDM_STR with STR_TAP (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): the strings' reads by tapreq instead of map-table reads (the
 ;; table cannot change at run time: the data queue drains only when the PLUG-OUT is selected, a live ARM store hung
 ;; the device, 2026-11-04). Per voice v two requests on its own line (base (STR_A0 + v STR_DA) / 16384, the OS's form
 ;; age - p, measured on our line by MP-EDMIDX: 48000 -> 48001): age d_v (C030 + v, written by region 0 at every note)

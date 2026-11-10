@@ -1,5 +1,7 @@
 # Volume V — Chapter 1: s1cc — C / C++ Compiler to the Microcode of Roland's BMCs
 
+> **Scope:** SYSTEM-1 (the kernels run in SYSTEM-S1CC and MUTABLE-SYSTEM).
+
 > §3 (program model, `s1dsp.h`) is complemented by [ch. 2](s1dsp_api_reference.md), which lists the SDK header.
 
 Specification. State: 2026-10-24, version 1.0 (with the dated additions in the text).
@@ -445,9 +447,9 @@ Each value V of the program lives in a register r with a scale s and an offset o
   instructions.
 * **Normalisation.** |r| ≤ 16 is kept, and it is brought to ≤ 1 when it goes over (1 op). It is also rescaled upwards
   if |r| < 2⁻⁸: below 0.125 the DSP's grid is 2⁻³² absolute and a tiny register loses precision. It also holds for the
-  result of `min` / `max` (since 2026-10-28). A clipped value (the cutoff `w ≤ 0.55` of an `exp2` of ±10 octaves) was
-  left with a scale of 2⁻¹⁰, and each product of it paid two rescaling `mul`s. Now it is paid once when clipping it.
-  SVF of mutable_ported: DSP B 42 → 39 per voice and SNR 57 → 85 dB; Braids wrappers between −21 and +4.
+  result of `min` / `max`: a clipped value (the cutoff `w ≤ 0.55` of an `exp2` of ±10 octaves) is rescaled once when it
+  is clipped, not at each product (SVF of mutable_ported: 39 instructions per voice on DSP B, SNR 85 dB; measured
+  against the version without it, which took 42 and gave 57 dB; Braids wrappers between −21 and +4).
 * **Scale of a parameter.** It is the power of 2 that covers its table; the ARM writes value / scale.
 * **Scale of a state word.** Also a power of 2, except:
   * an unsigned integer that covers its whole range (a phase): s = 2ⁿ⁻¹, o = −1, that is r ∈ [−1, 1), ready for
@@ -581,7 +583,7 @@ instruction). On the SYSTEM-1 none of them is tested yet: the PLUG-OUT `NATIVE-C
 
 | intrinsic | DSP op | cost | limits |
 |---|---|---|---|
-| `s1_floor(x)`, `s1_ceil(x)` | SFU `floor` / `ceil` | 1 op | \|x\| < 511 (otherwise the old form) |
+| `s1_floor(x)`, `s1_ceil(x)` | SFU `floor` / `ceil` | 1 op | \|x\| < 511 (otherwise x − (x mod 1)) |
 | `s1_sign(x)` | SFU `sign` | 1 op | −1, 0, +1 |
 | `s1_abs(x)` | \|x\| (unit B) | 1 op | — |
 | `s1_recip(x)` | `recipseed` + 3 × `newton` | 4 ops | error 10⁻⁸; x is scaled by 2ᵏ so that \|x'\| ≥ 2⁻⁹ and 1/x' ≤ 256; profiled range of more than 16 octaves: W904 |
@@ -608,7 +610,7 @@ S1_DSP_A {
 **What s1cc does by itself** (without calling anything; `--no-native` switches it off, except `shl` and the division):
 
 * multiplying by a constant larger than 256 → `shl` with the power of 2 (unit B, one op) and, if needed, a `mul` by the
-  rest in [1, 2). Before, it was chained `mul #256` (the BLEP of the polyBLEPs: `mul #256; mul #32`);
+  rest in [1, 2).;
 * `x / y` with a variable y → `recipseed` + 3 `newton`;
 * `floorf` → SFU `floor`;
 * `exp2` / `exp` / `pow(c, x)` of a wide range → `expsplit`;
@@ -619,12 +621,10 @@ S1_DSP_A {
   Y and C registers, Y register with an immediate K, Y and K immediates (not an immediate Y with a register C). If the
   product is also used elsewhere, the `mul` stays and the MAC saves nothing.
 
-**`recipseed` overwrites its input.** The measurement showed that `recipseed rD, rY` leaves N = ±2⁻ᵉ in rD, the seed
-F ≈ 1/m in rD+1 **and m in rY**. The old lowering of the division read y again after `recipseed` (`m = y·N`), that is,
-it read m: the result was wrong on the device and right in the emulator, which did not model it (the clicks of
-BRAIDS-CSAW of 2026-10-27, W910). Now `Kernel::recip` uses those three registers as `newton` expects them (Goldschmidt
-division, Roland's) and the allocator copies y before if it is read afterwards (op `multi` with `clobber`). W910 is no
-longer emitted.
+**`recipseed` overwrites its input**: `recipseed rD, rY` leaves N = ±2⁻ᵉ in rD, the seed F ≈ 1/m in rD+1 **and m in
+rY** [measured]. A division must therefore not read y again after `recipseed`. `Kernel::recip` uses those three
+registers as `newton` expects them (Goldschmidt division, Roland's) and the allocator copies y first if it is read
+afterwards (op `multi` with `clobber`).
 
 **Verifying on the device** (SYSTEM-1, once per new op):
 
@@ -665,7 +665,7 @@ reference (`make_s1cc.py --sim`).
    * **Checked** [sim, 2026-10-27]: `simple_saw_wrapped`, `saw_wrapper`, `va_saw_svf`, `braids_saw_swarm` and
      `braids_saw_swarm_s1` give the same kernel with automatic sources as with the sources given by hand.
 1. `clang(++) -O2 -S -emit-llvm -fno-math-errno -I include ...` of each source, and `llvm-link` → `voice.ll`.
-2. `s1cc prof voice.ll -o prof.ll`. Before, with `--fused`: `s1cc fuse voice.ll` and `opt -O2` (§3.4).
+2. `s1cc prof voice.ll -o prof.ll` (with `--fused`, first `s1cc fuse voice.ll` and `opt -O2`, §3.4).
 3. `clang voice.ll runtime/s1rt.c -o ref` and `clang prof.ll runtime/s1rt.c -o prof`, native.
 4. `ref tables tables.txt` (`S1_PARAM` tables) and `prof prof profile.txt` (scenarios, ranges, overflows, islands).
 5. `s1cc lower voice.ll --profile profile.txt --tables tables.txt -o voice.s1k --report report.txt`: first the options
@@ -754,7 +754,7 @@ larger than the instruction count. `S1CC_OPS=1 build/s1cc lower …` prints each
 
 Each error and each warning has a fixed **code**: `s1cc: error E501: ...`, `s1cc: warning W905: ...`. The code
 identifies the exact case; the text that follows changes with the names and values. To solve it, look for the code in
-the tables below (`grep E501` in this chapter; the compiler's messages still cite the old file name [Vol. V ch. 1](s1cc_compiler_internals.md)).
+the tables below (`grep E501` in this chapter).
 The errors stop the build; the warnings do not, and they also stay in `report.txt` with their code. With `--debug`
 (§9.1), each message carries `file:line in function` with the inlining chain, and each error ends with
 `s1cc: debug: cause and fix of E501: [Vol. V ch. 1](s1cc_compiler_internals.md) §9.2`.
@@ -898,6 +898,7 @@ preference:
 | `E118` | `s1_env(i): the host has envelopes 0 and 1` | index other than 0 (AMP) or 1 (FILTER) | `s1_env(0)` or `s1_env(1)` |
 | `E119` | `s1_color in S1_DSP_B` | the host builds the colors on DSP A | read `s1_color` in `S1_DSP_A` and pass the value to B with `s1_export` / `s1_import` |
 | `E120` | `s1_color(i): the panel has colors 0 (OSC1) and 1 (OSC2)` | index other than 0 or 1 | `s1_color(0)` or `s1_color(1)` |
+| `E121` | `s1_ldb5 in S1_DSP_B …: the wavetable read is on DSP A` | `s1_ldb5` called in `S1_DSP_B` | read the frame in `S1_DSP_A` and pass the value with `s1_export` / `s1_import` |
 | `E006` | `no table for S1_PARAM 'p' (tables file)` | old `tables.txt` or the table's function did not run | redo the whole build |
 
 #### 9.2.8 Kernel (`kernel.cpp`)
@@ -949,9 +950,8 @@ The build finishes, but the result can differ from the C. `s1cc check` measures 
 | `plaits_variable_shape.cc` | Plaits' `VariableShapeOscillator` as it is, with the real stmlib (`s1cc deps`): BLEP in an unrolled `while`, division of the BLEP whose divisor crosses 0 (W903), a branch no scenario takes (W908) | 311 | — | 68–99 dB / — |
 | `simple_saw_wrapped/` | the minimal example: a pure C library (naive saw, `saw.c`), two instances per voice, and its wrapper ([sdk/s1cc/examples/simple_saw_wrapped/README.md](../../sdk/s1cc/examples/simple_saw_wrapped/README.md)) | 30 | — | 95–112 dB / — |
 
-Notes 45 and 57, knobs at 128. `tests/test_s1cc.py` uses these values with a margin (A ≤ 52 in the Braids ones). Between
-2026-10-24 and 2026-10-27 the Braids ones had 58 instructions in A: the exact start corrected their 7 phases. Since
-2026-10-27 the phases that start at 0 are not corrected (§11.1).
+Notes 45 and 57, knobs at 128. `tests/test_s1cc.py` uses these values with a margin (A ≤ 52 in the Braids ones). The
+phases that start at 0 get no start correction (§11.1).
 
 **Warning W901 of the Braids ones and the unstable zone of the high-pass** [sim, 2026-10-27]. The warning comes from
 `f * bp` and `f * hp` of `S1_DSP_B` (`braids_saw_swarm_s1.cc` lines 50 and 53): `int32` products that wrap on Braids'

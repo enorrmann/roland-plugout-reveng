@@ -1,5 +1,7 @@
 # Volume I — Chapter 5: MIDI and SysEx Routing in the SYSTEM-8 (investigation, 2026-10-21)
 
+> **Scope:** SYSTEM-8. The SYSTEM-1 MIDI send from region 0: [Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §9.3.
+
 Working document on how MIDI and SysEx messages travel through the system: from the host (PC) to the master, from the
 master to the slaves and back. Goal: a read channel for the memory of the slave DSPs ([Vol. II ch. 11](../vol2_dsp_core_isa/slave_dsp_readback.md)).
 State: **partial**. What remains open is at the end.

@@ -23,7 +23,7 @@ import disasm  # noqa: E402
 import isa  # noqa: E402
 import layout  # noqa: E402
 
-SPEC = os.path.join(ROOT, "examples", "from_scratch", "DSP_ISA_SPEC.md")
+SPEC = os.path.join(ROOT, "examples", "from_scratch", "docs/vol2_dsp_core_isa/instruction_set_reference.md")
 PER_CLASS = 150          # instances tried per class
 
 

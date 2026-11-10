@@ -45,7 +45,7 @@ Builds de diagnóstico (todas con `NAME=…`):
 
 ## 2. Por qué así
 
-`system-1/DSP_FIT.md`: el JX-3P completo (6 DSP del SYSTEM-8, 4 voces) necesita 3748 instrucciones por muestra y
+[Vol. III ch. 9](../../docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md) §3: el JX-3P completo (6 DSP del SYSTEM-8, 4 voces) necesita 3748 instrucciones por muestra y
 el SYSTEM-1 tiene ≈ 3660 en sus 4 DSP: no cabe. **Sin DCO2** son 3098 y caben (`dsp_fit.py --dco2 none`). Los
 controles de OSC2 no hacen nada (sus salidas se leen como 0).
 
@@ -114,7 +114,7 @@ apagando) y se localizó por bisección (§10). Todas las comprueban `test_s1jx.
 
 | # | regla | evidencia |
 |---|---|---|
-| 1 | **No encolar la entrada `0x0000`** (cabecera del OS) en `load` | C-S1JX7; los motores de Roland la tienen en sus tablas pero no la encolan (ejecutados en Unicorn, [../system-1/WAVE_BUS.md](../../system-1/WAVE_BUS.md) §5.3) |
+| 1 | **No encolar la entrada `0x0000`** (cabecera del OS) en `load` | C-S1JX7; los motores de Roland la tienen en sus tablas pero no la encolan (ejecutados en Unicorn, [Vol. I ch. 3](../../docs/vol1_system_architecture/bus_interconnect.md) §15.3) |
 | 2 | **Banco 5: como mucho una carga y un store por instrucción** (ya medido en el SYSTEM-8) | C-S1JXQ/R: MAIN3 con 8 violaciones colgaba, un programa vacío no |
 | 3 | **Banco 0: como mucho 2 stores por instrucción** (y 2 cargas) | C-S1JXH, MAIN3 instrucción 55 (3 stores tras pasar el banco 1 al banco 0); en todo el código de Roland nunca hay más de 2 |
 | 4 | **Banco 6: como mucho 2 cargas por instrucción** | C-S1JXH1, MAIN1 instrucción 48 (3 cargas tras pasar un parámetro al banco 6); nunca más de 2 en el código de Roland |

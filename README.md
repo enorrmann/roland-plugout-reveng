@@ -67,8 +67,8 @@ of the other Mutable kernels.
 * **`sdk/mport`** ([Vol. V ch. 3](docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md)): hand ports of Mutable
   Instruments components with a C++ reference and a bit-exact integer model (Braids SAW_SWARM).
 * **Emulator** (`examples/from_scratch/emu/`, [Vol. V ch. 5](docs/vol5_toolchain_compiler_sdk/emulator.md)): the C
-  reference of the DSP (`dspdec.h`, `dspcore.h`), native translation and threads; one JX-3P slave ran at 1.23× real time
-  when measured; `test_core.py` checks the 15 756 distinct instructions of the local corpus against a golden file.
+  reference of the DSP (`dspdec.h`, `dspcore.h`), native translation and threads; one JX-3P slave runs at 2.3–2.45× real time
+  and the SYSTEM-1 simulation at 4×; `test_core.py` checks the 15 756 distinct instructions of the local corpus against a golden file.
 * **Microcode toolchain** (`asm/`, [Vol. V ch. 4](docs/vol5_toolchain_compiler_sdk/assembler_disassembler_tools.md)):
   assembler and disassembler with a round trip on Roland's corpus, the scheduler `dspsched.py`, the SYSTEM-1 access
   rules `s1rules.py`, and `tools/check_optimized.py`.
@@ -94,7 +94,7 @@ What this project is not:
 * Not a copy of the plugins. The plugin folders (`plugins/`) and the decoded firmware (`work/`, `dumps/`) are
   local and ignored by git; the firmware updater images are in `firmware/`.
 
-### 3.1 Verified on a real SYSTEM-8 (firmware 1.32), as of the original README
+### 3.1 Verified on a real SYSTEM-8 (firmware 1.32)
 
 | Area | Status | Where |
 |---|---|---|
@@ -109,7 +109,7 @@ What this project is not:
 | Live DSP peek and poke from the host | works | [Vol. II ch. 1](docs/vol2_dsp_core_isa/core_architecture.md), `examples/from_scratch/re/dsplive.py` |
 | S8LAB lab image in PLG1: OSC1 COLOR changes the timbre | works (not monotonic) | `examples/sys8_lab/`, [PLAN.md](docs/vol7_cleanroom_evidence_archive/PLAN.md) |
 
-### 3.2 Not done or not verified (as of the original README)
+### 3.2 Not done or not verified (SYSTEM-8)
 
 * **Own microcode beyond the oscillators above.** `C-V4` has no Roland microcode, but its voice is only a sawtooth
   with a gate: filters, envelopes, LFO and effects are not written yet (Roland's are used only in the older builds).
@@ -121,19 +121,21 @@ What this project is not:
   patch cords and the EXTEND matrix did not change the sound in the tests ([PLAN.md](docs/vol7_cleanroom_evidence_archive/PLAN.md), steps 3 to 8).
 * **Bootloader and updater.** Both are encrypted (ECB); the key is in the BMC chip. The OS image is decoded
   (local dump, not in git).
-* **Long samples.** A write to the EDM memory from ARM code is still open; not yet written up in `docs/`.
+* **Long samples.** Writing the EDM delay memory from ARM code is open on the SYSTEM-8. On the SYSTEM-1, own EDM
+  lines on the master work through the bank-2 map table ([Vol. VI ch. 7](docs/vol6_reference_designs_applications/mutable_memory.md) §3.3).
 * **Emulation.** There is no full emulator of the device. The partial emulators (`tools/engine_emu.py`,
   `examples/from_scratch/re/emu0.py`, `emu1.py`) cover parts of the engine, and `examples/from_scratch/emu/` emulates
-  the six DSPs of the slaves running our programs (tested against the `C-V4` hardware result). The DSP ISA was checked
-  on the device by audio.
+  the six DSPs of the slaves running our programs (tested against the `C-V4` hardware result) and the four DSPs of the
+  SYSTEM-1 for our builds ([Vol. V ch. 5](docs/vol5_toolchain_compiler_sdk/emulator.md)). The DSP ISA was checked
+  on the device by audio and bit by bit on the SYSTEM-8 master.
 * **Other PLUG-OUTs.** The install code accepts the JUNO-60 and SH-101 folders, but the hardware records in
   `docs/` cover the JX-3P family and our own builds.
 
 ## 4. The documentation
 
-The 7-volume suite is indexed in [`docs/index.md`](docs/index.md), with a table that maps every old document name to its
-new chapter. The SYSTEM-1's own documents stay in [`system-1/`](system-1/README.md) (Spanish); each example has its
-README in its folder.
+The 7-volume suite is indexed in [`docs/index.md`](docs/index.md), which says for each chapter whether it is about the
+SYSTEM-8, the SYSTEM-1 or both. Terms and abbreviations: [`docs/GLOSSARY.md`](docs/GLOSSARY.md). Documents no longer
+maintained: [`docs/OBSOLETE.md`](docs/OBSOLETE.md). Each example has its README in its folder.
 
 ## 5. Quick start
 
@@ -169,13 +171,13 @@ Only one tool may talk to the device at a time (MIDI).
 | `firmware/` | official updater images (SYSTEM-8 v1.30 to v1.32, SYSTEM-1 v1.30) |
 | `base-engine/` | decoded base engine of the stock plugouts (reports and ELF exports) |
 | `cleanroom/` | clean-room specification test vectors and their checker |
-| `system-1/` | SYSTEM-1 analysis documents and scripts |
+| `system-1/` | SYSTEM-1 study scripts ([system-1/README.md](system-1/README.md)) |
 | `examples/` | our PLUG-OUTs and experiments (one folder each, each with a README where there is one) |
 | `web/` | the browser installer (Web MIDI) |
 | `docs/` | the documentation suite; index in [`docs/index.md`](docs/index.md) |
 | `plugins/`, `work/`, `dumps/` | local, not in git: plugin folders, decoded images, device dumps |
 
-### 6.1 Examples (SYSTEM-8 experiments of the original README)
+### 6.1 SYSTEM-8 examples
 
 | Folder | What it is | Status |
 |---|---|---|
@@ -188,6 +190,18 @@ Only one tool may talk to the device at a time (MIDI).
 | `examples/mem_name/`, `examples/mem_names/`, `examples/mem_scan/` | region 0 hooks that read OS RAM through the plugout name, and the dump loops | works |
 | `examples/midi_send/` | captures and bulk dump / bulk loop of the device's SysEx | captures |
 | `examples/cave_tone/`, `examples/preset_fill/` | code-cave hooks (TONE, preset fill and press) | experiments |
+
+### 6.2 SYSTEM-1 examples
+
+| Folder | What it is | Status |
+|---|---|---|
+| `examples/system_1/` | `C-S1V4` / `C-S1V8`: C-V4 ported to the SYSTEM-1 | works on the device; 8 voices |
+| `examples/system_1_synth/` | `C-S1SY`: the synth built step by step | `C-S1SY13F` is the last build that works completely |
+| `examples/system_1_ramp/` | `C-S1RAMP`: the parameter ramps (`FCE4`) | measured |
+| `examples/system_1_jx/` | `C-S1JX`: the JX-3P microcode on the four DSPs | paused: it still hangs the device |
+| `examples/system_s1cc/` | `SYSTEM-S1CC`: a PLUG-OUT that is only an s1cc kernel | works on the device (MP-CSAW, MP-CSAW2) |
+| `examples/mutable_system/` | `MUTABLE-SYSTEM`: Braids' SAW_SWARM in place of DCO1 + DCO2 | installed, not heard |
+| `sdk/s1cc/examples/` | s1cc kernels: Mutable ports, CZ-SYSTEM, wavetables, native-op checks | see [Vol. VI](docs/index.md) |
 
 ## 7. Clean-room boundary
 

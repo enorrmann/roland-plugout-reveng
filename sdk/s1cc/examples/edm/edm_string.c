@@ -1,4 +1,4 @@
-/* edm_string.c: the excitation of a Karplus-Strong string per voice (docs/MUTABLE_MEMORY.md §3.3.5): at every note
+/* edm_string.c: the excitation of a Karplus-Strong string per voice (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): at every note
  * a short burst of noise, nothing else. Built with EDM_STR=1 (examples/system_s1cc/build.sh), the slave sends voice
  * v's burst to master B on IOMD 6006 + v and master B rings it in voice v's own line in the delay memory at the
  * note's period (microcode/edm_str.s). OSC1 COLOR = burst length (1 .. 16 ms), OSC1 MIX = level; on the master:

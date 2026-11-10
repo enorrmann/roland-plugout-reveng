@@ -1,4 +1,4 @@
-"""SYSTEM-S1CC: a SYSTEM-1 PLUG-OUT that is only an s1cc kernel (docs/examples_system_s1cc_README.md).
+"""SYSTEM-S1CC: a SYSTEM-1 PLUG-OUT that is only an s1cc kernel (examples/system_s1cc/README.md).
 
 No oscillator, envelope, filter or LFO of its own: everything a voice does is the kernel's C (sdk/s1cc). Around it
 only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the hardware:
@@ -18,13 +18,13 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
                             the build counts; a binary search on it, then one build, and one voice less only if that
                             build still does not fit)
     BUDGET_A=n, BUDGET_B=n  instructions per sample the slave's DSP A / DSP B may have, measured on the device
-                            (docs/examples_system_1_synth_README.md §4): DSP A 703 ran (MP-CSAW 8 voices,
+                            (examples/system_1_synth/README.md §4): DSP A 703 ran (MP-CSAW 8 voices,
                             2026-10-28), 826 hung; DSP B 708 ran. Defaults 703 / 708. BUDGET=n sets both
     MAIN_BYTES=n            the size each slave main program may have: 6144 bytes, its region 0x0100..0x18FF before
-                            section 2 (docs/DSP_PROGRAM_MEMORY.md §3.1); 5854 bytes ran, 6534 and 6740 hung the
+                            section 2 (docs/vol3_voice_allocation_scheduling/slot_program_model.md §3.1); 5854 bytes ran, 6534 and 6740 hung the
                             device (2026-10-28). Above a budget or the size the build stops (exit code 3)
     SPLIT=auto|n            a fused kernel (s1cc --fused): the kernel of voices 0..n-1 on DSP A, the rest on DSP B;
-                            auto: the n that leaves the busier DSP least loaded (docs/examples_system_s1cc_README.md §1.3)
+                            auto: the n that leaves the busier DSP least loaded (examples/system_s1cc/README.md §1.3)
     OUTDIR=dir              where everything generated goes: the programs (.s / .hex), s1_programs.h,
                             try_forms.txt (default: build/ next to this file, build.sh's folder)
 
@@ -56,7 +56,7 @@ if not KERNEL or not os.path.exists(os.path.join(KERNEL, 'voice.s1k')):
     raise SystemExit('make_s1cc.py: KERNEL=<s1cc build directory> (with voice.s1k) is required')
 KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # the options a kernel may set with S1_BUILD("KEY=VALUE ...") (its .option lines): the defaults of these variables;
-# an environment variable wins (docs/examples_system_s1cc_README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
+# an environment variable wins (examples/system_s1cc/README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
            'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
@@ -215,7 +215,7 @@ def export_addr(i, v):
     return base + v
 # bank 0 (ring, S / S+1): the voice blocks of the kernel, sized by what it needs, in the regions our device-proven
 # programs used (C-S1V8 / C-S1SY: slave A 0x0300.., slave B 0x0400..; MUTABLE-SYSTEM's kernel B: 0x0600..)
-# A_BLOCK0 / B_OUT0 options: SL_WT=b0 SL_L=1024 moves them out of the loop (wt_slave.c, MUTABLE_MEMORY.md §4.1)
+# A_BLOCK0 / B_OUT0 options: SL_WT=b0 SL_L=1024 moves them out of the loop (wt_slave.c, docs/vol6_reference_designs_applications/mutable_memory.md §4.1)
 A_BLOCK0, B_BLOCK0 = int(opt('A_BLOCK0', '0x0300'), 16), 0x0600
 B_OUT = [int(opt('B_OUT0', '0x0400'), 16) + 2 * v for v in range(NV_MAX)]  # DSP B output of voice v (ring: read one sample later at S+1)
 K_A_PARAM0, K_B_PARAM0 = 0x70, 0x60         # the kernel's knob tables: DSP A C070.., DSP B C060..
@@ -227,7 +227,7 @@ GAIN = 2.0 / (1.5 * NV)                     # the mix as C-S1SY13's (one voice a
 M_OUT = (0xA118, 0xA119)                    # master B -> the OS output program on master A
 M_ZERO = [0xA11A, 0xA11B, 0xA11C, 0xA11D]
 M_VOLUME = 0x1C                             # master B parameter C01C (model.c, VOLUME knob)
-FX_SEND = (0x2000, 0x2002)                  # master B bank 1: the OS delay / reverb (system-1/FX_CHAIN.md §4)
+FX_SEND = (0x2000, 0x2002)                  # master B bank 1: the OS delay / reverb (docs/vol1_system_architecture/bus_interconnect.md §16.4)
 FX_RET = (0x2001, 0x2003)
 # host envelopes: DSP B parameters (sustain level, attack / decay / release rates), panel ids, defaults until the
 # faders move (C-S1SY's amp and filter envelopes); DSP A copies gate and trigger for DSP B (B reading A038+v, which
@@ -314,7 +314,7 @@ def luts_all():
 
 # ARM_ENV=1 / ARM_LFO=1 (2026-10-30): the host's ADSRs / LFO run on the slave ARM (engine.c tick), one value per
 # voice in a DSP B parameter that the hardware ramps (FCE4, 4.00 ms per ramp with y = 0 whatever the distance); a
-# hook in the slave OS's 1 ms cyclic handler advances each voice every 4 ms (docs/examples_system_s1cc_README.md
+# hook in the slave OS's 1 ms cyclic handler advances each voice every 4 ms (examples/system_s1cc/README.md
 # §3.7). DSP B only reads the parameter.
 ARM_ENV = opt('ARM_ENV', '1') == '1' and HOST_ENVS   # default since 2026-11-03 (FCEC every 1 ms, measured)
 ARM_LFO = opt('ARM_LFO', '1') == '1' and HOST_LFO
@@ -338,7 +338,7 @@ ARM_TICK = opt('ARM_TICK', '0') == '1'
 # steps mod 64) / 64. Leave voice NV-1 unplayed
 ARM_PROBE = opt('ARM_PROBE', '0') == '1'
 # ARM_RAMPTEST=1 (with sdk/s1cc/examples/arm_probe/ramp_probe.c): the ARM tests every kernel table of DSP B in turn,
-# an immediate write (FCEC) and a hardware ramp (FCE4) per 128 ms slot (docs/S1_ARM_CLOCK.md)
+# an immediate write (FCEC) and a hardware ramp (FCE4) per 128 ms slot (docs/vol1_system_architecture/s1_arm_clock.md)
 ARM_RAMPTEST = opt('ARM_RAMPTEST', '0') == '1'
 # DSP B parameters: envelope i of voice v at P_ENV0 + 8 i + v; lf, fade at P_LFO0 / P_FADE0 + v. With ramps they must
 # be below 0x80: C060..C07F, and the kernel's DSP B tables move to C080.. (written with FCEC, on a knob move only)
@@ -368,7 +368,7 @@ MOD_B = MOD_DSP != 'A'                          # where the pitch envelope and C
 # per color w0, w and the offset of the chosen source in the voice block (/16384); per voice h6 = block + offset,
 # `ldidx` reads the source, color = w0 + w src. The LFO and the sub are copied into the voice block first (bank 0).
 # Indexed transfers: exact on the SYSTEM-8 master (re/dspverify.py --programs, 2026-10-29); none in Roland's
-# SYSTEM-1 programs (docs/NATIVE_OPS.md)
+# SYSTEM-1 programs (docs/vol2_dsp_core_isa/native_ops.md)
 CMOD_IDX = opt('CMOD_IDX', '1') == '1'
 CMT0 = 0x0500                                   # DSP B bank 0: the table of COLOR MOD sources (CMOD_IDX), free words
 
@@ -833,7 +833,7 @@ def hlfo_voice(v):
 
 def _h67(lines, v):
     """odd voices read the indexed bank-5 table (s1_ldb5) with h7 / ldb5h7 instead of h6 / ldb5, so two concurrent
-    voices never share the one hidden index register (as SL_H67 does for the microcode oscillator, docs/MUTABLE_MEMORY.md
+    voices never share the one hidden index register (as SL_H67 does for the microcode oscillator, docs/vol6_reference_designs_applications/mutable_memory.md
     §4.1). Even voices keep h6. Only s1cc's s1_ldb5 emits hset/ldb5, so this is safe for any kernel."""
     if v % 2 == 0:
         return lines
@@ -1108,29 +1108,29 @@ def hlfo_params(knobs):
     return pa, pb
 
 
-EDM_TAP = opt('EDM_TAP', '0') == '1'           # master B taps of the delay memory (microcode/edm.s, MUTABLE_MEMORY.md §3.3)
+EDM_TAP = opt('EDM_TAP', '0') == '1'           # master B taps of the delay memory (microcode/edm.s, docs/vol6_reference_designs_applications/mutable_memory.md §3.3)
 EDM_RES = (0x402E, 0x4031)                    # bank-2 words of the taps' results (the OS uses 4004..402D; 4040: no echo)
 EDM_POS = 0x0200                              # master B bank 0: the position counter (the OS effect uses 0000..0033)
 
 
 EDM_ENTRY = opt('EDM_ENTRY', '0') == '1'       # our master B program at 0x0 (microcode/edm.s edm_entry)
 if EDM_ENTRY:                                 # kept as the record of the 2026-11-03 probes, refused for builds
-    raise SystemExit('make_s1cc.py: EDM_ENTRY queues 0x0000, which a PLUG-OUT must never do (system-1/WAVE_BUS.md '
-                     '§5.3: it hung / muted the device in the 2026-11-03 probes, docs/MUTABLE_MEMORY.md §3.3)')
+    raise SystemExit('make_s1cc.py: EDM_ENTRY queues 0x0000, which a PLUG-OUT must never do (docs/vol1_system_architecture/bus_interconnect.md '
+                     '§5.3: it hung / muted the device in the 2026-11-03 probes, docs/vol6_reference_designs_applications/mutable_memory.md §3.3)')
 EDM_CALL_MODE = opt('EDM_CALL', '0')          # '1': our tap of the OS line; 'write': our own line (edm_call.s)
 EDM_CALL = EDM_CALL_MODE in ('1', 'write', 'idx')    # the requests from inside the OS effect at 0x0 (microcode/edm_call.s)
 if EDM_CALL:
     EDM_TAP = True                            # the main reads the results (master_edm without its own requests)
 EDM_ARGS = dict(EDM_RES=EDM_RES, EDM_POS=EDM_POS, EDM_AGE=48000 / 16384, EDM_LEN=576000 / 16384, EDM_GAIN=0.7,
                 EDM_REQ=not EDM_CALL, EDM_WR=0x4034 if EDM_CALL_MODE == 'idx' else 0)
-# EDM_ECF=1: two lines of our own in the delay memory through master B's map table (MUTABLE_MEMORY.md §3.3.4): the
+# EDM_ECF=1: two lines of our own in the delay memory through master B's map table (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.4): the
 # main stores the send to each line's write word and adds its read word (the next one) to the output; region 0
 # (model.c edm_ecf) maps the words. Word 4034..4037: past everything the OS effect and EDM_RES use
 EDM_ECF = opt('EDM_ECF', '0') == '1'
 ECF_WORDS = (0x4034, 0x4036)
 if EDM_ECF:
     EDM_TAP = True                            # the main as written, one line per instruction (section())
-# EDM_STR=1: a Karplus-Strong string per voice in the delay memory (MUTABLE_MEMORY.md §3.3.5). The slave's DSP B sends
+# EDM_STR=1: a Karplus-Strong string per voice in the delay memory (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5). The slave's DSP B sends
 # voice v's output (the kernel's excitation) to IOMD 6006 + v instead of the mix; master B (microcode/edm_str.s) runs
 # one line per voice: write word STR_W + 8v, four read words at STR_W + 8v + 1, 3, 5, 7 (ages d+1 .. d+4, the even /
 # odd convention of the OS's lines), a linear-phase loop filter [a, 1 - 2a, a] (1 sample) and a linear interpolation
@@ -1195,12 +1195,12 @@ if STR_ONE:
         STR_NV_OPT = 6 // STR_LPV
 if EDM_STR and STR_TAP and STR_NV_OPT and STR_NV_OPT * (STR_LPV if STR_ONE else 2) > 6:
     raise SystemExit('make_s1cc.py: EDM_STR: more than 6 of our tapreq per sample (8 hung the device, 6 ran, '
-                     '2026-11-04, docs/MUTABLE_MEMORY.md §3.3.5): fewer EDM_STR_NV or EDM_STR_ONE=1')
+                     '2026-11-04, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): fewer EDM_STR_NV or EDM_STR_ONE=1')
 STR1_S = 0x0300                               # master B bank 0: the one-pole states (the OS effect uses 0000..0033)
 STR1_STEPS = 16                               # FILTER CUTOFF steps of the tuning tables
 
 
-# EDM_WT=1: a wavetable stored whole in the delay memory of master B (MUTABLE_MEMORY.md §3.3.8, microcode/edm_wt.s):
+# EDM_WT=1: a wavetable stored whole in the delay memory of master B (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8, microcode/edm_wt.s):
 # one own line WT_A that loops on itself (write word WT_W, read word WT_R at age WT_LEN - 1), filled by region 0 at the
 # first note through bank 5 WT_STG / WT_SYNC (model.c edm_wt), read by two tapreq from the OS effect (edm_call.s
 # edm_wt_block). WT_WAV: a Serum-style WAV (frames of WT_F samples, float32 or int16), all its frames, nothing dropped
@@ -1255,12 +1255,12 @@ WT_NV = 6 if WT_SLAVE else 3                  # voices: 6 requests per sample at
 WT_REQ = WT_NV if WT_SLAVE else 2 * WT_NV     # requests per sample
 WT_M2S = 0x600E                               # WT_SLAVE: master B -> slave word of voice v (WT-M2S, measured)
 # WT_AGEFIX=a0,a1 (probe, WT_SLAVE): voice 0 reads at fixed age a0, voice 1 at a1 (samples); left / right = the two
-# reads, straight from master B (is a large tapreq age read where it should be? MUTABLE_MEMORY.md §4.4)
+# reads, straight from master B (is a large tapreq age read where it should be? docs/vol6_reference_designs_applications/mutable_memory.md §4.4)
 WT_AGEFIX = [int(x) for x in opt('WT_AGEFIX', '').split(',') if x.strip()]
 WT_DIAGA = opt('WT_DIAGA', '0') == '1'
 # WT_CMOD=1 (WT_SLAVE, SL_WT=m): COLOR MOD per voice. Slave A turns the host's modulated COLOR of voice v (s1_color(0):
 # knob + COLOR MOD source) into its nearest frame's first sample (units) and sends it by 6008 + v; master B reads it
-# there instead of the global C036 (MUTABLE_MEMORY.md §4.4). Slave B then leaves 6008..600D alone (one writer)
+# there instead of the global C036 (docs/vol6_reference_designs_applications/mutable_memory.md §4.4). Slave B then leaves 6008..600D alone (one writer)
 WT_CMOD = opt('WT_CMOD', '0') == '1'
 WT_S2M = 0x6008                               # WT_CMOD: slave -> master word of voice v (6008..600D)
 # WT_CQ: the COLOR step of WT_CMOD: 1 a whole frame (default), 2 half a frame, 4 a quarter, 0 one sample (continuous:
@@ -1275,7 +1275,7 @@ WT_FL = 0x0320                                  # master B bank 0: 0x0320 + 4v (
 # WT_LINES=1 (WT_SLAVE + WT_CMOD + WT_FLATCH): morph in quarter frames without Doppler. Master B writes 3 more EDM lines
 # every sample, the table mixed 1/4, 2/4, 3/4 toward the next frame at the same phase (x = the loop's index c, xn =
 # index c + WT_F by a fixed map read WT_RN); line j at WT_A + j WT_LS; the slave sends u = frame x 1/8 + j x WT_LSU, master
-# B splits it and adds j WT_LS to the voice's request age (one request per voice: 6 voices). docs/MUTABLE_MEMORY.md §4.4
+# B splits it and adds j WT_LS to the voice's request age (one request per voice: 6 voices). docs/vol6_reference_designs_applications/mutable_memory.md §4.4
 WT_LINES = opt('WT_LINES', '0') == '1'
 # WT_LSUB: steps per frame (4: 3 lines, works 2026-11-06; 8: 7 lines). Line j (1 .. WT_LSUB - 1) at WT_A + wt_loff(j):
 # j WT_LS, + WT_LX from line 2 on. All clear of the OS reverb's writers (0x48CA00, 0x48F340 .. ~0x49B0DA; 0x20000 for
@@ -1375,7 +1375,7 @@ def wt_header():
     rows = [', '.join(str(v) for v in q[i:i + 16]) for i in range(0, n, 16)]
     dt = [440.0 * 2 ** ((k - 69) / 12) * WT_F / 96000.0 / 16384.0 for k in range(128)]
     return '\n'.join([
-        f'/* EDM_WT (microcode/edm_wt.s, docs/MUTABLE_MEMORY.md §3.3.8): {os.path.basename(WT_WAV)}, {n // WT_F} frames x '
+        f'/* EDM_WT (microcode/edm_wt.s, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8): {os.path.basename(WT_WAV)}, {n // WT_F} frames x '
         f'{WT_F} = {n} samples ({n / 96000:.2f} s), int16, peak normalized */',
         f'#define WT_RDIST {WT_RDIST or n - 2}u\n#define WT_DIAG {WT_DIAG}\n'
         f'#define WT_LEN {n}u\n#define WT_F {WT_F}u\n#define WT_FRAMES {n // WT_F}u\n#define WT_A 0x{WT_A:06x}u',
@@ -1393,7 +1393,7 @@ def wt_header():
         f'static const int16_t wt_table[{n}] = {{\n    ' + ',\n    '.join(rows) + '\n};'])
 
 
-# SL_WT: a wavetable oscillator on the slave's DSP A (microcode/sl_wt.s, MUTABLE_MEMORY.md §4.1), every voice; the
+# SL_WT: a wavetable oscillator on the slave's DSP A (microcode/sl_wt.s, docs/vol6_reference_designs_applications/mutable_memory.md §4.1), every voice; the
 # whole table (WT_WAV) stays in region 1, which writes the frame COLOR picks (two neighbours mixed) into DSP memory.
 #   SL_WT=b5   the frame in bank 5 SL_STG.. (SL_N points + a guard), read with ldb5 (first test of ldb5 on the S1)
 SL_WT = opt('SL_WT', '0')
@@ -1401,14 +1401,14 @@ SL_WT = opt('SL_WT', '0')
 #              (at the start of the program) copies region 1's staged blocks into it. b5 on the device: only the
 #              voices at the start / end of the program read right (bank 5 shared with DSP B, 2026-11-05)
 #   SL_WT=m    each voice's sample comes from master B by the master -> slave word 600E + v (EDM_WT WT_SLAVE: the
-#              table in the delay memory, MUTABLE_MEMORY.md §4.4); DSP A only copies it to the voice's output
+#              table in the delay memory, docs/vol6_reference_designs_applications/mutable_memory.md §4.4); DSP A only copies it to the voice's output
 if SL_WT not in ('0', 'b5', 'b0', 'm'):
     raise SystemExit('make_s1cc.py: SL_WT is 0, b5, b0 or m')
 if SL_WT == 'm' and not (EDM_WT and WT_SLAVE):
     raise SystemExit('make_s1cc.py: SL_WT=m needs EDM_WT=1 WT_SLAVE=1 (the master sends the voices)')
 # SL_STG: the frame in bank 5 A080..A0FF (128 words = 127 points + a guard). The only window free for it: the host uses
 # A000..A07F (per-voice control) and A100..A1FF (DSP stores), and A200.. is NOT reliably addressable by ldb5/FD6C on the
-# device (MEASURED 2026-11-06: a static frame there came out corrupt at 127 and 256 points; docs/MUTABLE_MEMORY.md §4.1,
+# device (MEASURED 2026-11-06: a static frame there came out corrupt at 127 and 256 points; docs/vol6_reference_designs_applications/mutable_memory.md §4.1,
 # s1rules.py R10). So the frame is fixed at A080 and 127 points.
 SL_STG = 0xA080                               # bank 5 A080..A0FF: written by region 1 (FD6C sel 0), read by DSP A
 SL_L = int(opt('SL_L', '1024'))               # SL_WT=b0: the loop's length (bank 0 words)
@@ -1429,7 +1429,7 @@ SL_P = int(opt('SL_P', '0x0340' if SL_WT == 'b0' else '0x0780'), 16)         # D
 SL_KOUT = int(opt('SL_KOUT', '0x0330' if SL_WT == 'b0' else '0x0260'), 16)   # SL_WT: the kernel's DSP A outputs (bank 0, nobody reads them; b0:
                                                 # below the loop, new)
 SL_TBYTES = int(opt('SL_TBYTES', '0xA0000'), 0)  # SL_WT: the most bytes of frames region 1 holds (the WAV's first frames)
-# probe of the master B -> slave words 600E..6015 (MUTABLE_MEMORY.md §4.3): M2S_PROBE=1 master B writes them and slave A
+# probe of the master B -> slave words 600E..6015 (docs/vol6_reference_designs_applications/mutable_memory.md §4.3): M2S_PROBE=1 master B writes them and slave A
 # reads them; 2 the master writes, the slave does not read (control); 3 the slave reads, nobody of ours writes (who else
 # writes them?)
 M2S_PROBE = opt('M2S_PROBE', '0') in ('1', '2')    # master B writes
@@ -1437,7 +1437,7 @@ M2S_READ = opt('M2S_PROBE', '0') in ('1', '3')     # slave A reads
 # MA_MAIN=1 (default since 2026-11-05): our own (empty) master DSP A main at 0x0100, queued with FC30 in load as the
 # stock PLUG-OUTs do. Without it (MA_MAIN=0, every build before), master A runs on from the OS's output program
 # (0x82..0x100) into whatever an earlier mode left at 0x0100, and that program writes the master -> slave words
-# 600E..6015 after ours (measured, WT-M2S / WT-M2SR0: the slave read 0 or a voice-pitched signal): MUTABLE_MEMORY.md §4.3
+# 600E..6015 after ours (measured, WT-M2S / WT-M2SR0: the slave read 0 or a voice-pitched signal): docs/vol6_reference_designs_applications/mutable_memory.md §4.3
 MA_MAIN = opt('MA_MAIN', '1') == '1'
 SL_ALIAS = opt('SL_ALIAS', '0') == '1'        # probe (SL_MORPH=0): does DSP A's bank 0 wrap at 0x0400? (§4.1)
 SL_VTAG = opt('SL_VTAG', '0') == '1'          # probe: voice v's output x (v + 1) / 8 (which voice sounds)
@@ -1571,7 +1571,7 @@ def assemble(lines):
     return r
 
 
-# TRY_FORMS: op groups to test on the device before they go into asm/proven_forms.txt (docs/examples_system_s1cc_README.md
+# TRY_FORMS: op groups to test on the device before they go into asm/proven_forms.txt (examples/system_s1cc/README.md
 # §4.1): 'all' (every encodable group) or 'mad:reg + mul:imm; ...'; the build lists the ones it used in
 # build/try_forms.txt, and tools/proven_forms.py promote adds them to the list once the PLUG-OUT worked on the device
 TRY_FORMS = opt('TRY_FORMS', '').strip()
@@ -1656,8 +1656,8 @@ def instr_count(lines):
 # with FC40(index, program set, empty data sets) and switches it on with FC44(index, 1), the way the stock synth
 # places its voice programs (2026-10-28: a program queued at 0x1900 with FC30 was copied but never ran; with FC40 it
 # runs). A section runs in the same sample as the main, with the same registers and memory: more room, not more time
-# (the instructions of a DSP's main and sections count together in its BUDGET). docs/DSP_PROGRAM_MEMORY.md §3
-# (name, FC40 / FC44 index, start, end) per DSP; the index table is FC40's (system-1/SH101_POLY.md §2)
+# (the instructions of a DSP's main and sections count together in its BUDGET). docs/vol3_voice_allocation_scheduling/slot_program_model.md §3
+# (name, FC40 / FC44 index, start, end) per DSP; the index table is FC40's (docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md §2.2)
 SECTIONS = {'A': [('s1a2', 0, 0x1900, 0x3100), ('s1a3', 4, 0x3100, 0x4900), ('s1a4', 1, 0x4900, 0x6100),
                   ('s1a5', 5, 0x6100, 0x7FF2)],
             'B': [('s1b2', 2, 0x1900, 0x3100), ('s1b3', 6, 0x3100, 0x4900), ('s1b4', 3, 0x4900, 0x6100),
@@ -1916,7 +1916,7 @@ def str1_tables():
 def str_header():
     """EDM_STR: model.c edm_str's addresses and tables"""
     per = [str_period(n) for n in range(128)]
-    out = [f'/* EDM_STR (microcode/edm_str.s, docs/MUTABLE_MEMORY.md §3.3.5): voice v writes bank-2 word STR_W + 8v at\n'
+    out = [f'/* EDM_STR (microcode/edm_str.s, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): voice v writes bank-2 word STR_W + 8v at\n'
            f'   STR_A0 + v STR_DA, its 4 reads W + 1, 3, 5, 7 at + d .. d + 3; map-table entries STR_SLOT0 + 5v (write, then\n'
            f'   the reads); master B parameters a, 1 - 2a, f + v, fb + v */',
            f'#define STR_W 0x{STR_W - 0x4000:02x}u\n#define STR_A0 0x{STR_A0:06x}u\n#define STR_DA 0x{STR_DA:04x}u\n'
@@ -2349,7 +2349,7 @@ def sim_report(progs):
 
 def crossings(progs):
     """when each value DSP A hands to DSP B arrives (x, the inputs B needs, the exports, the gate / trigger copies).
-    The two DSPs of a chip run at the same time and share bank 5 (docs/examples_system_1_jx_README.md §13): B reads
+    The two DSPs of a chip run at the same time and share bank 5 (examples/system_1_jx/README.md §13): B reads
     A's word of this sample only if A's store comes before B's load, in cycles; otherwise the word of the sample
     before. The emulator runs A, then B, and cannot show it. Cycle = the instruction's place in its program (no jumps);
     both programs are assumed to start the sample together [inferred, as timing.py]; within 8 cycles: a race."""
@@ -2505,7 +2505,7 @@ def build():
     return progs, overruns(progs)[0]
 
 
-# ---- proven addresses (2026-11-05: words 40C0+ and bank-0 0x0200 cost device rounds; docs/MUTABLE_MEMORY.md §4.2) ----
+# ---- proven addresses (2026-11-05: words 40C0+ and bank-0 0x0200 cost device rounds; docs/vol6_reference_designs_applications/mutable_memory.md §4.2) ----
 PROVEN_ADDR = os.path.join(ROOT, 'asm', 'proven_addresses.txt')
 ADDR_DSP = {'s1m0': 'sA', 's1m1': 'sB', 's1mm1': 'mB'}      # sections: their DSP's (SECTION_OF)
 
@@ -2558,7 +2558,7 @@ def _runs(addrs):
 
 
 def bank0_wrap_check(progs):
-    """slave DSP A's bank 0 has 1024 words, addresses wrap at 0x0400 (MUTABLE_MEMORY.md §4.2 rule 6, WT-ALIAS): two
+    """slave DSP A's bank 0 has 1024 words, addresses wrap at 0x0400 (docs/vol6_reference_designs_applications/mutable_memory.md §4.2 rule 6, WT-ALIAS): two
     different bank-0 addresses of DSP A's programs that meet modulo 0x0400 are the same word. 2026-11-05: the kernel
     outputs at 0x0700.. (SL_KOUT) were voice 0's COLOR word 0x0308 (WT-CMOD-VTAG: voice 0 did not modulate)"""
     seen = {}
@@ -2588,13 +2588,13 @@ def store_map(progs):
 
 
 def collision_check(progs):
-    """memory every program shares, checked together (errors stop the build; MUTABLE_MEMORY.md §4.2):
+    """memory every program shares, checked together (errors stop the build; docs/vol6_reference_designs_applications/mutable_memory.md §4.2):
     * slave DSP A bank 0: 1024 words (wraps at 0x0400, measured), 0x0000..0x0017 the OS's: no address there
     * slave DSP B bank 0: the same checks as warnings (its size is not measured)
     * slave bank 5 (shared by DSP A and B): one writer per word
     * IOMD 6000..7FFF: one writer per word over slave A, slave B and master B; master -> slave words (600E..6021)
       only from the master, slave -> master words (6006..600D, 6026..602D) only from the slave
-    * master B bank 0 0x0000..0x0033 and bank 2 4000..4033 belong to the OS effect (system-1/FX_CHAIN.md): no store"""
+    * master B bank 0 0x0000..0x0033 and bank 2 4000..4033 belong to the OS effect (docs/vol1_system_architecture/bus_interconnect.md): no store"""
     errs, warns = [], []
     st = store_map(progs)
     allad = {}
@@ -2668,7 +2668,7 @@ def address_report(progs):
     for a, c in sorted(stores.items()):
         if c > 1:
             print(f'warning: slave DSP A stores bank-5 word {a} {c} times per sample: DSP B (running at the same time) '
-                  f'may read between them (docs/MUTABLE_MEMORY.md §4.2 rule 4)')
+                  f'may read between them (docs/vol6_reference_designs_applications/mutable_memory.md §4.2 rule 4)')
 
 
 def promote_addresses(by):
@@ -2690,7 +2690,7 @@ def promote_addresses(by):
             '# addresses (plain ld / st [xxxx]) that builds which RAN on the device used, per DSP: sA / sB = slave DSP A /\n'
             '# B (sections included), mB = master DSP B main. make_s1cc.py warns for any other; after a build ran on the\n'
             '# device: make_s1cc.py --promote-addresses NAME. Indexed loads (hset + ldidx / ldb5) are not seen here: their\n'
-            '# tables must lie in these ranges too. Rules for them: docs/MUTABLE_MEMORY.md §4.2.\n')
+            '# tables must lie in these ranges too. Rules for them: docs/vol6_reference_designs_applications/mutable_memory.md §4.2.\n')
     with open(PROVEN_ADDR, 'a') as f:
         f.write(''.join(x + '\n' for x in add))
     print(f'{PROVEN_ADDR}: {len(add)} ranges added by {by}')
@@ -2736,7 +2736,7 @@ def main():
         lines = KDEF.dsps[st]['lines']
         if KDEF.dsps[st].get('scratch') and not PAIRS and not any(re.search(r'\br[56]\b', x) for x in lines):
             print(f'note: DSP {st} has {KDEF.dsps[st]["scratch"]} spill words and does not use r5 / r6: SYSTEM-S1CC '
-                  'has no host keeping them, build the kernel with --regs 0,1,2,3,4,5,6,7 (docs/S1CC.md §1.1)')
+                  'has no host keeping them, build the kernel with --regs 0,1,2,3,4,5,6,7 (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §1.1)')
     if over:
         print(f'make_s1cc.py: {NV} voices do not fit ({", ".join(over)})')
         sys.exit(3)

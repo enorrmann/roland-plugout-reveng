@@ -1,4 +1,4 @@
-"""EDM_STR_ONE check without the device (docs/MUTABLE_MEMORY.md §3.3.5): build/s1mm1.s (microcode/edm_str.s
+"""EDM_STR_ONE check without the device (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): build/s1mm1.s (microcode/edm_str.s
 master_str1) on the C emulator; the tapreq results as measured on our line (a request at age d gives, read in the
 next sample, x0 = w[n - d - 1], x1 = w[n - d - 2]), the bank-0 ring as stored at a / read at a + 1 the sample after;
 d and g from make_s1cc.py str1_tune for each CUTOFF step. Prints each string's pitch against the note.

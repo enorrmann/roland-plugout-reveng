@@ -1,5 +1,7 @@
 # Volume IV — Chapter 1: Binary Container Formats (`Code*.Dat`, flash image, regions, LZSS, `SYSTEM8_UP.BIN`)
 
+> **Scope:** both: `Code*.Dat`, regions and LZSS are common; `SYSTEM8_UP.BIN` and `App1_Main` are SYSTEM-8 (the SYSTEM-1 images: [ch. 6](base_firmware.md) §9).
+
 > The code and the OS interface (§7 onwards: the JX-3P engine, the DSP microcode in the engine, writing new code,
 > reading OS memory at run time, risks) are [Vol. IV ch. 2](plugout_virtual_machine.md). Section 1.4.1a (the
 > `App1_Main` cipher) is cited by that number by `tools/sys8fw.py` and [TOOLS.md](../TOOLS.md).
@@ -24,7 +26,7 @@ code that runs on the synth. Tools: `tools/plugout_build.py` (CLI),
 ## 1. Layers
 
 ```
-Code8_<slot>.Dat     XOR container (docs/PROTOCOL.md §4)
+Code8_<slot>.Dat     XOR container (Vol. IV ch. 4 §4)
  └ 4096 records      one 512-byte flash block each (2048 on SYSTEM-1)
     ├ blocks    0..2047   region 0 "model"   + filler records
     └ blocks 2048..4095   region 1 "engine"  + filler records

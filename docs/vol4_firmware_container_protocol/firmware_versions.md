@@ -1,5 +1,7 @@
 # Volume IV — Chapter 7: Updater Versions 1.30 / 1.31 / 1.32
 
+> **Scope:** SYSTEM-8.
+
 The three updaters are in `firmware/sys8_sys_v130|131|132/SYSTEM8_UP.BIN`
 (same tar layout, same six members). Roland's update history (supplied):
 

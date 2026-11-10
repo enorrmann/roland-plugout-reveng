@@ -1,4 +1,4 @@
-"""Per-sample kernels written with values instead of registers -> our DSP microcode (docs/MUTABLE_SDK.md §3).
+"""Per-sample kernels written with values instead of registers -> our DSP microcode (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §3).
 
 A ported component describes its sample loop as operations on values; the kernel picks the registers, writes one
 unit per line (the form every generator of this repo writes: make_synth.py, make_poly.py) and puts the load-delay
@@ -19,7 +19,7 @@ Operations (x: a value; y: a value, -value (negated register) or a number = imme
     min(x, y), max(x, y)       mov(y)                     wrap(x): into [-1, 1)
     tri(x) = 1 - 2 |wrap(-x - 1.5)|   clamp(x) to [-1, 1]  (the phase ops of unit B, Roland's form X = r3)
 
-Semantics kept from the hardware (DSP_ISA.md §9): all units of an instruction read before they write (a result may
+Semantics kept from the hardware (docs/vol2_dsp_core_isa/isa_overview.md §9): all units of an instruction read before they write (a result may
 take the register of an operand that dies there); a loaded register is usable one instruction later (filler in the
 plain program, removed by the scheduler). Only op kinds already run on the SYSTEM-1 are emitted (the OPS set of
 dspsched; asm/proven_forms.txt for the fused pairs).

@@ -1,5 +1,7 @@
 # Volume IV — Chapter 9: Do the PLUG-OUTs Add Processing, or Only Configure the Base System?
 
+> **Scope:** SYSTEM-8.
+
 Short answer: **both, at different layers.** The audio-rate algorithms
 (oscillator models, filter models, effects) are not in any PLUG-OUT image; the
 base system already carries them and a PLUG-OUT selects and parameterises them.

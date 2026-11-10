@@ -1,11 +1,11 @@
 /* C-S1RAMP region 0: C-S1V4's model (examples/system_1/model.c) plus the measurement of the parameter ramp service
- * FCE4 (docs/examples_system_1_ramp_README.md): LFO RATE (0x162) starts a ramp of master DSP B parameter C030 with
+ * FCE4 (examples/system_1_ramp/README.md): LFO RATE (0x162) starts a ramp of master DSP B parameter C030 with
  * rate y = knob / 16; LFO DELAY TIME (0x161) sets the mode z = knob / 32, LFO TO PITCH (0x163) the direction
  * (< 128 up 0 -> 1, else down 1 -> 0), LFO SHAPE (0x160) how the ARM reads bank 5 (0 the window, 1 / 2 FD78 sel
  * 0 / 1, 3 / 4 FD74 sel 0 / 1; >= 3 also starts the end-of-ramp chain, chain() below); every parameter the model receives sends a report (SysEx F0 7D 07, read by
  * ramp.py) of what master DSP B measured (make_s1.py prog_m1). Freestanding, no library, no foreign code.
  * The rest as C-S1V4: Port of the C-V4 model (examples/from_scratch/model/model.c) to the SYSTEM-1 interface
- * (docs/examples_system_1_README.md section 3):
+ * (examples/system_1/README.md section 3):
  *
  *   SYNINFO +0x24 create, +0x28 destroy, +0x2C the key assigner, +0x30 the model object
  *   assigner  9-entry vtable: reset, changed, note_off, note_on, cc, part 0x81, bend, -, -

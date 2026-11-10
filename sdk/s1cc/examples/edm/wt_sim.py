@@ -1,4 +1,4 @@
-"""EDM_WT check without the device (docs/MUTABLE_MEMORY.md §3.3.8): build/s1mm1.s (microcode/edm_wt.s master_wt) on
+"""EDM_WT check without the device (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8): build/s1mm1.s (microcode/edm_wt.s master_wt) on
 the C emulator with a model of the rest:
   * the loop line: a store to WT_W at sample n is w[n]; a load of WT_R gives w[n - WT_LEN] (read entry at age
     WT_LEN - 1, + 1 sample: 48000 -> 48001 measured, §3.3.4);

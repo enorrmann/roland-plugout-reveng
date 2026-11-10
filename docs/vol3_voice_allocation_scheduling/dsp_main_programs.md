@@ -1,5 +1,7 @@
 # Volume III — Chapter 5: The Main Programs of the DSPs (MAIN0–MAIN5): What They Are and Where They Run
 
+> **Scope:** SYSTEM-8 (Roland's JX-3P microcode, family A).
+
 > References to "line N" of the wave-bus document point to the
 > [S8 wave-bus lab log](../vol7_cleanroom_evidence_archive/historical_lab_logs/s8_wave_bus_log.md).
 

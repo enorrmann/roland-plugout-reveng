@@ -1,4 +1,4 @@
-"""Instruction signatures of the C-S1JX programs that no Roland SYSTEM-1 program has (docs/examples_system_1_jx_README.md
+"""Instruction signatures of the C-S1JX programs that no Roland SYSTEM-1 program has (examples/system_1_jx/README.md
 section 12).
 
     python3 sigdiff.py              # the final programs of the plan (as the build makes them)
