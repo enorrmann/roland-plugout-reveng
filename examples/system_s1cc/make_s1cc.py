@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (examples/system_s1cc/README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_STR', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT')
+           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -122,9 +122,9 @@ HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A)
 PENV = bool(PITCH_MOD or CMOD)
 # the host's mixer on DSP A, after the kernel: voice = kernel + SUB x a square one octave down + NOISE x the LFO's
 # noise, before DSP B's filter (SUB 0x176, NOISE 0x177; 0 until the knobs move). MIX=0 leaves it out
-# EDM_STR: never (the voice's output is the excitation of the master's string / bore: SUB made a "ring mod" of the
-# bowed string and a metallic tone in every EDM_STR form on the device, 2026-11-04)
-HOST_MIX = HOST_LFO and opt('MIX', '1') == '1' and opt('EDM_STR', '0') != '1'   # FUSED: s1_host_mix() (s1cc fuse)
+# EDM_LINES: never (the voice's output is the excitation of the master's string / bore: SUB made a "ring mod" of the
+# bowed string and a metallic tone in every EDM_LINES form on the device, 2026-11-04)
+HOST_MIX = HOST_LFO and opt('MIX', '1') == '1' and not (opt('EDM_LINES', '0') == '1' or 'M' in KDEF.dsps)   # FUSED: s1_host_mix() (s1cc fuse)
 # inputs of DSP B the host makes on DSP A (-> amp, -> filter, the modulated pitch): the host stores them straight to
 # their bank-5 word (INB), and the kernel's copy (ld IN / st INB, at the end of its DSP A code) goes away
 HOSTB = [n for n in KDEF.inputs_b if n in ('lfo_amp', 'lfo_filter') or (n == 'pitch' and 'pitch' in PITCH_MOD)]
@@ -1130,13 +1130,21 @@ EDM_ECF = opt('EDM_ECF', '0') == '1'
 ECF_WORDS = (0x4034, 0x4036)
 if EDM_ECF:
     EDM_TAP = True                            # the main as written, one line per instruction (section())
-# EDM_STR=1: a Karplus-Strong string per voice in the delay memory (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5). The slave's DSP B sends
+# EDM_LINES=1: own delay-memory lines on master B, one or more per voice; the assembly program on
+# them by default a Karplus-Strong string (the EDM_STR_* variants), or the kernel's S1_MASTER (KM). In the delay memory (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5). The slave's DSP B sends
 # voice v's output (the kernel's excitation) to IOMD 6006 + v instead of the mix; master B (microcode/edm_str.s) runs
 # one line per voice: write word STR_W + 8v, four read words at STR_W + 8v + 1, 3, 5, 7 (ages d+1 .. d+4, the even /
 # odd convention of the OS's lines), a linear-phase loop filter [a, 1 - 2a, a] (1 sample) and a linear interpolation
 # by f between two of its outputs: period = d + 2 + f samples. Region 0 (model.c edm_str) maps the words at load and
 # moves the four read entries at every note (FC3C), and writes f, the feedback and a / 1 - 2a (STR_P*)
-EDM_STR = opt('EDM_STR', '0') == '1'
+# S1_MASTER (a kernel with a DSP M, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.5): the string / line
+# program is the kernel's, compiled from C (s1_line_tap / s1_line_write / S1_VOICE_PARAM), in the EDM_STR_ONE frame:
+# the slave sends voice v's output on 6006 + v, one tapreq per line from the OS effect (edm_call.s edm_km_block,
+# the ages the kernel stores), the kernel once per voice on master B (master_km), its tables written by region 0
+# (model.c STR_KM). Implies EDM_LINES=1 EDM_STR_ONE=1; lines per voice = the kernel's, voices = 6 // lines
+KM = 'M' in KDEF.dsps
+# EDM_LINES=1: the frame of the master's own lines, whatever program runs on them
+EDM_LINES = opt('EDM_LINES', '0') == '1' or KM
 STR_W = 0x4040                                # bank-2 words 4040..407F (the OS uses 4001..402D, EDM_RES 402E..)
 STR_A0, STR_DA = 0x440000, 0x4000             # line v writes at 0x440000 + 0x4000 v: inside the OS delay's span
 STR_SLOT0 = 34                                # map-table entries 34.. (the OS has 0..33), 5 per voice, then one 0
@@ -1172,6 +1180,11 @@ if STR_BLOWN:
 # EDM_STR_BOWED=1: Braids BOWED (master_bowed): two lines per voice (neck, bridge), 3 voices
 STR_BOWED = opt('EDM_STR_BOWED', '0') == '1'
 STR_LPV = 2 if STR_BOWED else 1               # lines (tapreq) per voice
+if KM:
+    if STR_COMB or STR_PL or STR_BLOWN or STR_BOWED:
+        raise SystemExit('make_s1cc.py: a kernel with S1_MASTER is its own line program: no EDM_STR_COMB / _PL / _BLOWN / _BOWED')
+    STR_ONE = True
+    STR_LPV = max(1, KDEF.lines)
 if STR_BOWED:
     STR_ONE = True
 BOW_SEED = (1.56749685, -0.65660134, 0.07958208)   # 1 / y on [0.75, 4.75]: c0 + c1 y + c2 y^2 (16 %), 2 Newton: 7e-4
@@ -1193,8 +1206,8 @@ if STR_ONE:
     STR_TAP = True
     if not STR_NV_OPT:
         STR_NV_OPT = 6 // STR_LPV
-if EDM_STR and STR_TAP and STR_NV_OPT and STR_NV_OPT * (STR_LPV if STR_ONE else 2) > 6:
-    raise SystemExit('make_s1cc.py: EDM_STR: more than 6 of our tapreq per sample (8 hung the device, 6 ran, '
+if EDM_LINES and STR_TAP and STR_NV_OPT and STR_NV_OPT * (STR_LPV if STR_ONE else 2) > 6:
+    raise SystemExit('make_s1cc.py: EDM_LINES: more than 6 of our tapreq per sample (8 hung the device, 6 ran, '
                      '2026-11-04, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): fewer EDM_STR_NV or EDM_STR_ONE=1')
 STR1_S = 0x0300                               # master B bank 0: the one-pole states (the OS effect uses 0000..0033)
 STR1_STEPS = 16                               # FILTER CUTOFF steps of the tuning tables
@@ -1224,16 +1237,16 @@ WT_DIAG = int(opt('WT_DIAG', '0'))            # 1: left = the loop itself, right
 WT_RDIST = int(opt('WT_RDIST', '0'))           # the read entry's distance (0: WT_LEN - 2: the loop is distance + 2,
                                               # measured WT-DIAG1/2 2026-11-05; WT_LEN - 1 gave WT_LEN + 1)
 WT_F = 2048                                   # samples per frame (Serum)
-WT_A = 0x440000                               # the line's write address (EDM_STR's first line, measured)
+WT_A = 0x440000                               # the line's write address (EDM_LINES's first line, measured)
 WT_GAP = 262144                               # to the OS delay's writer at 0x400000: the most a loop keeps (§3.3.6)
 # EDM_WT: the most frames: the requests' ages reach WT_LEN + 256 + WT_LAT (the age margin, edm_wt.s master_wt_s), all
 # below WT_GAP; WT_MAXF=n to ask for fewer (the table also travels in region 0: see the build's block count)
 WT_MAXF = min(int(opt('WT_MAXF', '9999')), (WT_GAP - 256 - 2 - 1) // 2048)
-WT_W, WT_R = 0x4040, 0x4041                   # bank-2 words: write, re-circulation read (EDM_STR's first line's: words
+WT_W, WT_R = 0x4040, 0x4041                   # bank-2 words: write, re-circulation read (EDM_LINES's first line's: words
                                               # 40C0 / 40C1 gave silence, 2026-11-05: the map may not reach them)
-WT_RES = 0x4080                               # tapreq results 4080..4082, 4088..408A (EDM_STR's, measured)
+WT_RES = 0x4080                               # tapreq results 4080..4082, 4088..408A (EDM_LINES's, measured)
 # region 0 -> master B by parameters (FCEC): our main at 0x1000 reads master bank 5 as 0, also words the OS writes
-# (A101), measured 2026-11-05 (MP-EDMWT7); the parameters are how VOLUME and EDM_STR's tuning arrive
+# (A101), measured 2026-11-05 (MP-EDMWT7); the parameters are how VOLUME and EDM_LINES's tuning arrive
 WT_PSTG, WT_PSYNC = 0x3E, 0x3F                # master B C03E: a table sample; C03F: the sync
 # WT_FILLIDX=1 (default, WT_SLAVE): the fill sends (value, index) pairs in two slots C03A/C03B, C03C/C03D (value
 # first, then the index); master B writes the loop only when its c equals a slot's index, so a late or lost write never
@@ -1498,14 +1511,212 @@ def str_nv():
 def str_lines():
     """EDM_STR_ONE: delay-memory lines (one tapreq each): STR_LPV per voice"""
     return str_nv() * STR_LPV
-if EDM_STR:
+
+
+# ---- KM: the kernel's S1_MASTER on master B ----------------------------------------------------------------------
+# Master B parameters (FCEC ids, C000 + id). Per voice (6 wide): the gate and the S1_VOICE_PARAM columns, on the ids
+# the EDM_LINES builds wrote per voice and ran with (MP-PLSTRING: 0x20, 0x28, 0x30, 0x40, 0x48); one word each: the
+# S1_PARAM columns and the immediates master B must not take as immediates (Kernel::master), on single ids that ran
+# (0x1D / 0x1E MP-EDMSTR, 0x38 / 0x39 WT-EDM, 0x3A .. 0x3D MI-WT). Past them: new ids, warned (unproven)
+KM_GATE = 0x28
+KM_VCOLS = [0x30, 0x20, 0x40, 0x48]           # column 0 (the delay of a string, 0x30 = the tapreq ages of MP-PLSTRING), 1, 2, 3
+KM_VCOLS_NEW = [0x50, 0x58, 0x60, 0x68]
+KM_SINGLES = [0x1D, 0x1E, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D]
+KM_SINGLES_NEW = list(range(0x70, 0x80))
+KM_S = 0x0300                                 # master B bank 0: the voices' blocks (MP-EDMSTR ran 0300..0355)
+# KM_ALUGAP=1 (default): one instruction between a result and its use in the kernel's master code, as every master B
+# program that ran was written (microcode/edm_str.s: "one instruction between a result and its use"); 0 = the
+# kernel's own lines (ALU results used in the next instruction: the documented semantics, never run on master B)
+KM_ALUGAP = opt('KM_ALUGAP', '1') == '1'
+
+
+def km_ids():
+    """{'gate': id, 'vcol': {(table, i): base id}, 'single': {key: id}}: key = ('P', name, i) / ('K', text)"""
+    vcol, single, warn = {}, {}, []
+    cols = KM_VCOLS + KM_VCOLS_NEW
+    for t in KDEF.vparams:
+        for i in range(t['count']):
+            if len(vcol) >= len(cols):
+                raise SystemExit(f'make_s1cc.py: S1_MASTER: more than {len(cols)} S1_VOICE_PARAM columns')
+            vcol[(t['name'], i)] = cols[len(vcol)]
+    keys = [('P', p['name'], i) for p in KDEF.mparams for i in range(p['count'])]
+    keys += [('K', m[2:]) for m in KDEF.placeholders('M') if m.startswith('K:')]
+    ids = KM_SINGLES + KM_SINGLES_NEW
+    if len(keys) > len(ids):
+        raise SystemExit(f'make_s1cc.py: S1_MASTER: {len(keys)} parameters and constants, room for {len(ids)}')
+    for k, i in zip(keys, ids):
+        single[k] = i
+    return {'gate': KM_GATE, 'vcol': vcol, 'single': single}
+
+
+def km_words():
+    """bank-0 words of one voice's block: {key: offset} (states 2 words: stored at S, read at S + 1; the request
+    ages 2: stored at both; scratch and OUT 1: written and read in the sample), and the block's size"""
+    st = KDEF.dsps['M']
+    off, k = {}, 0
+    for x in KDEF.mstates:
+        off[f'S{x["index"]}'] = k
+        k += 2
+    for j in range(KDEF.lines):
+        off[f'LD:{j}'] = k
+        k += 2
+    if st.get('initflag'):
+        off['I'] = k
+        k += 2
+    for j in range(st.get('scratch', 0)):
+        off[f'T{j}'] = k
+        k += 1
+    off['OUT'] = k
+    return off, k + 1
+
+
+def km_age(line):
+    """bank-0 word where the kernel stores the request age of master line `line` (voice line // STR_LPV)"""
+    off, size = km_words()
+    v, j = divmod(line, STR_LPV)
+    return KM_S + size * v + off[f'LD:{j}']
+
+
+def km_addr(v):
+    """the kernel's addresses for line voice v on master B"""
+    off, size = km_words()
+    base = KM_S + size * v
+    if base + size > 0x0800:
+        raise SystemExit('make_s1cc.py: S1_MASTER: the voices\' blocks pass the end of bank 0')
+    ids = km_ids()
+    addr = {key: base + o for key, o in off.items()}
+    addr.update({'XIN': 0x6006 + v, 'IN:gate': 0xC000 + ids['gate'] + v})
+    for j in range(STR_LPV):
+        line = v * STR_LPV + j
+        addr[f'LW:{j}'] = STR_W + 8 * line
+        for k in (0, 1):
+            addr[f'LT:{j}:{k}'] = STR_RES + 8 * line + k
+    for (name, i), b in ids['vcol'].items():
+        addr[f'V:{name}:{i}'] = 0xC000 + b + v
+    for key, i in ids['single'].items():
+        addr[f'P:{key[1]}:{key[2]}' if key[0] == 'P' else f'K:{key[1]}'] = 0xC000 + i
+    return addr
+
+
+_REGS = re.compile(r'\br(\d)\b')
+
+
+def km_schedule(lines, gap):
+    """master B, one op or transfer per instruction (as every master B program that ran): the kernel's lines of one
+    voice reordered so loads / stores fill the distances, critical path first. Distances: a result is read `gap`
+    + 1 instructions later (a load: 2, its filler; an op: 2 with KM_ALUGAP, else 1); write after read 1, write after
+    write 1; one memory word: store -> load 1, load -> store 1, store -> store 1. Fillers `mov rN, rN` where nothing fits"""
+    units = [t for t in lines if t.strip() and not t.startswith(';') and not re.match(r'^mov r(\d), r\1$', t.strip())]
+    def parse(t):
+        p = t.split()
+        regs = _REGS.findall(t)
+        mem = re.search(r'\[([0-9a-f]{4})\]', t)
+        if p[0] == 'st':
+            return set(), set(regs), mem.group(1), 'st'
+        if p[0] == 'ld':
+            return {regs[0]}, set(), mem.group(1), 'ld'
+        return {regs[0]}, set(regs[1:]), None, 'op'
+    info = [parse(t) for t in units]
+    n = len(units)
+    need = [dict() for _ in range(n)]                # j -> {i: min distance i -> j}
+    for j in range(n):
+        wj, rj, mj, kj = info[j]
+        for i in range(j):
+            wi, ri, mi, ki = info[i]
+            d = 0
+            if wi & rj:
+                d = max(d, 2 if ki == 'ld' else (2 if gap else 1))
+            if ri & wj or wi & wj:
+                d = max(d, 1)
+            if mi and mi == mj and 'st' in (ki, kj):
+                d = max(d, 1)
+            if d:
+                need[j][i] = d
+    # critical path to the end
+    succ = [[] for _ in range(n)]
+    for j in range(n):
+        for i, d in need[j].items():
+            succ[i].append((j, d))
+    prio = [0] * n
+    for i in reversed(range(n)):
+        prio[i] = max([prio[j] + d for j, d in succ[i]] + [1])
+    at, out, done, t = {}, [], set(), 0
+    while len(done) < n:
+        ready = [j for j in range(n) if j not in done and all(i in done and at[i] + d <= t for i, d in need[j].items())]
+        if ready:
+            j = max(ready, key=lambda j: (prio[j], -j))
+            at[j] = t
+            done.add(j)
+            out.append(units[j])
+        else:                                        # nothing can go here: a filler on a register no one touches now
+            busy = set()                             # not one the last two lines wrote or read (a load lands late)
+            for x in out[-2:]:
+                busy |= set(_REGS.findall(x))
+            f = next(str(x) for x in range(8) if str(x) not in busy)
+            out.append(f'mov r{f}, r{f}')
+        t += 1
+    return out
+
+
+def master_km():
+    """KM: master B's main: the kernel once per line voice, then the voices' outputs summed x STR_GAIN x VOLUME"""
+    off, size = km_words()
+    L = []
+    for v in range(str_nv()):
+        body = KDEF.place('M', km_addr(v))
+        L += [f';; S1_MASTER voice {v}'] + km_schedule(body, KM_ALUGAP)
+    return L + frag('master_km_sum', outs=[KM_S + size * v + off['OUT'] for v in range(str_nv())])
+
+
+def km_header():
+    """KM: model.c's tables: per voice-parameter column its id, panels and rows; per single its id, and either its
+    knob table (S1_PARAM) or its value (an immediate)"""
+    ids = km_ids()
+    out = [f'#define STR_KM 1\n#define KM_GATE 0x{ids["gate"]:02x}\n#define KM_STEPS {s1kernel.VSTEPS}']
+    vb, vrows = [], []
+    for t in KDEF.vparams:
+        (pa, pb), cnt, vals = KTAB[t['name']]
+        for i in range(cnt):
+            vrows.append((ids['vcol'][(t['name'], i)], pa, pb, len(vb)))
+            vb += [vals[r * cnt + i] / t['scales'][i] for r in range(len(vals) // cnt)]
+    out.append(f'/* S1_VOICE_PARAM columns: id (voice v: + v), panels a / b (0: none, step 4), offset in km_vbits of its\n'
+               f'   rows [note][step a][step b] (value / scale) */\n#define KM_NV {len(vrows)}')
+    out.append('static const uint8_t km_v_id[KM_NV] = { ' + ', '.join(f'0x{r[0]:02x}' for r in vrows) + ' };')
+    out.append('static const uint16_t km_v_pa[KM_NV] = { ' + ', '.join(f'0x{r[1]:03x}' for r in vrows) + ' };')
+    out.append('static const uint16_t km_v_pb[KM_NV] = { ' + ', '.join(f'0x{r[2]:03x}' for r in vrows) + ' };')
+    out.append('static const uint32_t km_v_off[KM_NV] = { ' + ', '.join(str(r[3]) for r in vrows) + ' };')
+    out.append(table('km_vbits', vb))
+    pb, prows, krows = [], [], []
+    for key, i in ids['single'].items():
+        if key[0] == 'P':
+            p = next(q for q in KDEF.mparams if q['name'] == key[1])
+            panel, cnt, vals = KTAB[key[1]]
+            prows.append((i, panel, len(pb)))
+            pb += [vals[k * cnt + key[2]] / p['scale'] for k in range(256)]
+        else:
+            krows.append((i, float(key[1])))
+    out.append(f'/* S1_PARAM columns of the master: id, panel, offset in km_pbits (256 rows) */\n#define KM_NP {len(prows)}')
+    out.append('static const uint8_t km_p_id[KM_NP + 1] = { ' + ', '.join(f'0x{r[0]:02x}' for r in prows + [(0,)]) + ' };')
+    out.append('static const uint16_t km_p_panel[KM_NP + 1] = { ' + ', '.join(f'0x{r[1]:03x}' for r in prows + [(0, 0)]) + ' };')
+    out.append('static const uint32_t km_p_off[KM_NP + 1] = { ' + ', '.join(str(r[2]) for r in prows + [(0, 0, 0)]) + ' };')
+    out.append(table('km_pbits', pb + [0.0]))
+    out.append(f'/* the immediates master B takes from parameters: id, value */\n#define KM_NK {len(krows)}')
+    out.append('static const uint8_t km_k_id[KM_NK + 1] = { ' + ', '.join(f'0x{r[0]:02x}' for r in krows + [(0,)]) + ' };')
+    out.append(table('km_k_bits', [r[1] for r in krows] + [0.0]))
+    news = sorted({b + v for b in ids['vcol'].values() if b in KM_VCOLS_NEW for v in range(str_nv())}
+                  | {i for i in ids['single'].values() if i in KM_SINGLES_NEW})
+    if news:
+        print('warning: S1_MASTER: master B parameters ' + ', '.join(f'C{0xC000 + i:04x}'[1:] for i in news)
+              + ' never ran (make_s1cc.py KM_VCOLS / KM_SINGLES)')
+    return '\n'.join(out)
+if EDM_LINES:
     EDM_TAP = True                            # the main as written, one line per instruction (section())
     if EDM_ECF or EDM_CALL or opt('EDM_KS', '0') == '1':
-        raise SystemExit('make_s1cc.py: EDM_STR goes alone (not with EDM_ECF / EDM_CALL / EDM_KS)')
+        raise SystemExit('make_s1cc.py: EDM_LINES goes alone (not with EDM_ECF / EDM_CALL / EDM_KS)')
 if EDM_WT:
     EDM_TAP = True                            # the main as written, one line per instruction (section())
-    if EDM_STR or EDM_ECF or EDM_CALL or opt('EDM_KS', '0') == '1':
-        raise SystemExit('make_s1cc.py: EDM_WT goes alone (not with EDM_STR / EDM_ECF / EDM_CALL / EDM_KS)')
+    if EDM_LINES or EDM_ECF or EDM_CALL or opt('EDM_KS', '0') == '1':
+        raise SystemExit('make_s1cc.py: EDM_WT goes alone (not with EDM_LINES / EDM_ECF / EDM_CALL / EDM_KS)')
 EDM_STEP = opt('EDM_STEP', 'pass')               # edm_entry's body: 'pass' (no tapreq) or 'taps'
 
 
@@ -1530,13 +1741,13 @@ def edm_call_header(path):
                                              EDM_RBASE=int(opt('EDM_RBASE', '256'))))
              if EDM_CALL_MODE == 'write' else
              ('edm_call_block_idx', dict(EDM_RES=EDM_RES, EDM_AGE=EDM_ARGS['EDM_AGE'], EDM_HB=0x440000 // 16384))
-             if EDM_CALL_MODE == 'idx' else ('edm_wt_block', {}) if EDM_WT else ('edm_str_block1', {}) if STR_ONE else ('edm_str_block', {}) if STR_TAP else
+             if EDM_CALL_MODE == 'idx' else ('edm_wt_block', {}) if EDM_WT else ('edm_km_block', {}) if KM else ('edm_str_block1', {}) if STR_ONE else ('edm_str_block', {}) if STR_TAP else
              ('edm_call_block', dict(EDM_RES=EDM_RES, EDM_AGE=EDM_ARGS['EDM_AGE'])))
     for name, kw in (block, ('edm_call_site', {})):
         r = asm.assemble('\n'.join(frag(name, **kw)) + '\n', _ISA[0] if _ISA else None)
         if not r.ok:
             raise SystemExit(r.errors)
-        name = 'edm_call_block' if name.startswith(('edm_call_block', 'edm_str_block', 'edm_wt_block')) else name
+        name = 'edm_call_block' if name.startswith(('edm_call_block', 'edm_str_block', 'edm_wt_block', 'edm_km_block')) else name
         out.append(f'static const uint16_t {name}[{len(r.words)}] = {{ ' + ', '.join('0x%04x' % w for w in r.words) + ' };')
     open(path, 'w').write('\n'.join(out) + '\n')
 
@@ -1546,7 +1757,9 @@ def prog_master():
     or with EDM_ECF its own delay-memory lines (microcode/edm_ecf.s)"""
     if EDM_WT:
         return frag('master_wt_s' if WT_SLAVE else 'master_wt')
-    if EDM_STR:
+    if KM:
+        return master_km()
+    if EDM_LINES:
         return frag('master_bowed' if STR_BOWED else 'master_blown' if STR_BLOWN else 'master_pstr' if STR_PL else 'master_str1' if STR_ONE else 'master_str')
     if EDM_ECF and EDM_CALL_MODE == 'idx':
         return frag('master_edm', **EDM_ARGS)
@@ -1723,7 +1936,7 @@ def table(name, vals, n=8):
 
 
 def str_period(n):
-    """EDM_STR: the loop of note n, period = d + 2 + f samples (microcode/edm_str.s) -> (d, f)"""
+    """EDM_LINES: the loop of note n, period = d + 2 + f samples (microcode/edm_str.s) -> (d, f)"""
     p = max(96000.0 / (440.0 * 2 ** ((n - 69) / 12)) - 2.0, 0.0)
     return int(p), p - int(p)
 
@@ -1903,6 +2116,8 @@ def str1_tables():
                                                             for v in range(256)])]
     if STR_PL:
         comb = [pl_tables()]
+    if KM:
+        comb = [km_header()]
     if STR_BLOWN:
         comb = [blown_tables()]
     if STR_BOWED:
@@ -1914,9 +2129,9 @@ def str1_tables():
 
 
 def str_header():
-    """EDM_STR: model.c edm_str's addresses and tables"""
+    """EDM_LINES: model.c edm_str's addresses and tables"""
     per = [str_period(n) for n in range(128)]
-    out = [f'/* EDM_STR (microcode/edm_str.s, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): voice v writes bank-2 word STR_W + 8v at\n'
+    out = [f'/* EDM_LINES (microcode/edm_str.s, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): voice v writes bank-2 word STR_W + 8v at\n'
            f'   STR_A0 + v STR_DA, its 4 reads W + 1, 3, 5, 7 at + d .. d + 3; map-table entries STR_SLOT0 + 5v (write, then\n'
            f'   the reads); master B parameters a, 1 - 2a, f + v, fb + v */',
            f'#define STR_W 0x{STR_W - 0x4000:02x}u\n#define STR_A0 0x{STR_A0:06x}u\n#define STR_DA 0x{STR_DA:04x}u\n'
@@ -1981,7 +2196,7 @@ def header(progs):
                f'#define F_ONE 0x{float_bits(1.0):08x}u\n#define F_ZERO 0x00000000u\n'
                f'#define B5_PITCH {idx(PITCH[0])}\n#define B5_GATE {idx(GATE[0])}\n#define B5_TRIG {idx(TRIG[0])}\n'
                f'#define B5_DT {idx(DT[0])}\n#define B5_RDT {idx(RDT[0])}')
-    if EDM_STR:
+    if EDM_LINES:
         out.append(str_header())
     if EDM_WT:
         out.append(wt_header())
@@ -2743,7 +2958,7 @@ def main():
     open(os.path.join(OUTDIR, 's1_programs.h'), 'w').write(header(progs))
     if SL_WT in ('b5', 'b0'):
         sl_header(os.path.join(OUTDIR, 'sl_wt.h'))
-    if EDM_CALL or (EDM_STR and STR_TAP) or EDM_WT:
+    if EDM_CALL or (EDM_LINES and STR_TAP) or EDM_WT:
         edm_call_header(os.path.join(OUTDIR, 'edm_call.h'))
     tried = os.path.join(OUTDIR, 'try_forms.txt')
     if TRIED:                                      # what this build tests on the device (tools/proven_forms.py promote)

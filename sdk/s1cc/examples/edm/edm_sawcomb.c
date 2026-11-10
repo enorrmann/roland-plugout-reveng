@@ -6,7 +6,7 @@
 #include "../mutable_ported/include/mp_dsp_a.h"
 #include "../mutable_ported/include/mp_dsp_b.h"
 
-S1_BUILD("NAME=MP-SAWCOMB EDM_STR=1 EDM_STR_ONE=1 EDM_STR_COMB=1");
+S1_BUILD("NAME=MP-SAWCOMB EDM_LINES=1 EDM_STR_ONE=1 EDM_STR_COMB=1");
 S1_PARAM(level, S1_OSC1_MIX, 1) { out[0] = 0.5f * knob / 255.0f; }
 
 static float ph;

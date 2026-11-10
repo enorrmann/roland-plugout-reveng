@@ -2,9 +2,11 @@
  * of a voice program (same LLVM IR; s1cc prof adds the __s1p_* calls to the profiling one).
  *
  *   PROG tables FILE                     every S1_PARAM table at knob 0..255 ("p name panel count" + 256 rows)
- *   PROG ref OUT NOTE N [name=knob ...] [off=T]
+ *   PROG ref OUT NOTE N [name=knob ...] [name.a=knob name.b=knob ...] [off=T]
  *                                        N samples of one voice: float32 pairs (S1_DSP_A, S1_DSP_B) in OUT;
- *                                        gate on from 0 (one note start), off at T (default never)
+ *                                        gate on from 0 (one note start), off at T (default never). With an
+ *                                        S1_MASTER also OUT.m: its output, float32 per sample (name.a / name.b:
+ *                                        the knobs of an S1_VOICE_PARAM)
  *   PROG prof OUT                        profiling scenarios -> ranges, overflows, island samples in OUT
  *
  * Host semantics (the same as the DSP side): s1_increment = 2 * 440 * 2^(pitch - 4.75) / 96000; pitch word =
@@ -32,6 +34,7 @@ static int note_in(int n) {
 extern const s1_param_desc __stop_s1_params[] __attribute__((weak));
 float s1_dsp_a(void);
 float s1_dsp_b(float x) __attribute__((weak));
+float s1_master(float x) __attribute__((weak));
 void __s1p_reset(void) __attribute__((weak));
 void __s1p_dspstart(void) __attribute__((weak));
 void s1_init(void) __attribute__((weak));
@@ -47,6 +50,87 @@ static const s1_param_desc *pd[MAXP];
 static float *ptab[MAXP];             /* 256 x count */
 static int knob[MAXP];
 static float g_pitch, g_gate, g_trig, g_export[16];
+
+/* S1_VOICE_PARAM tables: [note 0..127][step a 0..7][step b 0..7][count], the knob of step k = round(k 255 / 7) */
+typedef struct s1_vparam_desc {
+    const char *name;
+    int panel_a, count;
+    int panel_b;
+    void (*fn)(int note, int ka, int kb, float *out);
+} s1_vparam_desc;
+extern const s1_vparam_desc __start_s1_vparams[] __attribute__((weak));
+extern const s1_vparam_desc __stop_s1_vparams[] __attribute__((weak));
+#define VSTEPS 8
+static int nvp;
+static const s1_vparam_desc *vpd[MAXP];
+static float *vptab[MAXP];
+static int vstep[MAXP][2];            /* the knobs' steps (knob >> 5), 4 = knob 128 */
+static int g_note;                    /* the voice's note (the row of its S1_VOICE_PARAMs) */
+static int vknob(int step) { return (step * 255 + 3) / 7; }
+
+static void vparams_init(void) {
+    if (nvp)
+        return;
+    for (const s1_vparam_desc *d = __start_s1_vparams; d && d < __stop_s1_vparams; d++) {
+        if (nvp == MAXP) {
+            fprintf(stderr, "s1rt: more than %d S1_VOICE_PARAM tables\n", MAXP);
+            exit(1);
+        }
+        vpd[nvp] = d;
+        vptab[nvp] = calloc(128 * VSTEPS * VSTEPS * (size_t)d->count, sizeof(float));
+        for (int n = 0; n < 128; n++)
+            for (int a = 0; a < VSTEPS; a++)
+                for (int b = 0; b < VSTEPS; b++)
+                    d->fn(n, d->panel_a ? vknob(a) : 128, d->panel_b ? vknob(b) : 128,
+                          vptab[nvp] + ((n * VSTEPS + a) * VSTEPS + b) * d->count);
+        vstep[nvp][0] = vstep[nvp][1] = 128 >> 5;
+        nvp++;
+    }
+}
+float s1_vparam_get(const s1_vparam_desc *d, int i) {
+    vparams_init();
+    for (int k = 0; k < nvp; k++)
+        if (vpd[k] == d || !strcmp(vpd[k]->name, d->name)) {
+            int n = g_note < 0 ? 0 : g_note > 127 ? 127 : g_note;
+            int a = vpd[k]->panel_a ? vstep[k][0] : 128 >> 5, b = vpd[k]->panel_b ? vstep[k][1] : 128 >> 5;
+            return vptab[k][((n * VSTEPS + a) * VSTEPS + b) * d->count + i];
+        }
+    return 0;
+}
+
+/* S1_MASTER's delay lines (the host's lines in the delay memory, one request per line and sample): line l holds
+ * w[n] = what s1_line_write gave at sample n; s1_line_tap(l, d, k) = w[n - d' - 1 - k], d' = floor of the d the
+ * line was read with the sample before (the host's request takes the age the main stored then; at the first sample
+ * the current one) */
+#define LINES 6
+#define LINE_N 32768                  /* a power of 2 above the line's 16 384 samples */
+static float g_line[LINES][LINE_N];
+static float g_ld[LINES], g_ldprev[LINES];
+static int g_ldset[LINES];
+static long g_n;
+float s1_line_tap(int line, float d, int k) {
+    line = line < 0 ? 0 : line >= LINES ? LINES - 1 : line;
+    float dd = g_ldset[line] ? g_ldprev[line] : d;
+    g_ld[line] = d;
+    long i = g_n - (long)floorf(dd) - 1 - (k & 1);
+    return i < 0 ? 0.0f : g_line[line][i & (LINE_N - 1)];
+}
+void s1_line_write(int line, float w) {
+    if (line >= 0 && line < LINES)
+        g_line[line][g_n & (LINE_N - 1)] = w;
+}
+static void lines_reset(void) {
+    memset(g_line, 0, sizeof g_line);
+    memset(g_ldset, 0, sizeof g_ldset);
+    g_n = 0;
+}
+static void lines_step(void) {          /* the end of a sample: the ages the requests of the next one take */
+    for (int l = 0; l < LINES; l++) {
+        g_ldprev[l] = g_ld[l];
+        g_ldset[l] = 1;
+    }
+    g_n++;
+}
 
 static void params_init(void) {
     if (np)
@@ -209,6 +293,7 @@ static void reset(void) {
     if (__s1p_reset)
         __s1p_reset();
     memset(g_export, 0, sizeof g_export);
+    lines_reset();
     if (s1_init)
         s1_init();
 }
@@ -231,8 +316,10 @@ static void state_track(void) {
 }
 
 /* one note: gate on with a note start at 0, off at `off`; returns the B output of the last sample */
+static FILE *outm;                      /* ref: S1_MASTER's output */
 static void run(double note, long n, long off, FILE *out) {
     g_pitch = note_pitch(note);
+    g_note = (int)note;
     g_trig = 1.0f - g_trig;
     for (long t = 0; t < n; t++) {
         g_gate = t < off ? 1.0f : 0.0f;
@@ -251,6 +338,12 @@ static void run(double note, long n, long off, FILE *out) {
             float ab[2] = {a, b};
             fwrite(ab, sizeof ab, 1, out);
         }
+        if (s1_master) {
+            float m = s1_master(b);
+            lines_step();
+            if (outm)
+                fwrite(&m, sizeof m, 1, outm);
+        }
     }
 }
 
@@ -263,6 +356,7 @@ int main(int argc, char **argv) {
         return 2;
     }
     params_init();
+    vparams_init();
     if (!strcmp(argv[1], "tables")) {
         FILE *f = fopen(argv[2], "w");
         for (int k = 0; k < np; k++) {
@@ -270,6 +364,14 @@ int main(int argc, char **argv) {
             for (int v = 0; v < 256; v++) {
                 for (int i = 0; i < pd[k]->count; i++)
                     fprintf(f, "%.9g ", ptab[k][v * pd[k]->count + i]);
+                fprintf(f, "\n");
+            }
+        }
+        for (int k = 0; k < nvp; k++) {        /* "v name panel_a panel_b count", rows (note, step a, step b) */
+            fprintf(f, "v %s %d %d %d\n", vpd[k]->name, vpd[k]->panel_a, vpd[k]->panel_b, vpd[k]->count);
+            for (int r = 0; r < 128 * VSTEPS * VSTEPS; r++) {
+                for (int i = 0; i < vpd[k]->count; i++)
+                    fprintf(f, "%.9g ", vptab[k][r * vpd[k]->count + i]);
                 fprintf(f, "\n");
             }
         }
@@ -290,15 +392,29 @@ int main(int argc, char **argv) {
                 int found = color_arg(name, v);
                 for (int k = 0; k < np; k++)
                     if (!strcmp(pd[k]->name, name)) { knob[k] = v; found = 1; }
+                size_t L = strlen(name);
+                for (int k = 0; L > 2 && k < nvp; k++)
+                    if (name[L - 2] == '.' && (name[L - 1] == 'a' || name[L - 1] == 'b') &&
+                        strlen(vpd[k]->name) == L - 2 && !strncmp(vpd[k]->name, name, L - 2)) {
+                        vstep[k][name[L - 1] - 'a'] = (v < 0 ? 0 : v > 255 ? 255 : v) >> 5;
+                        found = 1;
+                    }
                 if (!found) { fprintf(stderr, "no S1_PARAM %s\n", name); return 2; }
             }
         }
         FILE *f = fopen(argv[2], "wb");
+        if (s1_master) {
+            char mpath[4096];
+            snprintf(mpath, sizeof mpath, "%s.m", argv[2]);
+            outm = fopen(mpath, "wb");
+        }
         reset();
         if (__s1p_dspstart)          /* ref built by `s1cc init`: start from the DSP's state (ring words = 0) */
             __s1p_dspstart();
         run(note, n, off, f);
         fclose(f);
+        if (outm)
+            fclose(outm);
         return 0;
     }
     if (!strcmp(argv[1], "dump")) {          /* PROG dump OUT NOTE N [name=knob ...]: every value, every sample */
@@ -321,7 +437,11 @@ int main(int argc, char **argv) {
             g_gate = 1.0f;
             float a = s1_dsp_a();
             if (s1_dsp_b)
-                s1_dsp_b(a);
+                a = s1_dsp_b(a);
+            if (s1_master) {
+                s1_master(a);
+                lines_step();
+            }
             fprintf(dumpf, "n\n");
         }
         fclose(dumpf);
@@ -386,12 +506,25 @@ int main(int argc, char **argv) {
             }
             if (!np) break;
         }
+        for (int k = 0; k < nvp; k++)          /* every step of each S1_VOICE_PARAM knob (the others at 128) */
+            for (int ab = 0; ab < 2; ab++)
+                for (int st = 0; st < VSTEPS; st++) {
+                    if (!(ab ? vpd[k]->panel_b : vpd[k]->panel_a))
+                        continue;
+                    for (int j = 0; j < np; j++) knob[j] = 128;
+                    for (int j = 0; j < nvp; j++) vstep[j][0] = vstep[j][1] = 128 >> 5;
+                    vstep[k][ab] = st;
+                    for (int i = 0; i < nn; i++) { reset(); run(note_in(notes[i]), n, n / 2, 0); }
+                }
         for (int r = 0; r < 24; r++) {
             for (int k = 0; k < np; k++) knob[k] = rnd(4) == 0 ? (rnd(2) ? 255 : 0) : rnd(256);
+            for (int k = 0; k < nvp; k++) { vstep[k][0] = rnd(VSTEPS); vstep[k][1] = rnd(VSTEPS); }
             for (int i = 0; i < nn; i++) { reset(); run(note_in(notes[i]) + (note_in(notes[i]) < (s1_note_range ? s1_note_range[1] : 127) ? rnd(100) / 100.0 : 0), n, n / 2, 0); }
         }
         for (int k = 0; k < np; k++) knob[k] = 255;
+        for (int k = 0; k < nvp; k++) vstep[k][0] = vstep[k][1] = VSTEPS - 1;
         for (int i = 0; i < nn; i++) { reset(); run(note_in(notes[i]), n, n / 2, 0); }
+        for (int k = 0; k < nvp; k++) vstep[k][0] = vstep[k][1] = 0;
         for (int k = 0; k < np; k++) knob[k] = 0;
         for (int i = 0; i < nn; i++) { reset(); run(note_in(notes[i]), n, n / 2, 0); }
         FILE *f = fopen(argv[2], "w");

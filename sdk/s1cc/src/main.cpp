@@ -47,10 +47,15 @@ static std::map<std::string, std::vector<double>> readTables(const std::string &
     std::string tag, name;
     int panel, count;
     while (f >> tag >> name >> panel >> count) {
-        if (tag != "p")
+        long rows = 256;
+        if (tag == "v") {                 // S1_VOICE_PARAM: "v name panel_a panel_b count", 128 notes x 8 x 8 rows
+            panel = count;
+            f >> count;
+            rows = 128L * 8 * 8;
+        } else if (tag != "p")
             s1::fail("E002", "bad tables file " + path);
         auto &v = t[name];
-        for (int k = 0; k < 256 * count; k++) {
+        for (long k = 0; k < rows * count; k++) {
             double x;
             f >> x;
             v.push_back(x);
@@ -281,7 +286,7 @@ int main(int argc, char **argv) {
     }
     s1::build(P, *M);
     if (cmd == "graph") {
-        for (s1::Dsp *S : {&P.A, &P.B}) {
+        for (s1::Dsp *S : P.dsps()) {
             if (!S->fn)
                 continue;
             printf("dsp %s\n", S->name.c_str());
@@ -380,7 +385,7 @@ int main(int argc, char **argv) {
         {
             int id = 0;
             std::map<llvm::Value *, int> ids;
-            for (s1::Dsp *S : {&P.A, &P.B}) {
+            for (s1::Dsp *S : P.dsps()) {
                 if (!S->fn)
                     continue;
                 for (auto &n : S->nodes) {

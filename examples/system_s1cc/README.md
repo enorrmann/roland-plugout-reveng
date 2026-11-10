@@ -67,9 +67,16 @@ KERNEL=sdk/s1cc/build/simple_saw_hostenv NAME=S1CC-HOSTENV sh examples/system_s1
 
 Los tres usan el slot 1 y el mismo id de modelo: instalar uno reemplaza al anterior.
 
-Opciones de la memoria de retardo del maestro B (`EDM_KS`, `EDM_CALL`, `EDM_ECF`, `EDM_STR`: cuerdas Karplus,
+Opciones de la memoria de retardo del maestro B (`EDM_KS`, `EDM_CALL`, `EDM_ECF`, `EDM_LINES`: cuerdas Karplus,
 `tapreq` propio, líneas propias, una cuerda por voz) y sus PLUG-OUTs de prueba: [Vol. VI ch. 7](../../docs/vol6_reference_designs_applications/mutable_memory.md)
-§3.3. Con `EDM_STR` el esclavo no mezcla: cada voz sale por su palabra `6006 + v` y el maestro B hace la cuerda.
+§3.3. Con `EDM_LINES` el esclavo no mezcla: cada voz sale por su palabra `6006 + v` y el maestro B hace la cuerda.
+Ese marco (el esclavo manda cada voz al maestro, region 0 mapea las líneas, el bloque `tapreq`, los parámetros del
+maestro) se llama `EDM_LINES=1` (antes `EDM_LINES`). El programa sobre las líneas es
+una cuerda en asm (`EDM_STR_ONE`, `_PL`, `_COMB`, `_BLOWN`, `_BOWED`) o el del kernel. Un kernel con `S1_MASTER`
+(líneas de la memoria de retardo escritas en C: `s1_line_tap`, `s1_line_write`, `S1_VOICE_PARAM`;
+[Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.5) activa `EDM_LINES` solo (`make_s1cc.py` `KM`): el programa de maestro B es el del kernel, una copia por voz de línea
+(6 / líneas por voz). `KM_ALUGAP=0` deja usar un resultado en la instrucción siguiente (nunca corrió en maestro B).
+Verificación sin el equipo: `sdk/s1cc/examples/edm/km_sim.py`.
 
 ### 1.2 Opciones en el fuente del kernel (`S1_BUILD`)
 

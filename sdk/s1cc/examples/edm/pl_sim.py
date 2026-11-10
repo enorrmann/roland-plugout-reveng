@@ -1,13 +1,13 @@
 """EDM_STR_PL check without the device (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): build/s1mm1.s (microcode/edm_str.s
 master_pstr) on the C emulator with the tapreq results and the bank-0 ring modelled as in str1_sim.py; d, g, b, a from
 make_s1cc.py pl_loop for a few cutoff / dispersion steps. Prints each string's pitch against the note.
-    KERNEL=sdk/s1cc/build/edm_plstring sh examples/system_s1cc/build.sh && python3 sdk/s1cc/examples/edm/pl_sim.py"""
+    KERNEL=sdk/s1cc/build/edm_plstring_asm sh examples/system_s1cc/build.sh && python3 sdk/s1cc/examples/edm/pl_sim.py"""
 import importlib.util, os, sys
 import numpy as np
 R = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..'))
 sys.path[:0] = [R + '/asm', R + '/examples/from_scratch/emu']
 import asm, dspref
-os.environ.setdefault('KERNEL', R + '/sdk/s1cc/build/edm_plstring'); os.environ['EDM_STR_PL'] = '1'
+os.environ.setdefault('KERNEL', R + '/sdk/s1cc/build/edm_plstring_asm'); os.environ['EDM_STR_PL'] = '1'
 spec = importlib.util.spec_from_file_location('mk', R + '/examples/system_s1cc/make_s1cc.py')
 mk = importlib.util.module_from_spec(spec); spec.loader.exec_module(mk)
 A = asm.Assembler(); prog = []

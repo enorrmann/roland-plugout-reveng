@@ -130,6 +130,8 @@ struct Lowerer {
     const LowerOptions &opt;
     std::ostringstream rep;
     std::map<std::string, double> paramScale;
+    std::map<std::string, std::vector<double>> vparamScale;   // S1_VOICE_PARAM: one scale per column (d, g, b ...)
+    std::set<int> lineAgeStored;                 // S1_MASTER: lines whose request age is stored this sample
     std::map<int, std::pair<double, double>> stateRep;     // s, o
     std::map<int, std::pair<double, double>> exportRep;
     std::map<int, double> initR;                           // state index -> register value at the first sample
@@ -1352,8 +1354,9 @@ struct Lowerer {
         }
         case NK::Param: {
             LV x;
-            x.r = K->load("{P:" + n->name + ":" + std::to_string((int)n->c) + "}", n->name);
-            x.s = paramScale.at(n->name);
+            x.r = K->load((P.vparamCount.count(n->name) ? "{V:" : "{P:") + n->name + ":" + std::to_string((int)n->c) + "}",
+                          n->name);
+            x.s = vparamScale.count(n->name) ? vparamScale.at(n->name).at((size_t)n->c) : paramScale.at(n->name);
             x.V = rec;
             if (!x.V.seen()) {                            // no record (one side of a select of two tables): the table
                 const auto &t = tables.at(n->name);        // column itself, every knob position
@@ -1412,6 +1415,24 @@ struct Lowerer {
             return emitIsland(*chosen[n], val.at(chosen[n]->root));
         if (op == "recip")                      // no island chose it: recipseed and Newton
             return recip(in(0), n->in[0]);
+        if (op == "s1_line_tap") {              // the line's request result (host: tapreq from the OS effect)
+            int line = (int)n->c / 2, k = (int)n->c % 2;
+            if (!lineAgeStored.count(line)) {     // the request's age d / 16384, read by the host's request next sample
+                lineAgeStored.insert(line);
+                // stored at X and X + 1, as edm_wt.s stores its ages (the request block reads X + 1: either order
+                // of the main and the OS effect in the sample reads this sample's or the last one's)
+                LV d = in(0);
+                KVal *age = d.isConst() ? K->mov(KOperand::im(d.k / 16384.0)) : materialize(d, 16384, 0);
+                K->store(age, "{LD:" + std::to_string(line) + "}");
+                K->store(age, "{LD:" + std::to_string(line) + "+1}");
+            }
+            LV r;
+            r.r = K->load("{LT:" + std::to_string(line) + ":" + std::to_string(k) + "}", "tap");
+            r.V = rec;
+            if (!r.V.seen())
+                r.V = Range{-1, 1};
+            return r;
+        }
         if (op == "s1_ldb5") {                  // indexed bank-5 read: word index -> (idx + base + 0.5) 2^-14, hset, ldb5
             KVal *ir = materialize(in(0), 1, 0);               // r holds the integer word index
             KVal *u = K->add(ir, KOperand::im(0x80 + 0.5));    // + base (SL_STG & 0x3FF = 0x80), centred
@@ -1816,7 +1837,7 @@ struct Lowerer {
     void chooseStateReps() {
         for (auto &s : P.states) {
             Range r;
-            for (Dsp *S : {&P.A, &P.B})
+            for (Dsp *S : P.dsps())
                 for (auto &np : S->nodes)
                     if (np->live && np->kind == NK::State && np->state == s.index)
                         r = recRange(np.get());
@@ -1835,7 +1856,9 @@ struct Lowerer {
                 stateRep[s.index] = {0.5, -1};
             } else {
                 double m = r.seen() ? std::max(std::fabs(r.lo), std::fabs(r.hi)) : 1;
-                stateRep[s.index] = {p2ceil(m), 0};
+                // master DSP B: a float state as it is while |V| <= 16 (the registers hold it, §7.1): no rescaling
+                // multiplies in a loop of one-op instructions
+                stateRep[s.index] = {s.dsp == "M" && !s.isInt && m <= 16 ? 1.0 : p2ceil(m), 0};
             }
             auto sr = stateRep[s.index];
             auto it = prof.stateInit.find(s.index);
@@ -1860,12 +1883,17 @@ struct Lowerer {
     }
 
     std::string run(Dsp &S, std::string &report) {
-        Kernel k(S.name == "A" && !opt.regsA.empty() ? opt.regsA : S.name == "B" && !opt.regsB.empty() ? opt.regsB
+        Kernel k(S.name == "M" ? std::vector<int>{0, 1, 2, 3, 4, 5, 6, 7}   // master DSP B: the host keeps none
+                 : S.name == "A" && !opt.regsA.empty() ? opt.regsA : S.name == "B" && !opt.regsB.empty() ? opt.regsB
                                                                                                   : opt.regs);
         K = &k;
-        k.fuseMac = opt.native && opt.fuseMac;
-        k.fuseAbs = opt.native;
-        k.fuseSum = opt.native;
+        // master DSP B runs only the op forms of asm/master_b_forms.txt (one op per instruction): no MAC, absadd,
+        // sum8; unsafe immediates from parameters (Kernel::master)
+        k.master = S.name == "M";
+        k.fuseMac = opt.native && opt.fuseMac && !k.master;
+        k.fuseAbs = opt.native && !k.master;
+        k.fuseSum = opt.native && !k.master;
+        lineAgeStored.clear();
         val.clear();
         recipCache.clear();
         warnedSeed = false;
@@ -1935,6 +1963,9 @@ struct Lowerer {
                         exportRep[kv.first] = {x.s, x.o};
                     }
                 }
+            for (auto &kv : S.lineWrites)
+                if (kv.second == n)
+                    k.store(materialize(val[n], 1, 0), "{LW:" + std::to_string(kv.first) + "}");
             if (S.ret == n)
                 k.store(materialize(val[n], 1, 0), "{OUT}");
         }
@@ -2001,13 +2032,22 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
         for (double v : it->second)
             m = std::max(m, std::fabs(v));
         L.paramScale[kv.first] = p2ceil(m);
+        if (P.vparamCount.count(kv.first)) {
+            int cnt = kv.second;
+            std::vector<double> cm(cnt, 0.0);
+            for (size_t k = 0; k < it->second.size(); k++)
+                cm[k % cnt] = std::max(cm[k % cnt], std::fabs(it->second[k]));
+            for (double &c : cm)
+                c = p2ceil(c);
+            L.vparamScale[kv.first] = cm;
+        }
     }
     // a compare that gave the same answer in every profiling scenario (a mode change that S1_INIT already made, a
     // clamp no note reaches) is that answer: a constant node, and liveness again, so the side it never takes and
     // the state words only that side kept cost nothing. The profile sweeps every knob and notes 0..127; W909 lists
     // them, --no-fold-branches keeps them
     if (opt.foldBranches)
-        for (Dsp *S : {&P.A, &P.B}) {
+        for (Dsp *S : P.dsps()) {
             if (!S->fn)
                 continue;
             std::vector<Node *> folded;
@@ -2040,6 +2080,7 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
                 L.inputsB.insert(np->kind == NK::Increment ? "pitch" : np->name);   // s1_env: made on DSP B
     std::string a = L.run(P.A, report);
     std::string b = P.B.fn ? L.run(P.B, report) : "";
+    std::string m = P.MB.fn ? L.run(P.MB, report) : "";
     std::ostringstream o;
     o << "; s1cc kernel (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §8): V = (r - o) s for every scaled word\n";
     if (P.fused)
@@ -2050,13 +2091,31 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
           << fmtImm(sr.second).substr(1) << " " << s.name << "\n";
     }
     for (auto &kv : P.paramCount)
-        o << ".param " << kv.first << " " << kv.second << " " << fmtImm(L.paramScale[kv.first]).substr(1) << "\n";
+    {
+        o << (P.vparamCount.count(kv.first) ? ".vparam " : ".param ") << kv.first << " " << kv.second << " ";
+        if (P.vparamCount.count(kv.first))          // .vparam name count scale0 .. scale(count-1) M
+            for (size_t i = 0; i < L.vparamScale[kv.first].size(); i++)
+                o << (i ? " " : "") << fmtImm(L.vparamScale[kv.first][i]).substr(1);
+        else
+            o << fmtImm(L.paramScale[kv.first]).substr(1);
+        o << (P.paramDsp.count(kv.first) && P.paramDsp.at(kv.first) == "M" ? " M" : "") << "\n";
+    }
+    {
+        int lines = 0;                       // S1_MASTER: lines per voice (0 .. n-1 used)
+        for (auto &kv : P.MB.lineWrites)
+            lines = std::max(lines, kv.first + 1);
+        for (auto &np : P.MB.nodes)
+            if (np->live && np->op == "s1_line_tap")
+                lines = std::max(lines, (int)np->c / 2 + 1);
+        if (P.MB.fn)
+            o << ".lines " << lines << "\n";
+    }
     for (auto &kv : L.exportRep)
         o << ".export " << kv.first << " " << fmtImm(kv.second.first).substr(1) << " "
           << fmtImm(kv.second.second).substr(1) << "\n";
     for (auto &in : L.inputsB)
         o << ".inputb " << in << "\n";
-    o << a << b << ".end\n";
+    o << a << b << m << ".end\n";
     report += L.rep.str();
     for (auto &w : L.warnings) {
         warn(w.first, w.second);

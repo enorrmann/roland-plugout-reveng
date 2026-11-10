@@ -285,6 +285,66 @@ between A and B ([examples/system_s1cc/README.md](../../examples/system_s1cc/REA
 * **Between A and B.** What the host did between the two DSPs (in SYSTEM-S1CC, the SUB / NOISE mixer) comes in as
   `s1_host_mix()`: an input that is 0 in the native reference, range −2…2, one addition in the kernel.
 
+### 3.5 Master DSP B and the delay memory (`S1_MASTER`) [sim + device, 2026-11-10: MP-PLSTRC]
+
+A third program, beside the slave's voice: **`S1_MASTER { ...; return y; }`** runs on master DSP B, every sample,
+**once per line voice**, each copy with its own state. It reads and writes lines of the delay memory (EDM) with
+intrinsics, so a Karplus-Strong string, a comb or a waveguide is written in C instead of in the host's assembly.
+SYSTEM-S1CC builds it when the kernel has it (`examples/system_s1cc/make_s1cc.py`, `KM`, which turns on the frame
+`EDM_LINES` in make_s1cc.py, build.sh and region 0); the frame is the one of EDM_STR_ONE ([Vol. VI ch. 7](../vol6_reference_designs_applications/mutable_memory.md) §3.3.5): the slave sends each
+voice's output to master B on `6006 + v` instead of the mix, one `tapreq` per line from the OS effect, at most 6
+requests per sample (the measured limit), so **voices = 6 / lines per voice**.
+
+```c
+S1_VOICE_PARAM(tune, 2, S1_FILTER_CUTOFF, 0) {      /* runs on the PC: note 0..127 x 8 steps of each knob */
+    double p = 96000.0 / (440.0 * pow(2.0, (note - 69) / 12.0));
+    out[0] = floor(p - 1);                            /* the request's delay: whole samples */
+    out[1] = p - 1 - floor(p - 1);                    /* the interpolation */
+}
+static float s;                                       /* state of the line voice (master bank 0) */
+S1_MASTER {                                           /* x = the voice's output on the slave */
+    float d = s1_vparam(tune, 0), g = s1_vparam(tune, 1);
+    float x0 = s1_line_tap(0, d, 0), x1 = s1_line_tap(0, d, 1);   /* w[n - d - 1], w[n - d - 2] */
+    float z = x0 + g * (x1 - x0);
+    s1_line_write(0, x + 0.995f * z);
+    return z;
+}
+```
+
+| element | rule |
+|---|---|
+| `S1_MASTER` | `float s1_master(float x)`. `x` = what the slave program returned for that voice (fused: `S1_DSP_B(S1_DSP_A())`). The return values of the voices are summed, × 0.5 × VOLUME, to the OS effect's sends (`master_km_sum`) |
+| `s1_line_write(line, w)` | `w` goes into the voice's line `line` (a constant, 0…5) this sample. Each line has 16 384 samples. The delay memory wraps near ±1 (a table at full scale ±1.0 broke on the device, §4.4 of Vol. VI ch. 7): keep `w` well inside |
+| `s1_line_tap(line, d, k)` | `w[n − d − 1 − k]`, `k` = 0 or 1. `d`: whole samples, 0…16 380, **one `d` per line** (E126): one request per line and sample gives the two neighbours. Two neighbours and `g` make a delay of `d + 1 + g` |
+| when `d` counts | the request reads the age the kernel stored in the sample before (`{LD:j}` at X and X + 1, read at X + 1, as `edm_wt.s` does): `d` acts one sample late. The native reference models it (`s1rt.c`) |
+| `S1_VOICE_PARAM(name, n, panel_a, panel_b)` | a table per **note** and 8 steps of two knobs (`ka`, `kb` = 0, 36, 73, …, 255; `panel = 0`: no knob, 128): runs on the PC. Region 0 writes the voice's row into master parameters at every note and when one of its knobs changes step (`model.c STR_KM`). What the DSP cannot compute goes here (a tuning by bisection, `atan2`, a per-note filter) |
+| `s1_vparam(name, i)` | value `i` of the voice's row: one load. Each column has its own scale (`.vparam name n s0 … s(n−1) M`): the delay column at 16 384 is the request's age format, `d / 16384` |
+| `s1_param`, `s1_gate` | also in `S1_MASTER`: an `S1_PARAM` read by the master is a master parameter (region 0 writes its row when the knob moves); a table cannot be read by the master and the slave (E127). `s1_gate()` is a master word per voice (1 / 0 at note on / off). The other inputs do not reach the master (E122) |
+| state | file-scope variables used by `S1_MASTER` are its own (E302 between programs); master bank 0, a block per voice from `0300` |
+
+**What the compiler does differently for M** (`lower.cpp`, `kernel.cpp` `Kernel::master`): only the op forms that ran
+on master B (`asm/master_b_forms.txt`): no MAC, `mad` → `mul` + `addxy`, no `absadd` / `sum8`; an immediate outside
+`0`, `±[2⁻¹⁴, 8]` with at most 5 significant bits is loaded from a master parameter `{K:value}` the host writes
+(`mov r3, #11.49609` ran as 5.748 on master B, WT-EDM 2026-11-05); a float state keeps scale 1 while |V| ≤ 16 (no
+rescaling multiplies); all 8 registers.
+
+**What the host does** (`make_s1cc.py`, `KM`):
+
+| piece | where |
+|---|---|
+| per voice: the kernel's lines, scheduled one op or transfer per instruction (`km_schedule`: a result used two instructions later, `KM_ALUGAP=1`, as every master B program that ran; loads and stores fill the gaps) | `master_km` |
+| the requests: `ld r2, [age + 1]`, `hset h4` (line base `0x440000 + 0x4000 k`), `hset h5` (results `4080 + 8k`), `f6`, `tapreq` | `edm_call.s edm_km_block` |
+| master parameters: per voice gate `C028 + v`, voice-table columns `C030`, `C020`, `C040`, `C048` (+ v) (the ids MP-PLSTRING wrote per voice), single words (S1_PARAM columns, constants) `C01D`, `C01E`, `C038`…`C03D`; further ids are new and warned | `km_ids` |
+| bank 0 per voice: states (2 words), ages (2), init flag (2), scratch, OUT | `km_words` |
+| region 0: rows per note / knob step, knob columns, constants (at load and every note), gates | `model.c STR_KM`, `km_header` |
+
+**Verified without the device** (`sdk/s1cc/examples/edm/km_sim.py`: `build/s1mm1.s` in the C emulator with the bank-0
+ring and the requests modelled): `edm_plstring.c` (Plaits' string, all of it in C), the master program against the
+native reference of the C: SNR 96…115 dB (four knob sets); six strings, notes 36…91: within ±2.5 cents (the
+resolution, as `pl_sim.py` gave for the assembly version). Master B: 363 instructions (the assembly MP-PLSTRING:
+318; 508 ran, 640 hung). New against what ran: bank-0 words `0356`…`0371` of master B, the ages written by the main
+instead of `C030 + v` (the WT-EDM form). **On the device (2026-11-10): MP-PLSTRC plays** (`edm_plstring.c`).
+
 ## 4. From the IR to the graph (`graph.cpp`)
 
 ### 4.1 Functions, blocks and memory
@@ -814,7 +874,7 @@ The voice becomes a single function without calls: everything it calls has to en
 | `E108` | `intrinsic llvm.X is not supported` | an integer intrinsic without an operation in s1cc (`llvm.ctlz`, `llvm.bswap`, a large `llvm.memcpy`) | avoid the construct that generates it: `__builtin_clz` → comparison ladder; copy structs field by field |
 | `E110` | `s1_*: argument N must be a constant` | index of `s1_param`, `s1_export`, `s1_import` computed | a literal or a compile-time constant |
 | `E111` | `s1_param(name, i): index out of the table` | `i` ≥ `n` of `S1_PARAM(name, panel, n)` | enlarge `n` or fix the index |
-| `E112`, `E113` | `s1_param: unknown table` / `not an S1_PARAM descriptor` | the first argument is not a name declared with `S1_PARAM` | use the macro's name, not a variable |
+| `E112`, `E113` | `s1_param: unknown table` / `not an S1_PARAM descriptor` (or `s1_vparam: not an S1_VOICE_PARAM`) | the first argument is not a name declared with `S1_PARAM` (`S1_VOICE_PARAM` for `s1_vparam`) | use the macro's name, not a variable, and the matching macro |
 | `E114`, `E115` | `s1_export in S1_DSP_B` / `s1_import in S1_DSP_A` | the direction is only A → B | export in `S1_DSP_A`, import in `S1_DSP_B` |
 
 #### 9.2.3 Instructions (`graph.cpp`, also in `diag`)
@@ -899,6 +959,12 @@ preference:
 | `E119` | `s1_color in S1_DSP_B` | the host builds the colors on DSP A | read `s1_color` in `S1_DSP_A` and pass the value to B with `s1_export` / `s1_import` |
 | `E120` | `s1_color(i): the panel has colors 0 (OSC1) and 1 (OSC2)` | index other than 0 or 1 | `s1_color(0)` or `s1_color(1)` |
 | `E121` | `s1_ldb5 in S1_DSP_B …: the wavetable read is on DSP A` | `s1_ldb5` called in `S1_DSP_B` | read the frame in `S1_DSP_A` and pass the value with `s1_export` / `s1_import` |
+| `E122` | `s1_X in S1_MASTER …: only s1_gate, s1_param and s1_vparam reach the master` | a slave input (`s1_pitch`, `s1_dt`, `s1_env` …) read in `S1_MASTER` | what depends on the note: an `S1_VOICE_PARAM`; a signal: compute it on the slave and send it as the voice's output (`x`) |
+| `E123` | `s1_vparam in S1_DSP_A / B` | the per-voice tables are written into the master | read them in `S1_MASTER`; on the slave, `s1_param` / `s1_dt` |
+| `E124` | `s1_line_tap / s1_line_write in S1_DSP_A / B` | the delay memory is the master's | move the line code into `S1_MASTER` |
+| `E125` | `s1_line_tap(l, d, k): line 0..5, k 0 or 1` | a line or neighbour out of range (also a non-constant line or `k`: E110) | constants in range; lines per voice × voices ≤ 6 |
+| `E126` | `s1_line_tap: line l read with two delays` | two different `d` on one line: one request per line and sample | one `d` per line and its two neighbours (`k` 0 / 1); a second delay on another line |
+| `E127` | `table … read by S1_MASTER and by the slave` | one `S1_PARAM` read by both | two `S1_PARAM`s on the same panel id |
 | `E006` | `no table for S1_PARAM 'p' (tables file)` | old `tables.txt` or the table's function did not run | redo the whole build |
 
 #### 9.2.8 Kernel (`kernel.cpp`)
