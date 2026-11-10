@@ -1,8 +1,8 @@
 /* SYSTEM-S1CC region 0: MUTABLE-SYSTEM's model (examples/mutable_system/model.c: C-S1SY's, with VOLUME sent again at
- * every note), unchanged; NV voices from s1_programs.h (VOICES=n). docs/examples_system_s1cc_README.md.
+ * every note), unchanged; NV voices from s1_programs.h (VOICES=n). examples/system_s1cc/README.md.
  * C-S1SY region 0 (the model; the same as C-S1V8's, examples/system_1/model.c): runs on the SYSTEM-1 master BMC, next to OS 1.30. Freestanding, no library, no
  * foreign code. Port of the C-V4 model (examples/from_scratch/model/model.c) to the SYSTEM-1 interface
- * (docs/examples_system_1_README.md section 3):
+ * (examples/system_1/README.md section 3):
  *
  *   SYNINFO +0x24 create, +0x28 destroy, +0x2C the key assigner, +0x30 the model object
  *   assigner  9-entry vtable: reset, changed, note_off, note_on, cc, part 0x81, bend, -, -
@@ -199,8 +199,8 @@ static void a_note_off(struct assign *a, int note)
    land later and leave C01C at 0 (silence until the knob moves, observed 2026-10-27). One FCEC write per note. */
 static void resend_volume(void);
 #ifdef EDM_KS
-/* EDM_KS (docs/MUTABLE_MEMORY.md §3.3): the OS's delay on master DSP B as a Karplus-Strong string. At every note:
-   the delay times the effect reads from its bank 5 (A001 left, A002 right; system-1/FX_CHAIN.md §3, program 0x0)
+/* EDM_KS (docs/vol6_reference_designs_applications/mutable_memory.md §3.3): the OS's delay on master DSP B as a Karplus-Strong string. At every note:
+   the delay times the effect reads from its bank 5 (A001 left, A002 right; docs/vol1_system_architecture/bus_interconnect.md §16.3, program 0x0)
    = the note's period (build.sh table, EDM_SCALE per sample), feedback C004 (the OS writes 0.6 with DELAY > 0),
    C001 = 1 (delay on), C002 = 1 (delay level). The OS writes them again when DELAY / DELAY TIME move. */
 #include "edm_ks.h"
@@ -231,7 +231,7 @@ static void edm_note(int note)
 }
 #endif
 #ifdef EDM_GLIDE
-/* EDM_GLIDE (docs/MUTABLE_MEMORY.md §3.3.2): the OS keeps its master-B program set in its own RAM and the effect
+/* EDM_GLIDE (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.2): the OS keeps its master-B program set in its own RAM and the effect
    (program 0x0, 0x552 bytes at 0x60097364, OS 1.30) smooths the delay time with r7 -> 0.9998875 (`mov r6, #0.9998875`,
    halfwords 2fff 8a00 in the word at 0x60097404). Patched to 0.5 (2800 0000, asm/asm.py) only if the word is the
    expected one (another OS version: untouched); takes effect whenever the OS queues its set again. */
@@ -252,7 +252,7 @@ static void edm_glide(void)
 }
 #endif
 #ifdef EDM_TAP
-/* EDM_TAP (docs/MUTABLE_MEMORY.md §3.3): the OS's delay only writes the line (our master B main reads it): delay on
+/* EDM_TAP (docs/vol6_reference_designs_applications/mutable_memory.md §3.3): the OS's delay only writes the line (our master B main reads it): delay on
    (C001 = 1), its own level C002 and feedback C004 at 0. At load and every note (the OS writes them again when
    DELAY moves) */
 static void edm_writer(void)
@@ -268,7 +268,7 @@ static void edm_writer(void)
 }
 #endif
 #ifdef EDM_CALL
-/* EDM_CALL (docs/MUTABLE_MEMORY.md §3.3.3): our tapreq inside the OS effect at master B 0x0, the one program whose
+/* EDM_CALL (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.3): our tapreq inside the OS effect at master B 0x0, the one program whose
    requests the delay memory serves. Nothing is queued at 0x0: the words are written live into master B's program
    memory (0x40170000 + byte address, read 2026-11-03), only if the site holds what OS 1.30 has there (FNV-1a of its 5
    halfwords; any other content: untouched). The OS's two instructions at the site are copied from the DSP into the
@@ -332,7 +332,7 @@ static void edm_call(void)
 }
 #endif
 #ifdef EDM_ECF
-/* EDM_ECF (docs/MUTABLE_MEMORY.md §3.3.4): our own delay-memory lines. Which bank-2 word a DSP's transfers move to
+/* EDM_ECF (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.4): our own delay-memory lines. Which bank-2 word a DSP's transfers move to
    or from which delay-memory address is set by the DSP's map table, not by the program: master B's at 0x4016E000
    (read 2026-11-03), 8 bytes per entry {bit 31 write | address, word << 16 | length}. OS 1.30 queues 34 entries
    there at power on (its data set {0x0, 0x110 bytes} from 0x60097928: [4001] -> 0x400000 for the delay, [400a] and
@@ -385,7 +385,7 @@ static void edm_ecf(void)
 }
 #endif
 #ifdef EDM_STR
-/* EDM_STR (docs/MUTABLE_MEMORY.md §3.3.5): a Karplus-Strong string per voice on master B (microcode/edm_str.s), each
+/* EDM_STR (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): a Karplus-Strong string per voice on master B (microcode/edm_str.s), each
    in its own delay-memory line mapped the way EDM_ECF maps its two (above): voice v's write entry [STR_W + 8v] ->
    STR_A0 + v STR_DA and four read entries [STR_W + 8v + 1, 3, 5, 7] <- that address + d .. d + 3, table entries
    STR_SLOT0 + 5v .. + 4, a zero entry after the last voice. All queued at load with FC3C; at every note the four
@@ -684,7 +684,7 @@ static void edm_call_dump(void)                               /* id 0x3B00: stat
 }
 #endif
 #if defined(PARAMLOG) && defined(EDM_PORT)
-/* EDM_PORT (docs/MUTABLE_MEMORY.md §3.3.7): the ARM's indirect port to the delay memory, the sequence of the OS 1.30
+/* EDM_PORT (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.7): the ARM's indirect port to the delay memory, the sequence of the OS 1.30
    boot self-test 0x6001D51A (disassembled 2026-11-04), here WITHOUT its framing (it parks the 4 DSP maps and the 24
    routes first, 0x0100A211 / 0x01008BDF): the DSPs keep running. Word n: [0x40100050] = 0x01000000 + 4n,
    [0x4010007C] |= 0x100, wait [0x40100008] bit 30 = 0; write: [0x40100800] = data; read: [0x40100054] |= 0x20000000,
@@ -803,7 +803,7 @@ static void edm_port_probe(void)
 static void param_log(int id, int flag, int value);
 #endif
 #ifdef EDM_WT
-/* EDM_WT (docs/MUTABLE_MEMORY.md §3.3.8): a wavetable stored whole (WT_LEN samples, s1_programs.h wt_table) in the
+/* EDM_WT (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8): a wavetable stored whole (WT_LEN samples, s1_programs.h wt_table) in the
    delay memory of master B, in one own line that loops on itself (microcode/edm_wt.s). At load: the line's write and
    re-circulation read entries in the map table (FC3C, after the OS's 34, as EDM_ECF) and the request block in the OS
    effect (edm_call). At the first note region 0 fills the loop: it follows the delay memory's sample counter
@@ -1199,7 +1199,7 @@ static struct s1_prog set_master_b[] = {
 #ifdef MC_S1MA0_BYTES
 /* MA_MAIN: our master DSP A main at 0x0100 (empty), as the stock PLUG-OUTs load theirs (FC30 {0x100, ...}): the OS's
    output program at 0x82 runs on into 0x0100, which otherwise keeps what an earlier mode left there (the stock
-   synth's modulation, writing 600E-6021 to the slave): docs/MUTABLE_MEMORY.md §4.3 */
+   synth's modulation, writing 600E-6021 to the slave): docs/vol6_reference_designs_applications/mutable_memory.md §4.3 */
 static struct s1_prog set_master_a[] = {
     { 0x0100, MC_S1MA0_BYTES, mc_S1MA0 },
     { 0, 0, 0 },
@@ -1281,7 +1281,7 @@ static void edm_dump(void)
 #endif
 
 #ifdef PARAMLOG
-/* FX diagnostic (system-1/FX_CHAIN.md §6): the parameter blocks of the master DSPs as the OS's set_param writes them
+/* FX diagnostic (docs/vol1_system_architecture/bus_interconnect.md §16.7): the parameter blocks of the master DSPs as the OS's set_param writes them
  * (0x01008D26: sel 0 -> 0x4014C000, sel 1 -> 0x4016C000, + 16 id; words +0 mode, +4 / +8 value, +C 0). Sent as
  * param_log(0x3000 + (sel << 8) + id, word index, word) for B C000..C03F and A C000..C00F. */
 static void fx_dump(void)
@@ -1323,7 +1323,7 @@ static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x
    moves, so on entering the PLUG-OUT the kernel's tables, envelopes and LFO kept their defaults (CUTOFF and
    RESONANCE at 128 whatever the knobs said, 2026-10-28). touch + flush makes the OS send them all again with their
    values. The synth's controls 0x160..0x18F are patch words (patch id 0x160 + k) of group 3, as 0x18A..0x190
-   (system-1/FX_CHAIN.md §1). [measured 2026-10-28: MP-CSAW reads CUTOFF / RESONANCE as they are when selected] */
+   (docs/vol1_system_architecture/bus_interconnect.md §16.1). [measured 2026-10-28: MP-CSAW reads CUTOFF / RESONANCE as they are when selected] */
 enum { ID_PANEL0 = 0x160, ID_PANEL1 = 0x18F };
 
 static void resend_panel(void)

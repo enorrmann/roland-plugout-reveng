@@ -7,7 +7,7 @@ For each program of region 0 (master) and region 1 (slave), found as {address, b
 program sets: the address (0x0100 main, 0x1000 master B, 0x1900/0x3100 voice sections), static instructions,
 instructions executed per sample in the C emulator (random bank-5 / parameter / IOMD inputs; equal to static when
 the program has no jumps), the IOMD words it loads and stores (600E-6021 master -> slave, 6006-600D and
-6026-602D slave -> master) and the bank-5 words it stores. Used by system-1/DSP_FIT.md §4 to compare how far each
+6026-602D slave -> master) and the bank-5 words it stores. Used by docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md §3.4 to compare how far each
 mono synth could be made polyphonic. Needs the unpacked Code1.Dat:
 `python3 tools/plugout_build.py unpack plugins/<NAME>/Script/Code1.Dat work/unpack/<NAME>_S1_Code1`.
 """

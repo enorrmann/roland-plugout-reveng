@@ -1,12 +1,12 @@
-/* s1panel.h: the SYSTEM-1 panel controls as parameter ids, for S1_PARAM(name, panel_id, count) (docs/S1CC.md §3).
+/* s1panel.h: the SYSTEM-1 panel controls as parameter ids, for S1_PARAM(name, panel_id, count) (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3).
  * Included by s1dsp.h. Ids measured with PARAMLOG on OS 1.30, 2026-10-23
- * (docs/examples_system_1_synth_README.md §8: the table, the CCs and how they were captured).
+ * (examples/system_1_synth/README.md §8: the table, the CCs and how they were captured).
  *
  * Every S1_PARAM table is computed for knob = 0..255. Knobs and faders send 0..255; selectors send 0..5 (only
  * the first entries of their table are used).
  *
  * In MUTABLE-SYSTEM the host program (C-S1SY) also uses some of these controls: a voice that takes one of them adds
- * its own use to the host's (docs/examples_mutable_system_README.md, panel table); OSC1 / OSC2 COLOR are the free
+ * its own use to the host's (examples/mutable_system/README.md, panel table); OSC1 / OSC2 COLOR are the free
  * ones. In SYSTEM-S1CC (examples/system_s1cc) there is no host: all of them are the kernel's.
  * Not here: VOLUME (0x100) goes to the master (region 0), not to the voice; HPF cutoff sends nothing. */
 #ifndef S1PANEL_H_

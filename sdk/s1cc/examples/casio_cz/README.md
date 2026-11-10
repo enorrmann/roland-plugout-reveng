@@ -3,8 +3,8 @@
 
 # `sdk/s1cc/examples/casio_cz`: CZ-SYSTEM, una voz de Casio CZ (distorsión de fase) para SYSTEM-S1CC
 
-Kernel de s1cc ([S1CC.md](S1CC.md)) para el PLUG-OUT SYSTEM-S1CC
-([examples_system_s1cc_README.md](examples_system_s1cc_README.md)). Reproduce la síntesis por distorsión de fase de
+Kernel de s1cc ([Vol. V ch. 1](../../../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)) para el PLUG-OUT SYSTEM-S1CC
+([examples/system_s1cc/README.md](../../../../examples/system_s1cc/README.md)). Reproduce la síntesis por distorsión de fase de
 los Casio CZ: las formas de onda del DCO, el DCW como cantidad de distorsión con su envolvente, las dos líneas con
 desafinación y las modulaciones ring y noise. Lo que el CZ tiene y el anfitrión de SYSTEM-S1CC ya da (envolventes,
 LFO, filtro) lo pone el anfitrión.

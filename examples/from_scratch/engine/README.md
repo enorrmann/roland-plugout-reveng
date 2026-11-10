@@ -36,8 +36,25 @@ The engine had four-word descriptors shared by DSP2 and DSP3; fixed, not yet
 re-tested on hardware with waveform / effect changes.
 
 **ISA test bench:** `DSPTEST=1 MC_TEST=... build.sh` (driven by
-`re/dspaudio.py`) runs test microcode in the DCO2 slots of DSP2/DSP3; see
-NOTES.md "ISA del DSP medido en el equipo por audio USB".
+`re/dspaudio.py`) runs test microcode in the DCO2 slots of DSP2/DSP3 (plugin `plugins/C-DSPT`, slot 3):
+
+* `programs.py`: `MC_TEST=prefix=file,…` replaces programs (`dco1_=z_dco1.txt` silences DCO1; `t0=` / `t1=` are
+  the test programs). A file holds hex words in execution order, `#` starts a comment.
+* `engine.c -DDSPTEST`: the DCO2 slot of DSP2 runs `t0` and that of DSP3 runs `t1`, loaded at start-up. Each
+  program has a path for voice A (outputs `[2221]`, `[221d]`) and one for voice B (`[2229]`, `[2225]`): four tests
+  per install (`d2a= d2b= d3a= d3b=` in a `.batch` file; `dspaudio.py` builds the two programs).
+* Flow: `dspaudio.py install bNN.batch` (`--force`: `plugout_tool` skips an install with the same name and version)
+  → select PLG3 on the panel without playing → `dspaudio.py recall bNN` (8 notes, one per voice) →
+  `dspaudio.py report bNN`.
+* Voice map after selecting the PLUG-OUT, poly: notes 60 62 64 65 and 67 69 71 72 = DSP3-B, DSP3-A, DSP2-B,
+  DSP2-A, once per slave; every test comes out on both slaves. The level rises a little with the note (filter
+  tracking): `report` normalises note by note against the calibration batch `b11`.
+* Observation channel: USB audio (`arecord -D hw:SYSTEM8,0 -f FLOAT_LE -r 96000 -c 2`). The chain blocks DC, so
+  a constant only shows as a transient: multiply the value under test by a signal. Stimulus: the noise the main
+  program writes to `[2200]` every sample. Measure: RMS and four spectrum bands against the calibration.
+* Program swaps (`+0x70`) triggered from note events are not reliable (silent program, or the old one stays); the
+  OS swap `0x01105F94` stops the task, writes program and data and enables the task again, with no double buffer.
+  Use the live poke of `re/dsplive.py` instead (`docs/vol6_reference_designs_applications/custom_osc.md` §7.1).
 
 ## Files
 
@@ -98,7 +115,7 @@ checked again on 2026-10-22 with this `test_model.py` (unchanged, importing it a
 changes (72 sources x 4 contexts x 2 slaves) and at refresh, largest approximation error 2 %. With the current
 trimmed file `test_model.py 4` reports 92 differing (source, target) pairs and 84 ids at refresh, so the "0
 differences" above no longer holds for it. The full model lives on, unchanged, in
-`examples/system_1_jx/model_full.py` (C-S1JX, `docs/examples_system_1_jx_README.md` section 8).
+`examples/system_1_jx/model_full.py` (C-S1JX, [examples/system_1_jx/README.md](../../system_1_jx/README.md) section 8).
 
 ## Program registration and swaps
 

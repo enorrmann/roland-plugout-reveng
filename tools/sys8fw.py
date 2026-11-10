@@ -400,7 +400,7 @@ def _report_os(args, ent: dict) -> tuple:
     h = data[:0x60]
     md = [f"# {ent['stem']} (App1_Main, the OS) - NOT DECODED", "",
           "Encrypted payload; only the clear header and trailer can be read. No classes, vtables, "
-          "presets or labels can be extracted until the payload is decrypted (docs/BASE_FIRMWARE.md section 2).", "",
+          "presets or labels can be extracted until the payload is decrypted (docs/vol4_firmware_container_protocol/base_firmware.md section 2).", "",
           "## Clear header (0x60 bytes)", "",
           "| offset | value | note |", "|---|---|---|",
           f"| 0x00 | `{o['name']}` | image name |",

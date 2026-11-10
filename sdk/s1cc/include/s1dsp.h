@@ -1,5 +1,5 @@
 /* s1dsp.h: the C / C++ SDK of s1cc, the compiler from C / C++ to the microcode of the Roland BMC DSPs
- * (docs/S1CC.md). One source, compiled once by clang to LLVM IR, is used three ways:
+ * (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md). One source, compiled once by clang to LLVM IR, is used three ways:
  *   - translated to microcode by s1cc (the s1_* functions below are intrinsics there);
  *   - compiled natively with sdk/s1cc/runtime/s1rt.c: the reference the microcode is checked against, and the
  *     knob tables (S1_PARAM functions run on the PC, for knob = 0..255);
@@ -7,7 +7,7 @@
  *
  * Program model. Each slave voice runs through two DSPs in series, A then B; the code of S1_DSP_A / S1_DSP_B is the
  * program of ONE voice, copied 8 times (8 voices, each with its own copy of the state). When each part runs:
- * docs/S1CC.md §3.1.
+ * docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.1.
  *   S1_DSP_A { ... return y; }    slave DSP A, every sample, every voice (playing or not): the voice signal
  *                                   (about -1..1), in place of the host's DCO1 + DCO2. All the oscillators go here
  *   S1_DSP_B { ... return y; }    optional, slave DSP B, every sample, every voice; x = the host's voice signal
@@ -23,7 +23,7 @@
  *                                   panel_id: a SYSTEM-1 control, S1_OSC1_COLOR ... (s1panel.h, included here)
  *   S1_INIT    { obj.Init(); ... }  optional: runs on the PC only, before the reference and every profiling
  *                                   scenario; never on the DSP. The values it leaves in the state are the voice's
- *                                   initial state on the DSP too (a first-sample correction, docs/S1CC.md §11.1).
+ *                                   initial state on the DSP too (a first-sample correction, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §11.1).
  *                                   Not a note-on: for that, s1_trig() in the voice
  *
  * Intrinsics:
@@ -34,7 +34,7 @@
  *   s1_gate(), s1_trig()  gate 0 / 1; trigger: toggles 0 / 1 at every note start
  *   s1_param(name, i)     value i of the knob table `name` (a DSP parameter C0xx the ARM writes)
  *   s1_ldb5(i)            S1_DSP_A only: word i (0..126) of the wavetable frame in bank 5 (A080..), the frame the
- *                         host / USB loader (docs/MUTABLE_MEMORY.md §4.5) writes. One hset + ldb5 (an indexed bank-5
+ *                         host / USB loader (docs/vol6_reference_designs_applications/mutable_memory.md §4.5) writes. One hset + ldb5 (an indexed bank-5
  *                         load): the only way to read a run-time table by a computed index (a const array with a
  *                         computed index is fitted as a function instead, §4.3). Build the oscillator in C: phase by
  *                         s1_dt() (pitch mod already in it), two s1_ldb5 and interpolate. The native reference / check
@@ -46,27 +46,27 @@
  *   s1_exp2(x)            2^x
  *   s1_env(i)             S1_DSP_B only: envelope i of the host, 0..1 (SYSTEM-S1CC builds them in assembly on DSP B
  *                         when a kernel uses them: 0 = AMP ATTACK / DECAY / SUSTAIN / RELEASE, 1 = FILTER A / D / S / R;
- *                         docs/examples_system_s1cc_README.md §3). The native reference and `check` give the gate
+ *                         examples/system_s1cc/README.md §3). The native reference and `check` give the gate
  *   s1_color(i)           S1_DSP_A only: OSC1 (i = 0) / OSC2 (1) COLOR, 0..1, with its COLOR MOD source: MANUAL = the
  *                         knob; LFO, PITCH ENV, FILTER ENV, AMP ENV, SUB OSC = knob x source (0..1). SYSTEM-S1CC makes
- *                         the sources in assembly when a kernel uses s1_color (docs/examples_system_s1cc_README.md §3.2).
+ *                         the sources in assembly when a kernel uses s1_color (examples/system_s1cc/README.md §3.2).
  *                         The native reference and `check` give the knob: color0=K / color1=K (default 128)
  *   s1_lfo_filter()       the host's LFO -> FILTER (LFO TO FILTER x fade x lfo), octaves -4 .. +4: add it to the cutoff
  *   s1_lfo_amp()          the host's LFO -> AMP (LFO TO AMP), a gain 0 .. 1: multiply the voice by it. Both on DSP A
  *                         and DSP B; the native reference and `check` give 0 and 1. The host's LFO -> PITCH needs no
  *                         call: s1_pitch, s1_increment, s1_dt and s1_rdt already carry it
- *                         (docs/examples_system_s1cc_README.md §3.3)
+ *                         (examples/system_s1cc/README.md §3.3)
  *   s1_range(x, lo, hi)   x, declaring its range: lo and hi go to s1cc as constants, and the profile must reach
- *                         the call (a branch that always takes the same way leaves it unseen: docs/S1CC.md §3.2)
+ *                         the call (a branch that always takes the same way leaves it unseen: docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2)
  *
- * Native ops: one call = the DSP's own op (DSP_HARDWARE.md §5, measured exact on the SYSTEM-8 master with
- * re/dspnative.py; docs/S1CC.md §4.5 has the table, costs and limits). s1cc also uses them on its own where they are
+ * Native ops: one call = the DSP's own op (docs/vol2_dsp_core_isa/core_architecture.md §5, measured exact on the SYSTEM-8 master with
+ * re/dspnative.py; docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §7.6 has the table, costs and limits). s1cc also uses them on its own where they are
  * shorter (exp2, exp, divisions, floor, multiplies by big powers of two); these calls ask for them explicitly:
  *   s1_floor(x), s1_ceil(x)   SFU floor / ceil, 1 op (|x| < 511)
  *   s1_sign(x)            SFU sign: -1, 0, +1, 1 op
  *   s1_abs(x)             |x|, 1 op (unit B)
  *   s1_recip(x)           1/x: recipseed + 3 newton, 4 ops, 1e-8 (also what `a / x` compiles to)
- *   s1_exp(x), s1_exp2(x) e^x, 2^x: expsplit + degree 4, 8 ops, 3e-5 (result below 512)
+ *   s1_exp(x), s1_exp2(x) e^x, 2^x: up to +-8 octaves Taylor + 4 squarings; wider, expsplit + degree 6; 10 ops, 6e-8
  *   s1_log2(x)            log2 x, x > 0: log2split + degree 6, 9 ops, 5e-6
  *   s1_ldexp(x, k)        x 2^k, k a constant: free (a scale), or one shl / shr when materialized
  *   s1_sum3(a, b, c)      a + b + c: sum8, 1 op
@@ -93,7 +93,7 @@ typedef struct s1_param_desc {
 } s1_param_desc;
 
 /* S1_IN: reads the voice's inputs, writes no memory (a store before the call reaches a load after it: wrappers that
- * set a mode right before rendering fold, docs/S1CC.md §3.2). S1_FN: a function of its arguments only. */
+ * set a mode right before rendering fold, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2). S1_FN: a function of its arguments only. */
 #define S1_IN __attribute__((pure, nothrow))
 #define S1_FN __attribute__((const, nothrow))
 S1_EXTERN S1_IN float s1_pitch(void);
@@ -142,7 +142,7 @@ S1_EXTERN S1_IN float s1_host_mix(void);      /* only s1cc fuse calls it: the ho
 #define S1_NOTE_RANGE(lo, hi) \
     S1_EXTERN __attribute__((used)) const int s1_note_range[2] = { (lo), (hi) }
 
-/* S1_BUILD("KEY=VALUE ..."): the host's build options, written to the kernel (.option KEY VALUE, docs/S1CC.md §3.3);
+/* S1_BUILD("KEY=VALUE ..."): the host's build options, written to the kernel (.option KEY VALUE, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.3);
  * SYSTEM-S1CC takes them as defaults of its variables (an environment variable wins). VALUE may be "quoted".
  * S1_COMPILE("--regs 0,1,2,3 ..."): s1cc lower options, applied before the command line's. One of each per voice */
 #define S1_BUILD(opts) \

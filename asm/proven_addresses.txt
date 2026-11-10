@@ -1,7 +1,7 @@
 # addresses (plain ld / st [xxxx]) that builds which RAN on the device used, per DSP: sA / sB = slave DSP A /
 # B (sections included), mB = master DSP B main. make_s1cc.py warns for any other; after a build ran on the
 # device: make_s1cc.py --promote-addresses NAME. Indexed loads (hset + ldidx / ldb5) are not seen here: their
-# tables must lie in these ranges too. Rules for them: docs/MUTABLE_MEMORY.md §4.2.
+# tables must lie in these ranges too. Rules for them: docs/vol6_reference_designs_applications/mutable_memory.md §4.2.
 sA 0300 032f  # WT-SLAVE5 2026-11-05 (8 voices) (s1m0)
 sA 0700 0700  # WT-SLAVE5 2026-11-05 (8 voices) (s1m0)
 sA 0702 0702  # WT-SLAVE5 2026-11-05 (8 voices) (s1m0)
@@ -115,13 +115,13 @@ sA 0780 07a1  # IDX-PROBE / IDX-PROBE2 2026-11-05 (tone phases)
 sA a080 a0ff  # IDX-PROBE 2026-11-05 (ldb5 table, written by region 1)
 sA a1f0 a1f0  # IDX-PROBE 2026-11-05 (A -> B)
 sB a1f0 a1f0  # IDX-PROBE 2026-11-05 (A -> B)
-sA 0240 028d  # C-S1SY (noise, system-1/DSP_BANKS.md §2.2)
-sA 0300 037f  # C-S1SY (voices, system-1/DSP_BANKS.md §2.2)
-sB 0080 0095  # C-S1SY step >= 14 (system-1/DSP_BANKS.md §2.2)
-sB 0100 02fd  # C-S1SY15X (delay line, system-1/DSP_BANKS.md §4)
-sB 0400 04ff  # C-S1SY (voices, system-1/DSP_BANKS.md §2.2)
-sB 0500 05ff  # MP-CSAW2-8 (CMOD_IDX table CMT0, docs/NATIVE_OPS.md)
-mB 4034 4037  # MP-EDMECF 2026-11-03 (docs/MUTABLE_MEMORY.md §3.3.4)
+sA 0240 028d  # C-S1SY (noise, docs/vol2_dsp_core_isa/memory_banks_dma.md §7.2)
+sA 0300 037f  # C-S1SY (voices, docs/vol2_dsp_core_isa/memory_banks_dma.md §7.2)
+sB 0080 0095  # C-S1SY step >= 14 (docs/vol2_dsp_core_isa/memory_banks_dma.md §7.2)
+sB 0100 02fd  # C-S1SY15X (delay line, docs/vol2_dsp_core_isa/memory_banks_dma.md §7.4)
+sB 0400 04ff  # C-S1SY (voices, docs/vol2_dsp_core_isa/memory_banks_dma.md §7.2)
+sB 0500 05ff  # MP-CSAW2-8 (CMOD_IDX table CMT0, docs/vol2_dsp_core_isa/native_ops.md)
+mB 4034 4037  # MP-EDMECF 2026-11-03 (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.4)
 mB 402e 4031  # MP-EDMCALL 2026-11-03 (§3.3.3)
 mB 4040 40bf  # MP-EDMSTR / MP-EDMWT8 2026-11-04/05 (§3.3.5, §3.3.8)
 mB 0300 0355  # MP-EDMSTR / MP-EDMWT8 (§3.3.5, §3.3.8)

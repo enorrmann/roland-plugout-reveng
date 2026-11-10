@@ -1,4 +1,4 @@
-"""s1cc check: a built kernel on the emulator against the native reference of the same C / C++ (docs/S1CC.md §10).
+"""s1cc check: a built kernel on the emulator against the native reference of the same C / C++ (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §10).
 
     sdk/s1cc/s1cc check OUTDIR [--note 57] [--n 9600] [name=knob ...] [--show]
 

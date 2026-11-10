@@ -1,5 +1,5 @@
 /* edm_plstring.c: Plaits' string (plaits/dsp/physical_modelling/string.cc) on SYSTEM-S1CC, 6 voices: the excitation
- * on the slave, the string in its own line of the delay memory on master B (EDM_STR_PL, docs/MUTABLE_MEMORY.md
+ * on the slave, the string in its own line of the delay memory on master B (EDM_STR_PL, docs/vol6_reference_designs_applications/mutable_memory.md
  * §3.3.5): damping = Plaits' Q 0.5 low pass (two one-poles) at 24 .. 84 semitones above the note (FILTER CUTOFF),
  * dispersion = three first-order allpasses (OSC2 COLOR), decay held / released AMP DECAY / AMP RELEASE; the output
  * is the string alone. Excitation: a 5 ms burst of noise per note through a one-pole whose cutoff is OSC1 COLOR (the

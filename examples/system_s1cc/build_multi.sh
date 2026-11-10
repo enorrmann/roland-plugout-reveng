@@ -1,6 +1,6 @@
 #!/bin/sh
 # SYSTEM-S1CC multi: one SYSTEM-1 PLUG-OUT with up to six s1cc kernels, OSC1 WAVE (0..5) chooses which one runs
-# (docs/examples_system_s1cc_README.md §9). sh build_multi.sh --help
+# (examples/system_s1cc/README.md §9). sh build_multi.sh --help
 usage() {
     cat <<'TXT'
 usage: KERNELS="[POS:]DIR ..." [VAR=value ...] sh examples/system_s1cc/build_multi.sh [--help]

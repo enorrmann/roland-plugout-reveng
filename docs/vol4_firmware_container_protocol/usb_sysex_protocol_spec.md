@@ -1,123 +1,206 @@
-# Volume IV: Firmware Containers, OS & SysEx Protocol
+# Volume IV — Chapter 4: PLUG-OUT USB Install Protocol
 
-# Chapter 4: USB-MIDI SysEx Installation Protocol & Web Installer
+> **Scope:** both (the same protocol; the device differences are stated).
 
-> **Document ID**: TRM-BMC-VOL4-004  
-> **Classification**: Normative Protocol Specification  
-> **Release Target**: Texas Instruments / Analog Devices TRM Standard  
+> Used by `tools/plugout_tool.py`. The browser installer that implements the same protocol is
+> [Vol. IV ch. 5](web_installer.md); the clean-room specification of the same transfer (written without the tools'
+> code) is [Vol. VII ch. 5](../vol7_cleanroom_evidence_archive/cleanroom_protocol_spec.md).
 
----
 
-## 4.1 Protocol Framing & Message Structure
+Extracted from the code of the VST3 plugins (`JUNO-60.vst3`, `JX-3P.vst3`,
+`SH-101.vst3`, x86-64). All three DLLs contain the same routines; the addresses
+below are from `JUNO-60.vst3` (image base `0x180000000`).
 
-The Roland Plug-Out installation and diagnostics interface communicates via standard **Universal System Exclusive (SysEx)** packets routed over the instrument's secondary USB-MIDI interface (**`SYSTEM-8 CTRL`** / **`SYSTEM-1 CTRL`**, typically USB interface endpoint 1 / ALSA port `hw:N,0,1`).
+| Function | Address |
+|---|---|
+| Full install (PLUG-OUT button) | `0x1803547c0` |
+| Device and slot query | `0x180352b50` |
+| `Code*.Dat` file selection | `0x180353480` |
+| Container load and decryption | `0x180356320` |
+| Send + wait for reply (with retries) | `0x180356f00` |
+| Send without waiting (checks for an immediate error) | `0x180357100` |
+| Reply matching | `0x1802950a0` |
+| MIDI output queue (pacing, `midiOutLongMsg`) | `0x1804364c0` |
+| Slot menu "PLUG-OUT %d: %s" | `0x180327f00` / `0x180353830` |
 
-```
- 0    1    2    3    4    5    6    7    8    9   10   11       11+L 12+L 13+L
-┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬─────────┬────┬────┐
-│ F0 │ 41 │Dev │ 00 │ 00 │ 7E │Cmd │ A1 │ A2 │ A3 │ A4 │ Data... │ Ck │ F7 │
-└────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴─────────┴────┴────┘
-```
+## 1. Port and messages
 
-| Byte Index | Byte Name | Standard Value | Description & Protocol Rules |
+* Port: the synth's second USB MIDI port, **`SYSTEM-8 CTRL`**
+  (`Script/Script.xml`, `<midiOut><name>`). On Linux usually `hw:N,0,1`.
+  On the first port (`SYSTEM-1 MIDI 1`, measured 2026-10-23 from the web page)
+  the device still answers the queries and START, but answers the flow-control
+  query `70 30 03 00` only after the third send: about 10 s per 32 records.
+  Whether the answers then come back on the other port is open
+  ([Vol. IV ch. 5](web_installer.md) §4).
+* Every message is a Roland SysEx:
+  `F0 41 <dev> 00 00 7E <cmd> <a1 a2 a3 a4> <data> <checksum> F7`
+  * `dev` = 0x10 by default (device ID 17).
+  * `00 00 7E` = PLUG-OUT model ID.
+  * `cmd` = `12` (DT1). Queries are also DT1 with one data byte.
+  * Roland checksum: `(-(sum of address + data)) & 0x7F`.
+* The plugin handles addresses as 28-bit integers: `70 10 00 00` = `0x0E040000`.
+* **The device answers on the same address with bit 21 set**
+  (`70 ..` → `71 ..`). A reply is accepted when the address and the number of
+  data bytes match; the command byte is not checked.
+
+## 2. Device query (`0x180352b50`)
+
+Each query is a DT1 with one data byte (`00` unless stated):
+
+| Sent | Reply | Content |
+|---|---|---|
+| `70 00 02 00` | `71 00 02 00`, 1 byte | type: 0 SYSTEM-1, 1 SYSTEM-1m, 2 SYSTEM-8 |
+| `70 00 01 00` [`00`] | `71 00 01 00`, 48 bytes | bytes 0-3: firmware version (one nibble per byte) |
+| `70 00 02 01` | 1 byte | multiplied by the next value: number of patches |
+| `70 00 02 02` | 1 byte | |
+| `70 00 02 03` | 1 byte | number of slots |
+| `70 00 01 00` [`i`] | 48 bytes | slot *i*: bytes 8-11 model ID, 12-15 version (nibbles), 16-47 name (16 characters, two nibbles each) |
+
+Minimum firmware: SYSTEM-1/1m ≥ 1.30, SYSTEM-8 ≥ 1.31 (`0x130`/`0x131`).
+
+On SYSTEM-8 the plugin also reads `00 00 68 07`, `00 00 68 16` and
+`00 00 68 13..15` with RQ1; they only feed informational fields, not the transfer.
+
+Slot state relative to the container (`0x1803532b6`):
+
+* same model ID and name → *same version* or *other version*;
+* model ID `0xFFFF` → empty; another model ID → occupied by another PLUG-OUT.
+
+The plugin refuses if the same model is already in **another** slot, does not
+resend the firmware if the slot already holds the same version, and asks for
+confirmation if the slot holds another PLUG-OUT.
+
+Slots: slot 0 is the synth itself; the menu offers `PLUG-OUT 1..N-1`.
+
+## 3. File selection (`0x180353480`)
+
+| Device type | File |
+|---|---|
+| SYSTEM-1 / SYSTEM-1m | `Script/Code1.Dat` |
+| SYSTEM-8 | `Script/Code8_<slot>.Dat` |
+
+`Code8_1/2/3.Dat` are **separate builds for each slot**: use the one for the
+target slot. `SH-101/Script/Code.Dat` is not used by the plugin.
+`JX-3P/Script/Code1.Dat` carries the model name `SYSTEM-8` (id 0x05), so the
+JX-3P plugin would reject it: the JX-3P only installs on a SYSTEM-8.
+
+## 4. `Code*.Dat` container
+
+Cipher: chained XOR over 32-bit LE words,
+`plain[i] = cipher[i] ^ cipher[i-1]`, with `cipher[-1] = 0xBACADABE` (`0x1803564a5`).
+
+Decrypted header:
+
+| Offset | Field |
+|---|---|
+| `0x00` | u32 `0x80` |
+| `0x04` | `"PLUGOUT_SYS_INF"` |
+| `0x14` | model name (16 bytes) |
+| `0x24` | u16 model ID (JUNO-60 `0x0A`, JX-3P `0x08`, SH-101 `0x01`) |
+| `0x26` | u16 version (`%X.%02X`) |
+| `0x30` | u32 offset, u32 size → **START** message |
+| `0x40` | u32 offset, u32 size → **END** message |
+| `0x50` | u32 offset, u32 stride, u32 **count** → data records |
+
+Each record is `<u32 length><complete SysEx message>`. Data records are at
+`offset + i * stride` (`stride = 0x260`), `i = 0 .. count-1`
+(4096 in `Code8_*`, 2048 in `Code1`).
+
+Data record types — **all sent by the host, in order**:
+
+| Address | Size | What |
+|---|---|---|
+| `70 30 00 09` | 599 bytes | firmware block: 586 bytes 7-in-8 = 512 bytes |
+| `70 30 01 09` | 14 bytes | filler record (data `01`) |
+
+There are two regions (two runs of blocks + filler); the filler pads each region
+to half of the table. Each region starts with 16 ASCII bytes naming the device
+family it was built for, `SYSTEM-8:Plugout` or `SYSTEM-1:Plugout`, followed by
+a date and the Roland tool version (e.g. `25-0509_11:30:38` `0.0114FA`). This is
+the only place in the file that says which device it is for: the model name in
+the header is the PLUG-OUT's name (`JX-3P/Script/Code1.Dat` says `SYSTEM-8` there
+but its regions are `SYSTEM-1:Plugout`). `web/` uses it to refuse an image for
+the other device ([Vol. IV ch. 5](web_installer.md) §3.1).
+
+## 5. Install sequence (`0x1803547c0`)
+
+Session parameters: 5 s timeout, 3 attempts (each attempt resends the message).
+
+1. **START**: the container's START message with its data byte replaced by
+   `slot | flags` (checksum recomputed). `flags` = `0x40` when the plugin is not
+   authorized by Roland Cloud, `0x00` when it is.
+   Expected reply `71 10 00 00`, 1 byte, must be `00`.
+2. **Data**: for `i = 0 .. count-1`:
+   * if `i % 32 == 31`: send `70 30 03 00` [`00`] and wait for `71 30 03 00`
+     with 4 bytes (flow control; the content is not checked);
+   * send record `i` exactly as stored;
+   * if `71 30 00 00` (1 byte) arrives, the device rejected the record → abort.
+3. **END**: the container's END message unchanged (4 data bytes, probably a
+   checksum of the image). 20 s timeout, 3 attempts.
+   Reply `71 10 00 01`, 1 byte, must be `00`.
+
+Pacing: the plugin waits `10 ms + length × 0.32 ms` between messages (setting
+`10010` = 10 ms + wire time at 31250 baud). By default the tools add **no**
+delays: the SYSTEM-8 sets the pace with its flow-control replies, and the port
+write blocks while the USB buffer is full (`--gap-ms 10 --wire-pacing`
+reproduces the plugin's pacing).
+
+## 6. Patch bank (`0x1803551a5`, `0x180355af0`)
+
+After END the plugin writes its patch bank into the slot (DT1, no replies):
+
+1. `70 20 01 01` [`n`] with `n` = (`70 00 02 01`) × (`70 00 02 02`) = 64.
+2. For each patch `p = 0..n-1` and each struct (`usrX`, `usr2X`, `usr3X` on
+   SYSTEM-8; only `usrX` on SYSTEM-1), one DT1 per leaf struct of `Script.xml`,
+   in order, at `base(slot, p, struct) + leaf offset`.
+3. `70 20 01 02` [`1` if the slot already held the same version, else `0`].
+
+If the slot already holds the same version, the plugin skips the firmware and
+sends only the patches (after confirmation). With another version it asks
+before sending them.
+
+### Reading patch memory (RQ1, verified 2026-10-13)
+
+The plugin never reads patches, but the device answers the standard read
+request: `F0 41 <dev> 00 00 7E 11 <addr:4> <size:4> <sum> F7` (size as 4 x 7-bit
+bytes) is answered by a `DT1` (`12`) at the same address with `size` data
+bytes (nibble-encoded leaves, e.g. `NAME0`: 2 nibbles per character).
+`tools/patch_read.py --slot 3 --patches 0-63` lists the 64 names. Up to 128
+bytes per request answered; a 70-byte request returned 64 (not understood).
+
+### Patch memory (`Script/Script.xml`)
+
+| Struct | Type | Leaves | Bytes |
 |---|---|---|---|
-| 0 | `SOX` | `0xF0` | Start of System Exclusive Delimiter. |
-| 1 | `MANUFACTURER` | `0x41` | Roland Corporation Manufacturer Identification Code. |
-| 2 | `DEVICE_ID` | `0x10` | Device Unit Address (Factory default: Unit ID 17, `0x10`). |
-| 3:5 | `MODEL_ID` | `0x00 0x00 0x7E` | Roland Plug-Out System Universal Model ID. |
-| 6 | `COMMAND` | `0x12` (`DT1`) | Roland Data Set 1 (`DT1`). Used for queries, data pushes, and flow control. |
-| 7:10 | `ADDRESS` | `A1 A2 A3 A4` | 28-bit Big-Endian Memory-Mapped Target Address (7 bits per byte). |
-| 11 : 11+$L$ | `DATA` | Variable | Encoded Payload (7-in-8 firmware records, query selectors, or parameter values). |
-| 12+$L$ | `CHECKSUM` | Computed | Roland 7-bit Complement Checksum ($0 \le \text{Checksum} \le 127$). |
-| 13+$L$ | `EOX` | `0xF7` | End of System Exclusive Delimiter. |
+| `fm.usrX` | `patch` | 14 (LFO, OSC1, …, NAME0, PAT_NAME1-3) | 640 |
+| `fm.usr2X` | `patch2` | 17 | 3975 |
+| `fm.usr3X` | `patch3` | 66 (sequencer) | 15580 |
 
-### 4.1.1 Roland 7-Bit Checksum Algorithm `[VERIFIED]`
+Values are `intNxM`: N bytes of M bits each, most significant first
+(`int2x4` = 2 nibbles, `int8x4` = 8 nibbles, `int1x7` = 1 byte); `stringNx4` =
+2 nibbles per character. A leaf's memory is its values concatenated (or placed
+as given by `<address>`/`<size>`).
 
-The checksum byte covers all address bytes (`A1`–`A4`) and data bytes (`D1`–$D_L$):
+### Addresses (`0x18036d270`)
 
-$$\text{Sum} = \sum_{k=1}^{4} A_k + \sum_{m=1}^{L} D_m$$
+28-bit integers (7 bits per byte). For `usrX`, with `b = p / 8`, `i = p % 8`:
 
-$$\text{Checksum} = (-\text{Sum}) \ \& \ \text{0x7F} = (128 - (\text{Sum} \pmod{128})) \pmod{128}$$
+* slot 0/1: `((b << 7) + i) << 14` + `0x4000000` (slot 0) / `0x8000000` (slot 1)
+* slot 2/3: `((b << 4) + i) << 14` + `0x1C00000` (slot 2) / `0x1E00000` (slot 3)
 
-### 4.1.2 Request/Reply Address Inversion Rule `[VERIFIED]`
-When the instrument acknowledges or answers a host message, **it reflects the request address with bit 21 asserted**:
+For `usr2X`/`usr3X` (struct `k` = 1/2): `(p << 18) + T[slot + (k-1)*4]`, with
+`T = 0x5000000, 0x6000000, 0x7000000, 0xD000000, 0x9000000, 0xA000000, 0xB000000, 0xC000000`.
 
-$$\text{Request Address Prefix: } \text{0x70} \quad \implies \quad \text{Instrument Response Address Prefix: } \text{0x71}$$
+### Bank files (`Patch/*.bin`, `KoaBankFile`)
 
----
+* 16 bytes `KoaBankFile0000N` + tag (`PG-JU60`, `PG-JX3P`, `PG-SH101`) + 64 records.
+* Record: name (16) + header (12 bytes in v3, 27 in v2) + leaf memory
+  concatenated in `Script.xml` order.
+* v3 (JUNO-60, JX-3P) holds `patch`+`patch2`+`patch3` (20 223 bytes per record);
+  v2 (SH-101) only `patch` (683 bytes); `patch2`/`patch3` take the `Script.xml`
+  defaults.
+* Verified: all 9 banks have exactly these sizes, every byte is 7-bit, and
+  `patch2`/`patch3` match the defaults 98-100 %.
 
-## 4.2 Device Identification & Slot Status Queries `[VERIFIED]`
-
-Prior to initiating firmware transfers, the host software queries the target hardware via single-byte `DT1` requests:
-
-| Query Message (Hex) | Response Address | Data Length | Payload Semantics |
-|---|---|---|---|
-| `70 00 02 00 [00]` | `71 00 02 00` | 1 Byte | Hardware Model: `00` = SYSTEM-1, `01` = SYSTEM-1m, `02` = SYSTEM-8. |
-| `70 00 01 00 [00]` | `71 00 01 00` | 48 Bytes | Bytes 0–3: Firmware Version in BCD nibbles (e.g. `01 03 02 00` = v1.32). |
-| `70 00 02 01 [00]` | `71 00 02 01` | 1 Byte | Patch Bank Multiplier $X$. |
-| `70 00 02 02 [00]` | `71 00 02 02` | 1 Byte | Patch Bank Multiplier $Y$ (Total patches = $X \times Y \times 8$). |
-| `70 00 02 03 [00]` | `71 00 02 03` | 1 Byte | Total Physical Plug-Out Slots ($N = 1$ on S1, $N = 3$ on S8). |
-| `70 00 01 00 [slot]`| `71 00 01 00` | 48 Bytes | Slot Query: Bytes 8–11 = Model ID (`FFFF` if empty), 16–47 = 16-char ASCII Name. |
-
----
-
-## 4.3 Plug-Out Installation Protocol State Machine
-
-The complete binary installation sequence is governed by a synchronous, flow-controlled state machine:
-
-```mermaid
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> QueryingDevice: Send 70 00 02 00 (Model Query)
-    QueryingDevice --> VerifyingSlot: Received 71 00 02 00 (S8 or S1)
-    VerifyingSlot --> SessionStart: Send 70 00 01 00 [slot]
-    
-    SessionStart --> AwaitingStartAck: Send START (70 10 00 00 [slot | flags])
-    AwaitingStartAck --> StreamingData: Received 71 10 00 00 [00] (ACK)
-    AwaitingStartAck --> ErrorAbort: Timeout / Reject
-    
-    state StreamingData {
-        [*] --> SendRecord
-        SendRecord --> CheckStride: Transmit 599-byte Record i
-        CheckStride --> FlowControlPing: if (i % 32 == 31)
-        CheckStride --> SendRecord: if (i % 32 != 31)
-        FlowControlPing --> AwaitingFlowAck: Send 70 30 03 00 [00]
-        AwaitingFlowAck --> SendRecord: Received 71 30 03 00 [4 bytes]
-    }
-    
-    StreamingData --> SessionEnd: All Records Sent (2048 / 4096)
-    StreamingData --> ErrorAbort: Received 71 30 00 00 (NAK Reject)
-    
-    SessionEnd --> AwaitingEndAck: Send END (70 10 00 01 [Checksum])
-    AwaitingEndAck --> InstallComplete: Received 71 10 00 01 [00] (Flash Written)
-    AwaitingEndAck --> ErrorAbort: Flash Verify Error
-    
-    InstallComplete --> [*]
-    ErrorAbort --> [*]
-```
-
-### 4.3.1 Installation Phase Execution Steps
-
-1. **Session Start (`START`)**:
-   - The host sends the container's START message to address `70 10 00 00`.
-   - Payload byte: `slot_index | auth_flag`. 
-   - `auth_flag = 0x00` (Authenticated) or `0x40` (Bypass authorization).
-   - Expected response: `71 10 00 00 [00]`. (Timeout: 5.0 seconds, 3 retry attempts).
-2. **Synchronous Data Streaming (`DATA`)**:
-   - Loops through all records ($i = 0 \dots \text{count}-1$):
-   - Transmits complete 599-byte SysEx data block (`70 30 00 09`).
-   - **Flow Control Checkpoint**: Every 32 records ($i \pmod{32} = 31$), the host pauses and issues the flow control query `70 30 03 00 [00]`. It must receive `71 30 03 00` (4 bytes) before transmitting the next record chunk.
-3. **Session Finalization (`END`)**:
-   - Transmits container's END message to address `70 10 00 01` (4-byte cryptographic image digest).
-   - Expected response: `71 10 00 01 [00]`. (Timeout: 20.0 seconds while the Master ARM commits the binary into internal QSPI Flash memory).
-
----
-
-## 4.4 Flow Pacing & Web MIDI Implementation
-
-When operating within modern web browser runtimes via the Web MIDI API (`navigator.requestMIDIAccess({sysex: true})`), hardware USB-MIDI FIFO queues must not be overrun:
-
-- **Calculated Inter-Message Delay**:
-  $$T_{\text{delay}} = 10.0\text{ ms} + (\text{Length}_{\text{bytes}} \times 0.32\text{ ms})$$
-- For standard 599-byte firmware blocks, the host enforces a minimum inter-packet spacing of **$12.5\text{ ms}$**.
-- Pacing ensures zero dropped packets even when communicating across low-speed USB-MIDI class-compliant hubs.
+The plugin sends the bank loaded in its library; the tool defaults to the first
+file in `Patch/` (`--bank` to choose another).

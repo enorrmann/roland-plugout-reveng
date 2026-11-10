@@ -1,9 +1,9 @@
 """Check the code examples of the technical documents: every ```dsp block must assemble.
 
-    python3 tools/doccheck.py docs/WAVE_BUS.md docs/VOICE_ALLOCATION.md system-1/*.md
-    python3 tools/doccheck.py --show docs/WAVE_BUS.md      # also print the words of each block
+    python3 tools/doccheck.py docs/vol1_system_architecture/bus_interconnect.md docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md system-1/*.md
+    python3 tools/doccheck.py --show docs/vol1_system_architecture/bus_interconnect.md      # also print the words of each block
 
-A ```dsp block is DSP assembly in the syntax of asm/ (docs/DSP_ISA.md): one instruction per line, ';' comments.
+A ```dsp block is DSP assembly in the syntax of asm/ (docs/vol2_dsp_core_isa/isa_overview.md): one instruction per line, ';' comments.
 Blocks are assembled one by one with asm.Assembler; a block that fails is reported with its file and line and the
 exit code is 1. ```c blocks are not compiled (they call OS services); keep them to code that exists in the repo.
 """

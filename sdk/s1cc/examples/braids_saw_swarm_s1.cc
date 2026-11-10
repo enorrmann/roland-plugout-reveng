@@ -1,4 +1,4 @@
-// Braids SAW_SWARM for the SYSTEM-1 budget (docs/S1CC.md §11): braids_saw_swarm.cc with the high-pass coefficient
+// Braids SAW_SWARM for the SYSTEM-1 budget (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §11): braids_saw_swarm.cc with the high-pass coefficient
 // computed the cheap way. Braids reads f = 2 sin(pi min(fc / fs, 1/8)) from lut_svf_cutoff at pitch + offset; here
 // fc / fs = increment x 2^(offset / 12) / 2, from the increment DSP A exports and a knob table, and the sine of a
 // small angle is a short fitted polynomial. The per-sample loop is the original's.

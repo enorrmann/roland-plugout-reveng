@@ -1,4 +1,4 @@
-;; SYSTEM-S1CC master B with taps of the big delay memory (EDM_TAP=1, docs/MUTABLE_MEMORY.md §3.3). Template syntax:
+;; SYSTEM-S1CC master B with taps of the big delay memory (EDM_TAP=1, docs/vol6_reference_designs_applications/mutable_memory.md §3.3). Template syntax:
 ;; make_s1cc.py frag(). Assembled one line per instruction, not scheduled (tapreq / f6 / hset are not in the scheduler):
 ;; every result waits one instruction (the spacers) before it is read.
 ;;
@@ -113,12 +113,12 @@ cmp r0, r0, #0
 ld r0, [e021]
 cond !12, 1, 0 | st r0, [a000]@0 | st r0, [a000]@1
 .else
-;; RECORD ONLY: make_s1cc.py refuses EDM_ENTRY. A PLUG-OUT must never queue 0x0000 (system-1/WAVE_BUS.md §5.3); these
-;; probes did and hung / muted the device (docs/MUTABLE_MEMORY.md §3.3).
+;; RECORD ONLY: make_s1cc.py refuses EDM_ENTRY. A PLUG-OUT must never queue 0x0000 (docs/vol1_system_architecture/bus_interconnect.md §15.3); these
+;; probes did and hung / muted the device (docs/vol6_reference_designs_applications/mutable_memory.md §3.3).
 ;; master DSP B program at 0x0 in place of the OS's delay + reverb (EDM_ENTRY=1). tapreq is served only here: from
 ;; the main at 0x1000 the requests gave nothing, while bank-2 loads worked (probes 2026-11-03, master_edm above).
 ;; 0x0 is master B's entry: first the calls every SYSTEM-1 master B entry makes (E021 -> A000; call the main
-;; 0x1000 = word 0x0800 under condition 25 and the section ends 0x5FF2 / 0x6FF2 under 26 / 27; system-1/FX_CHAIN.md
+;; 0x1000 = word 0x0800 under condition 25 and the section ends 0x5FF2 / 0x6FF2 under 26 / 27; docs/vol1_system_architecture/bus_interconnect.md
 ;; §3); a program at 0x0 without them hung the device (2026-11-03). Then our code between the start / end markers,
 ;; then the jump to the close at 0x7FF2 (word 0x3FF9).
 ;; EDM_STEP 'pass': only the send into the line, back unchanged (probe A, after probe 4 shut the device down when

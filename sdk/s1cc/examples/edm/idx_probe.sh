@@ -1,5 +1,5 @@
 #!/bin/sh
-# idx_probe.sh: MP-EDMIDX on the SYSTEM-1 (docs/MUTABLE_MEMORY.md §3.3.6): one note (a dry burst), 12 s of USB audio.
+# idx_probe.sh: MP-EDMIDX on the SYSTEM-1 (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.6): one note (a dry burst), 12 s of USB audio.
 # Left = dry + 0.7 x tapreq(base 272 + age 48000 - p), right = dry + 0.7 x tapreq(base 272, fixed address).
 # Prints: the left echo's lag (48000 + a few = the OS convention works on our line), and what the right adds to the
 # dry: a copy of the dry at a small lag (tapreq relative to the write position) or a slow step signal (absolute).

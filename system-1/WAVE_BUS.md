@@ -2,16 +2,16 @@
 
 | | |
 |---|---|
-| Versión | 2.0 (2026-10-22). Reescritura como especificación de la versión 1 (bitácora: [log/WAVE_BUS_LOG.md](log/WAVE_BUS_LOG.md)) |
+| Versión | 2.0 (2026-10-22). Medidas que sostienen cada dato: [bitácora](../docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s1_wave_bus_log.md) |
 | Alcance | Cómo intercambian datos los cuatro DSP del SYSTEM-1 (A y B del maestro, A y B del esclavo) y el ARM, y por dónde llega el audio de un PLUG-OUT a la salida. Qué DSP hace qué con cada voz: [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md) |
-| Equipo | SYSTEM-1, OS 1.30, PLUG-OUT en el slot 1. SYSTEM-8: [../docs/WAVE_BUS.md](../docs/WAVE_BUS.md) (misma ISA, otra topología) |
-| Documentos base | [ARCHITECTURE.md](ARCHITECTURE.md), [../docs/DSP_PROGRAM_MEMORY.md](../docs/DSP_PROGRAM_MEMORY.md), [../docs/examples_system_1_README.md](../docs/examples_system_1_README.md) (interfaz PLUG-OUT) |
+| Equipo | SYSTEM-1, OS 1.30, PLUG-OUT en el slot 1. SYSTEM-8: [Vol. I ch. 3](../docs/vol1_system_architecture/bus_interconnect.md) (misma ISA, otra topología) |
+| Documentos base | [ARCHITECTURE.md](ARCHITECTURE.md), [Vol. III ch. 3](../docs/vol3_voice_allocation_scheduling/slot_program_model.md), [examples/system_1/README.md](../examples/system_1/README.md) (interfaz PLUG-OUT) |
 | Código de referencia | C-S1V4 (`examples/system_1/`, medido en el equipo); C-S1JX (`examples/system_1_jx/`, sin instalar) |
 
 Evidencia: **[M]** medido en el equipo · **[L]** leído en el OS 1.30 o en los PLUG-OUTs de Roland del SYSTEM-1
 (SH-2, SH-101, PROMARS) · **[C]** nuestro código · **[E]** emulador · **[I]** inferido · **[A]** abierto. Bloques
 `dsp`: ensamblan (`python3 tools/doccheck.py system-1/WAVE_BUS.md`). Sintaxis y notación de direcciones:
-[../docs/WAVE_BUS.md](../docs/WAVE_BUS.md) §1.
+[Vol. I ch. 3](../docs/vol1_system_architecture/bus_interconnect.md) §1.
 
 ---
 
@@ -128,7 +128,7 @@ static void set_volume(int v)
 ```
 
 `FCE4(sel, id, destino, y, z)` (con rampa): rampa lineal del hardware, un paso cada 1/3 ms, de 4 a 97 ms de 0 a 1
-según `y`; `+8` del bloque = valor actual, `+C` = incremento [M] ([../docs/examples_system_1_ramp_README.md](../docs/examples_system_1_ramp_README.md)).
+según `y`; `+8` del bloque = valor actual, `+C` = incremento [M] ([examples/system_1_ramp/README.md](../examples/system_1_ramp/README.md)).
 
 ### 4.4 IOMD entre chips
 
@@ -144,7 +144,7 @@ L/R con ganancias `C005`–`C00E` [L] (§5.2); en modo PLUG-OUT el reparto es li
 
 ### 4.5 Anillos (bancos 0 y 1)
 
-La misma semántica que en el SYSTEM-8 ([../docs/WAVE_BUS.md](../docs/WAVE_BUS.md) §4.1, §4.2). Ejemplo medido, fase
+La misma semántica que en el SYSTEM-8 ([Vol. I ch. 3](../docs/vol1_system_architecture/bus_interconnect.md) §4.1, §4.2). Ejemplo medido, fase
 de una sierra de C-S1V4 (`s1m0.s`, voz 0): `ld r1, [0301]` … `st r1, [0300]`.
 
 ---
@@ -163,7 +163,7 @@ esclavo A/B ──IOMD 6006…──► maestro B (programa del PLUG-OUT @0x1000
 * El programa de salida en `0x82` mide 126 B y termina en `0x100`: el maestro A sigue en su principal `0x0100`, que
   el OS **no** reemplaza. Si el PLUG-OUT no carga uno propio, corre lo que dejó el modo anterior, y eso escribe las
   palabras maestro → esclavo `600E`–`6021` después de nuestro maestro B: el esclavo lee 0 (o una señal) en vez de lo
-  nuestro [M] ([../docs/MUTABLE_MEMORY.md](../docs/MUTABLE_MEMORY.md) §4.3). Los PLUG-OUTs de Roland cargan su
+  nuestro [M] ([Vol. VI ch. 7](../docs/vol6_reference_designs_applications/mutable_memory.md) §4.3). Los PLUG-OUTs de Roland cargan su
   `0x0100` (`FC30 {0x100, 0x6DF2, 0x7FF2}`); SYSTEM-S1CC carga uno vacío (`MA_MAIN`, 2026-11-05).
 * **Un PLUG-OUT que no carga su programa del maestro B queda mudo** [M] (C-S1TONE). El VOLUME del panel tampoco pasa
   por el programa del OS: lo aplica el PLUG-OUT (`C01C`) [M].
@@ -242,7 +242,7 @@ st r0, [a004]
 ```
 
 Cómo se encontró: bisección en el equipo con builds de diagnóstico de C-S1JX
-([../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md) §10).
+([examples/system_1_jx/README.md](../examples/system_1_jx/README.md) §10).
 
 ---
 
@@ -272,11 +272,11 @@ Cómo se encontró: bisección en el equipo con builds de diagnóstico de C-S1JX
 7. Presupuesto **medido en el esclavo A: entre 682 y 826** instrucciones por muestra (682 funciona; 826 cuelga el
    equipo al seleccionar el PLUG-OUT, también con 144 rellenos `mov r4, r4`) [M], menos que las ≈ 925 del SYSTEM-8.
    Empaquetar transferencias con las operaciones, como Roland, lo hace caber: una carga se usa en la instrucción
-   siguiente [M] (`docs/examples_system_1_synth_README.md` §4–5).
+   siguiente [M] ([examples/system_1_synth/README.md](../examples/system_1_synth/README.md) §4–5).
 8. **Límites de acceso por instrucción** (incumplirlos cuelga el equipo [M]): banco 5 ≤ 1 carga y ≤ 1 store (mejor:
    un solo acceso), banco 0 ≤ 2 cargas y ≤ 2 stores, banco 6 ≤ 2 cargas. Los DSP del esclavo guardan sólo en
    `A100`–`A1FF` [I]. El emulador rechaza los programas que los incumplen (`emu/chain.py access_violations`).
-   Detalle: [../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md) §5.
+   Detalle: [examples/system_1_jx/README.md](../examples/system_1_jx/README.md) §5.
 
 ---
 
@@ -296,7 +296,7 @@ Cómo se encontró: bisección en el equipo con builds de diagnóstico de C-S1JX
 
 | dato | fuente |
 |---|---|
-| cadena de audio de C-S1TONE/C-S1V4, VOLUME | [log/WAVE_BUS_LOG.md](log/WAVE_BUS_LOG.md) §4; [../docs/examples_system_1_README.md](../docs/examples_system_1_README.md) §2.2, §6 |
+| cadena de audio de C-S1TONE/C-S1V4, VOLUME | [S1 wave-bus lab log](../docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s1_wave_bus_log.md) §4; [examples/system_1/README.md](../examples/system_1/README.md) §2.2, §6 |
 | `FD6C` idéntico en maestro y esclavo; `6026`–`602D` | esta revisión (2026-10-22), `system-1/s1_progs.py`, [DSP_FIT.md](DSP_FIT.md) §4 |
-| `load` de Roland (no encola `0x0000`); el cuelgue al encolarla | §5.3; [../docs/examples_system_1_jx_README.md](../docs/examples_system_1_jx_README.md) §10 |
-| programas de serie del maestro y del esclavo | [log/WAVE_BUS_LOG.md](log/WAVE_BUS_LOG.md) §2, §3; [VOCES_6.md](VOCES_6.md) |
+| `load` de Roland (no encola `0x0000`); el cuelgue al encolarla | §5.3; [examples/system_1_jx/README.md](../examples/system_1_jx/README.md) §10 |
+| programas de serie del maestro y del esclavo | [S1 wave-bus lab log](../docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s1_wave_bus_log.md) §2, §3; [VOCES_6.md](VOCES_6.md) |

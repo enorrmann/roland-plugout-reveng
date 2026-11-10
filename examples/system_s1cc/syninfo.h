@@ -4,7 +4,7 @@
  * 0x600A95F8, mode switch 0x6001E494, patch load 0x600A9528; slave: install 0x60004D1E, engine switch 0x6004E1A8).
  * The OS checks the magic at 0x000 and 0x1B4, calls create at install and get_b (the object it runs) at every
  * switch to the PLUG-OUT; on the master it also takes get_a (the key assigner). The tables only configure the
- * panel; our values are our own choice (docs/examples_system_1_README.md section 3.1).
+ * panel; our values are our own choice (examples/system_1/README.md section 3.1).
  */
 #include <stdint.h>
 

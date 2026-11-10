@@ -1,5 +1,5 @@
 #!/bin/sh
-# C-S1JX: the JX-3P's own DSP microcode (one DCO, 4 voices) on the SYSTEM-1 (docs/examples_system_1_jx_README.md).
+# C-S1JX: the JX-3P's own DSP microcode (one DCO, 4 voices) on the SYSTEM-1 (examples/system_1_jx/README.md).
 #   examples/system_1_jx/build.sh            -> plugins/C-S1JX/Script/Code1.Dat (and Code.Dat, the same file)
 #   SLAVE_TEST=1 NAME=C-S1JXS ...             diagnostic: JX-3P on the slave only, minimal master program (model.c)
 #   RUNTIME_MODEL=1 ...                       the parameter model evaluated on the ARM (soft float) instead of the table

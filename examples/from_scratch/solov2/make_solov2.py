@@ -3,10 +3,10 @@
     DSP2 (DCO1 slot): voices 0 and 1 of the slave. Pitch: bank 5 ids 0x21, 0x22 (ARM). Phase state at 0670 / 0674.
                       Outputs: MXM Z 0404 (voice 0) and Z 0405 (voice 1), read by DSP4 as M 0005 and M 0006.
     DSP3 (DCO1 slot): voices 2 and 3. Same program and ids as DSP2. Outputs: Z 0404 / 0405, read by DSP4 as O 0204 / 0205
-                      (routing of docs/DSP_ARM_SIDE.md: Z 0x400+x of DSP n -> O 0x200+x of DSP n+1 for the odd DSP3 pair).
+                      (routing of docs/vol2_dsp_core_isa/memory_banks_dma.md: Z 0x400+x of DSP n -> O 0x200+x of DSP n+1 for the odd DSP3 pair).
     DSP4 (main):      four gated voices, sum / 4 to IOMD 6020 (canal 1) and 6021 (canal 0). Gates: bank 5 ids 0x78..0x7B.
 
-Roland's DSP0/1 (envelope, LFO) and DSP5 stay empty; DSP2/3 main programs are empty; DSP4 main is ours (docs/WAVE_BUS.md
+Roland's DSP0/1 (envelope, LFO) and DSP5 stay empty; DSP2/3 main programs are empty; DSP4 main is ours (docs/vol1_system_architecture/bus_interconnect.md
 section 4g: each component keeps the DSP and slot Roland gives it).
 
     python3 make_solov2.py          -> solov2_osc.s/.hex, solov2_gate.s/.hex
@@ -76,7 +76,7 @@ def words(text):
 
 def simulate(w_osc2, w_osc, w_gate, pitch, gate, n):
     """one sample = DSP2 program, DSP3 program, then DSP4 program; DSP4 reads what DSP2 / DSP3 stored in the
-    previous sample (MXM double buffer, docs/DSP_HARDWARE.md 8.2). pitch[v], gate[v](t) for v in 0..3"""
+    previous sample (MXM double buffer, docs/vol2_dsp_core_isa/core_architecture.md 8.2). pitch[v], gate[v](t) for v in 0..3"""
     import dspdis
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu'))
     import dspref

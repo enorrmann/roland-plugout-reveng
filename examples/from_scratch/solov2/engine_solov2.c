@@ -2,7 +2,7 @@
  * solov2: from-scratch PLUG-OUT engine (region 1, runs on the slave BMCs), four voices per slave.
  *
  * Our own ARM code and our own DSP microcode (examples/from_scratch/solov2/make_solov2.py). The voices follow
- * Roland's layout (docs/WAVE_BUS.md section 4g): the oscillators are in the DCO1 slot of DSP2 (voices 0, 1) and
+ * Roland's layout (docs/vol1_system_architecture/bus_interconnect.md section 4g): the oscillators are in the DCO1 slot of DSP2 (voices 0, 1) and
  * DSP3 (voices 2, 3); the gate is in the main program of DSP4, which mixes the four voices into IOMD 6020 / 6021.
  * DSP0 / DSP1 (envelope, LFO) and DSP5 are empty, the main programs of DSP2 / DSP3 are empty, and the DCO2 slot
  * holds our null program. Pitch: bank 5 ids 0x21 (voice 0 / 2), 0x22 (voice 1 / 3) of DSP2 / DSP3. Gate: bank 5
@@ -337,7 +337,7 @@ static void read_params(engine_t *e)
 /* program slot of OSC osc (0 DCO1 = 0x6000, 1 DCO2 = 0xB000) on DSP dsp */
 static volatile uint32_t *live_prog(int dsp, int osc) { return (volatile uint32_t *)(0x41480000u + dsp * 0x100000u + (osc ? SLOT_DCO2 : SLOT_DCO1)); }
 
-/* bank 5 (DPC) of slave DSP n, RAW view (as the master's, DSP_ARM_SIDE.md: 0x41114000 + n * 0x4000 + 0x2000) */
+/* bank 5 (DPC) of slave DSP n, RAW view (as the master's, docs/vol2_dsp_core_isa/memory_banks_dma.md: 0x41114000 + n * 0x4000 + 0x2000) */
 static volatile uint32_t *live_bank5(int dsp) { return (volatile uint32_t *)(0x41114000u + dsp * 0x4000u + 0x2000u); }
 
 /* 18-bit two's complement x = value * 2^17 -> DSP RAW word (sign-magnitude, value = +-M / 2^(32 - 4 s), smallest s

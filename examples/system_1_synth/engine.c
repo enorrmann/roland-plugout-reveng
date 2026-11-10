@@ -1,6 +1,6 @@
 /* C-S1SY region 1 (the engine): runs on the SYSTEM-1 slave BMC. Freestanding, no library, no foreign code, no
  * floating point (no FPU: floats are bit patterns from make_synth.py tables, or built from integers by fbits()).
- * C-S1V8's engine (examples/system_1/engine.c) plus the panel (docs/examples_system_1_synth_README.md):
+ * C-S1V8's engine (examples/system_1/engine.c) plus the panel (examples/system_1_synth/README.md):
  *
  *   load (vt+0x08)    voice sections of the OS off, then our programs on DSP A and DSP B
  *   param (vt+0x30)   0x110+v note -> pitch A030+v, 0x120+v velocity -> gate A038+v and, at a note start, the

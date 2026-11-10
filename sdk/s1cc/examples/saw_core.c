@@ -1,4 +1,4 @@
-/* saw_core.c: a sawtooth in plain C, as a library sees it (docs/examples_s1cc_saw_README.md §2). A state struct, a
+/* saw_core.c: a sawtooth in plain C, as a library sees it (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2). A state struct, a
  * start function (one note) and a render function (one sample). It knows nothing of the DSP: the wrapper
  * (saw_wrapper.c) is what adapts it to a voice, and s1cc compiles both as one program.
  *

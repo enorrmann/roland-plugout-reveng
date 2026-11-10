@@ -1,5 +1,5 @@
 // Braids SAW_SWARM (braids/digital_oscillator.cc, DigitalOscillator::RenderSawSwarm, (c) Emilie Gillet, MIT),
-// as an s1cc voice program (docs/S1CC.md). The per-sample loop body is the original code (integers, Q15, uint32
+// as an s1cc voice program (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md). The per-sample loop body is the original code (integers, Q15, uint32
 // phases, Interpolate88 of ws_moderate_overdrive); what Render() computes once per block from the knobs is in the
 // S1_PARAM functions, also the original code. Per voice: 7 saws + waveshaper on slave DSP A (s1_dsp_a), the
 // high-pass on slave DSP B (s1_dsp_b).

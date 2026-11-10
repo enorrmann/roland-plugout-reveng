@@ -1,5 +1,5 @@
 #!/bin/sh
-# str_probe.sh: MP-EDMSTR on the SYSTEM-1 (docs/MUTABLE_MEMORY.md §3.3.5): six notes one after the other (each lands on
+# str_probe.sh: MP-EDMSTR on the SYSTEM-1 (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): six notes one after the other (each lands on
 # another voice: the assigner takes the oldest free one), then a chord of three, while capturing USB audio; prints
 # the pitch of each note against the expected one and the chord's three strongest peaks.
 # MIDI channel 5 (the device setting here); PORT=hw:X,Y,Z; OUT=dir for the wav (default /tmp)

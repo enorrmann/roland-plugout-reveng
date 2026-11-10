@@ -1,5 +1,5 @@
 """Descriptor table of a Roland region 1 image: every DSP program descriptor (slot address, size, size, program
-pointer) with its slot. Used for docs/VOICE_ALLOCATION.md.
+pointer) with its slot. Used for docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md.
 
     python3 alloc_scan.py region1.bin 60A00000     # BASE = the slot run address of the region 1 image (slot 1)
 """

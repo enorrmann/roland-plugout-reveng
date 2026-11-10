@@ -1,159 +1,189 @@
-# Volume V: Toolchain, Compiler & SDK Specification
+# Volume V — Chapter 4: The Microcode Toolchain — Assembler, Disassembler, Scheduler, Rules and Checks
 
-# Chapter 4: Developer Toolchain, Assembler, Disassembler & Utilities
+> **Scope:** both; `asm/s1rules.py` and the proven forms are SYSTEM-1.
 
-> **Document ID**: TRM-BMC-VOL5-004  
-> **Classification**: Normative Toolchain Manual  
-> **Release Target**: Texas Instruments / Analog Devices TRM Standard  
+> Sources: the module docstrings of `asm/*.py`, the data files of `asm/`, `tools/doccheck.py` and
+> `tools/check_optimized.py`. Usage and parameters of every script: [TOOLS.md](../TOOLS.md). Review of the assembler's
+> rules: [REVIEW.md](../vol7_cleanroom_evidence_archive/REVIEW.md). The ISA they implement:
+> [Vol. II ch. 3](../vol2_dsp_core_isa/instruction_word_encoding.md) / [ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md).
 
----
+## 1. The pieces
 
-## 4.1 Master Toolchain Architecture
+| file | role (from its docstring) |
+|---|---|
+| `asm/isa.json` | the ISA table: forms, variants, field positions, selectors, fixed bits, status tags, classes and layouts; the mnemonic index is in [Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) §15 |
+| `asm/isa.py` | "The ISA table as objects. Pure interpreter: nothing here knows a mnemonic." `isa.Table.load()`, `table.classes[0x048]`, `table.mnemonics['mul']`, `table.constraints` |
+| `asm/codec.py` | "Generic codec: the only place that knows how a table entry maps to words." `codec.decode(form, words)`, `codec.encode(form, variant, args)`; a word is only decoded when the chosen variant explains every field |
+| `asm/layout.py` | program layout rules shared by the disassembler and the assembler: a class's *prefix* is what the units fill; the rest is the slot array |
+| `asm/slots.py` | the slot array of one instruction (spec §4.3): N words first, references, the immediate bit stream; each word has at most one owner, a conflicting second claim is reported, never resolved by order |
+| `asm/asm.py` | assembler: dspasm source → program words |
+| `asm/disasm.py` | disassembler: program words → dspasm source |
+| `asm/dspsched.py` | list scheduler for our microcode (SYSTEM-1 and SYSTEM-8) |
+| `asm/dspbuild.py` | general build pipeline: phase-wrap rewrite, schedule, assemble, verify in the emulator |
+| `asm/s1rules.py` | the SYSTEM-1 access rules R2–R10, checked on scheduled programs |
+| `asm/roland_forms.py` | which op groups Roland's own programs put in one instruction (evidence before a device test) |
+| `asm/proven_forms.txt` | op groups that shared one instruction in builds proven on the SYSTEM-1 (64 groups at the date of reading) |
+| `asm/bad_forms.txt` | op groups that hung the SYSTEM-1 (or that the DSP does not run) |
+| `asm/master_b_forms.txt` | single op forms that ran in a main program of the SYSTEM-1's master DSP B |
+| `asm/proven_addresses.txt` | addresses (plain `ld` / `st`) that builds which ran on the device used, per DSP |
+| `asm/tests/` | `test_asm.py`, `test_corpus.py`, `test_decoding.py`, `test_regressions.py`, `test_spec_examples.py`, `class_layouts.py`, `coverage.py`, `roundtrip_report.py`, `baseline.json` |
+| `tools/doccheck.py` | every ```` ```dsp ```` block of the documents must assemble |
+| `tools/check_optimized.py` | warnings `manual-wrap`, `filler`, `transfer-only`, `fusable` ([Vol. III ch. 6](../vol3_voice_allocation_scheduling/microcode_optimization.md) §2) |
 
-The reverse-engineering and clean-room development suite includes standalone command-line tools to assemble microcode, inspect binary firmware images, schedule VLIW instructions, and communicate with physical Roland hardware:
+## 2. Assembler (`asm/asm.py`)
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                 BMC DSP REVERSE-ENGINEERING TOOLCHAIN                             |
-|                                                                                                   |
-|  [ Assembly & Disassembly Layer (asm/) ]                                                          |
-|  - asm.py        : Roland BMC DSP Macro Assembler (Translates dspasm to 16-bit words)             |
-|  - disasm.py     : High-Fidelity Microcode Disassembler (Bit-exact round-trip verification)       |
-|  - dspsched.py   : Optimizing VLIW Instruction Scheduler & Slot Packing Pipeline                  |
-|  - s1rules.py    : Hardware Rule Linter & Access Barrier Verifier (R2 through R10)                |
-|                                                                                                   |
-|  [ Firmware & Packaging Layer (tools/) ]                                                          |
-|  - plugout_tool.py : Plug-Out Installer, Container Packer, and SysEx USB Communications           |
-|  - sys8fw.py       : Firmware Update Archive Inspector and LZSS Decompressor                      |
-|  - doccheck.py     : TRM Technical Documentation Assembly Syntax Verifier                         |
-|                                                                                                   |
-|  [ Simulation & Emulation Layer (emu/) ]                                                          |
-|  - dspref.py / emu/dspdec.h : Golden C Simulation Model of the Roland BMC DSP Pipeline            |
-+---------------------------------------------------------------------------------------------------+
-```
-
----
-
-## 4.2 `asm.py` — Roland BMC DSP Macro Assembler `[VERIFIED]`
-
-The assembler translates human-readable DSP assembly listings into binary word sequences matching the exact execution format of the BMC DSP:
-
-```bash
-python3 asm/asm.py input.s -o output.bin
+```python
+result = Assembler().assemble(text)
+result.words        # flat 16-bit words in execution order
+result.errors       # [(line, message)] — rejected, never guessed
+result.notes        # [(line, message)] — assembled but flagged
 ```
 
-### 4.2.1 Assembler Directives Catalog
+The language is what `disasm.program` writes back:
 
-| Directive | Syntax | Functional Description |
+```text
+label:  unit [| unit ...]          ; comment
+mac_p1p2 r0, r0, r1, r2, r1
+raw @0x060 0fe0 0201              ; verbatim body words, optional class
+```
+
+Directives, each on the line before the instruction it changes:
+
+| directive | meaning |
+|---|---|
+| `.class 0x0040` | the class of the next instruction (needed when two classes fit the units, or for a `raw` line) |
+| `.free @n 0xMASK` | bits of word n (0 = header) that the variant leaves free and that the listing restores |
+| `.slot @k 0xNNNN` | slot word k, which no operand reads (spec §4.4) |
+| `.words 0xNNNN ...` | words kept as they are (a truncated tail) |
+
+Immediates (spec §4.4): `#v@b:w` is a value read at byte b of the slot array, w bits wide. A MAC coefficient `#v@c` is
+read at byte c (its C field; + 8 in the `...r` variants, bit 9 set), Y a register or an immediate (measured 2026-10-29,
+[Vol. II ch. 8](../vol2_dsp_core_isa/isa_discrepancies.md) D8). An immediate with no byte is placed at the first byte
+where its bits agree with the stream (a coefficient: bytes 0–7, written into C).
+
+Confidence policy, enforced in the assembler: a line whose variant is not in `Table.EMIT_DEFAULT` (exact, measured) is
+rejected unless `allow_inferred=True` is passed, which admits `inferred` and `fitted`. `raw` words and `.words` are not
+emitted by default either. Ambiguity is rejected: if more than one class can hold the units, or a field that must be
+preserved has no source, the line fails with the reason.
+
+### 2.1 What `asm.py` does and does not check
+
+`asm.py` encodes one line at a time. The cases below were run on 2026-11-10 (`Assembler().assemble(text)`):
+
+| source | result | what to write |
 |---|---|---|
-| `.class` | `.class 0x0040` | Explicitly forces the class template for the subsequent instruction (Used when multiple templates fit the unit signature). |
-| `.slot` | `.slot @k 0xNNNN` | Injects raw 16-bit word `0xNNNN` into slot index $k$ (For words unreferenced by active operands). |
-| `.free` | `.free @n 0xMASK` | Restores unused operand bits cleared by standard variant encodings. |
-| `.words` | `.words 0xNNNN ...`| Injects literal raw 16-bit words into the stream (Used for unknown trailing blocks). |
+| `mov r3, #0.041666666666666664` | `0903 3050 0aaa` and a **note** (`is stored in 16 bits as 0.041656494140625`): an immediate without a width takes 16 bits | `#v:32` for the full value: `mov r3, #0.041666666666666664:32` → `0904 3070 0aaa aaab` (`#v@0:32` is the same with the byte given) |
+| `add r0, r1, r2` | error `add takes 2 operand(s) (D, Y), 3 given` | `addxy rD, rX, rY` for rD ← rX + Y |
+| `sub r1, #0.5` | `0903 11d0 2800` (`add r1, #0.5` is `0903 1190 2800`) | `sub` takes two operands (D, Y) like `add`; rD ← rX − rY is `subxy rD, rX, rY` (`subxy r1, r2, r3` → `0902 1e83`) |
+| `noop`, `nop` | errors (`the table does not place 'empty'`, `nop: field 'D' needs operand 'D'`) | the empty instruction is the word `0001` ([Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) §4): `.words 0x0001`, or a filler `mov rN, rN` |
+| `.class 0x00f0` + `ld r0, [0400]` | error `no class in the table holds these units (T)`; without the directive the line gives `0c03 0fe0 0400` | no `.class` on a single transfer |
+| `jmp nowhere` | error: `symbolic labels need a linker` | the offset by hand, in words from the end of the instruction: `jmp .+2` → `0b03 0090 0002` ([Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) §5.4b) |
+| `cond r0` | error `cond takes 3 operand(s) (cc, skip_true, skip_false), 1 given` | all three operands |
+| `ld r0, [0400]` then `mul r1, r0, #2.0` | assembles with no note, although the load has a latency of one instruction | see below |
 
-### 4.2.2 Immediate Number Syntax
-- Standard Floating-Point Immediate: `#0.5`, `#-1.0`, `#3.14159`.
-- Explicit Width Specifier: `#0.5:16` (16-bit mode), `#0.5:24` (24-bit mode), `#0.5:32` (32-bit mode).
-- Byte Offset Alignment: `#0.5@4:16` (Forces 16-bit immediate placement at byte offset 4 of the slot array).
+`asm.py` knows nothing about the program around a line: it does not check the load latency, the ring (a word stored
+at `S` is read at `S + 1` on the next sample), the instruction budget per sample or the SYSTEM-1 access rules, and it
+has no simulator. Those belong to the rest of the pipeline:
 
-```dsp
-; Example Valid Assembler Listing
-.class 0x0048
-mov r0, #0.5:16
-addxy r1, r1, r2 | st r1, [0300]
+| check | where |
+|---|---|
+| load latency and other dependencies between lines | the scheduler, §4 (the generators write the delay as a `mov rN, rN` filler) |
+| a scheduled program equal to the plain one, on random states | `dspbuild.build` step 4, §5 (the emulator's C core) |
+| SYSTEM-1 access rules | `asm/s1rules.py`, §6 |
+| instruction count against the budget | not automatic: count instructions ([Vol. III ch. 4](../vol3_voice_allocation_scheduling/execution_timing_budgets.md)); `tools/check_optimized.py` only reports cycles spent for nothing |
+| simulation of whole programs | the emulator ([ch. 5](emulator.md)) |
+
+Open in the encoder itself: D8 and D10 of [Vol. II ch. 8](../vol2_dsp_core_isa/isa_discrepancies.md).
+
+## 3. Disassembler (`asm/disasm.py`)
+
+```python
+text, report = disasm.program(words, table)
 ```
 
----
+Its "honesty rules":
+* a word the table does not explain becomes `raw` with its words verbatim — never an invented mnemonic (spec §14);
+* `raw` also carries the class when the class would not follow from the units, so re-assembling always reproduces the
+  original header;
+* each line ends with a status tag (`exact`, `measured`, `inferred`, `fitted`, `raw`);
+* `report` counts what happened and lists every instruction that stayed verbatim, with the reason;
+* each line is re-assembled before it is printed; a line that does not give back its own words is kept verbatim
+  (`report["reassembly"]`; on the corpus it is 0).
 
-## 4.3 `disasm.py` — Microcode Disassembler `[VERIFIED]`
+Result on the corpus (spec §13, 2026-10-20): every decoded line re-assembles and every file of the corpus (132 files)
+comes back identical (`python3 -m unittest discover -s tests` in `asm/`).
 
-Disassembles raw DSP microcode binaries into source text that re-assembles to the identical binary word sequence (100% round-trip verified on all 128 firmware programs):
+## 4. Scheduler (`asm/dspsched.py`)
 
-```bash
-python3 asm/disasm.py program.bin --class-table asm/isa.json
+```python
+import dspsched
+packed = dspsched.schedule(lines)          # one-unit lines (with "mov rN, rN" fillers) -> instruction texts
 ```
 
-- Automatically tiles variable-length VLIW instructions by parsing the 11-bit class and 5-bit length from every header word.
-- Maps memory references into human-readable bank notation (`[0400]`, `[A021]`, `[6020]`).
+Input: the plain program the generators write (one op or one transfer per line, a load delay as a `mov rN, rN` filler,
+`;` comments). Output: the same in fewer instructions (independent ops share an instruction, loads and stores go into
+op instructions, fillers disappear, units reordered within the dependencies). Semantics kept: every unit reads before
+any writes; a loaded register is usable from the next instruction on; a store reads the register as the instruction
+starts. The dependency distances, the per-instruction limits and the priority rule are listed in
+[Vol. III ch. 6](../vol3_voice_allocation_scheduling/microcode_optimization.md) §5 (the same text as the docstring).
+`dspsched.schedule(lines, load_proven())` fuses only the groups of `asm/proven_forms.txt`; a group of
+`asm/bad_forms.txt` is never used, not even with `TRY_FORMS=all`.
 
----
+## 5. Build pipeline (`asm/dspbuild.py`)
 
-## 4.4 `dspsched.py` — VLIW Packing & Scheduling Engine `[VERIFIED]`
-
-Takes linear, unbundled DSP microcode instructions (e.g. emitted by compiler lowering passes) and bundles them into dense, multi-operation VLIW instructions:
-
-```bash
-python3 asm/dspsched.py unoptimized.s -o scheduled.s
+```python
+import dspbuild
+b = dspbuild.build(lines, dspbuild.S1)        # framing S1 (SYSTEM-1 section) or S8 (SYSTEM-8 slot / main)
+b.words, b.text, b.plain_words                # optimized words with the framing, its text, the plain words
+dspbuild.write('s1m0', out_dir, b)            # s1m0.s / s1m0.hex + check_optimized warnings
 ```
 
-- **Pass 1: Dependency Analysis**: Computes Directed Acyclic Graphs of register read/write dependencies and load latencies.
-- **Pass 2: Greedy Slot Packing**: Bundles compatible ALU, SFU, and Transfer units into known hardware classes (`re/dsp_templates.txt`).
-- **Pass 3: Access Rule Linting**: Enforces rules R2 through R10 via `asm/s1rules.py`. Rejects illegal combinations with actionable error diagnostics.
+`build()` runs, in order (each step can be turned off for one call, or for every build with `DSP_OPT=0`):
+1. **phwrap**: the manual 11-op phase wrap of the early programs becomes `ph_wrap x, r3, x` when the temporary is dead
+   afterwards; same result except for a phase of exactly 1.0 (manual 1.0, `ph_wrap` −1.0);
+2. **schedule**: `asm/dspsched.py`;
+3. **assemble**, with the framing words around the code;
+4. **verify** (`DSP_VERIFY=0` to skip): the scheduled program against the plain one in the emulator's C core, on 4
+   random states for 6 samples each; every register, flag and memory word must be equal. Verified programs are
+   remembered by their words (`asm/build/verified.txt`).
 
----
+Command line: `python3 asm/dspbuild.py FILE.s [--s1|--s8] [-o DIR]`.
 
-## 4.5 `plugout_tool.py` — Plug-Out Management Utility `[VERIFIED]`
+## 6. SYSTEM-1 access rules (`asm/s1rules.py`)
 
-A command-line tool to query, inspect, unpack, repack, and install Plug-Out containers directly onto physical Roland instruments over USB-MIDI:
+Breaking one of them hung the device (measured by on-device bisection, [examples/system_1_jx/README.md](../../examples/system_1_jx/README.md) §5):
 
-### 4.5.1 Command Reference
-
-```bash
-# Query attached hardware, firmware version, and occupied Plug-Out slots
-python3 tools/plugout_tool.py info
-
-# Install a Plug-Out package into physical Slot 1 (Auto-confirms, bypasses patch overwrite)
-python3 tools/plugout_tool.py install plugins/PROMARS --slot 1 --force --no-patches -y
-
-# Unpack a Code*.Dat container into raw decrypted ELF binaries and microcode blobs
-python3 tools/plugout_tool.py unpack Script/Code1.Dat -d output_dir/
-
-# Repack modified binaries into an encrypted Code*.Dat distribution package
-python3 tools/plugout_tool.py pack input_dir/ -o Script/Code1.Dat --model-id 0x0001
-```
-
----
-
-## 4.6 `doccheck.py` — Technical Documentation Syntax Validator `[VERIFIED]`
-
-Automated quality-assurance utility designed to maintain absolute mathematical and syntactic verifiability across the repository's markdown manuals:
-
-```bash
-python3 tools/doccheck.py docs/vol*/*.md
-```
-
-- Extracts every fenced code block tagged with ` ```dsp `.
-- Assembles code blocks one by one using the internal `asm.Assembler()`.
-- Emits non-zero exit codes if any technical document contains invalid, pseudo-, or uncompilable assembly listings.
-
----
-
-## 4.7 Golden C Simulation & DSP Emulation Core `[VERIFIED]`
-
-The repository provides a bit-exact, single-cycle software emulation core in C (`examples/from_scratch/emu/`):
-
-- **Core Components**:
-  - `dspdec.h`: Decoding engine parsing class templates (`dsp_templates.txt`, `dsp_units_ab.txt`), operand references, immediate extraction, and execution condition fields into `Op` / `Cond` structs.
-  - `dspcore.h` / `dspcore.c`: High-performance execution core implementing bit-exact arithmetic semantics for every Roland DSP opcode, flags evaluation, and memory bank models.
-  - `dspref.py`: Python ctypes binding exposing `dspref.Machine` for test harnesses, verifying against golden datasets (`work/golden_insn.txt`, 15,756 instructions).
-  - `cchain.Slave` / `Bmc2`: Emulates clustered multi-DSP slave topologies matching measured physical audio output bit-for-bit.
-  - `dspjit.py`: Native JIT translation engine compiling DSP programs directly into host x86-64 machine code for real-time 96 kHz polyphonic simulation.
-
----
-
-## 4.8 `check_optimized.py` — Microcode Optimization Validator `[VERIFIED]`
-
-A static analysis tool that verifies whether DSP assembly programs adhere to hardware performance rules and optimal fused encodings:
-
-```bash
-python3 tools/check_optimized.py examples/system_1_synth/s1m0.s
-python3 tools/check_optimized.py --strict FILE...
-```
-
-| Warning Diagnostic | Condition Detected | Required Remediation |
+| rule | content | status in the docstring |
 |---|---|---|
-| `manual-wrap` | Repeated pairs of `mul rX, rX, #256` + `min rX, rX, ...` | Replace with hardware `ph_wrap` / `ph_tri` / `ph_clamp` SFU instructions. |
-| `filler` | Isolated `mov rN, rN` padding instructions | Remove padding; schedule operations into parallel slots. |
-| `transfer-only` | Instruction word executing only `ld` / `st` transfers | Bundle memory transfers with adjacent arithmetic operations. |
-| `fusable` | Sequential independent operations that fit into a single VLIW word | Merge into a single multi-unit instruction line. |
+| R2 | bank 5: at most 1 load and 1 store per instruction | measured |
+| R3 | bank 0: at most 2 loads and 2 stores per instruction | measured |
+| R4 | bank 6: at most 2 loads per instruction | measured |
+| R5 | one bank-5 access per instruction (load or store) | "our rule, inferred"; stricter than Roland (corpus count 2026-11-03 over 13845 SYSTEM-1 instructions: 1 load + 1 store 5 times, 2 stores 11 times only in the OS's frame headers, 2 loads never) |
+| R6 | at most 2 loads of banks 5 + 6 + IOMD per instruction | inferred |
+| R7 | a slave DSP stores to bank 5 only in `A100..A1FF` (`A000..A0FF` is what the ARM writes) | — |
+| R8 | ops sharing an instruction: only the groups proven on the device (`asm/proven_forms.txt`) | — |
+| R9 | never a group that `asm/bad_forms.txt` forbids | — |
+| R10 | a slave DSP never accesses bank 5 at `A200` or above (`ldb5` / `FD6C` reach only `A000..A1FF` reliably; measured 2026-11-06) | measured |
 
+Plus a warning for an instruction shape that is not part of a program that ran on the device (`PROVEN_PROGRAMS`:
+C-S1V8, C-S1SY13). Use: `s1rules.check('s1m0', lines)` or `python3 asm/s1rules.py FILE.s ...`.
+
+`asm/bad_forms.txt` (first entries, 2026-10-28): two unit-B ops in one instruction hung the SYSTEM-1 (MP-CSAW-H2 hung,
+MP-CSAW-G2 ran); Roland fuses A+B and A+A+B. The MAC with an immediate coefficient beside an A op also hung the SYSTEM-1
+(2026-10-29, `asm/roland_forms.py` docstring; [Vol. II ch. 10](../vol2_dsp_core_isa/native_ops.md) §5).
+
+## 7. Evidence lists kept up to date by the builds
+
+| list | updated by | used by |
+|---|---|---|
+| `asm/proven_forms.txt` | `tools/proven_forms.py promote BUILD/try_forms.txt --by PLUGOUT` after a `TRY_FORMS` build ran on the device | `dspsched` (fusion), `s1rules` R8 |
+| `asm/proven_addresses.txt` | `make_s1cc.py --promote-addresses NAME` after a build ran on the device | `make_s1cc.py` warns for any other address |
+| `asm/master_b_forms.txt` | by hand after a master-B build ran | `make_s1cc.py` warns for any other form in `s1mm1` |
+| `work/roland_forms.json` (local, from Roland's code) | `asm/roland_forms.py` | evidence for a group before a device test |
+
+## 8. Documentation check (`tools/doccheck.py`)
+
+A ```` ```dsp ```` block is DSP assembly in the syntax of `asm/`: one instruction per line, `;` comments. Blocks are
+assembled one by one with `asm.Assembler`; a block that fails is reported with its file and line and the exit code is
+1. ```` ```c ```` blocks are not compiled. In this documentation suite every ```` ```dsp ```` block assembles
+(`python3 tools/doccheck.py docs/vol*/*.md docs/vol*/*/*.md system-1/*.md`, run on 2026-11-10).

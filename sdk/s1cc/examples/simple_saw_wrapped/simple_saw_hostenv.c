@@ -1,5 +1,5 @@
 /* simple_saw_hostenv.c: two saws, a low-pass and the host's two envelopes, for SYSTEM-S1CC
- * (docs/examples_simple_saw_wrapped_README.md §7, docs/examples_system_s1cc_README.md §3.1). The kernel has no envelope
+ * (sdk/s1cc/examples/simple_saw_wrapped/README.md §7, examples/system_s1cc/README.md §3.1). The kernel has no envelope
  * of its own: SYSTEM-S1CC builds the ADSRs in assembly on DSP B (C-S1SY's, proven on the device) as soon as a kernel
  * calls s1_env(), and the kernel only reads them, as a synth uses its two envelopes:
  *   s1_env(0)  AMP ATTACK / DECAY / SUSTAIN / RELEASE      -> the level of the voice (the VCA)

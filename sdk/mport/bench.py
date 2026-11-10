@@ -1,4 +1,4 @@
-"""A component alone on one emulated DSP (docs/MUTABLE_SDK.md §6): the port measured without a host program.
+"""A component alone on one emulated DSP (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §6): the port measured without a host program.
 
     import bench
     out, info = bench.run(SawSwarm(), note=69, knobs={'ratio': 128, 'hp': 0}, n=9600)

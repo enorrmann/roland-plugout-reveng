@@ -1,5 +1,5 @@
 /* wt_c.c: a wavetable oscillator written entirely in C, reading the bank-5 frame with s1_ldb5
- * (docs/MUTABLE_MEMORY.md §4.5). The 127-point frame (+ a guard copy of point 0) in bank 5 A080.. is written by the
+ * (docs/vol6_reference_designs_applications/mutable_memory.md §4.5). The 127-point frame (+ a guard copy of point 0) in bank 5 A080.. is written by the
  * host / USB loader (tools/wt_load.py); SL_LOAD=1 gives it a default ramp saw until one is sent. The sample is just
  * `a` and `b` below -- manipulate it in C. DSP B = the mutable_ported filter + AMP envelope (mp_dsp_b.h), as jp8_saw.
  *

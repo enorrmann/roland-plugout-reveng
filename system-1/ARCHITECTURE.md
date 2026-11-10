@@ -1,9 +1,9 @@
 # Arquitectura del SYSTEM-1: hardware, qué código corre dónde, y nuestras herramientas
 
-Es el equivalente de `docs/ARCHITECTURE.md` (SYSTEM-8). Estado: 2026-10-22. Fuentes: OS 1.30 (`FIRMWARE.md`), los
-PLUG-OUTs SH-2/SH-101/PROMARS para SYSTEM-1 (sólo leídos) y lo medido con C-S1V4 (`docs/examples_system_1_README.md`).
+Es el equivalente de [Vol. I ch. 1](../docs/vol1_system_architecture/soc_overview.md) (SYSTEM-8). Estado: 2026-10-22. Fuentes: OS 1.30 (`FIRMWARE.md`), los
+PLUG-OUTs SH-2/SH-101/PROMARS para SYSTEM-1 (sólo leídos) y lo medido con C-S1V4 ([examples/system_1/README.md](../examples/system_1/README.md)).
 Detalle: voces en [VOICE_ALLOCATION.md](VOICE_ALLOCATION.md), audio en [WAVE_BUS.md](WAVE_BUS.md), memoria de
-programa en [../docs/DSP_PROGRAM_MEMORY.md](../docs/DSP_PROGRAM_MEMORY.md).
+programa en [Vol. III ch. 3](../docs/vol3_voice_allocation_scheduling/slot_program_model.md).
 
 Leyenda: **[medido]** · **[código]** · **[inferido]** · **[abierto]**.
 
@@ -41,13 +41,13 @@ Leyenda: **[medido]** · **[código]** · **[inferido]** · **[abierto]**.
 
 | recurso | DSP A | DSP B | certeza / detalle |
 |---|---|---|---|
-| tiempo por muestra (96 kHz) | **703** instrucciones corrieron, 826 colgaron | **708** corrieron (sin límite buscado) | [medido], `docs/examples_system_1_synth_README.md` §4. 1 ciclo por instrucción, cualquiera sea su contenido (medido en el SYSTEM-8, `docs/DSP_HARDWARE.md` §1) |
-| programa principal | **6 KiB** (`0x0100`–`0x18FF`); pasarse cuelga | igual | [medido 2026-10-28], `docs/DSP_PROGRAM_MEMORY.md` §3 |
-| memoria de programa total | 32 KiB: principal + secciones 2–5 (~6 KiB c/u) + cierre. Una sección propia se coloca con `FC40` (con `FC30` se copia pero no corre) y se enciende con `FC44(i, 1)`; corre después del principal y suma a su tiempo | igual | [medido 2026-10-28], `docs/DSP_PROGRAM_MEMORY.md` §3.2 |
+| tiempo por muestra (96 kHz) | **703** instrucciones corrieron, 826 colgaron | **708** corrieron (sin límite buscado) | [medido], [examples/system_1_synth/README.md](../examples/system_1_synth/README.md) §4. 1 ciclo por instrucción, cualquiera sea su contenido (medido en el SYSTEM-8, [Vol. II ch. 1](../docs/vol2_dsp_core_isa/core_architecture.md) §1) |
+| programa principal | **6 KiB** (`0x0100`–`0x18FF`); pasarse cuelga | igual | [medido 2026-10-28], [Vol. III ch. 3](../docs/vol3_voice_allocation_scheduling/slot_program_model.md) §3 |
+| memoria de programa total | 32 KiB: principal + secciones 2–5 (~6 KiB c/u) + cierre. Una sección propia se coloca con `FC40` (con `FC30` se copia pero no corre) y se enciende con `FC44(i, 1)`; corre después del principal y suma a su tiempo | igual | [medido 2026-10-28], [Vol. III ch. 3](../docs/vol3_voice_allocation_scheduling/slot_program_model.md) §3.2 |
 | tamaño de una instrucción | 2–62 bytes; ≈ 8–10 en los nuestros: 6 KiB son ≈ 600–750 instrucciones | | [medido] |
-| ops por instrucción | hasta 3 (sólo los grupos de `asm/proven_forms.txt`) y 3 transferencias, con las reglas R2–R8 | | [medido], `asm/s1rules.py`, `docs/MICROCODE_OPTIMIZATION.md` |
-| registros | r0–r7 compartidos por todos los programas del DSP; dos mitades r0–r3 / r4–r7 (dos voces de a pares, `docs/examples_system_s1cc_README.md` §4.2) | | [medido] |
-| memoria de datos | banco 0 (anillo, 0x800 palabras), 1, 5 (0x400, el que escriben el ARM y los DSP: `A100`–`A1FF` para los DSP), 6 (parámetros, sólo lectura) | | [medido], `system-1/DSP_BANKS.md`, `docs/DSP_HARDWARE.md` §7 |
+| ops por instrucción | hasta 3 (sólo los grupos de `asm/proven_forms.txt`) y 3 transferencias, con las reglas R2–R8 | | [medido], `asm/s1rules.py`, [Vol. III ch. 6](../docs/vol3_voice_allocation_scheduling/microcode_optimization.md) |
+| registros | r0–r7 compartidos por todos los programas del DSP; dos mitades r0–r3 / r4–r7 (dos voces de a pares, [examples/system_s1cc/README.md](../examples/system_s1cc/README.md) §4.2) | | [medido] |
+| memoria de datos | banco 0 (anillo, 0x800 palabras), 1, 5 (0x400, el que escriben el ARM y los DSP: `A100`–`A1FF` para los DSP), 6 (parámetros, sólo lectura) | | [medido], `system-1/DSP_BANKS.md`, [Vol. II ch. 1](../docs/vol2_dsp_core_isa/core_architecture.md) §7 |
 
 El build de SYSTEM-S1CC aplica estos límites (`make_s1cc.py`: `BUDGET_A` / `BUDGET_B` / `MAIN_BYTES`) y elige solo
 cuántas voces entran.
@@ -81,7 +81,7 @@ Consecuencias para nuestros PLUG-OUTs:
   en el ARM del SYSTEM-1 es posible con la emulación por software de gcc (`libgcc`: `__aeabi_fmul`, …), más lenta.
 * El código ARM de un PLUG-OUT del SYSTEM-8 (p. ej. el motor del JX-3P) **no corre en el SYSTEM-1** tal cual:
   además de otra interfaz y otros servicios, usa VFP. Hay que portarlo o reescribirlo (`DSP_FIT.md`).
-* Los DSP no se ven afectados: hacen su propia aritmética (`docs/DSP_HARDWARE.md`), igual en los dos equipos.
+* Los DSP no se ven afectados: hacen su propia aritmética ([Vol. II ch. 1](../docs/vol2_dsp_core_isa/core_architecture.md)), igual en los dos equipos.
 
 ## 2. Qué código corre en cada procesador
 
@@ -119,7 +119,7 @@ la región 1 sólo puede llamar a los servicios del esclavo, y sólo la región 
 | `0x40140000`, `0x40160000` (+`0xE000`, +`0x10000`) | bloques de cada DSP; `+0x10000` es destino de copias por DMA en bloques de `0x200` (memoria de programa o de datos) | [abierto] |
 | `0x40100000` | control común | [abierto] |
 
-La memoria de programa (secciones, cierres) se describe en [../docs/DSP_PROGRAM_MEMORY.md](../docs/DSP_PROGRAM_MEMORY.md) §3.
+La memoria de programa (secciones, cierres) se describe en [Vol. III ch. 3](../docs/vol3_voice_allocation_scheduling/slot_program_model.md) §3.
 
 ## 5. Nuestras herramientas
 
@@ -129,7 +129,7 @@ La memoria de programa (secciones, cierres) se describe en [../docs/DSP_PROGRAM_
 | `tools/plugout_build.py unpack / pack / show` | PC | `Code1.Dat` | desempaquetar y construir (ida y vuelta exacta con el SH-2) |
 | `examples/system_1/build.sh` (`TONE=1`, `PARAMLOG=1`) | PC | genera C-S1V4 / C-S1TONE / C-S1LOG | PLUG-OUT propio y pruebas |
 | `examples/system_1/make_s1.py --sim` | PC | nada (simula esclavo A, B y maestro B con `re/dspisa.py`) | comprobar los programas antes de instalar |
-| `examples/system_1/paramlog.py` | PC + build `PARAMLOG` en el maestro | escucha MIDI 1/2 | qué id manda cada control (`docs/examples_system_1_README.md` §6) |
+| `examples/system_1/paramlog.py` | PC + build `PARAMLOG` en el maestro | escucha MIDI 1/2 | qué id manda cada control ([examples/system_1/README.md](../examples/system_1/README.md) §6) |
 | `system-1/extract_fw.py`, `voice_sets.py`, `fnmatch.py`, `asgn_sites.py` | PC | imágenes del OS | estudio estático |
 
 Lo que **no** hay todavía en el SYSTEM-1: lectura de la memoria de los DSP desde el PC (como `dsppeek` del SYSTEM-8),

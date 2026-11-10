@@ -21,7 +21,7 @@ mov r2, #0.0
     st r2, [{x:04x}]
 .endfor
 .if M2S_PROBE
-; M2S_PROBE (docs/MUTABLE_MEMORY.md §4.3): master B -> slave words 600E + k, k = 0..7: 1.0 for even k, 0.5 for odd
+; M2S_PROBE (docs/vol6_reference_designs_applications/mutable_memory.md §4.3): master B -> slave words 600E + k, k = 0..7: 1.0 for even k, 0.5 for odd
 mov r4, #1.0
 mov r5, #0.5
 .for k in range(8)

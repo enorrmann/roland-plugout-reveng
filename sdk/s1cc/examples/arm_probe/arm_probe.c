@@ -1,5 +1,5 @@
 /* arm_probe.c: the host's envelopes and LFO made audible, to measure them by USB capture
- * (docs/examples_system_s1cc_README.md §3.7). Three fixed tones on DSP B, each with the amplitude of one host signal:
+ * (examples/system_s1cc/README.md §3.7). Three fixed tones on DSP B, each with the amplitude of one host signal:
  *   1000 Hz  x s1_env(0)                    AMP envelope
  *   2200 Hz  x s1_env(1)                    FILTER envelope
  *   4100 Hz  x (0.5 + s1_lfo_filter() / 8)  the LFO (LFO TO FILTER, +-4 octaves -> 0..1)

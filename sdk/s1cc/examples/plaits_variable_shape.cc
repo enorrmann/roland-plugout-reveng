@@ -1,5 +1,5 @@
 // Plaits' VariableShapeOscillator (plaits/dsp/oscillator/variable_shape_oscillator.h, (c) Emilie Gillet, MIT),
-// compiled as it is with the real stmlib (sdk/s1cc/s1cc deps). A hand wrapper (docs/S1CC.md §3.2): one Render() of
+// compiled as it is with the real stmlib (sdk/s1cc/s1cc deps). A hand wrapper (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2): one Render() of
 // one sample per DSP sample. Plaits runs at 48 kHz with frequencies in cycles per sample: here f / 96000.
 #include "s1dsp.h"
 #include "plaits/dsp/oscillator/variable_shape_oscillator.h"

@@ -1,4 +1,4 @@
-/* wt_slave1k.c: the slave wavetable with one frame in a bank-0 loop of DSP A (docs/MUTABLE_MEMORY.md §4.1,
+/* wt_slave1k.c: the slave wavetable with one frame in a bank-0 loop of DSP A (docs/vol6_reference_designs_applications/mutable_memory.md §4.1,
  * SL_WT=b0 SL_MORPH=0): OSC1 COLOR steps through the frames (region 1 writes the nearest frame of the whole table into
  * the loop; no mix of frames). Default WT-SLAVE768 (768 points, WORKS 2026-11-05). 1024 points do not fit: DSP A's
  * bank 0 has 1024 words, wrapping at 0x0400 (WT-ALIAS); WT-SLAVE1K (loop to 0x0450) failed. Variants by environment:

@@ -64,6 +64,27 @@ stock object). Voice parameters go through `set(part, 2, id, value)`:
 | `0x465` | bend − `0x2000` (clamped) |
 | `0x467` / `0x46A` | CC1 / CC11 |
 
+Vtable of the assigner (17 entries, `struct assign_vt` in `model.c`; this is the layout that runs on the device):
+
+| # | method | # | method |
+|---|---|---|---|
+| 0 | `reset()` | 9 | `set(group, id, value)` |
+| 1 | `changed(group)` | 10 | `get(group, id, &value)` |
+| 2 | `note_off(note)` | 11 | `touch(group, id)` |
+| 3 | `note_on(note, vel)` | 12 | `flush(group)` |
+| 4 | `cc(cc, value)` | 13 | `other_cc(cc, value)` |
+| 5 | part parameter `0x22D` (value) | 14 | `init(voices)` |
+| 6 | `bend(value)` | 15 | `set_voices(voices)` |
+| 7, 8 | no-ops | 16 | `voices()` → `[this + 4]` |
+
+Entries 9–12 only compute the part (`{0, 1, 2, 1, 2}[split mode]`) and call the kernel table at `0x01000400`:
+`[0] get(part, group, id)`, `[1] set(part, group, id, value)`, `[2] flush` (a no-op in OS 1.32),
+`[3] touch(part, group, id)`; `get` and `set` ignore the group. The OS writes the pitch bend to the voice id `0x465`
+by itself and does not call entry 6 (measured with the master peek, 2026-10-15). In the stock JX-3P the object is
+`CAssignPlugout` (vtable `0x619197C8` in slot 1); the OS calls `init` from `LoadPlugout` (`0x60051D32`, `0x60052464`),
+once per part, walks the parameter list at `0x600525B4`, and a list of zeros (record size 0) makes that walk loop
+for ever, which is how a stub region 0 hangs the device at "receiving".
+
 Split modes (`select`): 0 whole (part 0, 8 voices), 1 / 2 lower / upper half
 (parts 1 / 2, 4 voices; the upper half uses voices 4–7), 3 / 4 parts 1 / 2 with
 8 voices. Key assign (patch `0x6FF`): POLY (same note again, else the oldest

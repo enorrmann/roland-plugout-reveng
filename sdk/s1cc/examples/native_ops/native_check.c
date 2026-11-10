@@ -1,4 +1,4 @@
-/* native_check.c: the DSP's native ops (s1dsp.h "Native ops", docs/S1CC.md §4.5) checked on the synth by ear.
+/* native_check.c: the DSP's native ops (s1dsp.h "Native ops", docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §4.5) checked on the synth by ear.
  * Each op is compared with an identity that does not use it; the voice is a sawtooth times (1 - clamp(K error)):
  * a clean saw at full level when every selected op is right, quieter / silent / rough when one is wrong.
  * OSC1 COLOR picks the ops in the check: knob 0..27 all of them, then one each 28 steps:

@@ -32,7 +32,7 @@ typedef struct Dsp {
     double bank5_own[0x400];       /* bank 5 low half: the chip holds 1024 words, but on the SYSTEM-1 SLAVE only
                                     * A000..A1FF (offset < 0x200) is reliably addressable by ldb5 / FD6C -- a static
                                     * frame at A200.. read corrupt on the device at 127 and 256 points (measured
-                                    * 2026-11-06, docs/MUTABLE_MEMORY.md §4.1, asm/s1rules.py R10). This model reads
+                                    * 2026-11-06, docs/vol6_reference_designs_applications/mutable_memory.md §4.1, asm/s1rules.py R10). This model reads
                                     * 0x200..0x3FF as plain memory, so a slave sim that uses them will NOT match hw. */
     double bank2[2][0x2000];      /* bank 2: two pages alternating by sample (a store is read back 2 samples later);
                                    * the delay line's DMA window: [4300] -> EDM, tap results [h5 ..] (DSP_HARDWARE §8.4) */
@@ -95,7 +95,7 @@ struct Slave {
      * takes every access instead (sim_main.py: refuse unmeasured banks, inputs and outputs) */
     double *flat;
     double (*access)(int op, int64_t a, double v);
-    /* the delay line (DSP_HARDWARE.md §8.4, DSP_USOS.md §1; master DSP4 slot f7dc, measured 2026-10-17): the EDM
+    /* the delay line (docs/vol2_dsp_core_isa/core_architecture.md §8.4, docs/vol2_dsp_core_isa/operation_uses.md §1; master DSP4 slot f7dc, measured 2026-10-17): the EDM
      * (edm_len words), written at the end of each sample with bank-2 word 0x300 of DSP edm_dsp (-1: no window);
      * a tap request with address A reads x[n - edm_lat - floor(k)] and the one before it, k = (A - edm_base) 16384,
      * and the fraction of k truncated to 1/64. Machine mode: the window is flat[4300], dsp_machine_end_sample */
@@ -122,7 +122,7 @@ typedef struct { int set; double v; int z; } Res;
 /* Every NaN leaves quant as one canonical NaN (+qNaN). The DSP has no NaN (only random test states with inf reach
  * one), but C leaves open which NaN an op with NaN operands returns, and compilers commute operands: the sign
  * of the NaN then depended on the optimisation (it reached `sign` and gave -5 instead of -3 in p0s_003661c, the
- * "GCC 14 miscompile" of EMULATOR.md §3.6, also with clang). After quant the result no longer depends on it. */
+ * "GCC 14 miscompile" of docs/vol5_toolchain_compiler_sdk/emulator.md §3.6, also with clang). After quant the result no longer depends on it. */
 #define QNAN_BITS UINT64_C(0x7FF8000000000000)
 
 INL double quant(double v)

@@ -1,6 +1,6 @@
 /* jp8_saw.c: a SINGLE-CYCLE wavetable oscillator for SYSTEM-S1CC (SYSTEM-1).
  *
- * Which wavetable plug-out to use (docs/MUTABLE_MEMORY.md §4.0):
+ * Which wavetable plug-out to use (docs/vol6_reference_designs_applications/mutable_memory.md §4.0):
  *   - SINGLE-CYCLE / few-frame oscillator  -> the SLAVE, frame FIXED in bank 5 (SL_WT=b5, this file):
  *       one frame (127 points, band-limited to 63 harmonics) written once into bank 5 A080..A0FF, read by every
  *       voice with ldb5 + linear interpolation; OSC1 COLOR picks the frame. 8 voices, no EDM, no note-start fill.

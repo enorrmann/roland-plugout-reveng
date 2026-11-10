@@ -1,5 +1,5 @@
 /*
- * app.js -- the PLUG-OUT installer page (docs/WEB_INSTALLER.md).
+ * app.js -- the PLUG-OUT installer page (docs/vol4_firmware_container_protocol/web_installer.md).
  *
  * A wizard: one step visible at a time, Back / Next below it.
  *   1. Web MIDI with SysEx available and granted,
@@ -144,7 +144,7 @@
   /**
    * Keep the MIDI access: a cable plugged in or a synth switched on shows up.
    * Chrome also fires statechange when a port is merely opened or closed, which
-   * every question round does: those events are ignored (docs/WEB_INSTALLER.md §4),
+   * every question round does: those events are ignored (docs/vol4_firmware_container_protocol/web_installer.md §4),
    * or a synth that does not answer would be asked again and again.
    */
   function grantAccess(access) {

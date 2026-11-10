@@ -2,7 +2,7 @@
 
 Two kinds of proof, kept apart on purpose:
 
-* `test_spec_words` assembles the worked examples of DSP_ISA_SPEC.md and
+* `test_spec_words` assembles the worked examples of docs/vol2_dsp_core_isa/instruction_set_reference.md and
   compares against the words printed there. This checks the encoder against
   the documentation, not against our own decoder.
 * `test_round_trip` disassembles corpus instructions and re-assembles them.

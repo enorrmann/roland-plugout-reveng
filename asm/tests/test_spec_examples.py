@@ -1,4 +1,4 @@
-"""The worked examples of DSP_ISA_SPEC.md, decoded by the table.
+"""The worked examples of docs/vol2_dsp_core_isa/instruction_set_reference.md, decoded by the table.
 
 These are independent of our own encoder: the words are copied from the spec
 (§11, §6, §7, §8, §9.0), so they catch a table that is self-consistently wrong.

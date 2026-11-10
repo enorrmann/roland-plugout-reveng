@@ -61,7 +61,7 @@ voces en un DSP**. Cuatro voces necesitan cuatro DSP, uno por voz [inferido].
 
 1. **Microcódigo**: cargar copias del programa de 575 instrucciones en otros DSP (DSP2–DSP5 vía `FC38/FC3C/FC28/FC2C`)
    y cambiar en cada copia las direcciones de salida para que no se pisen (en MXM gana la última escritura, no suma;
-   `docs/DSP_HARDWARE.md`). Alguien tiene que sumar las 4 salidas: el programa de 12 instrucciones de DSP1, que
+   [Vol. II ch. 1](../docs/vol2_dsp_core_isa/core_architecture.md)). Alguien tiene que sumar las 4 salidas: el programa de 12 instrucciones de DSP1, que
    ahora reenvía la salida de DSP0 (lee `6006`–`600A`/`8fe0`… por los bancos 3/4), ampliado a 4 entradas.
 2. **Motor (región 1)**: cada parámetro de patch que hoy se escribe en DSP0 se escribe también en los otros 3 DSP; el
    tono y la puerta de cada voz, solo en su DSP. Hay que encontrar el envoltorio de escritura de parámetros (servicios

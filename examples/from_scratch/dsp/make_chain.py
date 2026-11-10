@@ -1,9 +1,9 @@
 """Two-DSP chain for the gate plug-out, all our own asm (asm/asm.py), no Roland code and no envelope or LFO.
 
     DSP2 (DCO1 slot): SAW at the pitch the ARM writes to bank 5 id 0x21 ([A021]); the phase is the only state.
-                      Output -> MXM Z 0x404, which DSP4 reads as its M 0x005 (routing of docs/DSP_ARM_SIDE.md).
+                      Output -> MXM Z 0x404, which DSP4 reads as its M 0x005 (routing of docs/vol2_dsp_core_isa/memory_banks_dma.md).
     DSP4 (DCO1 slot): output = SAW from DSP2 times the gate the ARM writes to bank 5 id 0x22 ([A022]),
-                      stored in IOMD 6020 (canal 1) and 6021 (canal 0) (docs/WAVE_BUS.md).
+                      stored in IOMD 6020 (canal 1) and 6021 (canal 0) (docs/vol1_system_architecture/bus_interconnect.md).
 
 The gate is 0 or 1 with no smoothing: the note starts and stops at once.
 

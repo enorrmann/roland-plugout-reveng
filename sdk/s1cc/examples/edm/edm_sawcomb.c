@@ -1,7 +1,7 @@
 /* edm_sawcomb.c: Braids SAW_COMB (macro_oscillator.cc RenderSawComb + digital_oscillator.cc RenderComb) on
  * SYSTEM-S1CC: the band-limited saw with the SVF low pass and the AMP envelope on the slave (mp_saw.c +
  * mp_dsp_b.h), then a comb per voice in its own line of the delay memory on master B (EDM_STR_COMB,
- * docs/MUTABLE_MEMORY.md §3.3.5): delay = the period of note + OSC1 COLOR (+-64 semitones, Braids' TIMBRE),
+ * docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): delay = the period of note + OSC1 COLOR (+-64 semitones, Braids' TIMBRE),
  * feedback = OSC2 COLOR (bipolar, Braids' COLOR), output saw + comb. 6 voices. OSC1 MIX = level. */
 #include "../mutable_ported/include/mp_dsp_a.h"
 #include "../mutable_ported/include/mp_dsp_b.h"

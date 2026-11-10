@@ -5,7 +5,7 @@ list them, and add the ones a TRY_FORMS build tested on the device.
     python3 tools/proven_forms.py promote examples/system_s1cc/build/try_forms.txt --by MP-CSAW-TRY
     python3 tools/proven_forms.py promote 'mad:reg + mul:imm; add:imm + mov:i32' --by MP-CSAW-TRY
 
-Workflow (docs/examples_system_s1cc_README.md §4.1):
+Workflow (examples/system_s1cc/README.md §4.1):
   1. KERNEL=dir python3 examples/system_s1cc/make_s1cc.py --forms
        the groups not on the list that would shorten the slave programs, and how many instructions each saves
   2. KERNEL=dir NAME=X-TRY TRY_FORMS='GROUP; GROUP' sh examples/system_s1cc/build.sh   (or TRY_FORMS=all)

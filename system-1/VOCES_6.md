@@ -1,7 +1,7 @@
 # SYSTEM-1 con 6 voces: análisis y plan
 
 > **2026-10-22:** por el camino de PLUG-OUT ya hay **8 voces funcionando** (C-S1V8, `examples/system_1/`,
-> `../docs/examples_system_1_README.md` §7): el OS acepta 8 voces de un asignador de PLUG-OUT y reenvía los ids
+> [examples/system_1/README.md](../examples/system_1/README.md) §7): el OS acepta 8 voces de un asignador de PLUG-OUT y reenvía los ids
 > `0x114`–`0x117`/`0x124`–`0x127` al esclavo. Esto resuelve la pregunta "¿el esclavo acepta esos ids?" de §3 y
 > es la vía 2 de §5 (un PLUG-OUT propio) sin portar el sinte de serie. Lo que sigue es el análisis para parchear el
 > sinte de serie, que sigue abierto.
@@ -51,7 +51,7 @@ cada voz [código]:
 | 2 | `2014`, `2016` | `005a`, `001c` |
 | 3 | `201e`, `2020` | `005c`, `001d` |
 
-**Coste** (1 instrucción = 1 ciclo; límite ≈ 925–945 por muestra, `docs/DSP_HARDWARE.md` §1):
+**Coste** (1 instrucción = 1 ciclo; límite ≈ 925–945 por muestra, [Vol. II ch. 1](../docs/vol2_dsp_core_isa/core_architecture.md) §1):
 
 | | instrucciones por muestra |
 |---|---|

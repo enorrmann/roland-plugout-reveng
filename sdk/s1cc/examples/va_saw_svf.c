@@ -1,4 +1,4 @@
-/* A float voice in plain C (docs/S1CC.md §11): band-limited saw (polyBLEP, as stmlib / Plaits), a state-variable
+/* A float voice in plain C (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §11): band-limited saw (polyBLEP, as stmlib / Plaits), a state-variable
  * low-pass with tanh drive. Written like ordinary portable DSP code: branches, a libm call, a knob table. */
 #include <math.h>
 #include "s1dsp.h"

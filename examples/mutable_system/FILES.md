@@ -1,15 +1,15 @@
 # examples/mutable_system: qué es cada archivo
 
 Copia de `examples/system_1_synth` (C-S1SY13F) con SAW_SWARM de Braids en lugar de DCO1 + DCO2 (`make_mutable.py`,
-`SWARM=1`). Qué más se puede portar de `~/git/eurorack`: [../../docs/examples_mutable_system_CANDIDATES.md](../../docs/examples_mutable_system_CANDIDATES.md).
-Documento principal: [../../docs/examples_mutable_system_README.md](../../docs/examples_mutable_system_README.md) (§7: qué cambia en
-cada archivo); SDK: [../../docs/MUTABLE_SDK.md](../../docs/MUTABLE_SDK.md). Lo que sigue es el FILES.md de C-S1SY;
+`SWARM=1`). Qué más se puede portar de `~/git/eurorack`: [examples/mutable_system/CANDIDATES.md](CANDIDATES.md).
+Documento principal: [examples/mutable_system/README.md](README.md) (§7: qué cambia en
+cada archivo); SDK: [Vol. V ch. 3](../../docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md). Lo que sigue es el FILES.md de C-S1SY;
 `make_synth.py` se llama aquí `make_mutable.py`, el plug-out `MUTABLE-SYSTEM`. Con `KERNEL=<dir>` el oscilador
-sale de una voz en C / C++ compilada por `sdk/s1cc` ([../../docs/S1CC.md](../../docs/S1CC.md)).
+sale de una voz en C / C++ compilada por `sdk/s1cc` ([Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)).
 
 ## Original (examples/system_1_synth)
 
-Documento principal: [../../docs/examples_system_1_synth_README.md](../../docs/examples_system_1_synth_README.md).
+Documento principal: [examples/system_1_synth/README.md](../system_1_synth/README.md).
 
 ## Programas DSP generados (`*.s` = fuente legible, `*.hex` = palabras que se cargan)
 

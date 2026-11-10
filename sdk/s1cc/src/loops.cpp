@@ -1,4 +1,4 @@
-// Loops whose trip count depends on the data (docs/S1CC.md §4.5): the DSP runs straight-line code, so a loop is
+// Loops whose trip count depends on the data (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §4.5): the DSP runs straight-line code, so a loop is
 // peeled as many times as the profiling run saw it turn, and what is left of it is dropped.
 //   s1cc trips  IN.ll -o OUT.ll      a call __s1p_trip(loop id, header count) in every loop header of the voice
 //                                    functions (runtime/s1rt.c records the maximum per invocation)

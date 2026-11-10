@@ -1,5 +1,5 @@
 /* saw_wrapper.c: the whole of the wrapper between a plain C sawtooth (saw_core.c) and an s1cc voice
- * (docs/examples_s1cc_saw_README.md §3). It is the only file that has to include the SDK.
+ * (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2). It is the only file that has to include the SDK.
  *
  *   S1_DSP_A      slave DSP A, every sample, all 8 voices (a note playing or not): trigger -> new note, one sample
  *                 of the library, x gate
@@ -9,14 +9,14 @@
  *                 ARM writes the knob's row to the DSP (row 128 at load, then whenever the knob moves)
  *   S1_DSP_B    not here: DSP B (the second DSP, not a second oscillator) is left free for the filter /
  *                 envelopes of the host program (C-S1SY)
- *   (docs/S1CC.md §3.1: when each part runs)
+ *   (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.1: when each part runs)
  *
  * Build:  sdk/s1cc/s1cc build sdk/s1cc/examples/saw_wrapper.c   (saw_core.c comes in by itself, for saw_core.h)
  * Check:  sdk/s1cc/s1cc check sdk/s1cc/build/saw_wrapper --note 57
  * In the synth: KERNEL=<build dir> sh examples/mutable_system/build.sh
  *
  * s1cc inlines the library (both files become one program: linked.ll / voice.ll in the build directory), fits the
- * polyBLEP's two corners as functions of the phase (docs/S1CC.md §4.3, §6) and keeps the globals and the struct's
+ * polyBLEP's two corners as functions of the phase (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §4.3, §6) and keeps the globals and the struct's
  * fields as the voice's state (one ring word each). The branch and the call in the library are not a problem; what a
  * branch hides from the profiling is the range of the values next to it, and that is what s1_range declares. */
 #include <math.h>

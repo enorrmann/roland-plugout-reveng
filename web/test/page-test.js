@@ -1,6 +1,6 @@
 /*
  * page-test.js -- drives ../index.html in an iframe with a fake Web MIDI synth
- * (docs/WEB_INSTALLER.md §5). Scenarios:
+ * (docs/vol4_firmware_container_protocol/web_installer.md §5). Scenarios:
  *   1. SYSTEM-1: the page finds the synth by itself; wizard: slot 1, a wrongly
  *      named file is refused, Code1.Dat is taken, Install stays locked until the
  *      box is ticked, installs into slot 1 and closes the MIDI ports; the

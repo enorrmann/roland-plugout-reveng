@@ -31,7 +31,7 @@ Direcciones = JX-3P slot 1 (`plugout_build.py unpack ... --relocs-from Code8_2`)
 ## Región 1 (slaves; slave 0 voces 0-3, slave 1 voces 4-7)
 * init 0x60A0FCCC devuelve D=desc+4: D[0]=slot, D[1]=create, D[2]=destroy, D[5]=objeto
   principal (CPrmDSPJx3pSys8, vtable 0x60A445CC). SYNINFO+0x28 apunta a 0xFFFFFFFF (lista vacía).
-* Slave (s_boot, UpdateSynthPlugout 0x01104226): D=init(); D[1](); D[5]->vt[0](../examples/from_scratch/obj); D[0]=slot.
+* Slave (s_boot, UpdateSynthPlugout 0x01104226): D=init(); D[1](); D[5]->vt[0](obj); D[0]=slot.
   Otros: vt+8 / vt+0xC (0x011041EE), vt+0x24/vt+0x28 (0x01105B6E).
 * Parámetros (UpdateSynthParam 0x01103F2C): obj->vt[0x30](obj, id, 0, valor) para cada id
   (patch 0x6CD.., voces 0x429.., 0x43A..0x44A con valor de 0x0110666A).
@@ -61,7 +61,7 @@ Direcciones = JX-3P slot 1 (`plugout_build.py unpack ... --relocs-from Code8_2`)
   **El sonido (incluida la onda cuadrada) es microcódigo DSP que trae el engine**, distinto por forma de onda;
   el ISA del DSP es desconocido.
 
-## Microcódigo DSP (2026-10-14, `re/dsp_progs.py`; detalle en docs/CUSTOM_PLUGOUTS.md "DSP microcode in the engine")
+## Microcódigo DSP (2026-10-14, `re/dsp_progs.py`; detalle en [Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) "DSP microcode in the engine")
 * El sonido lo hacen programas DSP que vienen en la región 1 y el slave los baja a sus 6 DSPs.
   `vt+8` (0x60A0FA98) los registra: OS `+0x28+4n` ranura, `+0x40+4n` programa, `+0x58+4n` datos
   (n = DSP 0–5; descriptor `{dir DSP, bytes, bytes, src}`; los tres = `0x01105808`, agregar a lista).
@@ -71,11 +71,11 @@ Direcciones = JX-3P slot 1 (`plugout_build.py unpack ... --relocs-from Code8_2`)
 * Cambio en vivo: OS `+0x70(dsp, &prog, &datos, 0x60A44E18, ranura, 2, 0, 0)` con nivel en rampa a 0.
 * Palabras de 16 bits LE; DCO1 vs DCO2 = mismo código con operandos +0x200 (banco de memoria). ISA desconocido.
 * Para el PLUG-OUT propio: copiar los blobs de Roland (principal de cada DSP + SQR) y registrarlos igual.
-* Formato (detalle en docs/CUSTOM_PLUGOUTS.md "Microcode format"): NO son tablas de ondas, es código
+* Formato (detalle en [Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) "Microcode format"): NO son tablas de ondas, es código
   (383 valores distintos en 1988 palabras, sin suavidad; va a memoria de programa 0x41480000+n·0x100000,
   copiado tal cual). Palabras de 16 bits LE, instrucción + palabras operando (direcciones 0x04nn/0x06nn).
   Corpus: `re/dsp_corpus.py` -> 199 programas únicos en todas las imágenes. Mapa de opcodes: pendiente.
-* Espacios de operandos (docs/CUSTOM_PLUGOUTS.md "Memory map of a slave DSP"): `C0nn` = parámetro `+0xA0` id nn,
+* Espacios de operandos ([Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) "Memory map of a slave DSP"): `C0nn` = parámetro `+0xA0` id nn,
   `A0nn` = banco 5 `+0xB0` id nn (flags SAW/PULSE A02A/A02B), `02nn`/`04nn`/`06nn` = RAM local, `22nn` = buzón
   entre programa principal y ranura. Los programas de oscilador NO leen parámetros; el principal se los pasa.
   Herramienta: `re/dsp_wdiff.py` (alinea copias y clasifica operandos).
@@ -145,7 +145,7 @@ recibir onda/tipo de efecto; nuestro engine nunca lo llamaba. Ahora `vt+0x0C` ha
 | Código del engine (región 1) | `engine/engine.c` | propio |
 | Metadatos del contenedor (`plugout.json`) | `engine/build.sh` | **propios** (antes: `unpack` del JX-3P) |
 | `Script.xml` + `Patch/` en `plugins/C-SAW` | plantilla JX-3P | **eliminados**: sin Script.xml `plugout_tool.py install` manda sólo el firmware; los 64 INIT están en la región 0 (`MODEL=jx` los sigue copiando) |
-| Microcódigo DSP (6 principales, SAW/SQR/NOISE, 6 efectos; 48 KB) | copiado del JX-3P al compilar, **estático** (`engine/programs.py`, offsets + SHA-256, sin ejecutar nada) | **pendiente**: requiere el ISA del DSP (assembler propio); el programa vacío y los bloques de datos ya son nuestros. **2026-10-22:** `C-V4` ya no usa microcódigo de Roland (`FROM_SCRATCH.md`) |
+| Microcódigo DSP (6 principales, SAW/SQR/NOISE, 6 efectos; 48 KB) | copiado del JX-3P al compilar, **estático** (`engine/programs.py`, offsets + SHA-256, sin ejecutar nada) | **pendiente**: requiere el ISA del DSP (assembler propio); el programa vacío y los bloques de datos ya son nuestros. **2026-10-22:** `C-V4` ya no usa microcódigo de Roland ([Vol. VI ch. 1](../vol6_reference_designs_applications/c_v4_system8_reference.md)) |
 | Tablas del engine (estado, curvas, rampas, velocidad, registro, cambios de programa) | antes: `gen_tables.py` ejecutaba el engine del JX-3P | **propio** (2026-10-14): modelo `engine/model_spec.py` + intérprete en `engine.c`; sin probar en hardware |
 | Patch por defecto de esas tablas | `Script.xml` del JX-3P | ya no hace falta: el engine lee los valores reales con `+0x00 get` |
 
@@ -415,7 +415,7 @@ mediciones con ruido (p. ej. `0c81` = r2 + r1, `0cc2` = r3 + r2, `1c01` = r1 = r
 * r2 y r3 parecen valer 1.0 al empezar la ranura cuando nadie los escribe (explica `04c1` = r1 y `0881` = 1.5).
 
 ### Peek exacto en los DSP del maestro (2026-10-15) — `re/dsppeek.py`, `re/dspmaster.py`, `re/dspprobe.py`, `re/dspfit.py`
-Ver `docs/ARCHITECTURE.md` (raíz) para qué corre dónde. La región 0 (`model.c -DPEEK`, se instala con `dsplive.py
+Ver [Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) (raíz) para qué corre dónde. La región 0 (`model.c -DPEEK`, se instala con `dsplive.py
 install`) recibe comandos por CC1 (`seq<<6 | 3<<4 | cmd`, el dato de 14 bits en el pitch bend, que la región 0
 relee del id de voz 0x465: el OS escribe el bend ahí y **no** llama al método bend del asignador) y contesta con
 SysEx `F0 7D 02/03` desde el manejador de CC (funciona, no cuelga). Lectura de 8 palabras ≈ 40 ms.
@@ -533,7 +533,7 @@ transferencia; el `fe` de `XfeY` son bits de modo). No parece un campo de bits s
   Lo de "varía en el tiempo" del DSP4 era ruido de lectura + tareas compartidas.
 
 ## SAW propio, primer microcódigo nuestro (2026-10-15) — `re/dspasm.py`, `re/dspown.py`, `re/dspexp/own/`
-Documento técnico completo: `CUSTOM_OSC.md`.
+Documento técnico completo: [Vol. VI ch. 6](../vol6_reference_designs_applications/custom_osc.md).
 * `re/dspasm.py`: ensamblador mínimo del subconjunto establecido (ops A, min/max de B, cargas/guardados, inmediatos
   16/32) que valida cada instrucción con `dspisa`; `saw dco1|dco2` genera el oscilador. `dspown.py`: carga en vivo
   (sólo sirve si el programa registrado tiene el mismo tamaño) y mide notas por audio (pico del espectro).
@@ -555,7 +555,7 @@ Documento técnico completo: `CUSTOM_OSC.md`.
 ### Plugin de laboratorio y condiciones de las ranuras DCO (2026-10-15)
 * **Laboratorio** (sin reinstalar): DSPTEST + DSPLIVE + PEEK, DCO2 de DSP2/DSP3 con un programa registrado de 2048
   palabras (`re/dspexp/own/lab_pad.txt`), DCO1 en silencio. `dspown.py load prog.txt` carga cualquier programa
-  ≤ 2048 palabras en segundos; probado con el SAW y el FOLD (`CUSTOM_OSC.md` §7.1). Al instalarlo hay que poner
+  ≤ 2048 palabras en segundos; probado con el SAW y el FOLD ([Vol. VI ch. 6](../vol6_reference_designs_applications/custom_osc.md) §7.1). Al instalarlo hay que poner
   `work/dsplive/state.json` en el programa de laboratorio (palabras instaladas = `lab_pad`).
 * **Bits de condición en la ranura DCO2 de los slaves** (por audio: ruido × suma de pesos 1/2..1/16 de 4
   condiciones por camino, dos instalaciones rotando condiciones entre DSP y voz, `dspasm.cond_probe`): verdaderas
@@ -586,8 +586,8 @@ Documento técnico completo: `CUSTOM_OSC.md`.
   Sigue sin decodificar.
 * Entradas del DCO2 según Cross Mod: `[2209]` = 1 con SYNC/METAL, `[220a]` = 1 con METAL, `[220b]` = tren de
   impulsos (un pulso por ciclo) con SYNC/METAL, `[220c]` = 0. Las escribe el programa principal (MAIN2/3), no las
-  `X9bY`. Detalle en `CUSTOM_OSC.md` §2.
-* Hipótesis del análisis estático (agente, `DSP_ARM_SIDE.md`): puerto 1/2/3 de `X9bY` → grupos de condición
+  `X9bY`. Detalle en [Vol. VI ch. 6](../vol6_reference_designs_applications/custom_osc.md) §2.
+* Hipótesis del análisis estático (agente, [Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md)): puerto 1/2/3 de `X9bY` → grupos de condición
   4–7 / 8–11 / 12–15, leídos por una C dos instrucciones después (el 90 % de las `X9bY` del corpus tienen una C a
   distancia 2). **No se confirma**: en el DSP3 del maestro (`re/dspx9b.py`; valores ±0.5, 0, ±2, ±1/16, patrones
   crudos 1/2/4/8/F, 0x000F0000, 0x7fffffff, 0xF0000000, distancia 1–3, dentro de una instrucción con op B, y
@@ -599,7 +599,7 @@ Documento técnico completo: `CUSTOM_OSC.md`.
   en programas de efecto tras `{8+d}f6c`, seguido de cargas del banco 2 `4001…` e interpolación lineal → toma de
   línea de retardo (WMEM). Próximos experimentos: `Xa9Y` como toma de retardo y referencias IOMD/MXM en el DSP3.
 
-## Wavetables desde WAV y presupuesto de tiempo del DSP (2026-10-16) — `re/wav2dco.py`, `CUSTOM_OSC.md`
+## Wavetables desde WAV y presupuesto de tiempo del DSP (2026-10-16) — `re/wav2dco.py`, [Vol. VI ch. 6](../vol6_reference_designs_applications/custom_osc.md)
 * **Conversor**: `re/wav2dco.py ciclo.wav -n N` (PCM o float, `--cycle 2048 --frame K` para tablas de varios
   cuadros) → programa para DCO1/DCO2; la tabla va como inmediatos (no hay lecturas indexadas). `re/wtcheck.py`
   toca una escala y compara los armónicos con la tabla (`--harmonics 5`: el filtro del patch apaga los altos).
@@ -638,15 +638,15 @@ Documento técnico completo: `CUSTOM_OSC.md`.
 
 ## Posibles próximos pasos: emulador (2026-10-17, decidido dejarlo para otra sesión)
 
-> 2026-10-22: plan actualizado en `EMULATOR.md`. Hecho en parte, sin Unicorn: `examples/from_scratch/emu/` emula los seis DSP de un slave (y dos slaves)
-> con nuestros programas, en Python (`log/VOICE_ALLOCATION_LOG.md` §6).
+> 2026-10-22: plan actualizado en [Vol. V ch. 5](../vol5_toolchain_compiler_sdk/emulator.md). Hecho en parte, sin Unicorn: `examples/from_scratch/emu/` emula los seis DSP de un slave (y dos slaves)
+> con nuestros programas, en Python ([S8 voice-allocation lab log](historical_lab_logs/s8_voice_allocation_log.md) §6).
 > 2026-10-22 (más tarde): núcleo del DSP en C, código nativo e hilos: un slave del JX-3P en tiempo real, bit a bit igual
-> a `chain.py`. Estado y pendientes en `EMULATOR.md` §5.
+> a `chain.py`. Estado y pendientes en [Vol. V ch. 5](../vol5_toolchain_compiler_sdk/emulator.md) §5.
 Idea del usuario: correr los binarios ARM originales en un emulador de CPU y escribir en C sólo el DSP.
 * **Ya resuelto**: núcleos Cortex-M Thumb-2 → Unicorn (ya usado: `re/emu0.py` región 0, `re/emu1.py` región 1,
   `tools/engine_emu.py` motor base, con los servicios del OS atrapados); binarios descifrados (OS maestro núcleos
-  0/1, `s_boot`/`s_data`, regiones de todos los plugouts, STM32); ISA del DSP documentado (`DSP_HARDWARE.md`).
-* **Lo difícil son los periféricos del BMC** (`docs/BASE_FIRMWARE.md` §8.8): bloques de control DSP `0x411xxxxx` (media,
+  0/1, `s_boot`/`s_data`, regiones de todos los plugouts, STM32); ISA del DSP documentado ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md)).
+* **Lo difícil son los periféricos del BMC** ([Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §8.8): bloques de control DSP `0x411xxxxx` (media,
   es la interfaz con el emulador de DSP), NVIC/SysTick e interrupciones (Unicorn no los tiene), DMA, mailbox entre
   núcleos `0x40054000`, **enlace maestro↔slaves por USB host interno** (EHCI/OHCI "BMCBulk": interceptar el driver
   en vez de emularlo), `0x40026000`/`0x40080000` sin identificar, SD, QSPI, UART al panel, USB al PC, códec, IOMD /
@@ -664,7 +664,7 @@ Idea del usuario: correr los binarios ARM originales en un emulador de CPU y esc
 * Pendiente antes de pruebas de audio: el usuario puso el fine tune en 0 (verificar en la próxima tanda; la
   referencia ya dio 440.15 Hz).
 
-## Verificación de lo pendiente de `DSP_USOS.md` (2026-10-17, tarde) — tablas fijas resueltas
+## Verificación de lo pendiente de [Vol. II ch. 9](../vol2_dsp_core_isa/operation_uses.md) (2026-10-17, tarde) — tablas fijas resueltas
 * **Banco 5 indexado** (`re/dspmodescan.py`: los 256 modos de transferencia con el banco 5 lleno de marcas, DSP3
   del maestro): `XdaY`/`XdeY` = banco5[⌊h6⌋ + Y], `XdbY`/`XdfY` = banco5[⌊h7⌋ + Y] (h7 ← r0 con `40c0`: **h7 =
   segundo índice**), `Xd0Y`…`Xd7Y` = banco5[N·16 + Y]. Carga y store (`9daY`; el ARM ve lo guardado). Truncado, una
@@ -707,7 +707,7 @@ Idea del usuario: correr los binarios ARM originales en un emulador de CPU y esc
 
 ## Wavetable verdadera en el banco 5: `re/wt5.py` (2026-10-17, noche)
 * Script todo en uno: `python3 re/wt5.py send TABLA.wav [--frames K] [--points N] [--frame F | --scan HZ]`
-  (conversión + envío en vivo + reproductor). Detalle y línea de comandos: `CUSTOM_OSC.md` "Wavetable verdadera en el
+  (conversión + envío en vivo + reproductor). Detalle y línea de comandos: [Vol. VI ch. 6](../vol6_reference_designs_applications/custom_osc.md) "Wavetable verdadera en el
   banco 5".
 * **Banco 5: un solo store por instrucción** (con 2 o 6 no queda ninguno; 1 al banco 5 + 1 al banco 0 sí): el
   primer intento con stores de a 6 (clase 0x722) dejó la tabla vacía (sonó basura). El simulador no lo modela.
@@ -725,9 +725,9 @@ Idea del usuario: correr los binarios ARM originales en un emulador de CPU y esc
 * Que el ARM del slave pueda escribir su banco 5 está supuesto por el mapa del maestro: verificar en el equipo.
 
 ## Próximos pasos del ISA (para seguir)
-Referencia: `DSP_ISA_SPEC.md` (especificación, manda), `DSP_ISA.md` (resumen), `DSP_ARM_SIDE.md` (mapa de bancos
-del lado ARM, análisis estático), `CUSTOM_OSC.md` (SAW/FOLD/wavetables propios, laboratorio, presupuesto de tiempo).
-`DSP_USOS.md`: para qué sirven las operaciones halladas (usos, secuencias mínimas, qué falta verificar).
+Referencia: [Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) (especificación, manda), [Vol. II ch. 7](../vol2_dsp_core_isa/isa_overview.md) (resumen), [Vol. II ch. 6](../vol2_dsp_core_isa/memory_banks_dma.md) (mapa de bancos
+del lado ARM, análisis estático), [Vol. VI ch. 6](../vol6_reference_designs_applications/custom_osc.md) (SAW/FOLD/wavetables propios, laboratorio, presupuesto de tiempo).
+[Vol. II ch. 9](../vol2_dsp_core_isa/operation_uses.md): para qué sirven las operaciones halladas (usos, secuencias mínimas, qué falta verificar).
 Estado al 2026-10-16 (noche): corpus 93.6 % (`dspisa.py cov`); antes: SAW de Roland 90 % decodificado, corpus 90,4 % (medido el 15/10; lo del 16/10 agrega
 semántica: inmediatos compartidos entre ops A/B, clases A+B y A+A+B, costo de 1 ciclo, presupuesto ≈ 940
 instrucciones por muestra).
@@ -765,7 +765,7 @@ Reglas aprendidas (antes de cada sesión de medición):
 
 **Plan para la próxima sesión (2026-10-17)**: probar por audio en el laboratorio de los slaves (PLG3, ranura DCO2)
 lo hallado hoy, empezando por el **retardo indexado del banco 0** (vibrato/chorus propio: `[S] ← x`, h6 = (S + k)/16384,
-`X28Y` + lerp; ver `DSP_USOS.md` §2) y el indexado/`40TY` en los slaves; después seguir con la lista de abajo
+`X28Y` + lerp; ver [Vol. II ch. 9](../vol2_dsp_core_isa/operation_uses.md) §2) y el indexado/`40TY` en los slaves; después seguir con la lista de abajo
 (`X9bY`, h7, latencia MXM). Antes: comprobar el SAW de referencia.
 
 Pendiente (ISA):
@@ -801,7 +801,7 @@ Pendiente (ISA):
 * Las sumas A **se envuelven**: magnitud mod 512, se conserva el signo (300 + 300 → 88; 511·2 → 510) y fija V.
 * `dspisa.py` simula banderas (estado persistente, latencia 1, `sim` las imprime). Cobertura del corpus:
   **98.4 %** (antes 93.6 %); queda sobre todo `ff70`/`ef75`/`ef74` (262).
-* Consecuencia: **selección dependiente de los datos** posible (if/else con C `x12`), ver `DSP_USOS.md` §5c.
+* Consecuencia: **selección dependiente de los datos** posible (if/else con C `x12`), ver [Vol. II ch. 9](../vol2_dsp_core_isa/operation_uses.md) §5c.
 * Más (tarde del 17/10): Y = 3 y 4 medidos (Y = Y-ésima op, MAC incluida); banderas de MAC, SFU y min medidas.
 * **Saltos** `009Y` (en posición de C, cuenta como unidad para las C): desplazamiento con signo = palabra Y>>1 del
   flujo de inmediatos/slots, en palabras desde el final de la instrucción. Hallados en el corpus (JX: if/else y un
@@ -853,7 +853,7 @@ Pendiente (ISA):
 * **Marcadores `ef75`/`ef74` medidos**: no cambian registros, banderas ni direccionamiento (bancos 0/5); una SAW
   con secciones de voz al estilo Roland suena idéntica en los slaves (`dspexp/own/saw_sections.txt`); cuestan 1
   ciclo cada uno (`dspbudget.py marker`); ningún código ARM los busca. Son opcionales para un programa propio.
-* **Referencia consolidada del hardware: `DSP_HARDWARE.md`** (17/10, noche). Mediciones nuevas para el
+* **Referencia consolidada del hardware: [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md)** (17/10, noche). Mediciones nuevas para el
   emulador:
   * Aritmética **exacta y truncada hacia cero** una sola vez (`re/dspexact.py`, 48/48 en suma, resta, producto,
     D + X·Y, MAC, MAC/2); desborde = magnitud mod 512.
@@ -924,7 +924,7 @@ Pendiente (ISA):
 * **Indexado relativo al anillo** (`re/dspidxring.py`): contador con load `[h6+1]` / store `[h6]` cuenta 96 000/s,
   con `[h6]`/`[h6]` no. Una tabla fija no puede vivir en el banco 0; en cambio `[S + k]` indexado = lo guardado en
   S hace k muestras → **retardo variable < 2048 muestras en cualquier DSP** (chorus/flanger sin DMA). Usos en
-  `DSP_USOS.md`.
+  [Vol. II ch. 9](../vol2_dsp_core_isa/operation_uses.md).
 * **Bancos 3 y 4 vistos desde el ARM y desde otro DSP** (`re/dspbus.py`, `re/dspbus2.py`, DSP3 del maestro):
   * IOMD: `[60nn]` = palabra nn del bloque IOMD (0x4113C000 IEEE / 0x4113E000 RAW): confirmado.
   * MXM, stores del DSP3: zona M (`81F0`) → ventana MXM2 (0x41430000), O (`83F0`) → MXM3, Z (`85F0`) y S (`87F0`)
@@ -960,7 +960,7 @@ Pendiente (osciladores, cuando se retome):
 
 ## C-V4: plug-out propio de ocho voces (2026-10-22)
 
-Detalle en `FROM_SCRATCH.md` (cómo se construye) y `log/VOICE_ALLOCATION_LOG.md` §6–§8 (análisis, emulador, medida, límite de
+Detalle en [Vol. VI ch. 1](../vol6_reference_designs_applications/c_v4_system8_reference.md) (cómo se construye) y [S8 voice-allocation lab log](historical_lab_logs/s8_voice_allocation_log.md) §6–§8 (análisis, emulador, medida, límite de
 voces). Resumen:
 * `C-V3` sólo sonaba la voz 0. El emulador nuevo (`examples/from_scratch/emu/`, 20 pruebas) encontró tres errores en
   nuestra cadena: el desfase de MXM que no existe, las voces de DSP5 hacia `60B0` (no se oye) y la falta de la suma de

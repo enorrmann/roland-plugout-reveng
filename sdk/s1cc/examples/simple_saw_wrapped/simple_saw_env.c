@@ -1,5 +1,5 @@
 /* simple_saw_env.c: two saws and an ADSR, for SYSTEM-S1CC (examples/system_s1cc: the PLUG-OUT that is only the
- * kernel, no host VCA; docs/examples_system_s1cc_README.md). Two plain C libraries, saw.c and env.c; this file only
+ * kernel, no host VCA; examples/system_s1cc/README.md). Two plain C libraries, saw.c and env.c; this file only
  * adapts them to the voice, maps the panel as C-S1SY does, and splits the work over the slave's two DSPs:
  *   S1_DSP_A  the saws: OSC1 MIX -> level of saw 1, OSC2 MIX -> level of saw 2, OSC2 FINE -> saw 2 +-1 semitone
  *   S1_DSP_B  the ADSR on x = the saws (AMP ATTACK / DECAY / SUSTAIN / RELEASE)
@@ -8,7 +8,7 @@
  *         (saw.c, env.c by themselves; all 8 registers: SYSTEM-S1CC has no host program that keeps r5 / r6)
  * Synth:  KERNEL=sdk/s1cc/build/simple_saw_env sh examples/system_s1cc/build.sh
  *
- * When each part runs (docs/S1CC.md §3.1): S1_PARAM on the PC (256 knob positions; row 128 until the control moves);
+ * When each part runs (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.1): S1_PARAM on the PC (256 knob positions; row 128 until the control moves);
  * S1_INIT on the PC only; S1_DSP_A on the slave's DSP A and S1_DSP_B on its DSP B, every sample, every voice. */
 #include <math.h>
 #include "s1dsp.h"

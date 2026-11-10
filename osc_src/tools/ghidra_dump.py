@@ -33,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 REPO = os.path.dirname(ROOT)
 
-# The six programs of the image (docs/BASE_FIRMWARE.md §8.1): (offset, size),
+# The six programs of the image (docs/vol4_firmware_container_protocol/base_firmware.md §8.1): (offset, size),
 # both relative to the dump.
 PARTS = {
     "m0_core0": (0x000000, 0x130E00),

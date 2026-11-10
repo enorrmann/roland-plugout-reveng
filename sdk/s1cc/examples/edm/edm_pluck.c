@@ -1,4 +1,4 @@
-/* edm_pluck.c: the excitation of the first oscillator in the big delay memory (docs/MUTABLE_MEMORY.md §3.3): a
+/* edm_pluck.c: the excitation of the first oscillator in the big delay memory (docs/vol6_reference_designs_applications/mutable_memory.md §3.3): a
  * short burst of noise at every note start, nothing else. Built with EDM_KS=1 (examples/system_s1cc/build.sh), the
  * master's region 0 turns the OS's delay (master B, program 0x0, a 6 s line in the delay memory) into a
  * Karplus-Strong string: delay time = the note's period (bank 5 A001 / A002), feedback C004 near 1; the burst

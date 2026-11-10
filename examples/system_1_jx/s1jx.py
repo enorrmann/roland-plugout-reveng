@@ -1,5 +1,5 @@
-"""C-S1JX: the JX-3P's own DSP microcode (one DCO) on the SYSTEM-1, 4 voices (system-1/DSP_FIT.md, docs in
-docs/examples_system_1_jx_README.md).
+"""C-S1JX: the JX-3P's own DSP microcode (one DCO) on the SYSTEM-1, 4 voices (docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md, docs in
+examples/system_1_jx/README.md).
 
 The JX-3P's six SYSTEM-8 slave DSPs become the four DSPs of the SYSTEM-1, one chain of two voices per chip:
 
@@ -58,7 +58,7 @@ PLACE = {
 }
 LOCATIONS = [(MA, 0x100, ['MAIN0', 'MAIN2']), (MB, 0x1000, ['MAIN4', 'DCO1@2', 'TAIL']),
              (SA, 0x100, ['MAIN5']), (SA, 0x1900, ['MAIN3']), (SB, 0x100, ['MAIN1']), (SB, 0x1900, ['DCO1@3'])]
-DCO2_OUT = {0x221D, 0x2221, 0x2225, 0x2229}  # DCO2 slot outputs (docs/CUSTOM_OSC.md); MAIN2/3 read them at +1
+DCO2_OUT = {0x221D, 0x2221, 0x2225, 0x2229}  # DCO2 slot outputs (docs/vol6_reference_designs_applications/custom_osc.md); MAIN2/3 read them at +1
 B5_RESERVED = [set(range(0x000, 0x020)) | set(range(0x118, 0x120)),       # master: OS words, A118-A11F output
                set(range(0x000, 0x020))]                                  # slave
 B5_TOP = 0x200
@@ -190,7 +190,7 @@ class Plan:
         # ARM-written parameters that the program only reads -> bank 6 (one id per word on the program's DSP). Bank 5
         # then only carries the mailboxes between the two DSPs of a chip and the words a program writes itself, so no
         # instruction combines a bank-5 load with a bank-5 store (never seen in Roland's SYSTEM-8 programs; two such
-        # instructions hung the SYSTEM-1, C-S1JXH 2026-10-22, docs/examples_system_1_jx_README.md section 10)
+        # instructions hung the SYSTEM-1, C-S1JXH 2026-10-22, examples/system_1_jx/README.md section 10)
         self.p6, self.p6_ids = {}, {s1: {} for s1 in range(4)}
         for s1 in range(4):
             used = set(B6_RESERVED[s1])
@@ -382,7 +382,7 @@ class Plan:
     def mxm(self, chip, key, writer, reader, op, s1):
         """an MXM word of the SYSTEM-8. Writer and reader on the same SYSTEM-1 DSP: the bank-0 ring with stride 2 (store
         at R, load at R + 1: exactly MXM's one-sample latency, whatever the order); otherwise a bank-5 mailbox word.
-        The ring keeps bank-5 accesses at one load and one store per instruction (DSP_HARDWARE.md 7.3; more hung the
+        The ring keeps bank-5 accesses at one load and one store per instruction (docs/vol2_dsp_core_isa/core_architecture.md 7.3; more hung the
         SYSTEM-1, C-S1JXQ 2026-10-22)."""
         if PLACE['MAIN%d' % writer][0] == PLACE['MAIN%d' % reader][0]:
             ring = self.ringmail.setdefault(chip, {})

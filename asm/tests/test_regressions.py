@@ -6,7 +6,7 @@ same words back -- plus the text where the text itself was the defect.
 
     cd asm && python3 -m unittest discover -s tests
 
-The findings are written up in docs/REVIEW.md.
+The findings are written up in docs/vol7_cleanroom_evidence_archive/REVIEW.md.
 """
 
 import os

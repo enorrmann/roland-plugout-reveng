@@ -1,8 +1,8 @@
-"""s1cc end to end (docs/S1CC.md §13): every example is built (clang -> s1cc -> kernel) and run on the emulator
+"""s1cc end to end (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §13): every example is built (clang -> s1cc -> kernel) and run on the emulator
 against its native reference.  python3 -m unittest discover -s sdk/s1cc/tests   (needs clang, LLVM 19, the eurorack
 checkout for the Braids examples; about a minute)
 
-The thresholds are the measured results of 2026-10-27 (docs/S1CC.md §11) with a margin: SNR over the first 10 ms (sample by sample:
+The thresholds are the measured results of 2026-10-27 (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §11) with a margin: SNR over the first 10 ms (sample by sample:
 the port computes what the C computes) and band levels 200 Hz .. 12 kHz within 0.5 dB.
 """
 import os
@@ -39,13 +39,13 @@ CASES = [
     ('plaits_variable_shape.cc', ['-I', EURORACK], [(45, {}, 60, None), (69, {'pw': 200, 'shape': 50}, 70, None),
                                                     (81, {'shape': 255}, 75, None)], (330, None)),
     # mutable_ported: C written for this DSP (s1_dt / s1_rdt, branch-free polyBLEP, the shared SVF + envelopes in B);
-    # the instruction counts are what lets 8 voices fit (docs/examples_mutable_ported_README.md)
+    # the instruction counts are what lets 8 voices fit (sdk/s1cc/examples/mutable_ported/README.md)
     ('mutable_ported/mp_saw.c', ['--regs', '0,1,2,3,4,5,6,7'], [(45, {}, 65, 50), (81, {'cutoff': 200}, 60, 50)], (27, 45)),
     ('mutable_ported/mp_csaw.c', ['--regs', '0,1,2,3,4,5,6,7'], [(57, {'color0': 40, 'color1': 200}, 65, 50)], (68, 45)),
     # cutoff open: with the filter at 128 the 1-4 kHz band of B is ~100 dB down, where only the filter's noise floor is
     ('mutable_ported/mp_harmonic.c', ['--regs', '0,1,2,3,4,5,6,7'], [(57, {'color0': 200, 'cutoff': 255}, 75, 50)], (92, 45)),
     ('mutable_ported/mp_filter_ladder.c', ['--regs', '0,1,2,3,4,5,6,7'], [(45, {'reso': 200}, 65, 60)], (27, 46)),
-    # Casio CZ (docs/examples_casio_cz_README.md): line 1 alone (saw at full DCW, square, resonance), then line 2
+    # Casio CZ (sdk/s1cc/examples/casio_cz/README.md): line 1 alone (saw at full DCW, square, resonance), then line 2
     # alone (saw-pulse): line 2's step is dt x ratio, its phase drifts from the float reference as MP-CSAW2's does
     ('casio_cz/cz.c', [], [(45, {'level2': 0, 'cutoff': 255, 'color0': 255}, 75, 75),
                            (45, {'level2': 0, 'cutoff': 255, 'wave1': 1, 'color0': 200}, 75, 75),
@@ -106,7 +106,7 @@ if __name__ == '__main__':
 
 
 class TestErrorCodes(unittest.TestCase):
-    """Every error / warning code of the compiler and the driver has its row in docs/S1CC.md §9.2, and back."""
+    """Every error / warning code of the compiler and the driver has its row in docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §9.2, and back."""
 
     def test_codes_documented(self):
         src = ''
@@ -115,10 +115,10 @@ class TestErrorCodes(unittest.TestCase):
                 src += open(os.path.join(d, f)).read()
         src += open(os.path.join(S1CC, 's1cc')).read()
         used = set(re.findall(r'"([EW]\d{3})"', src)) | set(re.findall(r'\bfail ([EW]\d{3})\b', src))
-        with open(os.path.join(ROOT, 'docs', 'S1CC.md')) as f:
+        with open(os.path.join(ROOT, 'docs', 'vol5_toolchain_compiler_sdk', 's1cc_compiler_internals.md')) as f:
             doc = f.read()
         documented = set(re.findall(r'^\| `([EW]\d{3})`', doc, re.M)) | set(re.findall(r'^\| `[EW]\d{3}`, `([EW]\d{3})`', doc, re.M))
-        self.assertEqual(used - documented, set(), 'codes without a row in docs/S1CC.md §9.2')
+        self.assertEqual(used - documented, set(), 'codes without a row in docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §9.2')
         self.assertEqual(documented - used, set(), 'documented codes the compiler never emits')
 
 
@@ -204,7 +204,7 @@ class TestSystemS1ccHostEnvelopes(unittest.TestCase):
 
 @unittest.skipUnless(HAVE, 'needs clang and LLVM 19')
 class TestBuildOptions(unittest.TestCase):
-    """S1_BUILD / S1_COMPILE in the C source (docs/S1CC.md §3.3): .option / .compile lines in voice.s1k, the source's
+    """S1_BUILD / S1_COMPILE in the C source (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.3): .option / .compile lines in voice.s1k, the source's
     compiler options under the command line's, E012 / E013, and SYSTEM-S1CC taking them under the environment"""
 
     def setUp(self):
@@ -256,7 +256,7 @@ class TestBuildOptions(unittest.TestCase):
 
 @unittest.skipUnless(HAVE, 'needs clang and LLVM 19')
 class TestFused(unittest.TestCase):
-    """s1cc --fused (docs/S1CC.md §3.4): S1_DSP_B(S1_DSP_A()) as one function against the reference's B output, and
+    """s1cc --fused (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.4): S1_DSP_B(S1_DSP_A()) as one function against the reference's B output, and
     SYSTEM-S1CC running the whole voice on DSP A (SPLIT=n: all voices), on DSP B (SPLIT=0) and split (auto)"""
 
     def test_fused(self):

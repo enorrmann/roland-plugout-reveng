@@ -1,4 +1,4 @@
-"""Tests of the voice-chain study (docs/log/VOICE_ALLOCATION_LOG.md §6), one group per question A-H, plus regressions.
+"""Tests of the voice-chain study (docs/vol7_cleanroom_evidence_archive/historical_lab_logs/s8_voice_allocation_log.md §6), one group per question A-H, plus regressions.
 
     python3 test_chain.py              all tests on the C core (cchain.py, a few seconds)
     python3 test_chain.py A G          only the tests whose name contains test_A / test_G
@@ -241,7 +241,7 @@ def roland_layout_dsp2():
 
 
 def test_F_csaw_layout_needs_main_first():
-    """C-SAW (Roland's mains, our saw reading [2207]) is in tune from note 36 to 96 [documentado, CUSTOM_OSC.md].
+    """C-SAW (Roland's mains, our saw reading [2207]) is in tune from note 36 to 96 [documentado, docs/vol6_reference_designs_applications/custom_osc.md].
     With the ring, a slot that ran first would read [2207] = the [2206] (A02A, not a pitch) of the sample before.
     So: ring => main first. Without the ring the order does not change the pitch."""
     src = voices.make_v4.sources()

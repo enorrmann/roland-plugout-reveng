@@ -1,5 +1,5 @@
 /* filter.h: a low-pass of two one-pole stages in cascade (12 dB / octave), plain C
- * (docs/examples_simple_saw_wrapped_README.md §7). Nothing of the DSP: the wrapper gives it the coefficient. */
+ * (sdk/s1cc/examples/simple_saw_wrapped/README.md §7). Nothing of the DSP: the wrapper gives it the coefficient. */
 #ifndef FILTER_H_
 #define FILTER_H_
 

@@ -1,10 +1,10 @@
-"""Hardware probes for the open items of DSP_ISA_DISCREPANCIES.md (2026-10-20), on master DSP3 via dspprobe.
+"""Hardware probes for the open items of docs/vol2_dsp_core_isa/isa_discrepancies.md (2026-10-20), on master DSP3 via dspprobe.
 
     python3 review_probes.py            # run all, print expected / measured, write work/review_probes.json
 
 Each probe is a list of instructions: ('asm', text) is assembled with asm/ (allow_inferred), ('hex', words)
 is taken as it is. The registers start at dspprobe.REGS; the probe stores r0..r7 and prints what changed.
-Needs the lab plugin installed in slot 3 and PLG3 selected (see DSP_ISA_DISCREPANCIES.md).
+Needs the lab plugin installed in slot 3 and PLG3 selected (see docs/vol2_dsp_core_isa/isa_discrepancies.md).
 """
 import json, os, sys
 

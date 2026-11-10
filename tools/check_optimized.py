@@ -1,4 +1,4 @@
-"""Check that our own DSP microcode uses the optimized forms (docs/MICROCODE_OPTIMIZATION.md); warn where it does not.
+"""Check that our own DSP microcode uses the optimized forms (docs/vol3_voice_allocation_scheduling/microcode_optimization.md); warn where it does not.
 
     python3 tools/check_optimized.py FILE...          .s (our assembly) or .hex / .txt (program words, '#' comments)
     python3 tools/check_optimized.py --strict FILE... exit code 1 when there is any warning
@@ -13,7 +13,7 @@ costs a cycle of the per-sample budget for nothing:
   transfer-only an instruction with loads / stores and no op: the transfers fit into an op's instruction (pack())
   fusable       two adjacent single-op instructions, independent (the second does not read or write the first's
                 result) and encodable as one instruction `op1 | op2` (A+B, A+A, as Roland). An estimate: the
-                assembler decides the encoding; the cost of each fused class is in docs/MICROCODE_OPTIMIZATION.md
+                assembler decides the encoding; the cost of each fused class is in docs/vol3_voice_allocation_scheduling/microcode_optimization.md
 
 Build scripts run it on the programs they generate (examples/system_1_synth/build.sh, ...).
 """

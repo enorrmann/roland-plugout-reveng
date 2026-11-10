@@ -8,7 +8,7 @@ Original, per block of 24 samples (control rate) and per sample (audio rate):
                  sample = Interpolate88(ws_moderate_overdrive, sample + 32768)        (tanh(2x) table)
                  notch = sample - bp damp;  lp += f bp, CLIP;  hp = notch - lp;  bp += f hp;  out = CLIP(hp)
 
-Port (docs/MUTABLE_SDK.md §7):
+Port (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §7):
 
     control rate -> Params:  ratio (6 values: increment ratios 2^(k detune) of the saws k = -3..-1, 1..3 to the centre)
                              hp (H = pi 2^(offset / 12) / 2: the high-pass coefficient per unit of increment)

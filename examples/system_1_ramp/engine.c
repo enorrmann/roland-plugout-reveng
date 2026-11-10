@@ -1,7 +1,7 @@
 /* C-S1V4 region 1 (the engine): runs on the SYSTEM-1 slave BMC. Freestanding, no library, no foreign code, no
  * floating point (the SYSTEM-1 BMCs have no FPU: floats are precomputed bit patterns from make_s1.py).
  * Port of C-V4's engine (examples/from_scratch/v3/engine_v3.c) to the SYSTEM-1 interface
- * (docs/examples_system_1_README.md section 3):
+ * (examples/system_1/README.md section 3):
  *
  *   load (vt+0x08)    voice sections of the OS off (0x0100FC44 i, 0 for i = 0..7), then our programs:
  *                     DSP A: s1m0 @0x0100 + close @0x7FF2 (0x0100FC30), DSP B: s1m1 @0x0100 + close (0x0100FC34)

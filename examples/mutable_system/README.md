@@ -5,13 +5,13 @@
 
 Estado: 2026-10-24. Construido y validado en el emulador. **Instalado en el slot 1** (reemplazó al SH-2 de
 Roland que estaba en ese slot), **sin escuchar todavía** en el equipo [abierto]. Desde el mismo día el oscilador
-también puede venir de una voz en C / C++ compilada con s1cc (`KERNEL=`, §8, [S1CC.md](S1CC.md)).
+también puede venir de una voz en C / C++ compilada con s1cc (`KERNEL=`, §8, [Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)).
 
-Es el sinte de 8 voces C-S1SY13F ([examples_system_1_synth_README.md](examples_system_1_synth_README.md)) con los
+Es el sinte de 8 voces C-S1SY13F ([examples/system_1_synth/README.md](../system_1_synth/README.md)) con los
 dos osciladores básicos por voz (DCO1 + DCO2) reemplazados por **SAW_SWARM** de Braids: 7 sierras desafinadas, un
-waveshaper tanh y un paso alto. Está portado con `sdk/mport` ([MUTABLE_SDK.md](MUTABLE_SDK.md)). Todo lo que viene
+waveshaper tanh y un paso alto. Está portado con `sdk/mport` ([Vol. V ch. 3](../../docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md)). Todo lo que viene
 después del oscilador no cambia: LFO por voz, ADSR de VCA y de filtro, filtro de 4 polos, delay y reverb del OS.
-Qué más se puede portar: [examples_mutable_system_CANDIDATES.md](examples_mutable_system_CANDIDATES.md).
+Qué más se puede portar: [examples/mutable_system/CANDIDATES.md](CANDIDATES.md).
 
 Etiquetas: **[medido]** en el equipo, **[sim]** en el emulador, **[código]**, **[inferido]**, **[abierto]**.
 
@@ -54,7 +54,7 @@ Opciones de la build (`build.sh --help`):
 | OSC1 RANGE (`0x16A`) | octava (64'…2') | DSP A `C044` |
 | OSC1 MIX (`0x174`) | nivel del enjambre | banco 5 `A040` |
 | OSC1/OSC2 WAVE, OSC2 RANGE, OSC2 FINE, OSC2 MIX | **sin efecto**: el ARM sigue escribiendo sus parámetros, pero el programa no los lee | — |
-| resto (LFO, filtro, ADSRs, delay, reverb, VOLUME) | como C-S1SY13 | [examples_system_1_synth_README.md](examples_system_1_synth_README.md) §3.1 |
+| resto (LFO, filtro, ADSRs, delay, reverb, VOLUME) | como C-S1SY13 | [examples/system_1_synth/README.md](../system_1_synth/README.md) §3.1 |
 
 Valores iniciales, hasta que se mueve la perilla: OSC1 COLOR = 128 (detune medio), OSC2 COLOR = 0 (paso alto
 abierto). Las tablas salen de `Param.table()` del componente (`make_mutable.py header()`).
@@ -81,7 +81,7 @@ C-S1SY y los demás `model.c` iguales no tienen este cambio.
   combinaciones de ops que nunca corrieron en el equipo (por ejemplo `ph_wrap` con otra op).
 * **`check_optimized`.** Avisa en el DSP A de 25 `transfer-only` y 56 `fusable`. Son los pares que la lista de
   formas probadas no deja fusionar: justificado por la regla 7 de
-  [MICROCODE_OPTIMIZATION.md](MICROCODE_OPTIMIZATION.md). En el DSP B avisa de 1 `transfer-only` y 24 `fusable`.
+  [Vol. III ch. 6](../../docs/vol3_voice_allocation_scheduling/microcode_optimization.md). En el DSP B avisa de 1 `transfer-only` y 24 `fusable`.
 
 ### 3.1 Mapa de memoria (lo que añade a C-S1SY13)
 
@@ -125,7 +125,7 @@ ph_clamp r2, r3, -r7 | st r1, [0418] | ld r3, [a168] | ld r1, [0401]
 | `--pack-check`: 7 paneles (defecto, filtro + envolventes, 3 LFO, swarm ancho con paso alto, swarm cerrado con paso alto abierto), 19 200 muestras, 8 notas | idéntico bit a bit |
 | `--sim-check`: núcleo C contra la referencia Python, mismos 7 paneles, 600 muestras | idéntico bit a bit |
 | cadena completa contra el C++ de Braids, niveles por banda alineados en 200 Hz–1 kHz (notas 69 / 57 / 45) | ±0,4 dB hasta 4 kHz; −1,9 dB (4–12 kHz) y −10 a −15 dB (12–40 kHz) por el filtro de 4 polos con `GMAX` 0,7 (≈ 10,7 kHz) |
-| oscilador solo (`cli.py check saw_swarm`) | [MUTABLE_SDK.md](MUTABLE_SDK.md) §7.4 |
+| oscilador solo (`cli.py check saw_swarm`) | [Vol. V ch. 3](../../docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md) §7.4 |
 
 **Corrección de la referencia Python.** En `simulate_py`, sólo en esta copia, el maestro no modelaba el anillo del
 banco 1. El retorno del efecto (`2001`/`2003`) quedaba en 0 y la salida era siempre silencio desde el paso 13. Ahora
@@ -142,7 +142,7 @@ hueco: su `--sim-check` del paso 13 compara contra silencio.
 3. **OSC1 COLOR:** de casi unísono (batido lento) a un coro ancho.
 4. **OSC2 COLOR:** desde 0 (todo el cuerpo) hasta un sonido fino y agudo. Por encima de unos 200, y en notas
    agudas, el paso alto se acerca a su límite de estabilidad y puede sonar con ruido. Pasa igual en Braids
-   ([MUTABLE_SDK.md](MUTABLE_SDK.md) §7.3).
+   ([Vol. V ch. 3](../../docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md) §7.3).
 5. **El resto del panel** tiene que funcionar como en C-S1SY13F.
 
 Si cuelga, primero probar `SWARM=1 WS_DEGREE=7` (unas 16 instrucciones menos en el DSP A). Si sigue colgando,
@@ -150,7 +150,7 @@ volver a C-S1SY13F (`STEP=13 FOLD=1 NAME=C-S1SY13F sh examples/system_1_synth/bu
 
 ## 6. Siguientes pasos
 
-Una cosa por instalación ([examples_mutable_system_CANDIDATES.md](examples_mutable_system_CANDIDATES.md) §6):
+Una cosa por instalación ([examples/mutable_system/CANDIDATES.md](CANDIDATES.md) §6):
 * **strike:** fases al azar en cada nota, unas 7 instrucciones por voz en el DSP A;
 * **SampleRateReducer de Plaits** en el pote CRUSHER;
 * **FM de Braids / Plaits** en el selector de onda;

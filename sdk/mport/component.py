@@ -1,4 +1,4 @@
-"""What a ported component is (docs/MUTABLE_SDK.md §5).
+"""What a ported component is (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §5).
 
 A Mutable Instruments render function splits in two:
 

@@ -1,4 +1,4 @@
-// s1cc command line (docs/S1CC.md §9). Normally run by the driver sdk/s1cc/s1cc, not by hand:
+// s1cc command line (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §9). Normally run by the driver sdk/s1cc/s1cc, not by hand:
 //   s1cc prof  IN.ll -o OUT.ll                         profiling module (link with runtime/s1rt.c)
 //   s1cc lower IN.ll --profile P --tables T -o K.s1k [--report R] [--regs 0,1,2,3,4,7] [--tol 3e-3] [--tollog 0.0005] [--maxdeg 11]
 //   s1cc devirt IN.ll -o OUT.ll                         indirect calls with a finite set of known targets -> direct
@@ -146,7 +146,7 @@ int main(int argc, char **argv) {
                         a == "--kernel" || a == "--trips" || a == "--into" || a == "--remarks";
             if (path && onlyLower)
                 s1::fail("E013", "S1_COMPILE: " + a + " is not a compiler option (only --regs, --tol, ...: "
-                                 "docs/S1CC.md §3.3)");
+                                 "docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.3)");
             if (a == "-o") out = next();
             else if (a == "--profile") profile = next();
             else if (a == "--tables") tables = next();

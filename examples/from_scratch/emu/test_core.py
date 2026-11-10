@@ -1,5 +1,5 @@
 """Tests of the C core (cchain.py / dspcore.c / dspdec.h), the DSP reference since 2026-10-29 (the Python model
-re/dspisa.py + chain.py was archived after the port was checked against it on the whole corpus: docs/EMULATOR.md §1.1).
+re/dspisa.py + chain.py was archived after the port was checked against it on the whole corpus: docs/vol5_toolchain_compiler_sdk/emulator.md §1.1).
 
     python3 test_core.py                 all tests
     python3 test_core.py insn            only the tests whose name contains insn
@@ -141,7 +141,7 @@ def golden_line(ins, results):
 
 def test_quant():
     """the branch-free quant of dspcore.h against its plain form (C, every exponent, edges) and against the
-    definition (DSP_HARDWARE.md §3, exact rationals: random values of the ranges the DSP uses)"""
+    definition (docs/vol2_dsp_core_isa/core_architecture.md §3, exact rationals: random values of the ranges the DSP uses)"""
     import ctypes as C
     L = cchain.lib()
     bad = C.c_double()

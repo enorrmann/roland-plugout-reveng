@@ -1,4 +1,4 @@
-"""Minimal assembler for the established DSP subset (DSP_ISA_SPEC.md) + our own SAW oscillator.
+"""Minimal assembler for the established DSP subset (docs/vol2_dsp_core_isa/instruction_set_reference.md) + our own SAW oscillator.
 
     python3 dspasm.py saw dco2 [--fs 48000] [-o prog.txt]   # oscillator for the DCO2 (or dco1) slot
     python3 dspasm.py sim prog.txt --pitch 4.75 [--n 400]    # run it in the C reference (emu/dspref.py), print period
@@ -21,7 +21,7 @@ A_OPS = {'move': (0, 1), 'add3': (1, None), 'mul': (2, None), 'mac': (3, None), 
 
 
 def raw(v):
-    """float -> RAW word (DSP_ISA_SPEC.md §2: smallest exponent with M < 2^29)"""
+    """float -> RAW word (docs/vol2_dsp_core_isa/instruction_set_reference.md §2: smallest exponent with M < 2^29)"""
     if v == 0:
         return 0
     s = 1 if v < 0 else 0
@@ -61,7 +61,7 @@ def a(name, d, x=0, y=0, imm=None, bits=32):
 
 
 def b(name, d, x, y=0, imm=None):
-    """unit B, measured forms only (DSP_ISA_SPEC.md §6.3), x in r0..r3, y register:
+    """unit B, measured forms only (docs/vol2_dsp_core_isa/instruction_set_reference.md §6.3), x in r0..r3, y register:
     min / max (rd = min|max(rx, ry), D = 8 + d form; imm: 16-bit immediate instead of ry, as Roland's
     `d550` max(r5, 0)), absadd (rd = |rx| + ry), subabs (rd = ry - |rx|)"""
     if not 0 <= x <= 3:
@@ -76,7 +76,7 @@ def b(name, d, x, y=0, imm=None):
 
 
 def aab(a1, a2, bop):
-    """class 0x160 (A, A, B in one instruction; DSP_ISA_SPEC.md §4.4): the three ops read their operands before any
+    """class 0x160 (A, A, B in one instruction; docs/vol2_dsp_core_isa/instruction_set_reference.md §4.4): the three ops read their operands before any
     write; at most one of them may take an immediate (every A/B op reads its immediate from the start of the bit
     stream, so two immediates would be the same bits). a1, a2: a(...) results, bop: b(...) result."""
     imms = [ins[2:] for ins in (a1, a2, bop) if len(ins) > 2]
@@ -98,7 +98,7 @@ SLOTS = {   # pitch in, outputs, state memory  (from Roland's SAW programs, NOTE
     'dco2': {'A': (0x2207, (0x2221, 0x221D), 0x0670), 'B': (0x2214, (0x2229, 0x2225), 0x0680)},
     'dco1': {'A': (0x2201, (0x221F, 0x221B), 0x0470), 'B': (0x220E, (0x2227, 0x2223), 0x0480)},
 }
-# Data memory is a ring addressed relative to a pointer that advances one word per sample (DSP_ISA_SPEC.md §9):
+# Data memory is a ring addressed relative to a pointer that advances one word per sample (docs/vol2_dsp_core_isa/instruction_set_reference.md §9):
 # a value stored at reference S is read at S + 1 in the next sample. A loaded register can be used by an ALU op
 # only from the second instruction after the load.
 

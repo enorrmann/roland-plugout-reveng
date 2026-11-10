@@ -1,16 +1,7 @@
-# HISTORICAL LABORATORY LOG (FROZEN ARCHIVE)
+> Frozen lab log, formerly `docs/log/VOICE_ALLOCATION_LOG.md`. The text below is the original, unchanged (Spanish), with its section numbers;
+> only link targets were updated to the new file locations. The current technical specification is [Vol. III ch. 1](../../vol3_voice_allocation_scheduling/system8_voice_allocation.md).
 
-> [!NOTE]
-> **HISTORICAL NON-NORMATIVE RECORD (ARCHIVE)**
-> This document is a preserved laboratory test and investigation log. It is retained strictly for evidentiary provenance, reverse-engineering history, and forensic reference.
-> For the authoritative normative hardware and software architecture, refer to:
-> - [Volume I: System Architecture & Interconnect](../../vol1_system_architecture/bus_interconnect.md)
-> - [Volume II: DSP Core & ISA Reference](../../vol2_dsp_core_isa/core_architecture.md)
-> - [Volume III: Voice Allocation & Scheduling](../../vol3_voice_allocation_scheduling/system8_voice_allocation.md)
-
----
-
-> **Bitácora (congelada el 2026-10-22).** Texto original de `docs/VOICE_ALLOCATION.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`VOICE_ALLOCATION.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`VOICE_ALLOCATION.md`](../VOICE_ALLOCATION.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
+> **Bitácora (congelada el 2026-10-22).** Texto original de `docs/VOICE_ALLOCATION.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`VOICE_ALLOCATION.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`VOICE_ALLOCATION.md`](../../vol3_voice_allocation_scheduling/system8_voice_allocation.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
 
 # Asignación de voces de Roland: qué DSP hace qué (estudio, 2026-10-22)
 

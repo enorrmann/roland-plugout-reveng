@@ -1,4 +1,4 @@
-// Braids SAW_SWARM through a thin wrapper (docs/S1CC.md §3.2): the original class, unchanged, rendering one sample
+// Braids SAW_SWARM through a thin wrapper (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2): the original class, unchanged, rendering one sample
 // per DSP sample. No algorithm code is copied: s1cc compiles braids/digital_oscillator.cc and finds what runs.
 //   sdk/s1cc/s1cc build sdk/s1cc/examples/braids_wrapper_saw_swarm.cc ~/git/eurorack/braids/digital_oscillator.cc \
 //       ~/git/eurorack/braids/resources.cc -I ~/git/eurorack

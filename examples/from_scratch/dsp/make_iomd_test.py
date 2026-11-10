@@ -1,4 +1,4 @@
-"""Hardware test of the slave's output path (docs/FROM_SCRATCH.md §11).
+"""Hardware test of the slave's output path (docs/vol6_reference_designs_applications/c_v4_system8_reference.md §11).
 
 Writes three fixed-pitch sawtooths, each sample, to three candidate IOMD words of the slave's output bus:
   60B0 = 440 Hz (IOMD0 B0, DSP5 store), 60B1 = 660 Hz (IOMD0 B1), 6020 = 880 Hz (IOMD0 20, DSP4 store).

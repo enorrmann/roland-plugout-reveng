@@ -27,8 +27,8 @@ DIRS = [
     ('examples/system_1_ramp', 'C-S1RAMP: parameter ramp measurement (SYSTEM-1)'),
     ('examples/system_1_synth', 'C-S1SY (SYSTEM-1)'),
     ('examples/system_1_jx', 'C-S1JX (SYSTEM-1)'),
-    ('sdk/mport', 'Mutable Instruments port toolkit (docs/MUTABLE_SDK.md)'),
-    ('sdk/s1cc/tools', 's1cc glue: kernel placement and emulator check (docs/S1CC.md)'),
+    ('sdk/mport', 'Mutable Instruments port toolkit (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md)'),
+    ('sdk/s1cc/tools', 's1cc glue: kernel placement and emulator check (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)'),
     ('examples/mutable_system', 'MUTABLE-SYSTEM (SYSTEM-1)'),
     ('examples/system_s1cc', 'SYSTEM-S1CC: only an s1cc kernel (SYSTEM-1)'),
 ]

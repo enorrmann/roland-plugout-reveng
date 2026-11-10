@@ -134,7 +134,7 @@ class Slave:
         self.h = L.sl_new(int(m.ring1), m.mxm_shift, m.mxm_delay, int(m.dp_pairs), m.dp_delay, order,
                           len(m.order), (C.c_int * max(1, len(sh)))(*sh), len(m.shared1),
                           (C.c_int * max(1, len(s5)))(*s5), len(s5) // 2, (C.c_int * max(1, len(op)))(*op), len(op))
-        if m.edm:                                  # the delay line (DSP_HARDWARE.md §8.4)
+        if m.edm:                                  # the delay line (docs/vol2_dsp_core_isa/core_architecture.md §8.4)
             L.sl_set_edm(self.h, *m.edm)
         self._ids = {}
         per_dsp = {}

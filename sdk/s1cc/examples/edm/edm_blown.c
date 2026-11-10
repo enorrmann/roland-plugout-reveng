@@ -1,6 +1,6 @@
 /* edm_blown.c: Braids BLOWN (digital_oscillator.cc RenderBlown: a reed exciting a bore) on SYSTEM-S1CC, 6 voices.
  * The slave makes the breath pressure (OSC1 MIX) with its noise (OSC1 COLOR), times the AMP envelope (mp_dsp_b.h MP_NONE: the blowing follows the ADSR); master B runs the reed and the bore in
- * the voice's own line of the delay memory (EDM_STR_BLOWN, microcode/edm_str.s master_blown, docs/MUTABLE_MEMORY.md
+ * the voice's own line of the delay memory (EDM_STR_BLOWN, microcode/edm_str.s master_blown, docs/vol6_reference_designs_applications/mutable_memory.md
  * §3.3.5) and the body filter (OSC2 COLOR, Braids' COLOR). */
 #define MP_FILTER MP_NONE
 #include "../mutable_ported/include/mp_dsp_a.h"

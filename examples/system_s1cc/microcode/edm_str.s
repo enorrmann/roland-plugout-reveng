@@ -1,4 +1,4 @@
-;; EDM_STR (docs/MUTABLE_MEMORY.md §3.3.5): a Karplus-Strong string per voice in the delay memory, on master B's main
+;; EDM_STR (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): a Karplus-Strong string per voice in the delay memory, on master B's main
 ;; (0x1000). The slave sends voice v's excitation (the kernel's output) on IOMD 6006 + v (host_b.s head_b). Each voice
 ;; has its own line through master B's map table (region 0, model.c edm_str): write word W = STR_W + 8v at address
 ;; STR_A0 + v STR_DA, read words W + 1, W + 3, W + 5, W + 7 at that address + d, d + 1, d + 2, d + 3, so that this

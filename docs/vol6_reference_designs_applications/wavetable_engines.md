@@ -1,65 +1,49 @@
-# Volume VI: Reference Designs & Applications
+# Volume VI — Chapter 5: Wavetable Engines
 
-# Chapter 5: Wavetable Synthesis Engines & Dynamic Bank 5 Injection
+> **Scope:** both (SYSTEM-8 and SYSTEM-1 sections).
 
-> **Document ID**: TRM-BMC-VOL6-005  
-> **Classification**: Normative Implementation Specification  
-> **Release Target**: Texas Instruments / Analog Devices TRM Standard  
+> The wavetable work of both devices, with pointers to the details; each fact names its source. SYSTEM-8:
+> [ch. 6](custom_osc.md) (sections "Wavetable from a single-cycle WAV" and "Real wavetable in bank 5") and
+> [examples/wt_pwm/README.md](../../examples/wt_pwm/README.md),
+> [examples/wt_morph/README.md](../../examples/wt_morph/README.md) (+ [OPTIONS.md](../../examples/wt_morph/OPTIONS.md)),
+> [examples/wt_live/README.md](../../examples/wt_live/README.md). SYSTEM-1: [ch. 7](mutable_memory.md) §3.3.8 and §4.
 
----
+## 1. SYSTEM-8
 
-## 5.1 Dynamic Wavetable Architecture Overview
+| PLUG-OUT | where the table lives | how it is read | state (from its README) |
+|---|---|---|---|
+| C-WAVE | in the DSP microcode itself: one A/A/B instruction per point (`re/wav2dco.py`, `re/dspasm.py wavetable()`) | the program is the table | [ch. 6](custom_osc.md) "Wavetable from a single-cycle WAV" (2026-10-16) |
+| **C-PWM** (`examples/wt_pwm`) | six frames of `80's PWM.wav` (frames 0, 6, 12, 18, 24, 30) compiled into DCO1 microcode at 128 points each (`prog/dco1_w0..5.txt`, ~345 instructions each); DCO1's waveform parameter (0..5) selects the frame | microcode | the README gives no hardware result; limits: six fixed positions (no morph), 128 points per frame (the budget allows ~290 points for one DCO, but the two DCOs share it), frames fixed at build time |
+| **C-MORPH** (`examples/wt_morph`) | six frames of `80's PWM.wav` (72 points each, 438 words) written by the engine into bank 5 of DSP2/DSP3 at start (`engine.c -DMORPH`, `morph_load()`) | a 114-instruction DSP player, a triangle LFO sweeps frame 0 → 5 → 0, one period every 4 s (`MORPH_HZ`, 0.25 Hz) | **not verified by audio yet**; limits: 438 words of bank 5, LFO rate fixed at build time |
+| **C-WTLIVE** (`examples/wt_live`) | a WAV sent over MIDI (`wtlive.py send`) into bank 5 words `0x048…0x1FD` of DSP2 and DSP3 (`K·(N+1) ≤ 438`) | a ~100-instruction player (275 words) loaded live into the chosen oscillator slot; bank-5 indexed loads, interpolation inside and between frames | 2026-10-20: build, install and `send` run on the device (table 438 words in 6.8 s); OSC2 plays the table; the OSC1 and `both` options and `wt5.py --scan` are not verified by ear |
 
-The Roland BMC DSP architecture supports dynamic wavetable synthesis through real-time streaming into **Bank 5 (`DPC`)** coupled with indexed memory load instructions (`ldidx` / `ldb5`):
+Transport of C-WTLIVE (its "How it works"): the host sends MIDI on channel 1 through the stock region 0, which forwards it
+to the slaves as parameters: pitch bend carries 14 data bits (voice id `0x465`), CC1 carries the command
+`seq<<6 | cmd<<4 | ext` (voice id `0x467`); commands `ADDR`, `DATA`, `CTRL`; one `DATA` per point, 18-bit fixed point,
+about 15 ms per command. Programs are loaded as an empty program first, then the body (tail first, head last).
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                  WAVETABLE INJECTION ARCHITECTURE                                 |
-|                                                                                                   |
-|  [ Host PC / USB Midi Stream ]                                                                    |
-|   Uploads 128-point single-cycle PCM WAV sample frames over USB                                   |
-|                                  │                                                                |
-|                                  ▼                                                                |
-|  [ Slave ARM Core (engine.c) ]                                                                    |
-|   Streams waveframe directly into Bank 5 (A080h - A0FFh) via Syscall FD6C / +0xB0                 |
-|                                  │                                                                |
-|                                  ▼                                                                |
-|  [ Slave DSP Core: Wavetable Oscillator Kernel ]                                                  |
-|   - Phase Accumulator advances at pitch frequency                                                 |
-|   - Hidden Register h6 configured with base index: hset h6, base                                  |
-|   - Single-Cycle Indexed Load reads sample: ldidx r0, offset                                      |
-|   - Linear interpolation between sample index i and i+1                                           |
-|   - Continuous morphing across waveframes via Bank 6 parameter C0id                               |
-+---------------------------------------------------------------------------------------------------+
-```
+Room for tables on the SYSTEM-8 (C-WTLIVE README; [Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §7.4): bank 5
+has 1024 words per DSP; the free part in general is `0x048`–`0x1FF` and `0x306`–`0x3FF`. Long samples need the delay
+memory (EDM), on the SYSTEM-8 only reachable from master DSP4 slot `0xF7DC`. The options considered for a 4–5 s morph
+are in [OPTIONS.md](../../examples/wt_morph/OPTIONS.md).
 
----
+## 2. SYSTEM-1 (SYSTEM-S1CC)
 
-## 5.2 Real-Time Indexed Reading & Interpolation
+From [ch. 7](mutable_memory.md) §4.0, the practical rule:
 
-A wavetable frame comprises 128 discrete 32-bit floating-point samples stored in Bank 5. Within the 96 kHz audio sample frame, the DSP core splits the phase accumulator into integer index $i \in [0, 127]$ and fractional remainder fraction $f \in [0.0, 1.0)$:
+| case | plug-out | example kernel | measured |
+|---|---|---|---|
+| single-cycle oscillator (one wave or a few frames) | slave, **fixed frame in bank 5** (`SL_WT=b5`) | `sdk/s1cc/examples/wavetable/jp8_saw.c`, `wt_slave.c` (WT-SLAVE5) | 8 voices; 127 points (63 harmonics) at `A080`–`A0FF`; harmonics within 0.5 dB of the ideal saw, inter-harmonic floor ~−161 dB (2026-11-06) |
+| long multi-frame table with morph | **master's EDM** (`EDM_WT=1`) | `sdk/s1cc/examples/wavetable/wt_edm_cmod.c` (WT-LINES8) | ~6 voices, fills in the first ~13 notes, 17–22 dB more noise than the ideal read; morph by ⅛ frame works (2026-11-06) |
 
-1. **Integer Base Configuration (`HSET`)**: Loads index $i$ into hidden base register `h6`.
-2. **Adjacent Sample Load (`LDIDX`)**: Loads sample $S_i$ and sample $S_{i+1}$.
-3. **Linear Interpolation (`MAC`)**: Computes $y = S_i + f \cdot (S_{i+1} - S_i)$.
+Other variants measured on the device (ch. 7 §4.1, §4.4): WT-SLAVE768 (a 768-point loop in bank 0 of slave DSP A, refilled
+by the ARM in blocks of 64 points every 12 ms: works, 8 voices, but measured worse than bank 5: 3.7 dB error, floor
+−91 dB); WT-EDM and WT-EDM-CMOD (the whole Sys8.wav in an EDM loop read by master B with one `tapreq` per voice, sent to
+the slave through `600E + v`; works with 6 voices and per-voice COLOR MOD); MP-EDMWT (first EDM table, 2026-11-05).
+Rules learnt on the way: only `A000`–`A1FF` of bank 5 is reliable on the S1 slave (`A200` is corrupt), bank 0 of DSP A
+wraps at `0x0400`, at most 6 own `tapreq` per sample on master B, master A needs an own empty main program (`MA_MAIN`)
+for `600E`–`6021` to reach the slave, and non-round immediates run differently on master B than in the emulator (ch. 7
+§4.2, §4.3, §4.4).
 
-```dsp
-; Wavetable Sample Fetch & Linear Interpolation
-hset h6, r1         ; Set base index in h6 from integer phase r1
-mov r4, r4          ; Index setup latency delay slot
-ldidx r0, 0         ; Load sample S[i] from Bank 0/5
-ldidx r2, 1         ; Load adjacent sample S[i+1]
-mov r4, r4          ; Load delay slot
-subxy r3, r0, r2    ; r3 <- S[i+1] - S[i]
-mac_p1 r0, r3, r7, r0 ; r0 <- S[i] + fraction * (S[i+1] - S[i])
-```
-
----
-
-## 5.3 Wavetable Engines Catalog
-
-| Reference Design | Application Directory | Wavetable Capacity | Morphing Method | Measured Hardware Status |
-|---|---|---|---|---|
-| **`C-WTLIVE`** | `examples/wt_live/` | 1 Active Streamed Frame | Live USB Sample Injection | `[VERIFIED]` Production Ready |
-| **`C-MORPH`** | `examples/wt_morph/` | 4 Embedded Waveframes | Dual-Frame Crossfade ($M \in [0, 1]$) | `[VERIFIED]` Production Ready |
-| **`C-PWM`** | `examples/wt_pwm/` | Continuous Variable Pulse | Dynamic Slicing of Triangle Phase | `[VERIFIED]` Production Ready |
+Loading a frame live over USB (`SL_LOAD`, `tools/wt_load.py`): built, **untested on the device** as of 2026-11-06 (ch. 7
+§4.5; the same statement is in the docstring of `tools/wt_load.py`).

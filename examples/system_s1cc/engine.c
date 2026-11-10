@@ -1,4 +1,4 @@
-/* SYSTEM-S1CC region 1 (the engine): runs on the SYSTEM-1 slave BMC (docs/examples_system_s1cc_README.md).
+/* SYSTEM-S1CC region 1 (the engine): runs on the SYSTEM-1 slave BMC (examples/system_s1cc/README.md).
  * MUTABLE-SYSTEM's engine (examples/mutable_system/engine.c) without C-S1SY's panel: only what a kernel compiled by
  * s1cc needs. Freestanding, no library, no floating point (floats are bit patterns from make_s1cc.py tables).
  *
@@ -197,9 +197,9 @@ static void hlfo_set(int id, int value) { (void)id; (void)value; }
 static void hlfo_all(void) {}
 #endif
 
-/* ---- ARM_ENV / ARM_LFO: the host's ADSRs and LFO on this ARM (docs/examples_system_s1cc_README.md §3.7) ---------
+/* ---- ARM_ENV / ARM_LFO: the host's ADSRs and LFO on this ARM (examples/system_s1cc/README.md §3.7) ---------
    Each envelope and each voice's LFO is one DSP B parameter. The time base is the slave OS's cyclic handler
-   (docs/S1_ARM_CLOCK.md: client pointer 0x20002BFC, 1.00 ms measured): load puts tick() there, which calls the OS's
+   (docs/vol1_system_architecture/s1_arm_clock.md: client pointer 0x20002BFC, 1.00 ms measured): load puts tick() there, which calls the OS's
    function first, measures the time since the last step with the cycle counter and advances every voice. ARM_RAMP=0
    (default): FCEC at every 1 ms tick to C080.. (measured exact on DSP B, 2026-11-03); ARM_RAMP=1: one FCE4 ramp of
    4 ms per step (the 2026-10-30 version: ramps to C080.. never reach DSP B, writes to C100.. are barely seen).
@@ -340,12 +340,12 @@ static volatile uint32_t tick_n;
 #define CYCCNT (*(volatile uint32_t *)0xE0001004u)
 #define SYST_LOAD (*(volatile uint32_t *)0xE000E014u)
 static uint32_t tick_last, tick_acc, seg_cycles, step_last, step_min;
-/* the ramp durations of y = 0..15 in 1/100 ms (docs/examples_system_1_ramp_README.md §3) */
+/* the ramp durations of y = 0..15 in 1/100 ms (examples/system_1_ramp/README.md §3) */
 static const uint16_t y_cms[16] = { 398, 813, 1220, 1625, 2008, 2438, 2843, 3250, 3591, 4014, 4877, 5684, 6496, 7181,
                                     8025, 9744 };
 
 #if ARM_RAMPTEST
-/* which DSP B ids the hardware ramps reach (kernel sdk/s1cc/examples/arm_probe/ramp_probe.c, docs/S1_ARM_CLOCK.md).
+/* which DSP B ids the hardware ramps reach (kernel sdk/s1cc/examples/arm_probe/ramp_probe.c, docs/vol1_system_architecture/s1_arm_clock.md).
    Value 0 of the kernel's table is a heartbeat: 1 for the first 16 ms of every 128 ms slot (the ARM is alive).
    Values 1.. one per slot: FCEC 0.5 at 0 ms, FCEC 0 at 96 ms; from slot RT_IMM_ONLY of the run on, also an FCE4 ramp
    to 1.0 (y = 5, ~24 ms) at 32 ms (2026-11-03: the first runs went silent for good; is it the ramp?) */
@@ -590,7 +590,7 @@ static void lut_all(void) {}
 #endif
 
 #if SL_WT
-/* SL_WT=b5 (docs/MUTABLE_MEMORY.md §4.1): the frame OSC1 COLOR picks, two neighbours of the whole table (sl_wt.h, all
+/* SL_WT=b5 (docs/vol6_reference_designs_applications/mutable_memory.md §4.1): the frame OSC1 COLOR picks, two neighbours of the whole table (sl_wt.h, all
    the WAV's frames) mixed, written into bank 5 SL_STG.. (FD6C sel 0; DSP A reads it with ldb5, microcode/sl_wt.s)
    at load and whenever COLOR moves */
 static int sl_color;
@@ -603,7 +603,7 @@ static uint32_t sl_bits(int32_t x)                     /* x 2^-15 (Q15) -> IEEE 
     return sg | (uint32_t)(e - 15 + 127) << 23 | ((a << (23 - e)) & 0x7FFFFFu);
 }
 #if SL_B0 && !SL_MORPH
-/* SL_WT=b0 SL_MORPH=0 (docs/MUTABLE_MEMORY.md §4.1, as WT-SLAVE0L): DSP A's bank-0 loop (SL_LOOP words) holds one
+/* SL_WT=b0 SL_MORPH=0 (docs/vol6_reference_designs_applications/mutable_memory.md §4.1, as WT-SLAVE0L): DSP A's bank-0 loop (SL_LOOP words) holds one
    frame, point k at data k, slot j = data SL_LOOP - 1 - j. Every SL_HOLD ms (> one lap) the next block of SL_B slots
    goes into bank 5 SL_STG.. and its first slot into SL_BLK (units); the DSP's one ldb5 per sample copies it in. The
    points are those of the frame COLOR picks now (the nearest of the whole table, no mix of frames), so a COLOR move
@@ -627,7 +627,7 @@ static void sl_tick(void)
 }
 static void sl_frame(void) {}                          /* the tick does it */
 #elif SL_B0
-/* SL_WT=b0 SL_MORPH=1 (WT-SLAVE0I, docs/MUTABLE_MEMORY.md §4.1): DSP A's bank-0 loop (SL_LOOP words) holds two frames interleaved, data
+/* SL_WT=b0 SL_MORPH=1 (WT-SLAVE0I, docs/vol6_reference_designs_applications/mutable_memory.md §4.1): DSP A's bank-0 loop (SL_LOOP words) holds two frames interleaved, data
    d = 2k (set 0, "E") and 2k + 1 (set 1, "O") for point k, slot j = data SL_LOOP - 1 - j. Every SL_HOLD ms (> one lap)
    the next block of SL_B slots goes into bank 5 SL_STG.. and its first slot into SL_BLK (units); the DSP's one ldb5
    per sample copies it in. COLOR's position x (0 .. SL_NF - 1) between the two frames is the weight w of set 1, in
@@ -689,7 +689,7 @@ static void sl_frame(void)
 #endif
 #endif
 #if defined(SL_LOAD) && !SL_B0
-/* SL_LOAD (docs/MUTABLE_MEMORY.md §4.5): load a frame over USB into bank 5 (A080..) without reinstalling. Received
+/* SL_LOAD (docs/vol6_reference_designs_applications/mutable_memory.md §4.5): load a frame over USB into bank 5 (A080..) without reinstalling. Received
    into ARM RAM (wt_load.h, wtl_buf) and committed with b5() / FD6C (sel 0). Serves the SL_WT=b5 oscillator (the frame
    OSC1 COLOR would pick, frozen once loaded) and a C-kernel wavetable that reads the window with s1_ldb5 (no SL_WT
    microcode): then there is no COLOR frame, and a plain ramp saw is the default until one is sent. Not the b0 loop
@@ -728,7 +728,7 @@ static void sl_commit(const int32_t *buf, int n)
 #define WTL_REVERT() do { sl_loaded = 0; sl_frame(); } while (0)
 #include "wt_load.h"
 #ifdef WTL_WITNESS_TEST
-/* WTL_WITNESS_TEST (diagnostic, docs/MUTABLE_MEMORY.md §4.5): does a transport parameter reach region 1 at all?
+/* WTL_WITNESS_TEST (diagnostic, docs/vol6_reference_designs_applications/mutable_memory.md §4.5): does a transport parameter reach region 1 at all?
    Writes an unmistakable frame the instant the id arrives, ignoring the data -- CC1 (0x131) a square, pitch bend
    (0x130) a triangle. Move the panel's MOD wheel / PITCH BEND, or run tools/wt_load.py: square -> the command
    channel reaches region 1; triangle (no square) -> only bend does; still a saw -> neither does. */

@@ -1,4 +1,4 @@
-// Indirect calls whose possible targets are a finite set of known functions (docs/S1CC.md §4.7): a member-function
+// Indirect calls whose possible targets are a finite set of known functions (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §4.7): a member-function
 // table indexed by a mode that a branch picked (Braids' MacroOscillator::RenderMorph: fn_table_[shape_] with shape_
 // one of two constants), a function pointer chosen by a select. The voice must be one function without calls, so
 // each such call becomes `if (callee == F1) F1(...) else if ... else Fn(...)` (LLVM's versionCallSite); the driver

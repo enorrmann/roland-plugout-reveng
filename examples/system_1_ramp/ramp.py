@@ -1,5 +1,5 @@
 """Read C-S1RAMP's reports (model.c ramp_report: SysEx F0 7D 07) and show what master DSP B measured of each FCE4
-ramp (docs/examples_system_1_ramp_README.md).
+ramp (examples/system_1_ramp/README.md).
 
     python3 examples/system_1_ramp/ramp.py -t 300 --log work/captures/ramp.txt   listen (C-S1RAMP selected)
     python3 examples/system_1_ramp/ramp.py --file work/captures/ramp.txt         decode a saved log again

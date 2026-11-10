@@ -1,4 +1,4 @@
-"""General build pipeline for our DSP microcode, SYSTEM-1 and SYSTEM-8 (docs/MICROCODE_OPTIMIZATION.md §6).
+"""General build pipeline for our DSP microcode, SYSTEM-1 and SYSTEM-8 (docs/vol5_toolchain_compiler_sdk/assembler_disassembler_tools.md §5).
 
 A generator only writes the plain program: one op or one transfer per line, load delays as "mov rN, rN" fillers,
 ';' comments. Everything else is here, the same for every plug-out:

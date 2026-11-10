@@ -1,6 +1,6 @@
 /* C-S1V4 region 0 (the model): runs on the SYSTEM-1 master BMC, next to OS 1.30. Freestanding, no library, no
  * foreign code. Port of the C-V4 model (examples/from_scratch/model/model.c) to the SYSTEM-1 interface
- * (docs/examples_system_1_README.md section 3):
+ * (examples/system_1/README.md section 3):
  *
  *   SYNINFO +0x24 create, +0x28 destroy, +0x2C the key assigner, +0x30 the model object
  *   assigner  9-entry vtable: reset, changed, note_off, note_on, cc, part 0x81, bend, -, -

@@ -21,7 +21,7 @@ import asm  # noqa: E402
 PITCH, GATE = 0xA021, 0xA022              # bank 5 ids written by the ARM
 ENV, LFO, PHASE = 0x0690, 0x06A0, 0x0670  # ring state (store at S, read at S + 1 next sample)
 OUT = 0x6020                              # IOMD0 word that reaches the output (slave 0)
-OUT2 = 0x6021                             # second output word: canal 0 (docs/WAVE_BUS.md, 2026-10-21)
+OUT2 = 0x6021                             # second output word: canal 0 (docs/vol1_system_architecture/bus_interconnect.md, 2026-10-21)
 KA, KR = 0.01, 0.0002                     # attack / release rate per sample
 LFO_HZ, DEPTH = 5.5, 0.02
 K = 2 * 440.0 / 96000.0

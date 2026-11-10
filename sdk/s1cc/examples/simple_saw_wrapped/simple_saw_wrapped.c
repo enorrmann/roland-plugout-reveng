@@ -1,12 +1,12 @@
 /* simple_saw_wrapped.c: the wrapper between the plain C sawtooth (saw.c) and an s1cc voice
- * (docs/examples_simple_saw_wrapped_README.md). The only file that includes the SDK. Two instances of the library
+ * (sdk/s1cc/examples/simple_saw_wrapped/README.md). The only file that includes the SDK. Two instances of the library
  * per voice: two saws, the second detuned by OSC2 COLOR.
  *
  * Build:  sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_wrapped.c --check
  *         (saw.c comes in by itself: it is the source next to saw.h, which this file includes)
  * In the synth: KERNEL=sdk/s1cc/build/simple_saw_wrapped sh examples/mutable_system/build.sh
  *
- * When each part runs (docs/S1CC.md §3.1):
+ * When each part runs (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.1):
  *   S1_PARAM   on the PC, at build time: once per knob position 0..255 -> a table in the plug-out. On the synth the
  *              ARM writes the row of the knob's position into a DSP parameter: 128 at load, then whenever the
  *              control moves. s1_param() in the voice reads that parameter.

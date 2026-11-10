@@ -1,4 +1,4 @@
-"""Our own main programs MAIN0-MAIN5 with Roland's voice layout (docs/VOICE_ALLOCATION.md section 1), no Roland bytes.
+"""Our own main programs MAIN0-MAIN5 with Roland's voice layout (docs/vol3_voice_allocation_scheduling/system8_voice_allocation.md section 1), no Roland bytes.
 
 Voices of one slave: 0 and 1 on DSP0 / DSP2 / DSP4, voices 2 and 3 on DSP1 / DSP3 / DSP5.
     DSP0 main: pitch of voice 0 (bank 5 id 0x21) -> MXM Z 0404, voice 1 (id 0x33) -> Z 0405   (-> DSP2 M 004, 005)
@@ -99,7 +99,7 @@ def saw_dco2_words():
 
 def simulate(progs, pitch, gate, n):
     """one sample: DSP0, DSP1, DSP2 (main, DCO2 saw), DSP3 (main, saw), DSP4, DSP5. MXM is one sample late, as on the
-    device (docs/DSP_HARDWARE.md 8.2). pitch[v] for voices 0..3, gate[v](t). Returns the IOMD words per sample."""
+    device (docs/vol2_dsp_core_isa/core_architecture.md 8.2). pitch[v] for voices 0..3, gate[v](t). Returns the IOMD words per sample."""
     import dspdis
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu'))
     import dspref

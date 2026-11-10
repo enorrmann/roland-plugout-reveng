@@ -1,4 +1,4 @@
-"""sdk/mport command line (docs/MUTABLE_SDK.md §8).
+"""sdk/mport command line (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §8).
 
     python3 sdk/mport/cli.py list                         ported components
     python3 sdk/mport/cli.py check saw_swarm              port vs the original C++ (and the integer model)

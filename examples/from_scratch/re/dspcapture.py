@@ -1,5 +1,5 @@
 """One device session that captures every pending measurement of the DSP's ops, then offline checks against the C
-reference (emu/dspref.py) as often as needed, without the device (docs/NATIVE_OPS.md).
+reference (emu/dspref.py) as often as needed, without the device (docs/vol2_dsp_core_isa/native_ops.md).
 
     python3 dspcapture.py run [-o work/captures/NAME] [-n 96]   # SYSTEM-8, lab PEEK in slot 3, PLG3 selected
     python3 dspcapture.py check [-o work/captures/NAME]          # no device: the reference against the capture

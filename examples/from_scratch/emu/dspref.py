@@ -23,7 +23,7 @@ RE = os.path.join(HERE, '..', 're')                     # dsp_templates.txt, dsp
 SRCS = [os.path.join(HERE, f) for f in ('dspcore.c', 'dspcore.h', 'dspdec.h', 'qmask.h')]
 # compiler: DSP_CC=gcc|clang|<path> (default: clang if installed, else cc). -ffp-contract=off: an FMA would change the
 # bits. (The old -fno-gcse -fno-peephole2 hid a NaN-sign difference, not a GCC bug: quant() makes every NaN
-# canonical, EMULATOR.md §3.6.1.)
+# canonical, docs/vol5_toolchain_compiler_sdk/emulator.md §3.6.1.)
 CC = os.environ.get('DSP_CC') or ('clang' if shutil.which('clang') else 'cc')
 CFLAGS = ['-O2', '-ffp-contract=off', '-fno-math-errno', '-shared', '-fPIC', '-w']
 LIB = os.path.join(HERE, 'build', f'dspcore-{os.path.basename(CC)}.so')   # one per compiler
@@ -120,7 +120,7 @@ def words_arg(ins):
 
 
 def quant(v):
-    """RAW encoding of an op result (DSP_HARDWARE.md §3)"""
+    """RAW encoding of an op result (docs/vol2_dsp_core_isa/core_architecture.md §3)"""
     return lib().sl_quant(float(v))
 
 
@@ -292,7 +292,7 @@ class Machine:
     hidden = property(lambda self: self.state()[3], lambda self, h: self.set_state(hidden=h))
 
     def set_edm(self, base=324.0, lat=2, length=983040):
-        """give the machine a delay line (DSP_HARDWARE.md §8.4): [4300] goes to the EDM at end_sample; taps read it"""
+        """give the machine a delay line (docs/vol2_dsp_core_isa/core_architecture.md §8.4): [4300] goes to the EDM at end_sample; taps read it"""
         lib().sl_set_edm(self.h, 0, base, lat, length)
 
     def end_sample(self):

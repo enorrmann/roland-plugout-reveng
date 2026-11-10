@@ -1,5 +1,5 @@
 """Play a note on the SYSTEM-1 and record its audio over USB -- the capture rig used to check a PLUG-OUT on the
-device (docs/S1_AUDIO_CAPTURE.md). One MIDI client at a time: do not run another SYSTEM-1 tool at the same time,
+device (docs/vol5_toolchain_compiler_sdk/audio_capture.md). One MIDI client at a time: do not run another SYSTEM-1 tool at the same time,
 and do not touch the keyboard while it records (your notes mix into the capture).
 
     python3 tools/s1_capture.py                         # note 60 on ch 5, 1.5 s -> harmonic summary

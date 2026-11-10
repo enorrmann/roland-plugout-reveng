@@ -1,16 +1,7 @@
-# HISTORICAL LABORATORY LOG (FROZEN ARCHIVE)
+> Frozen lab log, formerly `docs/log/WAVE_BUS_LOG.md`. The text below is the original, unchanged (Spanish), with its section numbers;
+> only link targets were updated to the new file locations. The current technical specification is [Vol. I ch. 3](../../vol1_system_architecture/bus_interconnect.md).
 
-> [!NOTE]
-> **HISTORICAL NON-NORMATIVE RECORD (ARCHIVE)**
-> This document is a preserved laboratory test and investigation log. It is retained strictly for evidentiary provenance, reverse-engineering history, and forensic reference.
-> For the authoritative normative hardware and software architecture, refer to:
-> - [Volume I: System Architecture & Interconnect](../../vol1_system_architecture/bus_interconnect.md)
-> - [Volume II: DSP Core & ISA Reference](../../vol2_dsp_core_isa/core_architecture.md)
-> - [Volume III: Voice Allocation & Scheduling](../../vol3_voice_allocation_scheduling/system8_voice_allocation.md)
-
----
-
-> **Bitácora (congelada el 2026-10-22).** Texto original de `docs/WAVE_BUS.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`WAVE_BUS.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`WAVE_BUS.md`](../WAVE_BUS.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
+> **Bitácora (congelada el 2026-10-22).** Texto original de `docs/WAVE_BUS.md` hasta su reescritura como especificación técnica. Se conserva sin cambios, con su numeración de secciones, como registro de las pruebas, medidas y correcciones; las referencias "`WAVE_BUS.md` §n" de otros documentos anteriores a esa fecha apuntan aquí. La especificación vigente es [`WAVE_BUS.md`](../../vol1_system_architecture/bus_interconnect.md); si algo de aquí la contradice, vale la especificación (que cita la sección de esta bitácora que sostiene cada dato).
 
 # Bus de audio entre los DSP del SYSTEM-8 (slaves → maestro)
 

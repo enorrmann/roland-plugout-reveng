@@ -1,4 +1,4 @@
-/* SYSTEM-S1CC multi (build_multi.sh, docs/examples_system_s1cc_README.md §9): region 1 of a PLUG-OUT whose OSC1 WAVE
+/* SYSTEM-S1CC multi (build_multi.sh, examples/system_s1cc/README.md §9): region 1 of a PLUG-OUT whose OSC1 WAVE
  * selector (0..5) chooses the kernel. Each position is a whole SYSTEM-S1CC engine (engine.c built with
  * -DS1_SUB=k<i>_engine against that kernel's s1_programs.h: its programs, knob tables and host), exactly the engine
  * a single-kernel build has. This file is only the engine the OS sees, and forwards every call to the active one.

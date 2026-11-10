@@ -1,4 +1,4 @@
-"""Port against reference: the numbers port-check prints (docs/MUTABLE_SDK.md §6)."""
+"""Port against reference: the numbers port-check prints (docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §6)."""
 import numpy as np
 
 FS = 96000.0

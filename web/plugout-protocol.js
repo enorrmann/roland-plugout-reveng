@@ -3,13 +3,13 @@
  *
  * JavaScript port of the parts of tools/plugout.py and tools/plugout_tool.py
  * that the install needs. It speaks the same USB-MIDI protocol as Roland's
- * JUNO-60 / JX-3P / SH-101 plug-ins (docs/PROTOCOL.md) through Web MIDI:
+ * JUNO-60 / JX-3P / SH-101 plug-ins (docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md) through Web MIDI:
  *
  *   1. query the device (type, firmware, number of slots, contents of each slot),
  *   2. send the START record, the firmware data records and the END record.
  *
- * The patch bank (docs/PROTOCOL.md §6) is not sent: the page installs the
- * firmware only, as `plugout_tool.py install --no-patches` (docs/WEB_INSTALLER.md).
+ * The patch bank (docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md §6) is not sent: the page installs the
+ * firmware only, as `plugout_tool.py install --no-patches` (docs/vol4_firmware_container_protocol/web_installer.md).
  *
  * No MIDI is sent until install() is called. Nothing here touches the DOM.
  *
@@ -21,7 +21,7 @@
   'use strict';
 
   // ---------------------------------------------------------------------------
-  // constants (values from docs/PROTOCOL.md)
+  // constants (values from docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md)
   // ---------------------------------------------------------------------------
 
   const ROLAND = 0x41;
@@ -57,12 +57,12 @@
   // kernel holds it to the synth's pace. MIDIOutput.send never blocks, and a
   // burst of 32 records (19 KB) lost data (END answered 3; Brave on Linux,
   // 2026-10-23). The page therefore limits itself to about the pace the tool
-  // reaches (at least 25-40 KB/s measured from its log; docs/WEB_INSTALLER.md §5).
+  // reaches (at least 25-40 KB/s measured from its log; docs/vol4_firmware_container_protocol/web_installer.md §5).
   const WEB_BYTES_PER_SECOND = 32000;
   const RATE_SLACK_MS = 20;      // how far the sending may run ahead before it waits
 
   const DEVICE_TYPES = { 0: 'SYSTEM-1', 1: 'SYSTEM-1m', 2: 'SYSTEM-8' };
-  // Every firmware region starts with "<device>:Plugout" (docs/PROTOCOL.md §4):
+  // Every firmware region starts with "<device>:Plugout" (docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md §4):
   // the device family the image was built for. A SYSTEM-1m takes SYSTEM-1 images.
   const REGION_MAGIC = /^(SYSTEM-[18]):Plugout/;
   const TARGET_OF_TYPE = { 0: 'SYSTEM-1', 1: 'SYSTEM-1', 2: 'SYSTEM-8' };
@@ -378,7 +378,7 @@
       const o = options || {};
       this.output = output;
       // one MIDIInput or several: the answers are matched by address, so they may
-      // come back on any of the synth's ports (docs/WEB_INSTALLER.md §4)
+      // come back on any of the synth's ports (docs/vol4_firmware_container_protocol/web_installer.md §4)
       this.inputs = (Array.isArray(input) ? input : [input]).filter(Boolean);
       this.input = this.inputs[0] || null;
       this.deviceId = o.deviceId === undefined ? DEFAULT_DEVICE_ID : o.deviceId;
@@ -405,7 +405,7 @@
 
     /**
      * Stop listening and close both Web MIDI ports, so that another program
-     * (tools/plugout_tool.py, a DAW) can open the synth (docs/WEB_INSTALLER.md §4).
+     * (tools/plugout_tool.py, a DAW) can open the synth (docs/vol4_firmware_container_protocol/web_installer.md §4).
      */
     close() {
       this.inputs.forEach((i) => { i.onmidimessage = null; });
@@ -692,7 +692,7 @@
   /**
    * The synth's second USB MIDI port by its name: "SYSTEM-8 CTRL", Linux
    * "SYSTEM-1 MIDI 2", Windows "MIDIIN2 (SYSTEM-1)" / "MIDIOUT2 (SYSTEM-1)".
-   * Only that port answers the flow-control queries at once (docs/PROTOCOL.md §1).
+   * Only that port answers the flow-control queries at once (docs/vol4_firmware_container_protocol/usb_sysex_protocol_spec.md §1).
    */
   function isControlName(name) {
     return /CTRL|MIDI\s*2\b|MIDI(IN|OUT)2/i.test(name || '');

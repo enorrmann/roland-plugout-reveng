@@ -1,7 +1,7 @@
 /* C-S1JX region 1 (slave): the JX-3P's own microcode, relocated by s1jx.py, on the SYSTEM-1 slave DSPs (voices 2
  * and 3): DSP A main MAIN5, section 0x1900 MAIN3; DSP B main MAIN1, section 0x1900 DCO1. The voice ids come from the
  * OS for all four voices (0x110 + v note, 0x120 + v velocity); jx.h keeps the slave's writes.
- * Docs: docs/examples_system_1_jx_README.md.
+ * Docs: examples/system_1_jx/README.md.
  */
 #define JX_CHIP 1
 #include "jx.h"
@@ -51,7 +51,7 @@ static struct s1_prog set_b4[] = {
     { 0, 0, 0 },
 };
 #endif
-/* FC44 index -> section: 0 = A 0x1900, 2 = B 0x1900 (system-1/SH101_POLY.md section 2) */
+/* FC44 index -> section: 0 = A 0x1900, 2 = B 0x1900 (docs/vol3_voice_allocation_scheduling/system1_polyphony_studies.md section 2) */
 enum { SEC_A_1900 = 0, SEC_B_1900 = 2 };
 
 typedef struct engine { const void *const *vt; } engine_t;

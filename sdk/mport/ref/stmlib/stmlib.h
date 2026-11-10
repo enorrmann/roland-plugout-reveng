@@ -1,6 +1,6 @@
 // Minimal stand-in for Mutable Instruments' stmlib/stmlib.h (the eurorack checkout has the stmlib submodule
 // empty). Only what the ported Braids/Plaits sources need to compile on the PC for reference renders
-// (sdk/mport/reference.py); written for this repo, docs/MUTABLE_SDK.md §6.
+// (sdk/mport/reference.py); written for this repo, docs/vol5_toolchain_compiler_sdk/mport_mutable_sdk.md §6.
 #ifndef MPORT_STMLIB_H_
 #define MPORT_STMLIB_H_
 #include <stdint.h>

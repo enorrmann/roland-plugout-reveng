@@ -1,4 +1,4 @@
-// s1cc: C / C++ (through LLVM IR) -> microcode of the Roland BMC DSPs (docs/S1CC.md).
+// s1cc: C / C++ (through LLVM IR) -> microcode of the Roland BMC DSPs (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md).
 //
 // Passes, all on the same linked LLVM module (clang -O2 of the voice program and its sources):
 //   graph.cpp   the voice functions as a dataflow graph: if-conversion (no branches on the DSP), state words
@@ -30,7 +30,7 @@ class GlobalVariable;
 
 namespace s1 {
 
-// every error and warning has a code (E101, W905): its cause and fix are in docs/S1CC.md §9.2 under that code
+// every error and warning has a code (E101, W905): its cause and fix are in docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §9.2 under that code
 [[noreturn]] void fail(const std::string &code, const std::string &msg);
 void warn(const std::string &code, const std::string &msg);
 std::string where(const llvm::Value *v);   // "file:line in f, inlined at file:line in g" (debug info) or its IR text
@@ -112,7 +112,7 @@ struct Program {
     llvm::Module *M = nullptr;
     std::vector<StateVar> states;
     Dsp A, B;                    // B.fn == nullptr: no S1_DSP_B
-    bool fused = false;          // s1cc fuse: A is S1_DSP_B(S1_DSP_A()) in one function (__s1_fused, docs/S1CC.md §3.4)
+    bool fused = false;          // s1cc fuse: A is S1_DSP_B(S1_DSP_A()) in one function (__s1_fused, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.4)
     std::map<std::string, llvm::GlobalVariable *> params;   // name -> descriptor
     std::map<std::string, int> paramCount;
     // knob-derived columns (§4.6): `prof sweep` values, record id -> knob table -> value at knob 0..255; build() turns
@@ -212,7 +212,7 @@ public:
     KVal *clamp(KVal *x);
     KVal *exp2(KVal *x, int extraSquarings = 0);
     KVal *twoMinus(KVal *x);                        // 2 - x (subxy d, x, #2.0)
-    // the DSP's native ops (DSP_HARDWARE.md §5, measured exact on the SYSTEM-8 master: re/dspnative.py)
+    // the DSP's native ops (docs/vol2_dsp_core_isa/core_architecture.md §5, measured exact on the SYSTEM-8 master: re/dspnative.py)
     KVal *recip(KVal *y);                           // 1/y: recipseed + 3 newton (1e-8; |y| in [2^-9, 512))
     std::pair<KVal *, KVal *> expsplit(KVal *z);   // (e^floor(z), frac(z)), z in [-19, 7)
     std::pair<KVal *, KVal *> log2split(KVal *y);  // (e, m) with y = m 2^e, m in [0.75, 1.5), y > 0

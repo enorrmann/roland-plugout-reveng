@@ -1,13 +1,13 @@
 /* cz.c: a Casio CZ voice (phase distortion) for SYSTEM-S1CC, after Michael Rickard's CZ-1 study
  * (https://www.kasploosh.com/cz/, "Casio CZ-1 Spelunking": basic waves, window functions, modulation) and the CZ
- * operation manuals. Spec and verification: docs/examples_casio_cz_README.md.
+ * operation manuals. Spec and verification: sdk/s1cc/examples/casio_cz/README.md.
  *
  * Panel (CZ name -> SYSTEM-1 control):
  *   LINE 1 DCO1 wave   OSC1 WAVE   positions 0..4 = CZ WAVE 1..5 (saw, square, pulse, sine-pulse/"double sine",
  *                                  saw-pulse); position 5 = WAVE 6 (resonance, saw window)
  *   LINE 2 DCO2 wave   OSC2 WAVE   positions 0..4 = CZ WAVE 1..5; position 5 = WAVE 7 (resonance, triangle window)
  *   DCW (distortion)   OSC1 / OSC2 COLOR, with COLOR MOD: FILTER ENV = the CZ's DCW envelope, AMP ENV, PITCH ENV,
- *                      LFO, SUB OSC (the host's sources, docs/examples_system_s1cc_README.md §3.2)
+ *                      LFO, SUB OSC (the host's sources, examples/system_s1cc/README.md §3.2)
  *   LINE SELECT 1+2'   OSC1 MIX / OSC2 MIX: the level of each line (2' = line 2 detuned)
  *   OCTAVE / DETUNE    OSC1 RANGE (both lines, host), OSC2 RANGE (line 2's octave against line 1), OSC2 FINE (+-1
  *                      semitone, 128 = in tune)

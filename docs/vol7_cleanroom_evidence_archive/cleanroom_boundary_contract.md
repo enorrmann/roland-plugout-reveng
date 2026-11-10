@@ -1,77 +1,90 @@
-# Volume VII: Clean-Room Archive & Evidence Logs
+# Volume VII — Chapter 1: Clean-Room Boundary — Team Separation and Authorised Material
 
-# Chapter 1: Clean-Room Boundary Specification & Team Separation Contract
+> **Scope:** both.
 
-> **Document ID**: TRM-BMC-VOL7-001  
-> **Classification**: Normative Governance & Procedural Standard  
-> **Release Target**: Texas Instruments / Analog Devices TRM Standard  
-
----
-
-## 1.1 Purpose & Legal Precedent
-
-This document establishes the formal, verifiable operational separation rules governing reverse engineering and clean-room implementation of the Roland BMC synthesis architecture. The methodology adheres strictly to established international clean-room engineering precedents (*Sega v. Accolade*, *Sony v. Connectix*, *NEC v. Intel*) to enable legal interoperability and independent software execution without copyright contamination.
-
-```
-+---------------------------------------------------------------------------------------------------+
-|                                 CLEAN-ROOM SEPARATION ARCHITECTURE                                |
-|                                                                                                   |
-|  +-------------------------------------+                +--------------------------------------+  |
-|  |     TEAM A: Reverse Engineering     |                |     TEAM B: Clean-Room Authors       |  |
-|  |                                     |                |                                      |  |
-|  | - Direct Access to Firmware Binaries|                | - ZERO Access to Disassembly/Binaries|  |
-|  | - Ghidra / IDA Pro Static Analysis  |                | - Writes 100% Original Code          |  |
-|  | - Hardware USB Bus Sniffing         |                | - Consumes ONLY Functional Specs     |  |
-|  | - Extracts Architecture & Protocols |                | - Benchmarks Against Test Vectors    |  |
-|  +------------------+------------------+                +-------------------+------------------+  |
-|                     │                                                       ▲                     |
-|                     │ Delivers Draft Specifications                         │ Permitted Delivery  |
-|                     ▼                                                       │                     |
-|  +--------------------------------------------------------------------------+------------------+  |
-|  |                         INDEPENDENT CLEAN-ROOM REVIEWER FIREWALL                             |  |
-|  |                                                                                             |  |
-|  | - Filters out accidental implementation artifacts, decompiled C pseudocode, and symbol names |  |
-|  | - Authorizes only pure functional requirements (REQ-ARCH, REQ-FUNC, REQ-DATA)               |  |
-|  | - Maintains immutable audit logs of all information passing across the boundary             |  |
-|  +---------------------------------------------------------------------------------------------+  |
-+---------------------------------------------------------------------------------------------------+
-```
+> The clean-room specification is a separate track from the tools: it describes the PLUG-OUT firmware and protocol
+> from the evidence, without the tools' code. Its parts are chapters 1–5 of this volume.
 
 ---
 
-## 1.2 Operational Roles & Isolation Boundaries
+## [Vol. VII ch. 1](cleanroom_boundary_contract.md) — team separation and authorised material
 
-### 1.2.1 Team A (Analysis & Reverse Engineering)
-- **Authorized Assets**: Inspects raw `SYSTEM8_UP.BIN`, `SYSTEM1_UPD.BIN`, plugin binaries (`JUNO-60.vst3`, `JX-3P.vst3`), Ghidra disassembly projects, and hardware USB telemetry.
-- **Delivery Constraints**: Team A is legally prohibited from authoring production firmware or DSP microcode. Team A's sole permitted output is normative architectural documentation (`docs/vol1_*` through `docs/vol5_*`) and JSON verification test vectors.
+This is not legal advice. This policy describes an **operational, verifiable**
+separation; whether it is legally sufficient depends on the jurisdiction and
+the purpose (interoperability, research), which a lawyer must assess.
 
-### 1.2.2 The Independent Reviewer (Firewall Guardian)
-- Serves as the unidirectional gateway between Team A and Team B.
-- Inspects all documentation and specifications passing to Team B.
-- **Mandatory Rejection**: Strips any accidental C pseudocode decompilation dumps, internal Roland function addresses, or disassembled microcode instructions.
+### 1. Roles
 
-### 1.2.3 Team B (Clean-Room Implementation & Synthesis)
-- **Contamination Restrictions**: Team B personnel must NEVER inspect Roland binary executables, Ghidra disassembly projects, or Team A laboratory scratchpads.
-- **Authorized Sources**: Works exclusively from approved specifications (`docs/vol1_*` through `docs/vol6_*`) and test vectors (`cleanroom/test-vectors/*.json`).
-- **Verifiable Provenance**: All code authored by Team B must maintain an auditable decision log recording the functional requirement ID justifying each implementation decision.
+| Team | Does | Receives | Delivers |
+|---|---|---|---|
+| **A** (analysis) | examines `Code*.Dat`, plugins, `SYSTEM8_UP.BIN`, the real device | everything | only the approved content of `cleanroom/` |
+| **Reviewer** (independent of A and B) | filters A's delivery | A's draft | approved list; rejects contaminated material |
+| **B** (implementation) | designs/implements/tests | only approved material (§3) | own code + decision log |
 
----
+**Current situation (honest):** this repository has a single author, and
+Team A (this specification) and any future implementation share history,
+tools and disassembly notes. **Real separation does not exist yet**: it is
+achieved only when B is another person/team working from a copy that
+contains only §3. Renaming things or rewriting code is not a substitute.
 
-## 1.3 Contaminated vs Authorized Materials Matrix
+### 2. Material excluded from the transfer (contaminated)
 
-| Asset Description | Classification | Team A Access | Team B Access | Handling Rule |
-|---|---|---|---|---|
-| `plugins/**/*.vst3`, `*.dat`, `unins000.exe` | **Contaminated** | Read-Only | **PROHIBITED** | Third-party copyrighted binaries. Must never enter Team B workspaces. |
-| `SYSTEM8_UP.BIN`, `SYSTEM1_UPD.BIN` | **Contaminated** | Read-Only | **PROHIBITED** | Original factory firmware. |
-| Raw Ghidra Projects & IDA Databases | **Contaminated** | Full Access | **PROHIBITED** | Analysis intermediate scratchpads. |
-| `docs/vol1_*` to `docs/vol5_*` Specifications | **Authorized** | Authoring | **Full Access** | Abstract functional specifications approved by Reviewer. |
-| `cleanroom/test-vectors/*.json` | **Authorized** | Authoring | **Full Access** | Numeric hashes, header byte lengths, golden vectors. |
-| Physical Synthesizer Hardware (S8 / S1) | **Authorized** | Full Access | **Full Access** | Black-box testing and protocol validation. |
+| Material | Reason |
+|---|---|
+| `plugins/**/*.vst3`, `*.dat`, `unins000.exe`, proprietary images/`Script*.xml` | Roland works; see note 1 |
+| `plugins/**/Script/Code*.Dat`, `firmware/SYSTEM8_UP.BIN` and their decompressed regions, `.elf`, `.bin` | original firmware |
+| [Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) §7 (engine notes, function addresses, instruction listings, TONE patch) and the code-address columns of [Vol. IV ch. 4](../vol4_firmware_container_protocol/usb_sysex_protocol_spec.md) | derived from disassembly |
+| `examples/cave_tone/*` (`engine.s`, `hook.c`, `hook.o`, `*.elf`) | assembly/code tied to the original implementation |
+| `tools/*.py` | written while disassembling (comments carry plugin addresses); B does not consult them |
+| Pseudocode or Ghidra/IDA captures, A's internal notes | by definition |
+| Internal class/method names (RTTI) | accidental details; quoted in [Vol. VII ch. 2](functional_and_data_requirements.md) only as **non-normative** orientation; the Reviewer decides whether to remove them |
 
----
+Note 1: the plugins and packages are third-party and are not redistributed;
+B's tests compare against vectors (JSON), not against the binaries.
 
-## 1.4 Cryptographic Verification & Signature Auditing (`emu/sigcheck.py`)
+### 3. Material authorised for B
 
-Prior to releasing any clean-room binary or microcode package (e.g. `C-V4` or `C-S1V8`), the build must pass automated cryptographic signature scanning (`emu/sigcheck.py`):
-1. **N-Gram Matching**: Scans target binaries against a multi-megabyte corpus of original Roland firmware binaries across all 16-bit, 32-bit, and 64-bit word windows.
-2. **Binary Zero-Overlap Threshold**: Rejects any clean-room build containing contiguous sequences of instruction words matching proprietary Roland microcode.
+1. [Vol. VII ch. 2](functional_and_data_requirements.md), [Vol. VII ch. 2](functional_and_data_requirements.md), [Vol. VII ch. 2](functional_and_data_requirements.md),
+   [Vol. VII ch. 5](cleanroom_protocol_spec.md), [Vol. VII ch. 2](functional_and_data_requirements.md), [Vol. VII ch. 5](cleanroom_protocol_spec.md),
+   [Vol. VII ch. 3](test_vectors_verification_plan.md), [Vol. VII ch. 3](test_vectors_verification_plan.md), this document.
+2. `cleanroom/test-vectors/*.json` (numeric values, hashes, preset names,
+   24 header bytes of one record).
+3. `cleanroom/test-vectors/check_vectors.py` and `derive_extra_vectors.py`:
+   **verification references** written only from the specification; B may
+   run them but must implement its own version.
+4. Devices: access to its own SYSTEM-8/-1 and to the public output of the
+   protocol (black-box tests).
+5. The `Code*.Dat` files themselves: B may **use them as test input** (it
+   lawfully holds them through the plugin install) but must **not**
+   disassemble the code content of region 1 or decompress with A's tools.
+   The Reviewer decides whether B receives the files or only the vectors.
+
+### 4. Procedural rules
+
+1. Two separate repositories/copies; B has no read permission on A's.
+2. Every question from B to A: in writing, through the Reviewer; answers are
+   published in [Vol. VII ch. 3](test_vectors_verification_plan.md)/[Vol. VII ch. 2](functional_and_data_requirements.md) (not answered with code).
+3. B records in its own repository: design decisions, sources consulted,
+   date and who; no links to A's notes.
+4. Contamination review: automatic comparison of B with the §2 material
+   (strings, non-trivial constants, structure) before release.
+5. If B finds it needs a **[?]** datum, it files an experiment request
+   (real device or measurement), not a code-reading request.
+6. Auditable A→B and B→A access log (hash of each delivery).
+
+### 5. What the specification does **not** transfer
+
+* Algorithms or code of the engine or the DSP; nor how the original LZSS is
+  implemented (only its decoding contract).
+* Any internal function address of the plugin or the firmware.
+
+### 6. Operational safety risks
+
+* Installing a malformed package into a slot can make it unusable until
+  reinstalling via the official updater **[I]**; always test in a test slot,
+  with `--dry-run`.
+* Never overwrite slot 0.
+* No firmware authentication is known: the security impact of installing
+  unofficial firmware has not been assessed; this documentation does not
+  aim to circumvent Roland Cloud licences (the `0x40` authorisation flag is
+  described only as part of the protocol).

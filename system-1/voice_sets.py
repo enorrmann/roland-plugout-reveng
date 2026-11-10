@@ -13,7 +13,7 @@ The slave app loads DSP programs in "sets". A set is a run of 12-byte entries
 
 i.e. four voice slots of 0x1800 bytes in one program memory. Programs are stored as
 32-bit words with the two halfwords swapped (as everywhere else in the corpus).
-Cost = number of DSP instructions (1 cycle each, DSP_HARDWARE.md; budget about 925-945
+Cost = number of DSP instructions (1 cycle each, docs/vol2_dsp_core_isa/core_architecture.md; budget about 925-945
 per sample, the exact edge depends on the DSP).
 
     python3 system-1/voice_sets.py [work/sys1_v130/app_slave.bin] [--entries]

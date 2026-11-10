@@ -2,7 +2,7 @@
  * 3 voices (two delay-memory lines each: 6 tapreq, the measured limit). The slave makes the bow velocity, Braids'
  * lut_bowing_envelope settles at 0.16: here 0.16 x OSC1 MIX x the AMP envelope (mp_dsp_b.h MP_NONE: the stroke
  * follows the ADSR); master B runs the string, the friction and the body (EDM_STR_BOWED, microcode/edm_str.s
- * master_bowed, docs/MUTABLE_MEMORY.md §3.3.5). OSC1 COLOR = bow pressure (Braids' TIMBRE), OSC2 COLOR = bow
+ * master_bowed, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5). OSC1 COLOR = bow pressure (Braids' TIMBRE), OSC2 COLOR = bow
  * position (Braids' COLOR). */
 #define MP_FILTER MP_NONE
 #include "../mutable_ported/include/mp_dsp_a.h"

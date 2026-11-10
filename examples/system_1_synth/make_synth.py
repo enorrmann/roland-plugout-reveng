@@ -1,4 +1,4 @@
-"""C-S1SY: an 8-voice subtractive synth for the SYSTEM-1, all our own microcode (docs/examples_system_1_synth_README.md).
+"""C-S1SY: an 8-voice subtractive synth for the SYSTEM-1, all our own microcode (examples/system_1_synth/README.md).
 
 Extends C-S1V8 (examples/system_1): per voice two independent oscillators (wave + level each, DCO2 detuned), an
 ADSR VCA, a 4-pole low-pass filter (cutoff, resonance, key track) and a second ADSR for the cutoff.
@@ -192,7 +192,7 @@ def regs_of(line):
 
 
 def schedule(lines):
-    """a loaded register is usable one instruction later (DSP_ISA.md section 9): put a harmless move after a load
+    """a loaded register is usable one instruction later (docs/vol2_dsp_core_isa/isa_overview.md section 9): put a harmless move after a load
     when the next instruction uses (or overwrites) the loaded register"""
     out = []
     code = [x for x in lines if x.strip() and not x.startswith(';')]
@@ -240,7 +240,7 @@ def close(word):
     return w, r, ['ld r0, [e000]', f'st r0, [{word:04x}]']
 
 
-# ---- incremental steps on top of C-S1V8 (STEP=n build.sh; docs/examples_system_1_synth_README.md) ----------------
+# ---- incremental steps on top of C-S1V8 (STEP=n build.sh; examples/system_1_synth/README.md) ----------------
 # Every step adds ONE thing to the last one that played on the hardware, with instructions already proven there.
 #   1  DCO2 per voice: a second copy of C-S1V8's saw (same code), +7 cents, level 0.5, fixed in the microcode
 #   2  OSC1 / OSC2 levels from the panel (0x174 / 0x175) through bank 5 A040 / A041 (ARM)
@@ -590,13 +590,13 @@ def step_s1m1():
     return L
 
 
-FX_SEND = (0x2000, 0x2002)                 # step 13: master B bank 1, the OS effect reads them (system-1/FX_CHAIN.md)
+FX_SEND = (0x2000, 0x2002)                 # step 13: master B bank 1, the OS effect reads them (docs/vol1_system_architecture/bus_interconnect.md)
 FX_RET = (0x2001, 0x2003)                  # ... and leaves dry + delay + reverb there, read one sample later (ring)
 
 
 # step 14 (master DSP B, before the OS effect): AMP TONE (0x18B) tilt and an ensemble on the CRUSHER knob (0x18C;
-# the SYSTEM-1 crusher is the PLUG-OUT's own program in this slot, system-1/FX_CHAIN.md §7). Ensemble: 3 delay lines
-# in this DSP's bank 0 (indexed loads ldidx through h6, docs/DSP_USOS.md §2; ring: the input stored at ENS_S, read
+# the SYSTEM-1 crusher is the PLUG-OUT's own program in this slot, docs/vol1_system_architecture/bus_interconnect.md §16.7). Ensemble: 3 delay lines
+# in this DSP's bank 0 (indexed loads ldidx through h6, docs/vol2_dsp_core_isa/operation_uses.md §2; ring: the input stored at ENS_S, read
 # at ENS_S + k), each k = base + slow triangle + fast triangle, phases 0 / 120 / 240 degrees, linear interpolation
 # (fraction of k by a bit AND); L = t0 + t2 / 2, R = t1 + t2 / 2. Bank-0 words below ENS_S (the OS effect at 0x0
 # stores 0000-0033; nothing may store in ENS_S + 1 .. ENS_S + kmax).
@@ -724,7 +724,7 @@ def chorus_lines(wet, dry, outs):
 
 def step_m1_fx14():
     """step 14 first form (master DSP B): it hung the SYSTEM-1 (bank 0 of master B is not ours: the OS effect lives
-    there, system-1/FX_CHAIN.md §7); kept for the record, built only with M1=14"""
+    there, docs/vol1_system_architecture/bus_interconnect.md §16.7); kept for the record, built only with M1=14"""
     L = ['; s1mm1 (STEP 14, master form, hangs): 6006 x volume -> tone -> ensemble -> OS effect send / return',
          f'ld r0, [{OUT_L:04x}]', f'ld r7, [c{M_VOLUME:03x}]', 'mov r4, r4', 'mul r0, r0, r7']
     L += fx14_lines(M6_TONE, M6_WET, M6_DRY, FX_SEND)
@@ -735,7 +735,7 @@ def step_m1_fx14():
 
 
 def step_m1():
-    """C-S1V8's master B program; step 13: through the OS delay / reverb (system-1/FX_CHAIN.md §4), as the stock
+    """C-S1V8's master B program; step 13: through the OS delay / reverb (docs/vol1_system_architecture/bus_interconnect.md §16.4), as the stock
     mixer does: the mix x volume -> 2000 / 2002 (the effect program at 0x0 of this DSP processes it in the same
     sample), the effect's result of the sample before 2001 / 2003 -> A118 / A119"""
     if STEP >= 14 and os.environ.get('M1', '') == '14':     # the hanging master form (record only)
@@ -881,7 +881,7 @@ def pack(lines):
 
 
 PACK = os.environ.get('PACK', '1') == '1'   # pack() the step programs (Roland's packing); PACK=0 = one unit per line
-# step 12: the list scheduler asm/dspsched.py instead of pack() (reorders within the dependencies; MICROCODE_OPTIMIZATION.md §5)
+# step 12: the list scheduler asm/dspsched.py instead of pack() (reorders within the dependencies; docs/vol3_voice_allocation_scheduling/microcode_optimization.md §5)
 SCHED = os.environ.get('SCHED', '1' if STEP >= 12 else '0') == '1'
 
 

@@ -1,147 +1,70 @@
-# Volume III: Voice Engine & Dynamic Scheduling
+# Volume III — Chapter 4: Execution Time and Instruction Budgets
 
-# Chapter 4: 96 kHz Execution Timing, Cycle Budgets & Optimization
+> **Scope:** both; each budget names its device.
 
-> **Document ID**: TRM-BMC-VOL3-004  
-> **Classification**: Normative Hardware Reference & Benchmarking Guide  
-> **Release Target**: Texas Instruments / Analog Devices TRM Standard  
+> The measured time budgets, each with its source. Certainty tags: [measured] / [M] on the device, [E] / [sim]
+> emulator, [C] our code, [L] / [code] read in Roland's code, [est] estimate.
 
----
+## 1. The model: one cycle per instruction, the whole program once per sample
 
-## 4.1 The 96.000 kHz Frame Execution Boundary
+* Each DSP runs all its programs (main + slots / sections) once per sample, at **96 kHz** [exact]
+  ([Vol. II ch. 1](../vol2_dsp_core_isa/core_architecture.md) §1; measured: ~96 000 executions/s on master DSP3, and an
+  oscillator computed with fs = 96 000 is in tune within ±1.2 cents on the slaves,
+  [Vol. II ch. 3](../vol2_dsp_core_isa/instruction_word_encoding.md) §1).
+* **1 cycle per instruction, whatever its content**: 1 op, A/A/B, 1 or 2 MACs, up to 6 transfers, markers [measured]
+  (ch. 1 §1; [Vol. II ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md) §14: `re/dspbudget.py
+  mac|mac2|xfer4|xfer6`).
+* **Jumps**: a taken jump costs about one extra cycle; what a jump skips costs nothing (a jump over 1500 fillers kept
+  the counter running; a 4-instruction loop body fits 180 iterations, not 185, with ~25 other instructions → ≈ 5
+  cycles per iteration) [measured] (ch. 3 §5.4b).
+* All the programs of a DSP add to the same budget; a SYSTEM-1 section gives space, not time
+  ([ch. 3](slot_program_model.md) §1, §3.2).
 
-The Roland BMC DSP architecture enforces hard-real-time audio execution governed strictly by the audio sample clock:
+## 2. Budgets per DSP
 
-$$F_s = 96.000\text{ kHz} \implies T_s = \frac{1}{F_s} = 10.4166\ \mu\text{s}$$
-
-Within this brief $10.4166\ \mu\text{s}$ time window, every active DSP core must complete its entire instruction stream—encompassing the Main Program, all active dynamic slots, parameter loads, and output streaming to the Wave Bus.
-
-```
-+---------------------------------------------------------------------------------------------------+
-|                                96 kHz SAMPLE FRAME TIME BUDGET ENVELOPE                           |
-|                                                                                                   |
-|  |<----------------------------------- 10.4166 microseconds ------------------------------------>|
-|  |                                                                                                |
-|  +-------------------------------------------------------+----------------------------------------+
-|  |                  ACTIVE EXECUTION PERIOD              |            HARDWARE IDLE / HEADROOM    |
-|  |  Main Program + Dynamic Slots (Oscillators/Filters)   |  Pipeline waits for next 96 kHz pulse  |
-|  +-------------------------------------------------------+----------------------------------------+
-|  ▲                                                       ▲                                        ▲
-|  Frame Sync Strobe                                       Microcode Finish                         Next Strobe
-|  (PC restarts at 0x0100)                                 (Return delimiter / trailer)             (Overrun if late)
-+---------------------------------------------------------------------------------------------------+
-```
-
----
-
-## 4.2 Platform Timing Budgets & Overrun Limits
-
-Because each instruction word consumes exactly **1 instruction cycle**, the execution budget is measured directly as the maximum allowable instruction count per sample frame:
-
-| Metric / Dimension | Roland SYSTEM-8 | Roland SYSTEM-1 | Evidence Level |
+| device / DSP | ran | hung | source |
 |---|---|---|---|
-| **Audio Sample Rate ($F_s$)** | 96.000 kHz | 96.000 kHz | `[MEASURED]` |
-| **Sample Frame Period ($T_s$)** | $10.4166\ \mu\text{s}$ | $10.4166\ \mu\text{s}$ | `[MEASURED]` |
-| **Nominal DSP Core Frequency** | $\approx 90.6\text{ MHz}$ | $\approx 68.0\text{ MHz}$ | `[INFERRED]` |
-| **Measured Safe Cycle Budget** | **925 – 945 Instructions** | **703 – 708 Instructions** | `[MEASURED]` |
-| **Confirmed Overrun Stall Limit** | $\ge 950$ Instructions | $\ge 826$ Instructions | `[MEASURED]` |
-| **Main Program Byte Boundary** | 64 KiB Space | **6,144 Bytes (6 KiB)** | `[MEASURED]` |
-| **Main Instruction Capacity** | $\approx 2,500$ Instructions | $\approx 600 - 720$ Instructions | `[MEASURED]` |
+| SYSTEM-8, every DSP | ≈ 925–945 instructions per sample (master DSP3: the counter runs with 900 fillers + 22 and stops with 920–950) | above that | ch. 3 §1 [measured]; ch. 1 §1 |
+| SYSTEM-8, slave DSP2/3 (main2/3 = 189 + both oscillator slots) | a DCO2 slot of 733 instructions (DCO1 slot 6) | 753 | ch. 3 §1 [measured] |
+| SYSTEM-1, slave DSP A | **703** (MP-CSAW, 8 voices, 5854 bytes, 2026-10-28) | **826** (also with pure filler) | ch. 1 §1; [examples/system_1_synth/README.md](../../examples/system_1_synth/README.md) §4 [measured] |
+| SYSTEM-1, slave DSP B | **708** (C-S1SYR, 2026-10-23) | upper limit not searched | examples/system_1_synth/README.md §4 [measured] |
 
-### 4.2.1 Measured Operating Envelope on SYSTEM-8 `[MEASURED]`
-- Swept systematically using calibrated filler loops (`re/dspbudget.py`).
-- At **900 filler instructions + 22 operational instructions (922 cycles)**, the DSP core runs with 100% audio fidelity and zero jitter.
-- Beyond **945 cycles**, the pipeline overruns the hardware frame sync strobe.
-- **Overrun Consequences**: The hardware drops sample frames, resulting in harsh periodic clicking, loss of voice synchronization, or an unrecoverable DSP watchdog crash that leaves the instrument unresponsive until a full power cycle.
+What happens when going over: the end of the program is lost; on the slaves the device can stay unstable (wrong / no
+sound, LFO-like garbage) until a **power cycle** (seen twice on the slaves) (ch. 3 §1; ch. 1 §1). Why it leaves the
+slaves unstable is open (ch. 1 §11 item 7).
 
-### 4.2.2 Measured Operating Envelope on SYSTEM-1 `[MEASURED]`
-- On Slave DSP A, a benchmark kernel with **703 instructions executed cleanly** without dropped samples.
-- A test kernel expanded to **826 instructions triggered an immediate system freeze**.
-- On Slave DSP B, programs up to **708 instructions** ran with full stability.
-- **Physical Size Trap**: On SYSTEM-1, exceeding **6,144 bytes (`0x18FF`)** in the Main Program halts the DSP core immediately, even if total instruction count is well within the 703-cycle limit (e.g. 6,534 bytes with 702 instructions failed, whereas 5,854 bytes with 703 instructions succeeded).
+## 3. Space limits that act like budgets
 
----
-
-## 4.3 Deterministic Instruction Cost Model `[VERIFIED]`
-
-The BMC DSP hardware implements a completely flat cycle execution profile:
-
-$$\text{Total Execution Time} = \sum_{i=1}^{N_{\text{instructions}}} \text{Cycles}(i)$$
-
-| Instruction Structure | Content | Measured Execution Cost |
+| limit | value | source |
 |---|---|---|
-| **Simple Scalar Op** | 1 Unit A ALU (`addxy r0, r1, r2`) | **1 Cycle** |
-| **SFU Function** | 1 Unit B Non-Linear Op (`recipseed r0, r1`) | **1 Cycle** |
-| **Phase Modulator** | 1 Unit B Phase Op (`ph_wrap r1, r3, r1`) | **1 Cycle** |
-| **Dual MAC Instruction** | Parallel Products + Accumulator (`mac_p1p2`) | **1 Cycle** |
-| **Complex VLIW Bundle** | ALU A + ALU B + MAC + up to 6 Parallel Transfers | **1 Cycle** |
-| **Taken Branch (`JMP`)** | Branch executed to non-sequential target | **2 Cycles** (1 op + 1 pipeline refill) |
-| **Untaken Branch** | Fall-through condition | **1 Cycle** |
-| **Predicated Suppression** | Instruction suppressed via `cond` skip mask | **0 Cycles** (Bypassed) |
+| SYSTEM-1 main program | **6 KiB** (`0x0100`–`0x18FF`): 6534 bytes / 702 instructions and 6740 / 578 hung; 5854 / 703 ran (2026-10-28). Whether it is the region size or the bytes executed per sample is open | [ch. 3](slot_program_model.md) §3.3 [measured] |
+| size of an instruction | 1–31 words (2–62 bytes); average 6–8 bytes in Roland's programs, ≈ 8–10 in ours; 6 KiB ≈ 600–750 of our instructions | ch. 1 §1; [Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §6.2 |
+| SYSTEM-8 program window | 64 KiB per DSP; main space `0x0100`–`0x5FFF` (DSP2–5) or `0x7FFF` (DSP0/1); each DCO slot `0x5000` | ch. 3 §2.1 [code] |
 
----
+## 4. What the known programs cost
 
-## 4.4 High-Impact Microcode Optimization Techniques
+| program | instructions per sample | source |
+|---|---|---|
+| JX-3P on the SYSTEM-8, 4 voices per slave: DSP0 / DSP1 | 516 / 514 | [ch. 1](system8_voice_allocation.md) §3.3 [E] |
+| JX-3P: DSP2 / DSP3 (MAIN2 + DCO1 SAW + DCO2 SAW) | 839 / 834 (≈ 90 % of the budget: hence two voices per oscillator DSP) | ch. 1 §3.3 [E] |
+| JX-3P: DSP4 / DSP5 | 532 / 513 | ch. 1 §3.3 [E] |
+| Roland's oscillators | ≈ 160 per voice (DCO1 SAW: 325 for two voices) | ch. 1 §8 [E] |
+| our naive saw (§5.2 of ch. 1) | 33 per voice: time for ≈ 25 voices on an oscillator DSP | ch. 1 §8 [C] |
+| C-S1V4 / C-S1V8, slave DSP A | 137 (4 saws) / 269 (8 saws) | [ch. 2](system1_voice_allocation.md) §5 [M] |
+| SH-101 on the SYSTEM-1, slave DSP A main | 575 | ch. 2 §5 [L] |
+| JX-3P microcode on the SYSTEM-1 (4 DSPs) | 4 complete voices: 3748 of ≈ 3660 (do not fit); 4 voices with one DCO: 3098 (fit) | ch. 2 §6 [E] |
+| C-S1SY, by step (DSP A / B) | e.g. step 9: 693 / 652; step 10 (`ph_wrap`): 517 / 652; step 11 with `FUSE`: 576 / 603; step 12 (scheduler): 553 / 471 | [ch. 6](microcode_optimization.md) §4, §5 |
+| MP-CSAW2, 8 voices (SYSTEM-S1CC) | A 664 (498 + section 166), B 701 (512 + section 189) | [ch. 8](s1_optimizations.md) §1 [sim] |
+| MP-CSAW2-ARM (envelopes and LFO on the ARM) | B 375 | ch. 8 §3 |
 
-To maximize polyphony within the strict 703-cycle (SYSTEM-1) or 945-cycle (SYSTEM-8) budgets, microcode compilers and engineers must leverage native architectural features:
+## 5. How to stay inside the budget
 
-### 4.4.1 Phase Wrapping: `PH_WRAP` vs Manual Mathematical Wrapping `[MEASURED]`
-- **Naive Fixed/Floating Wrap**: Involves a multi-instruction chain of comparisons, multipliers, subtractions, and minimum limits:
-  ```dsp
-  ; Manual Phase Wrap Chain (Consumes 11 to 13 Instructions per Oscillator)
-  mul r3, r3, #256.0
-  addxy r1, r3, r1
-  min r1, r1, r6
-  ; ... repeated 4 times with scaling ...
-  subxy r1, r5, r1
-  ```
-- **Native Accelerator (`ph_wrap`)**: Executes in **1 instruction cycle**:
-  ```dsp
-  ; Native Hardware Phase Wrap (Consumes 1 Cycle)
-  ph_wrap r1, r3, r1
-  ```
-- **Net Optimization**: Saves **10 cycles per oscillator**. Across an 8-voice dual-oscillator synth (16 oscillators), this recovers **160 instruction cycles per frame**—freeing up over 22% of the total SYSTEM-1 budget.
-
-### 4.4.2 VLIW Parallel Instruction Bundling (Instruction Fusion) `[VERIFIED]`
-Because a VLIW instruction bundling an ALU operation, an SFU operation, and parallel memory transfers costs the same single cycle as an isolated transfer, the scheduling pass (`asm/dspsched.py`) fuses independent operations:
-
-```dsp
-; Unoptimized Serial Microcode (Consumes 3 Cycles)
-addxy r1, r1, r2
-ld r3, [0400]
-st r1, [0300]
-
-; Optimized Fused Parallel VLIW Microcode (Consumes 1 Cycle)
-addxy r1, r1, r2 | ld r3, [0400] | st r1, [0300]
-```
-
-### 4.4.3 Indexed Memory Lookups (`LDIDX`) vs Polynomial Expansions
-Wavetable oscillators and complex non-linear transfer curves can be implemented via indexed loads (`ldidx rD, offset`) through hidden register `h6`, reading Bank 0 in a single cycle rather than evaluating multi-term Chebyshev polynomial expansions.
-
----
-
-## 4.5 Audio Telemetry & Overrun Verification Methodology
-
-Because Slave BMC cores lack direct JTAG or UART telemetry to the host PC, verification of timing budgets is conducted via **USB Audio Telemetry Demodulation**:
-
-```
-+---------------------------------------------------------------------------------------------------+
-|                                 USB AUDIO TELEMETRY TEST HARNESS                                  |
-|                                                                                                   |
-|  [ Slave DSP Core: Diagnostic Firmware ]                                                          |
-|   - Slot executes target microcode under test.                                                    |
-|   - Measures frame cycle headroom via hardware timer f5c.                                         |
-|   - Modulates telemetry state onto fixed high-frequency sinusoids:                                |
-|     * Carrier 1 (1000 Hz): Cycle Count Headroom (scaled 0.0 to 1.0)                               |
-|     * Carrier 2 (2200 Hz): Frame Overrun Strobe (Pulse on timing deadline violation)              |
-|                                        │                                                          |
-|                                        ▼                                                          |
-|  [ USB Audio Interface: 96 kHz Streaming ]                                                        |
-|   Captures raw 32-bit floating-point audio:                                                       |
-|   arecord -D hw:SYSTEM8,0 -f FLOAT_LE -r 96000 -c 2 capture.wav                                  |
-|                                        │                                                          |
-|                                        ▼                                                          |
-|  [ Host Analysis Script: demodulate_telemetry.py ]                                                |
-|   Heterodyne mixing + 250 Hz Low-Pass Filter ==> Exact Cycle Count & Zero-Overrun Verification     |
-+---------------------------------------------------------------------------------------------------+
-```
+* The mandatory rules for own microcode (phase ops, packing, fusion, no repeated loads, bit-exact validation) and the
+  scheduler: [ch. 6](microcode_optimization.md).
+* What Roland's oscillators do to fit: [ch. 7](roland_oscillators.md).
+* SYSTEM-1 catalogue of measured savings (envelopes / LFO / pitch on the ARM, half rate with jumps, LUT costs):
+  [ch. 8](s1_optimizations.md).
+* Native ops that replace sequences (shifts, SFU, `add3`, two-product MAC, indexed loads):
+  [Vol. II ch. 10](../vol2_dsp_core_isa/native_ops.md).
+* The SYSTEM-S1CC build applies the SYSTEM-1 limits by itself (`make_s1cc.py`: `BUDGET_A` / `BUDGET_B` /
+  `MAIN_BYTES`) and chooses how many voices fit ([Vol. I ch. 1](../vol1_system_architecture/soc_overview.md) §6.2).

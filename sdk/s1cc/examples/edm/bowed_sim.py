@@ -1,4 +1,4 @@
-"""EDM_STR_BOWED check without the device (docs/MUTABLE_MEMORY.md §3.3.5): build/s1mm1.s (microcode/edm_str.s
+"""EDM_STR_BOWED check without the device (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): build/s1mm1.s (microcode/edm_str.s
 master_bowed) on the C emulator; 6 lines (neck, bridge per voice), the tapreq results and the bank-0 ring modelled as
 in str1_sim.py; a steady bow (BOW, default 0.16) on 3 voices; prints each voice's pitch against the note.
     KERNEL=sdk/s1cc/build/edm_bowed sh examples/system_s1cc/build.sh && python3 sdk/s1cc/examples/edm/bowed_sim.py"""

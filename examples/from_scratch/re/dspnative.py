@@ -1,5 +1,5 @@
 """The DSP's native ops (shifts, SFU, Newton step, 3-operand add, two-product MAC) on the SYSTEM-8 master, exact,
-against the C reference (emu/dspref.py): before s1cc and the SYSTEM-1 host use them (docs/DSP_HARDWARE.md §5).
+against the C reference (emu/dspref.py): before s1cc and the SYSTEM-1 host use them (docs/vol2_dsp_core_isa/core_architecture.md §5).
 
     python3 dspnative.py [TEST ...] [-n 24] [--list] [--save FILE]   (needs the PEEK PLUG-OUT selected, dsppeek.py ping)
     python3 dspnative.py --check FILE [TEST ...]                      (no device: the reference against saved cases)
@@ -40,7 +40,7 @@ def gen_exp(r):
 
 
 def sfu(d, mode, y, neg=False):
-    """SFU word, unit B (DSP_HARDWARE.md §5.3): D = 8 + d, nibble f, bits 7-6 = 00, mode, Y (bit 3 = the variant)"""
+    """SFU word, unit B (docs/vol2_dsp_core_isa/core_architecture.md §5.3): D = 8 + d, nibble f, bits 7-6 = 00, mode, Y (bit 3 = the variant)"""
     return [0x0A02, (8 + d) << 12 | 0xF00 | mode << 4 | (8 if neg else 0) | y]
 
 
@@ -141,7 +141,7 @@ TESTS = {
     'mac_n1w': (mac(2, 5, 0, 1, 3, 1, 4, 5), gen_any(-4, 4)),     # r2 <- -r0 r1 + r4 r3
     'mac_n1p2': (mac(2, 7, 0, 1, 3, 1, 4, 5), gen_any(-4, 4)),    # r2 <- -r0 r1 + r5 + r4 r3
     'mac_p1p2h': (mac(10, 6, 0, 1, 3, 1, 4, 5), gen_any(-4, 4)),  # r2 <- (r0 r1 + r5 + r4 r3) / 2
-    # MAC, immediate coefficient K, register Y (DSP_ISA_DISCREPANCIES.md D1: K at byte C): per-case words
+    # MAC, immediate coefficient K, register Y (docs/vol2_dsp_core_isa/isa_discrepancies.md D1: K at byte C): per-case words
     **{f'mac_p1wk{m}c{c}': (mac_k(2, 4, 0, 1, 3, m, c, 0), gen_any(-4, 4)) for m in (1, 2, 3) for c in (2, 4, 6)},
     **{f'mac_n1wk{m}': (mac_k(2, 5, 0, 1, 3, m, 2, 0), gen_any(-4, 4)) for m in (1, 2, 3)},
     **{f'mac_p1p2k{m}': (mac_k(2, 6, 0, 1, 3, m, 2, 5), gen_any(-4, 4)) for m in (1, 2, 3)},

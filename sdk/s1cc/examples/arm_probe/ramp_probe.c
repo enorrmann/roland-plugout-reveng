@@ -1,4 +1,4 @@
-/* ramp_probe.c: which DSP B parameter ids the slave ARM's hardware ramps (FCE4) reach (docs/S1_ARM_CLOCK.md).
+/* ramp_probe.c: which DSP B parameter ids the slave ARM's hardware ramps (FCE4) reach (docs/vol1_system_architecture/s1_arm_clock.md).
  * One table p of 160 values = the DSP B parameters C060..C0FF. p[0] (C060) = a sync mark, x a 3000 Hz tone;
  * p[1..159] (C061..C0FF) summed, x a 1000 Hz tone. (224 values, to C13F: engine.c's write of the table at load left
  * the slave silent, even after a power cycle, 2026-11-03: ids >= 0x100 are not plain parameters.) With ARM_RAMPTEST=1 engine.c tests one id per 128 ms slot:

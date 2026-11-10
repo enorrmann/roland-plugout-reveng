@@ -1,7 +1,7 @@
 /* C-S1JX region 0 (master): the JX-3P's own microcode, relocated by s1jx.py, on the SYSTEM-1 master DSPs (voices 0
  * and 1: MAIN2 + MAIN4 on DSP A, MAIN0 + DCO1 + our output tail on DSP B), the key assigner (4-voice poly, the one
  * of C-S1V4: examples/system_1/model.c) and the model object (load the master programs, VOLUME).
- * Docs: docs/examples_system_1_jx_README.md. The microcode comes from the user's plugins/JX-3P at build time.
+ * Docs: examples/system_1_jx/README.md. The microcode comes from the user's plugins/JX-3P at build time.
  */
 #define JX_CHIP 0
 #include "jx.h"

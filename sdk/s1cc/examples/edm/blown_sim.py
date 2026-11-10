@@ -1,4 +1,4 @@
-"""EDM_STR_BLOWN check without the device (docs/MUTABLE_MEMORY.md §3.3.5): build/s1mm1.s (microcode/edm_str.s
+"""EDM_STR_BLOWN check without the device (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): build/s1mm1.s (microcode/edm_str.s
 master_blown) on the C emulator, the tapreq results and the bank-0 ring modelled as in str1_sim.py, a steady breath
 0.8 + 0.6 noise on every voice; prints each bore's pitch against the note and the odd / even harmonic balance.
     KERNEL=sdk/s1cc/build/edm_blown sh examples/system_s1cc/build.sh && python3 sdk/s1cc/examples/edm/blown_sim.py"""
