@@ -879,7 +879,7 @@ encodings kept verbatim, so re-assembling them takes the same explicit option.
 
 Ambiguity is rejected: if more than one class can hold the units, or a field
 that must be preserved has no source, the line fails with the reason.
-See docs/vol7_cleanroom_evidence_archive/REVIEW.md for the 2026-10-20 review that set these rules.
+These rules were set by the 2026-10-20 review; tests/test_regressions.py holds one case per finding.
 ```
 
 ### `asm/codec.py`
@@ -1721,7 +1721,7 @@ First DSP microcode disassembler: instruction boundaries + annotations.
     python3 dspdis.py prog.bin [dsp]          # dsp = unit for C0nn/A0nn names (model_spec.py)
     python3 dspdis.py --fields prog.bin       # split into ops / transfers / bridge / immediates
 
-Known structure (NOTES.md "ISA del DSP"):
+Known structure (Vol. II ch. 3):
 * words in execution order (dspmc.py); an instruction is `w[0] & 0x1F` words
   long (all 84 unique programs of the corpus tile exactly with this rule)
 * operand words `C0nn` = parameter block id nn (+0xA0), `A0nn` = bank 5 id nn
@@ -2254,7 +2254,7 @@ Printed: the registers that changed, for each probe; 'X' = nothing stored (progr
 ### `examples/from_scratch/re/dsptap.py`
 
 ```
-Delay-tap experiment (NOTES.md "Tomas de retardo"): own delay line through the delay-memory DMA.
+Delay-tap experiment (Vol. II ch. 9 §1): own delay line through the delay-memory DMA.
 
 Every sample: counter c += INC (ring state, wraps in [-1, 1)), store c to the write port [W], optionally set the
 f6c base (`1d06 4022 7fe0 c1fc <imm32>`), r3 = D, `bf6c` (r3 += base), the result destination `0b03 4050 <W+1>`,
@@ -2631,7 +2631,7 @@ Four independent checks:
 
 1. SIMULATOR. Builds the programs exactly as wt5.py does and runs them with the C reference (emu/dspref.Machine) into a memory
    preloaded with the same table stored at 0xA000 + BASE: the output must be the expected frame waveform
-   (resample to N points, linear interpolation, between frames). This is what NOTES.md calls "simulador exacto".
+   (resample to N points, linear interpolation, between frames).
 2. SHADOW. Replays the program writes dspown.load would send (dspown's EMPTY head, runs against state.json, 32-word
    chunks, head one 32-bit word at a time, start word last) into a shadow of the DCO2 slot and decodes it: the DSP
    must see the same words wt5.py compiled (a truncated/torn head shows up here).

@@ -104,7 +104,8 @@ class Variant:
         self.coef_bits = entry.get("coef_bits")
         # True when bits 5-4 are a function selector here, not an operand mode
         self.mode_is_selector = entry.get("mode_is_selector", False)
-        # where the claim comes from: a spec section, a measurement, both
+        # how the claim is known: kind, the tool that reproduces it, a note.
+        # No document is named here: the table is the reference, the docs follow it
         self.evidence = entry.get("evidence", [])
         self.evidence_note = entry.get("evidence_note")
 

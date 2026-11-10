@@ -3,7 +3,7 @@
     python3 dspdis.py prog.bin [dsp]          # dsp = unit for C0nn/A0nn names (model_spec.py)
     python3 dspdis.py --fields prog.bin       # split into ops / transfers / bridge / immediates
 
-Known structure (NOTES.md "ISA del DSP"):
+Known structure (Vol. II ch. 3):
 * words in execution order (dspmc.py); an instruction is `w[0] & 0x1F` words
   long (all 84 unique programs of the corpus tile exactly with this rule)
 * operand words `C0nn` = parameter block id nn (+0xA0), `A0nn` = bank 5 id nn

@@ -35,7 +35,7 @@ encodings kept verbatim, so re-assembling them takes the same explicit option.
 
 Ambiguity is rejected: if more than one class can hold the units, or a field
 that must be preserved has no source, the line fails with the reason.
-See docs/vol7_cleanroom_evidence_archive/REVIEW.md for the 2026-10-20 review that set these rules.
+These rules were set by the 2026-10-20 review; tests/test_regressions.py holds one case per finding.
 """
 
 import re

@@ -43,11 +43,8 @@ measurement, not a description of the current state.
 
 ## Frozen work records of Vol. VII (`NOTES.md`, `PLAN.md`, `REVIEW.md`, `ASM_PENDIENTES.md`)
 
-Dated records of the work, in the order it happened (`NOTES.md` and `ASM_PENDIENTES.md` in Spanish). They are obsolete
-as descriptions: a later entry often corrects an earlier one, and the chapters hold only the final value. They stay
-unchanged because they are cited as evidence: `asm/isa.json` cites `NOTES.md` by line number (checked by
-`asm/tests/test_decoding.py`), and `asm/asm.py`, `asm/tests/` and the chapters cite `REVIEW.md` and `NOTES.md` as the
-record of a measurement. Content checked against the chapters section by section on 2026-11-10; what was only in
+Dated records of the work, in the order it happened (`NOTES.md` and `ASM_PENDIENTES.md` in Spanish). Deleted on
+2026-11-10; the last version is in the git history (commit `4632d9a`). No tool, test or chapter refers to them. Content checked against the chapters section by section on 2026-11-10; what was only in
 these files was added to the places named below.
 
 ### `vol7_cleanroom_evidence_archive/NOTES.md`

@@ -5,7 +5,7 @@
 
 The SYSTEM-8 v1.32 firmware, rebuilt as a PLUG-OUT named `S8LAB` (id `0x20`, version 0.01), installed in **PLG1**
 (slot 1). Its only change is the identity; the engine is Roland's, so the tests below probe the stock SYSTEM-8
-behaviour and the audio/MIDI tools around it. The dated record of the plan and its steps is `docs/vol7_cleanroom_evidence_archive/PLAN.md` (frozen); the static findings about the image are in `docs/vol4_firmware_container_protocol/base_engine.md` §5.4.
+behaviour and the audio/MIDI tools around it. The static findings about the image are in `docs/vol4_firmware_container_protocol/base_engine.md` §5.4.
 
 ## Commands (run from `examples/sys8_lab/`; the device on USB, no other MIDI tool running)
 

@@ -3,9 +3,13 @@
 > **Scope:** both; `asm/s1rules.py` and the proven forms are SYSTEM-1.
 
 > Sources: the module docstrings of `asm/*.py`, the data files of `asm/`, `tools/doccheck.py` and
-> `tools/check_optimized.py`. Usage and parameters of every script: [TOOLS.md](../TOOLS.md). Review of the assembler's
-> rules: [REVIEW.md](../vol7_cleanroom_evidence_archive/REVIEW.md). The ISA they implement:
+> `tools/check_optimized.py`. Usage and parameters of every script: [TOOLS.md](../TOOLS.md). The ISA they implement:
 > [Vol. II ch. 3](../vol2_dsp_core_isa/instruction_word_encoding.md) / [ch. 4](../vol2_dsp_core_isa/instruction_set_reference.md).
+
+**The tools are the reference.** `asm/isa.json` and the code of `asm/` decide what is assembled and decoded; no tool
+and no test of `asm/` reads a document, and `isa.json` names none (its `evidence` entries give the kind of evidence,
+the tool that reproduces it and a note). The documentation describes the tools and is kept current with them: a new
+finding is written in both, the table (or code, with its test) and the chapter that describes it.
 
 ## 1. The pieces
 

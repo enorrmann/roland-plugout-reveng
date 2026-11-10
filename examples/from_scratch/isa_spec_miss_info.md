@@ -13,7 +13,7 @@ La especificación permite comenzar un **desensamblador estructural y un ensambl
 
 Los principales bloqueos no son la codificación básica de las palabras, sino:
 
-1. **Faltan los artefactos de referencia citados**: `re/dspisa.py`, `re/dsp_templates.txt`, `re/dsp_units_ab.txt`, [Vol. II ch. 1](../../docs/vol2_dsp_core_isa/core_architecture.md), [Vol. II ch. 7](../../docs/vol2_dsp_core_isa/isa_overview.md), `NOTES.md`, corpus y scripts de verificación. Sin ellos no se puede reproducir la tabla completa de clases, contrastar las reglas ni establecer una suite de regresión.
+1. **Faltan los artefactos de referencia citados**: `re/dspisa.py`, `re/dsp_templates.txt`, `re/dsp_units_ab.txt`, [Vol. II ch. 1](../../docs/vol2_dsp_core_isa/core_architecture.md), [Vol. II ch. 7](../../docs/vol2_dsp_core_isa/isa_overview.md), corpus y scripts de verificación. Sin ellos no se puede reproducir la tabla completa de clases, contrastar las reglas ni establecer una suite de regresión.
 2. **La gramática de fuente no está definida**: sintaxis de instrucciones, directivas, etiquetas, expresiones, literales RAW, comentarios, selección de DSP/slot y formatos de salida.
 3. **La tabla de plantillas no equivale todavía a una especificación formal de todas las clases**: varias plantillas proceden de un resolver de fallback; hay campos `C` dentro del área de slots, varios `C`, longitudes poco frecuentes y clases marcadas como inferidas.
 4. **Hay reglas de inmediatos que requieren una definición única y ejecutable**, en especial la interacción entre múltiples operaciones A/B, MAC, slots `N`, referencias `R`, ancho de inmediatos y lecturas que pueden invadir la instrucción siguiente.
@@ -72,7 +72,7 @@ La especificación menciona estos recursos, pero no están incluidos en el docum
 | `re/dsp_templates.txt` | Tabla de plantillas por clase y estado de verificación. Debe convertirse en una tabla de datos formal para el ensamblador. |
 | `re/dsp_units_ab.txt` | Ayuda a resolver qué palabras son operaciones de unidad A o B. |
 | [Vol. II ch. 1](../../docs/vol2_dsp_core_isa/core_architecture.md), especialmente §8 y §11 | Contexto de buses y lista actual de elementos no resueltos. |
-| [Vol. II ch. 7](../../docs/vol2_dsp_core_isa/isa_overview.md), `NOTES.md` | Historial de decisiones, definiciones previas y posibles contradicciones ya conocidas. |
+| [Vol. II ch. 7](../../docs/vol2_dsp_core_isa/isa_overview.md) | Historial de decisiones, definiciones previas y posibles contradicciones ya conocidas. |
 | [Vol. II ch. 6](../../docs/vol2_dsp_core_isa/memory_banks_dma.md) | Mapa de bancos y vistas de memoria desde ARM. |
 | [Vol. VI ch. 6](../../docs/vol6_reference_designs_applications/custom_osc.md), [Vol. II ch. 9](../../docs/vol2_dsp_core_isa/operation_uses.md) | Ejemplos reales y usos de las instrucciones. |
 | Corpus original y corpus ampliado | Pruebas de cobertura y round-trip; el documento menciona 212 programas SYSTEM-8 y 4 SYSTEM-1. |

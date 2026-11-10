@@ -38,8 +38,7 @@ r5 −.75, r6 .875, r7 −.0625.
   X + W + Z. The immediate-Y forms with bit 9 clear are now separate variants `…c0y` (inferred, products kept as
   before). `mac_p1wc0` is measured (op1 4).
 - `tests/test_decoding.py`, `tests/test_regressions.py`, `tests/test_spec_examples.py`: expectations updated to
-  the above. The [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) evidence entry for the byte rule (D2) is on `add3` and `mac_p1wc2`; the evidence test
-  checks it.
+  the above. The evidence entry for the byte rule (D2) is on `add3` and `mac_p1wc2`.
 - `isa.json` `$doc`: the MAC Y and W notes.
 
 ## Closed
@@ -48,9 +47,9 @@ r5 −.75, r6 .875, r7 −.0625.
 Closed by the probe above: the coefficient is read at byte C (bytes 2, 4 and 6). Spec 4.4 now says so with
 the measurement.
 
-### D2. [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) line for the byte rule
-Closed: `isa.json` evidence entries on `add3` and `mac_p1wc2` cite [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md), line 837,
-which states the byte rule. `tests/test_decoding.py` checks the line exists.
+### D2. Evidence for the byte rule
+Closed: the `isa.json` evidence entries of `add3` and `mac_p1wc2` state the byte rule as their note, measured with
+`re/dspverify.py`.
 
 ### D3. Is bit 3 of a MAC Y or W a negation?
 Closed: Y — no (probe); W — yes (probe). Code and spec now agree with the device.
@@ -109,5 +108,5 @@ represent them; that is listing work, not spec work.
 
 ## Not listed here
 
-- Rejected lines, sizing, round-trip divergence: zero on the corpus after the 2026-10-20 review ([REVIEW.md](../vol7_cleanroom_evidence_archive/REVIEW.md)).
+- Rejected lines, sizing, round-trip divergence: zero on the corpus after the 2026-10-20 review.
 - The coefficient missing from the listing: fixed (`mac_*` with a coefficient show `#value`).

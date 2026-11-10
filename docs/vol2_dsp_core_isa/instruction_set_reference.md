@@ -519,7 +519,8 @@ a taken jump one more.
 
 Every variant the assembler (`asm/asm.py`) and the disassembler (`asm/disasm.py`) know, in the order of
 `asm/isa.json` (form group → mnemonic → field values that select it → result → status recorded there). The
-semantics columns are copied from the file; the section column is the `$section` of this specification it cites.
+semantics columns are copied from the file; the section column is the section of this specification that describes
+the group (the file itself names no document: it is the reference, and this chapter follows it).
 The status is the one written in `isa.json`; where the measured semantics is more precise than the file, the note
 below the table gives it. Generated on 2026-11-10 from the `isa.json` of that date; if the file changes, this table is stale.
 

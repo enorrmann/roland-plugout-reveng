@@ -4,8 +4,7 @@
 > and the PLUG-OUT model of two regions (region 0 on the master, region 1 on the slaves).
 
 Summary to find one's way. The detail and the tests are in [Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §8 (anatomy of the
-SYSTEM-8 OS), [Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) (PLUG-OUT interfaces, microcode) and
-[NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md) (own PLUG-OUT, DSP ISA). State: 2026-10-15.
+SYSTEM-8 OS), [Vol. IV ch. 2](../vol4_firmware_container_protocol/plugout_virtual_machine.md) (PLUG-OUT interfaces, microcode). State: 2026-10-15.
 
 ## 1. Hardware components (SYSTEM-8)
 

@@ -155,7 +155,7 @@ Measured with `system-1/dsp_fit.py` (emulator; see [Vol. III ch. 9](system1_poly
 ## 4. Words the ARM writes per voice
 
 Formulas of `engine.c` (`note_pitch`, `note_gate`, `active_flags`), verified against the JX-3P engine
-(`engine/test_emu.py`, section on notes; result in [NOTES.md](../vol7_cleanroom_evidence_archive/NOTES.md)) [C], [L]. `u = lv >> 1`, `k = lv & 1`.
+(`engine/test_emu.py`, section on notes) [C], [L]. `u = lv >> 1`, `k = lv & 1`.
 
 | local voice | pitch (octaves, `(note − 12)/12`) | envelope gate | VCA: gate / velocity curve / velocity |
 |---|---|---|---|
