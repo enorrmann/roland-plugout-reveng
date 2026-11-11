@@ -626,7 +626,9 @@ class Run:
                     nv = v if w is None else G.sel(w, v, S[key])
                     S[key] = nv
                     if key.startswith('c_'):
-                        self.cellhint.setdefault(nv.id, []).append(a & 0x7FF)
+                        self.cellhint.setdefault(nv.id, []).append(self.cell_of(a))
+                        if a in self.kout_extra:
+                            self.kouts.append((len(G.nodes), a, nv, G.part))
                     else:
                         self.kouts.append((len(G.nodes), a, nv, G.part))
         one = G.num(1.0)
@@ -839,6 +841,7 @@ def emit_kernel(ctx):
     parts = [('a', 0, split), ('b', split, N)] if split is not None else [('', 0, N)]
     cell_of = ctx.get('cell_of') or (lambda a: a & 0x7FF if a < 0x2000 else None)
     run.cell_of = cell_of
+    run.kout_extra = set(ctx.get('kout_extra') or ())
     written = [{cell_of(o['b']) for uk, o in units if uk == 'op' and o['kind'] == K['XMEM'] and o['a'] >= 8
                 and cell_of(o['b']) is not None} for units, _ in insns]
     cells = {p: set().union(*written[lo:hi]) for p, lo, hi in parts}

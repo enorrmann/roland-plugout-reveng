@@ -358,6 +358,16 @@ static int build_opt(const char *key) {
     return p && (p == s1_build_opts || p[-1] == ' ') && !strncmp(p + strlen(key), "=1", 2);
 }
 
+/* a numeric build option KEY=N of S1_BUILD, or dflt */
+static long build_num(const char *key, long dflt) {
+    if (!&s1_build_opts) return dflt;
+    size_t L = strlen(key);
+    for (const char *p = strstr(s1_build_opts, key); p; p = strstr(p + 1, key))
+        if ((p == s1_build_opts || p[-1] == ' ') && p[L] == '=')
+            return atol(p + L + 1);
+    return dflt;
+}
+
 /* a pattern of 16 steps of n samples: gate 1 or 2 (accent, with GATE_ACCENT), half-step gates, and with MONO_LEGATO
    steps tied to the one before (new pitch, gate held) */
 static void run_seq(const int *notes, int nn, long n, int accent, int legato, unsigned *r) {
@@ -540,7 +550,9 @@ int main(int argc, char **argv) {
         st_track = 1;
         host_sweep = 1;
         int nn = (int)(sizeof notes / sizeof notes[0]);
-        long n = 2400;
+        /* samples per profiled note (gate open for half of them); S1_BUILD("PROF_SAMPLES=N") for voices whose
+           envelopes need longer to open (the Boutique ports: sdk/s1cc/examples/boutique_ported) */
+        long n = build_num("PROF_SAMPLES", 2400);
         for (int p = 0; p < np || p == 0; p++) {
             for (int v = 0; v < 256; v += np ? 17 : 256) {
                 for (int k = 0; k < np; k++) knob[k] = 128;

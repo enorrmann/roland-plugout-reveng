@@ -138,3 +138,6 @@
 0x0148  7 verified       MCCNII         2907 0c0f 00c1 1e20 f494 3000 3000
 0x0510 11 verified       MBBTTNIIII     a20b 79a4 ae12 8ee0 b9b2 c9b3 79c0 0000 3000 0000 0000
 0x060a 13 verified       ABCTTTIRRRII   c14d 4078 be10 1810 afe2 5fe4 6fe6 c200 00f2 00ec c05b 2400 0000
+0x0288 11 bq1            MBBTNIRIII     510b 79a6 ae12 8ee0 dfe4 7a40 0000 0081 3000 0000 0000
+0x04a8 11 bq1            MABBTNIRII     950b 2476 3cc0 ce12 eee6 4fe4 0002 a800 01fb 1bd8 8e50
+0x05ec 12 bq1            ABBCTTTIRRR    bd8c 5050 bee3 ee0f 1f14 5fe2 9fe4 efe6 2800 201a 01fb 01f8

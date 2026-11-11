@@ -537,7 +537,7 @@ def cell_of(a, ring1):
 
 
 def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, zero_cells=(), export_base=0,
-           ranges=None, names=None, ring1=False):
+           ranges=None, names=None, ring1=False, kout_extra=()):
     """one straight-line program (no jumps) as s1cc-ready C: `static inline void NAME(void)`, no loops and no arrays.
     Registers are named values; condition bits only for the groups a condition reads; bank-0 words are the ring
     resolved into delays (a word stored at X is read at X + 1 in the next sample): c_x = the cell this sample,
@@ -591,6 +591,11 @@ def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, ze
         txt = re.sub(r'(?<![\w.])([0-9]+\.[0-9]+)(?![0-9fpe])', r'\1f', txt)
         txt = re.sub(r'\bn\[(\d)\]', r'n\1', txt)
         txt = re.sub(r'\br\[(\d)\]', r'r\1', txt)
+        # shifts (the Boutique BQ voice pre program's LFO: shrn = x 2^-16): floor(x 2^(sh + 32)) 2^-32 as
+        # dsplift_rt.h l_shift, without its wrap at +-512 (|x| stays small where Roland uses it)
+        txt = re.sub(r'SHIFT\((\w+), (-?\d+)\)',
+                     lambda m: '(s1_floor(%s * %.1ff) * 2.3283064e-10f)' % (m.group(1), 2.0 ** (int(m.group(2)) + 32)),
+                     txt)
         if 'M->' in txt or 'DIVSEED' in txt or 'FREXP' in txt or 'BITOP' in txt or 'SHIFT' in txt:
             raise SystemExit('%s: unit %04x not in --kernel' % (name, o['w']))
         return txt
@@ -633,7 +638,8 @@ def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, ze
         name=name, insns=insns, unit_code=unit_code, touched=touched, own5=own5, used_cc=used_cc, used_g=used_g,
         live_r=live_r, live_f=live_f, bq2=bq2, bq2_flagless=bq2_flagless, overflow_wrap=set(overflow_wrap),
         split=split, zero_cells=set(zero_cells), export_base=export_base, ranges=ranges, names=names or dsplift_c.Names(),
-        K=dict(A=K_A, B=K_B, M=K_M, XMEM=K_XMEM, XFLAG=K_XFLAG), warn=warn, cell_of=lambda a: cell_of(a, ring1)))
+        K=dict(A=K_A, B=K_B, M=K_M, XMEM=K_XMEM, XFLAG=K_XFLAG), warn=warn, cell_of=lambda a: cell_of(a, ring1),
+        kout_extra=kout_extra))
 
 
 def main():
@@ -663,6 +669,9 @@ def main():
     ap.add_argument('--bank1-ring', action='store_true',
                     help='bank 1 (2000-23FF) is a ring as bank 0 (store at X, read X + 1 in the next sample: the '
                          'programs of one DSP hand values over in bank 1, §5.4); the emulator\'s ring1')
+    ap.add_argument('--kout', default='', metavar='X,X,...',
+                    help='--kernel: memory words (hex) whose stores are also outputs KOUT(X, v) (bank 0 / bank 1 '
+                         'values another program reads: a voice\'s output handed to the next program)')
     ap.add_argument('--samples', type=int, default=64, help='samples per program in --check (64)')
     ap.add_argument('--seed', type=int, default=1, help='random seed of --check (1)')
     a = ap.parse_args()
@@ -689,7 +698,8 @@ def main():
                           export_base=a.export_base,
                           ranges={l.split()[0]: (float(l.split()[1]), float(l.split()[2]))
                                   for l in open(a.import_ranges) if l.strip()} if a.import_ranges else None,
-                          names=dsplift_c.Names(a.names, a.consts), ring1=a.bank1_ring) + ['']
+                          names=dsplift_c.Names(a.names, a.consts), ring1=a.bank1_ring,
+                          kout_extra={int(x, 16) for x in a.kout.split(',') if x}) + ['']
         open(a.out, 'w').write('\n'.join(out) + '\n')
         for w in warn:
             print('warning: ' + w, file=sys.stderr)

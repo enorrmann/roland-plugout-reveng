@@ -1,0 +1,38 @@
+# bq_names.txt: names for the lifted Boutique voice (dsplift.py --names, README.md §2). Hand-written.
+#
+#   in / out ADDR NAME       bank-5 inputs / outputs (out 203A: the voice, bank 1, read by the post program)
+#   const ADDR[-ADDR] VALUE  inputs that are constants in bq.c
+#   unused ADDR...           outputs bq.c ignores
+
+# per-voice inputs from the ARM (bank 5 A080..A09B, voice A of chip 0)
+in A080 pitch
+in A081 gate
+const A082 0
+const A083 0
+# envelope scale and polarity: the program uses env^2 x -0.09999484 x (1 - 2 x this); 5.5 gives env^2 x 0.99995
+# (positive, full scale; 1 would give x 0.1: envelopes ten times too weak, measured 2026-11-11 on the lift)
+const A084 5.5
+const A086 5.5
+# envelope key follow (ENV2 KEY FOLLOW): 0
+const A085 0
+const A087 0
+# oscillator frequency factors: the ARM writes 2^range per note; 8' (A4 = 440 Hz) x 44100 / 96000 (README.md §2)
+const A088 0.2296875
+const A089 0.2296875
+const A08A-A08F 0
+const A094 1
+const A095 0
+const A096 0
+const A098 1
+const A099 0
+const A09A 1
+const A09B 0
+# pre program (LFO): A040 / A041 (LFO gates) 1; A105, A107, A10A (from chip 1) 0
+const A040 1
+const A041 1
+const A105 0
+const A107 0
+const A10A 0
+
+out 203A voice
+unused A101 A108 A109

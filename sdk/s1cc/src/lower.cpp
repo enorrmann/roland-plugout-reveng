@@ -310,6 +310,16 @@ struct Lowerer {
         if (a.isConst())
             std::swap(a, b);
         bool m = isMin == (a.s > 0);             // in r units, a negative scale flips min / max
+        if (b.isConst()) {
+            // a bound outside the register range (|r| < 512) in r units: min / max against it either never binds
+            // (the operand alone) or always binds (the constant); an immediate there cannot be encoded (2026-11-11,
+            // sdk/s1cc/examples/boutique_ported: a value scaled up by 2^102 met max(..., -1568))
+            double yr = b.k / a.s + a.o;
+            if (std::fabs(yr) >= 511.0) {
+                bool never = m ? yr > 0 : yr < 0;    // min with a bound above, max with a bound below
+                return never ? a : cst(b.k);
+            }
+        }
         KOperand y = b.isConst() ? KOperand::im(b.k / a.s + a.o) : KOperand::of(materialize(b, a.s, a.o));
         LV r = a;
         r.r = m ? K->min(a.r, y) : K->max(a.r, y);
