@@ -243,16 +243,55 @@ static void ramp(int id, int32_t q)                    /* to q in one ramp of ra
 }
 #endif
 
+enum { ST_IDLE, ST_ATT, ST_DEC, ST_REL };              /* the envelope's stages (ARM_ENV, ARM_CUSTOM_ENV) */
 #if ARM_ENV
-/* C-S1SY's ADSR (make_s1cc.py adsr) one ramp at a time: attack toward 1.25 until 1, decay toward S, release toward
-   0; the one-pole's factor over a ramp from the faders (env_att_seg / env_dec_seg) */
-enum { ST_IDLE, ST_ATT, ST_DEC, ST_REL };
 static volatile uint8_t env_st[2][NV];
 static int32_t env_lvl[2][NV];                         /* the level the running ramp ends at */
+#endif
+
+#ifdef ARM_CUSTOM
+/* ARM_CUSTOM (SYSTEM-S1CC-BOUTIQUE, README.md §11): the kernel's own per-voice values, computed here every step from
+   its tables (the header ARM_CUSTOM: arm_custom_id[] the knobs it reads, arm_custom_voice() the computation) and
+   written into the two envelope words instead of the envelopes (the kernel reads them as s1_env(0) / s1_env(1)).
+   Optional in the header: ARM_CUSTOM_ENV (its own envelope stages, arm_custom_env) and ARM_CUSTOM_LFO (its own LFO
+   rate, shapes and delay: arm_custom_lfo_inc16[], arm_custom_lfo_shape, arm_custom_lfo_fade16[], arm_custom_lfo_gain) */
+#if !ARM_ENV || !ARM_LFO
+#error "ARM_CUSTOM needs ARM_ENV and ARM_LFO"
+#endif
+static uint8_t cust_k[16] = { 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128 };
+static uint8_t cust_note[NV];
+static int32_t cust_lf[NV];
+static int32_t cust_fx[NV];                            /* ARM_CUSTOM_LFO: the delay's state (Q24, 0..1) */
+static volatile uint8_t cust_fx_restart[NV];
+#include ARM_CUSTOM
+static void cust_set(int id, int value)
+{
+    for (int i = 0; i < ARM_CUSTOM_NK; i++)
+        if (arm_custom_id[i] == id)
+            cust_k[i] = (uint8_t)(value < 0 ? 0 : value > 255 ? 255 : value);
+}
+#else
+static void cust_set(int id, int value) { (void)id; (void)value; }
+#endif
+
+#if ARM_ENV
+/* C-S1SY's ADSR (make_s1cc.py adsr) one ramp at a time: attack toward 1.25 until 1, decay toward S, release toward
+   0; the one-pole's factor over a ramp from the faders (env_att_seg / env_dec_seg). ARM_CUSTOM_ENV: the kernel's */
 
 static void env_step(int i, int v, int m)              /* m steps at once (ARM_SEG_MS each: the time since the last) */
 {
     const uint8_t *k = &henv_knob[4 * i];              /* S, A, D, R */
+#ifdef ARM_CUSTOM_ENV
+    int st = env_st[i][v];
+    if (st == ST_IDLE)
+        return;
+    int32_t cl = env_lvl[i][v];
+    int ns = arm_custom_env(i, st, &cl, k, m);         /* m whole steps of ARM_SEG_MS */
+    env_lvl[i][v] = cl;
+    if (ns != st)                                      /* only a change: a note on may have just set ST_ATT */
+        env_st[i][v] = (uint8_t)ns;
+    return;
+#endif
     int32_t l = env_lvl[i][v], top = Q1 + Q1 / 4, sl = (int32_t)(((uint32_t)k[0] << 24) / 255u);
     switch (env_st[i][v]) {
     case ST_ATT:
@@ -285,23 +324,6 @@ static void env_step(int i, int v, int m)              /* m steps at once (ARM_S
 }
 #endif
 
-#ifdef ARM_CUSTOM
-/* ARM_CUSTOM (SYSTEM-S1CC-BOUTIQUE, README.md §11): the kernel's own per-voice values, computed here every step from
-   its tables (the header ARM_CUSTOM: arm_custom_id[] the knobs it reads, arm_custom_voice() the computation) and
-   written into the two envelope words instead of the envelopes (the kernel reads them as s1_env(0) / s1_env(1)) */
-static uint8_t cust_k[16] = { 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128 };
-static uint8_t cust_note[NV];
-static int32_t cust_lf[NV];
-#include ARM_CUSTOM
-static void cust_set(int id, int value)
-{
-    for (int i = 0; i < ARM_CUSTOM_NK; i++)
-        if (arm_custom_id[i] == id)
-            cust_k[i] = (uint8_t)(value < 0 ? 0 : value > 255 ? 255 : value);
-}
-#else
-static void cust_set(int id, int value) { (void)id; (void)value; }
-#endif
 
 #if ARM_LFO
 /* the DSP version's LFO (make_s1cc.py hlfo_voice_b) one ramp at a time: phase restarted at the note start, S&H of a
@@ -333,7 +355,11 @@ static void lfo_step(int v, int m)                     /* m sixteenths of a step
             lfo_ph[v] = 0;
     }
     uint32_t old = lfo_ph[v];
+#ifdef ARM_CUSTOM_LFO
+    lfo_ph[v] = old + arm_custom_lfo_inc16[r] * (uint32_t)m;     /* the kernel's rate */
+#else
     lfo_ph[v] = old + (lfo_seg_inc[r] >> 4) * (uint32_t)m;
+#endif
     if ((int32_t)old >= 0 && (int32_t)lfo_ph[v] < 0) {   /* wrapped: a new random value */
         lfo_rnd = lfo_rnd * 1664525u + 1013904223u;
         lfo_h[v] = (int32_t)lfo_rnd >> 7;
@@ -344,7 +370,15 @@ static void lfo_step(int v, int m)                     /* m sixteenths of a step
         int32_t k = (int32_t)(((int64_t)lfo_sg_seg[r] * m) >> 4);
         lfo_g[v] += qmul(lfo_h[v] - lfo_g[v], k > Q1 ? Q1 : k);
     }
-#if ARM_FADE
+#if defined(ARM_CUSTOM_LFO)
+    if (cust_fx_restart[v]) {                          /* the kernel's delay: from 0 at every note start, rising also */
+        cust_fx_restart[v] = 0;                        /* after the gate closes (Roland's c_020) */
+        cust_fx[v] = 0;
+    }
+    for (int j = 0; j < m; j++)
+        cust_fx[v] = Q1 - qmul(Q1 - cust_fx[v], arm_custom_lfo_fade16[hlfo_knob[C_LFO_DELAY]]);
+    lfo_fade[v] = arm_custom_lfo_gain(cust_fx[v]);
+#elif ARM_FADE
     if (lfo_on[v]) {
         lfo_fade[v] += (int32_t)((lfo_fade_seg[hlfo_knob[C_LFO_DELAY]] >> 4) * (uint32_t)m);
         if (lfo_fade[v] > Q1)
@@ -356,7 +390,14 @@ static void lfo_step(int v, int m)                     /* m sixteenths of a step
     lfo_fade[v] = Q1;                                  /* ARM_FADE=0: no DELAY TIME */
 #endif
     ramp(P_FADE0 + v, lfo_fade[v]);
+#ifdef ARM_CUSTOM_LFO
+    int32_t w;
+    if (!arm_custom_lfo_shape(sh, lfo_ph[v], &w))      /* the shapes the kernel does not define: the host's */
+        w = lfo_shape(sh, lfo_ph[v], v);
+    int32_t lf = qmul(w, lfo_fade[v]);
+#else
     int32_t lf = qmul(lfo_shape(sh, lfo_ph[v], v), lfo_fade[v]);
+#endif
 #ifdef ARM_CUSTOM
     cust_lf[v] = lf;
 #endif
@@ -522,6 +563,10 @@ static void arm_gate(int v, int on)
 #if ARM_LFO
     if (on)
         lfo_restart[v] = 1;
+#ifdef ARM_CUSTOM_LFO
+    if (on)
+        cust_fx_restart[v] = 1;
+#endif
     lfo_on[v] = (uint8_t)on;
 #endif
 #if ARM_ENV

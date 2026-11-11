@@ -77,7 +77,8 @@ HOST_PANEL = {
              ('cutoff', 0x1A9, 'S1_FILTER_CUTOFF', 'uni', None),
              ('reso', 0x1AA, 'S1_FILTER_RESONANCE', 'uni', None),
              ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'bi', None),
-             ('keyfollow', 0x1AF, 'S1_FILTER_KEY_TRACK', 'uni', None)],
+             ('keyfollow', 0x1AF, 'S1_FILTER_KEY_TRACK', 'uni', None),
+             ('hpf', 0x1A8, 'S1_HPF_CUTOFF', 'uni', None)],     # C05E; S1 HPF knob = 0x180 (light on)
 }
 HOST_WORDS = {0x4A: 0.0, 0x4B: 0.0, 0x64: 1.0, 0x53: 1.2, 0x54: 1.2, 0x6B: 0.0}
 

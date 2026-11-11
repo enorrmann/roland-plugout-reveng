@@ -1,7 +1,14 @@
 > [!NOTE]
 > **TRM Technical Reference Manual**: This implementation example is documented normatively in [Volume VI: Reference Designs & Applications](../../docs/vol6_reference_designs_applications/c_s1v8_system1_reference.md).
 
-# `examples/system_s1cc`: SYSTEM-S1CC, un PLUG-OUT que es solo el kernel de s1cc
+# `examples/system_s1cc_boutique`: SYSTEM-S1CC-BOUTIQUE
+
+Copia de [`examples/system_s1cc`](../system_s1cc/README.md) (2026-11-11) con una opción más: **`ARM_CUSTOM`**
+(§11), cálculos por voz propios del kernel en el ARM, con sus propias tablas. Es para los ports de los Boutique
+(`sdk/s1cc/examples/boutique_ported`), donde lo que distingue a cada modelo está en las curvas. El resto del texto es el
+de SYSTEM-S1CC y vale igual acá. `examples/system_s1cc` no cambia.
+
+## SYSTEM-S1CC, un PLUG-OUT que es solo el kernel de s1cc
 
 SYSTEM-S1CC es un PLUG-OUT del SYSTEM-1 cuya voz es **solo** un kernel compilado por s1cc ([Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md)).
 No tiene oscilador, envolvente, filtro ni LFO propios: todo lo que hace una voz está en el C del kernel. Alrededor
@@ -823,3 +830,44 @@ KERNELS="sdk/s1cc/build/mp_saw sdk/s1cc/build/mp_square 2:sdk/s1cc/build/mp_phas
   perilla del panel (las tablas `S1_PARAM` del kernel), así las pruebas en el equipo (`tools/s1_capture.py`) pueden
   mover CUTOFF, ENV MOD, DECAY, etc. sin tocar el panel. CCs ya identificados: [examples/system_1_synth/README.md](../system_1_synth/README.md) §8;
   los de cutoff, resonancia y envolvente de filtro no están registrados todavía.
+
+## 11. Cálculos propios del kernel en el ARM (`ARM_CUSTOM`) [medido en el equipo 2026-11-11: JP-08-S1A]
+
+`ARM_CUSTOM=archivo.h` (variable de entorno o `S1_BUILD("ARM_CUSTOM=...")` en el kernel; ruta relativa a la raíz del
+repositorio). `engine.c` incluye ese header y, en cada paso del tick de 1 ms (§3.7), llama por voz a su función después
+de las envolventes y del LFO del anfitrión. Requiere `ARM_ENV` y `ARM_LFO` (el kernel lee `s1_env` y el LFO).
+
+Lo que tiene que definir el header:
+
+| nombre | qué es |
+|---|---|
+| `ARM_CUSTOM_NK` | cuántas perillas lee (hasta 16) |
+| `arm_custom_id[ARM_CUSTOM_NK]` | los ids de parámetro de esas perillas (`s1panel.h`); `engine.c` guarda su valor 0…255 en `cust_k[]` (inicial 128) |
+| `arm_custom_voice(v, e0, e1, lf, note, k, lfo_k)` | el cálculo de la voz `v`: `e0` / `e1` el nivel de la envolvente AMP / FILTER, `lf` el LFO × fade (Q24), `note` la nota de la voz, `k` = `cust_k`, `lfo_k` la perilla LFO → FILTER |
+
+Opcionales (si el header no los define, quedan las del anfitrión, §3.7):
+
+| nombre | qué es |
+|---|---|
+| `ARM_CUSTOM_ENV` + `arm_custom_env(i, st, &l, k, n)` | las envolventes del modelo: `n` pasos de 1 ms desde la etapa `st` (`ST_ATT`, `ST_DEC`, `ST_REL`) y el nivel `l` (Q24); `k` = S, A, D, R de la envolvente `i` (0 AMP, 1 FILTER); devuelve la etapa nueva (`ST_IDLE` = terminó). `engine.c` sigue poniendo `ST_ATT` en el note-on y `ST_REL` en el note-off; solo escribe la etapa si cambió (un note-on durante el paso no se pierde) |
+| `ARM_CUSTOM_LFO` + `arm_custom_lfo_inc16[256]` | el avance de fase del LFO por dieciseisavo de paso, por perilla LFO RATE (fase de 32 bits = de −1 a 1) |
+| `arm_custom_lfo_shape(sh, ph, &w)` | las formas del modelo por posición de LFO SHAPE; devuelve 0 para las que deja al anfitrión |
+| `arm_custom_lfo_fade16[256]`, `arm_custom_lfo_gain(y)` | el delay: `y ← 1 − (1 − y) × fade16[FADE]` por dieciseisavo, desde 0 en cada note-on (sigue subiendo después del note-off, como Roland); el LFO se multiplica por `gain(y)` |
+
+La función escribe sus resultados con `ramp(P_ENV0 + v, …)` y `ramp(P_ENV0 + 8 + v, …)`: las dos palabras de
+envolvente de la voz, que el kernel lee como `s1_env(0)` y `s1_env(1)`. Con `ARM_CUSTOM`, `env_step` ya no escribe
+las envolventes (solo calcula sus niveles para la función). Todo en enteros Q24 (`1 << 24`; el ARM del SYSTEM-1 no
+tiene FPU): `qmul`, y las tablas que traiga el header.
+
+El header lo genera cada port con su herramienta: el del JP-08 es `bq_jp08_arm.h`, de
+`sdk/s1cc/examples/boutique_ported/tools/make_arm.py` (README §10 de ese ejemplo). Ahí el ARM calcula el coeficiente
+del filtro (corte, resonancia, ENV AMOUNT, KEY TRACK, LFO → FILTER, la curva de Roland) y la curva del VCA, y el kernel
+los suaviza 1 ms en el DSP para que no se oiga la escalera.
+
+Mapa de panel: el borrador de `panel_map.py` sale de lo que lee el DSP; lo que pasa a leer solo el ARM (LFO → FILTER
+en el JP-08) queda apagado. El kernel tiene que traer su `VOICE.panel` (§1.7).
+
+Medido 2026-11-11 (JP-08-S1A, 4 voces): notas, envolventes, LFO → FILTER, CROSS MOD y HPF andan.
+Envolventes y LFO del JP-08 (`ARM_CUSTOM_ENV`, `ARM_CUSTOM_LFO`), 2026-11-11: verificados en nativo contra la
+recurrencia por muestra de Roland (envolvente: error ≤ 1e-5; LFO: frecuencia y formas exactas, delay ±1 %); instalado,
+sin oír todavía.

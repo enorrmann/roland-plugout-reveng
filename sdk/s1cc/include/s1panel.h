@@ -8,7 +8,8 @@
  * In MUTABLE-SYSTEM the host program (C-S1SY) also uses some of these controls: a voice that takes one of them adds
  * its own use to the host's (examples/mutable_system/README.md, panel table); OSC1 / OSC2 COLOR are the free
  * ones. In SYSTEM-S1CC (examples/system_s1cc) there is no host: all of them are the kernel's.
- * Not here: VOLUME (0x100) goes to the master (region 0), not to the voice; HPF cutoff sends nothing.
+ * Not here: VOLUME (0x100) goes to the master (region 0), not to the voice; HPF cutoff (0x180) was not seen on 2026-10-23
+ * (C-S1V4, light off); with its light on it sends 0x180 (2026-11-11).
  *
  * Which lights are on: the kernel's panel map, VOICE.panel beside its source (lines `LIGHT on|off`, LIGHT = these
  * macros without S1_, plus OSC1_CROSS_MOD, HPF_CUTOFF, CRUSHER, PORTAMENTO), copied by `s1cc build`; without one
@@ -50,6 +51,7 @@
 
 /* filter */
 #define S1_FILTER_CUTOFF      0x17D
+#define S1_HPF_CUTOFF         0x180   /* HPF knob 0..255 (also CC 79); PARAMLOG 2026-11-11, JP-08-S1A, light on */
 #define S1_FILTER_RESONANCE   0x17F
 #define S1_FILTER_ENV_AMOUNT  0x181   /* bipolar: 128 = 0 */
 #define S1_FILTER_ATTACK      0x182

@@ -44,7 +44,7 @@ static inline __attribute__((always_inline)) void jp08_arm_voice(void)
     float c_0ad = KP(0xc060);                                                                    /* 199 */
     float c_0af = c_081 * KP(0xc065) + ((pitch - 4.0f) * KP(0xc066) + KIN(IN_LFO_FILTER));       /* 209 */
     float c_0b1 = c_0a9 - D_0b0_1;                                                               /* 213 */
-    float c_0b0 = LERP(D_0b0_1, c_0a9, 7.387803e-05f);                                           /* 214 */
+    float c_0b0 = LERP(D_0b0_1, c_0a9, KP(0xc05e));                                              /* 214 */
     float c_0b3 = 6.0f * c_0ad;                                                                  /* 221 */
     float t223 = fminf((1.0f - c_0ad) * 0.5f, 0.075f) + 0.16659999f + (10.625f * KP(0xc05f) + c_0af); /* 223 */
     float t224 = t223 * 0.25f;                                                                   /* 224 */

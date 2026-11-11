@@ -473,7 +473,7 @@ Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py 
 | `0x181` / `0x186` | filter env amount (bipolar, 128 = 0) / key track | 0–255 | pasos 8 / 6 |
 | `0x182`–`0x185` | ADSR del filtro | 0–255 | paso 8 |
 | `0x187`–`0x18A` | ADSR del VCA | 0–255 | paso 4 |
-| — | HPF cutoff | no llegó nada (ni parámetro ni CC) [abierto] | — |
+| `0x180` | HPF cutoff | 0…255, CC 79; solo con su luz encendida (2026-10-23, luz apagada: no llegó nada; 2026-11-11, JP-08-S1A con la luz encendida: llega) | — |
 | `0x18D` / `0x18E` / `0x18F` | REVERB amount (CC 91) / DELAY amount (CC 94) / DELAY time (CC 13), 2026-10-23 | 0–255 | — ([Vol. I ch. 3](../../docs/vol1_system_architecture/bus_interconnect.md) §16) |
 | `0x18B` | sin identificar: 128–145, con CC 69 (64–72) detrás; llegó dos veces durante la captura del LFO, entre otros controles [abierto] | — |
 
@@ -534,8 +534,7 @@ Por orden aproximado de coste. Cada una se hace como un paso nuevo, con una inst
   * La realimentación de resonancia debería salir de la misma etapa, con k máxima distinta: un filtro de 2 polos
     con realimentación de `y2` oscila con k ≈ 2. Hay que ajustar `RES_MAX` y la compensación por modo.
   * Coste: un parámetro `C0xx` más en el DSP B, de 0 a 6 instrucciones por voz; el DSP B tiene margen (660).
-* **HPF**: en la captura no llegó nada. Hay que repetirla y, si sigue sin llegar, mirar la tabla de controles
-  `0xC0`–`0xE5` de la SYNINFO y cómo la configura el SH-2.
+* **HPF**: resuelto 2026-11-11: id `0x180` (CC 79), llega solo con la luz encendida (`S1_HPF_CUTOFF`).
 * **Velocidad**: hoy la puerta vale 0 o 1. La velocidad (`0x120+v`) podría escalar el VCA y/o la cantidad de la
   envolvente del filtro.
 * **Presupuesto**: buscar el límite exacto del DSP A (entre 682 y 826) con `PAD=n`. Para ganar margen:
