@@ -355,6 +355,56 @@ resolution, as `pl_sim.py` gave for the assembly version). Master B: 363 instruc
 318; 508 ran, 640 hung). New against what ran: bank-0 words `0356`…`0371` of master B, the ages written by the main
 instead of `C030 + v` (the WT-EDM form). **On the device (2026-11-10): MP-PLSTRC plays** (`edm_plstring.c`).
 
+### 3.6 Panel map: which panel lights are on (`VOICE.panel`) [device, 2026-11-11: TB-03-S1]
+
+> **Scope:** SYSTEM-1, SYSTEM-S1CC host. The OS mechanism and the light ids: [Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §9.5.
+
+A kernel declares the panel lights its PLUG-OUT switches on in a **panel map**, a text file beside its first source
+with the source's name and the extension `.panel` (`tb03.c` → `tb03.panel`). One light per line:
+
+```text
+# LIGHT on|off; '#' starts a comment; a light the file does not list is off
+FILTER_CUTOFF      on   # S1_PARAM cutoff
+FILTER_RESONANCE   on
+FILTER_ATTACK      off
+```
+
+The 39 light names (`examples/system_s1cc/panel_map.py` `LIGHTS`, panel order) are the `s1panel.h` macros without
+`S1_` where the light belongs to a parameter, plus `OSC1_CROSS_MOD`, `HPF_CUTOFF`, `CRUSHER`, `PORTAMENTO`. An unknown
+name stops the build (`file:line: unknown light`). The buttons, REVERB / DELAY and VOLUME have no entry.
+
+| step | tool | does |
+|---|---|---|
+| 1 | `s1cc build` (§9) | copies `VOICE.panel` to `OUTDIR/panel.txt`; without one it removes an old `panel.txt` |
+| 2 | `examples/system_s1cc/build.sh` | map = `PANEL` (environment or `S1_BUILD`), else `KERNEL/panel.txt`, else the draft of `panel_map.py` written to `examples/system_s1cc/build/panel.txt` (announced in the build log) |
+| 3 | `make_s1cc.py` | **reads** the map, nothing else: `#define S1_CTL_ON 0x…ull` in `s1_programs.h` (bit `ctl id − 0xC0` = light on) and the log line `panel: FILE: N of 39 on` |
+| 4 | `syninfo.h` | `CTL(id)`: `on = (S1_CTL_ON >> (id − 0xC0)) & 1` in the SYNINFO of both regions; without `S1_CTL_ON`, all on |
+
+**Draft** (`python3 examples/system_s1cc/panel_map.py KERNEL [-o FILE]`): inferred from what the kernel reads in
+`voice.s1k` and `tables.txt`, with the reason of each light as a comment. Start from it and edit.
+
+| the kernel reads | on |
+|---|---|
+| `S1_PARAM(name, panel, n)`, `S1_VOICE_PARAM` | the light of that parameter id (both ids of a voice parameter) |
+| `s1_color(i)` | OSCi COLOR, OSCi COLOR MOD |
+| `s1_pitch` / `s1_dt` / `s1_rdt`, host option `LFO_PITCH=1` (default) | LFO → PITCH, OSC1 RANGE, PITCH ENV AMOUNT / ATTACK / DECAY, the LFO |
+| `s1_lfo_filter` / `s1_lfo_amp` | LFO → FILTER / → AMP, the LFO |
+| `s1_env(0)` / `s1_env(1)` | AMP / FILTER ATTACK, DECAY, SUSTAIN, RELEASE |
+| any host LFO input above, `MIX=1`, no `S1_MASTER` / `EDM_LINES` | MIXER SUB OSC, NOISE (the host mixer) |
+| host options `EDM_STR_*`, `EDM_LINES`, `SL_WT` | the knobs `model.c` / `engine.c` read for them (OSC1 / OSC2 COLOR, LPF CUTOFF, AMP DECAY / RELEASE) |
+
+"The LFO" = LFO SHAPE, FADE, RATE. A COLOR MOD source alone (the LFO, the envelopes) does not light its section; the
+MOD selector is lit. Off in every draft: OSC1 CROSS MOD, HPF CUTOFF, CRUSHER, PORTAMENTO (SYSTEM-S1CC has none of
+them).
+
+`python3 examples/system_s1cc/panel_map.py --check FILE` parses a map and prints its mask and the lights on. Test:
+`sdk/s1cc/tests/test_s1cc.py TestPanelMap`.
+
+**Example** [device, installed 2026-11-11]: `sdk/s1cc/examples/tb03_ported/tb03.panel` → TB-03-S1,
+`S1_CTL_ON = 0x00000ef0e3d7`, 18 of 39 on: LFO SHAPE, → PITCH, FADE, RATE; OSC1 WAVE, RANGE, COLOR, COLOR MOD; OSC2
+COLOR, TUNE, COLOR MOD; PITCH ENV AMOUNT, ATTACK, DECAY; LPF CUTOFF, RESONANCE, FILTER ENV AMOUNT, KEY TRACK.
+A light that is off changes only the light: its control still reaches the kernel [measured 2026-11-11].
+
 ## 4. From the IR to the graph (`graph.cpp`)
 
 ### 4.1 Functions, blocks and memory
@@ -750,6 +800,7 @@ reference (`make_s1cc.py --sim`).
    of `S1_COMPILE`, then those of the command line; `S1_BUILD` → `.option` (§3.3).
 6. `s1cc init voice.ll --kernel voice.s1k -o refdsp.ll` and `clang ... -o refdsp`: the reference that starts from the
    DSP's state.
+7. `VOICE.panel` beside the first source → `OUTDIR/panel.txt` (the panel map, §3.6).
 
 `report.txt` includes the units per DSP, the spills, each island and fit (model, degree, error, cost), the discarded
 candidates and the warnings.

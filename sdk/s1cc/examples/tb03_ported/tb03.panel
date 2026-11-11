@@ -1,0 +1,43 @@
+# panel map of the TB-03 port (tb03.c): the panel lights on (examples/system_s1cc/README.md §1.7), drafted by
+# examples/system_s1cc/panel_map.py. The ADSRs stay off: the TB-03 envelope is its own (DECAY = FILTER KEY TRACK)
+# LIGHT on|off (panel order); unlisted = off
+
+LFO_SHAPE          on   # host LFO
+LFO_TO_PITCH       on   # host pitch modulation (s1_pitch / s1_dt / s1_rdt, LFO_PITCH=1)
+LFO_FADE           on   # host LFO
+LFO_TO_FILTER      off
+LFO_RATE           on   # host LFO
+LFO_TO_AMP         off
+OSC1_WAVE          on   # S1_PARAM wave
+OSC1_RANGE         on   # host pitch modulation (s1_pitch / s1_dt / s1_rdt, LFO_PITCH=1)
+OSC1_COLOR         on   # s1_color(0)
+OSC1_COLOR_MOD     on   # s1_color(0): COLOR MOD source
+OSC1_CROSS_MOD     off
+OSC2_WAVE          off
+OSC2_RANGE         off
+OSC2_COLOR         on   # s1_color(1)
+OSC2_FINE          on   # S1_PARAM tune
+OSC2_COLOR_MOD     on   # s1_color(1): COLOR MOD source
+OSC1_MIX           off
+OSC2_MIX           off
+SUB_MIX            off
+NOISE_MIX          off
+PITCH_ENV_AMOUNT   on   # host pitch modulation (s1_pitch / s1_dt / s1_rdt, LFO_PITCH=1)
+PITCH_ENV_ATTACK   on   # host pitch modulation (s1_pitch / s1_dt / s1_rdt, LFO_PITCH=1)
+PITCH_ENV_DECAY    on   # host pitch modulation (s1_pitch / s1_dt / s1_rdt, LFO_PITCH=1)
+FILTER_CUTOFF      on   # S1_PARAM cutoff
+HPF_CUTOFF         off
+FILTER_RESONANCE   on   # S1_PARAM resonance
+FILTER_ENV_AMOUNT  on   # S1_PARAM envmod
+FILTER_KEY_TRACK   on   # S1_PARAM decay
+FILTER_ATTACK      off
+FILTER_DECAY       off
+FILTER_SUSTAIN     off
+FILTER_RELEASE     off
+AMP_TONE           off
+CRUSHER            off
+AMP_ATTACK         off
+AMP_DECAY          off
+AMP_SUSTAIN        off
+AMP_RELEASE        off
+PORTAMENTO         off

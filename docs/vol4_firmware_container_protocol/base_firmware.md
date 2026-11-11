@@ -1289,3 +1289,96 @@ PARAMLOG, [examples/system_1/README.md](../../examples/system_1/README.md) §6).
 
 DSP driver (`esc2_dsp_drv`), keyboard, MIDI, `SYSTEM1_SYNINFO` "SYSTEM-1" at `0x7783` and presets
 `TSYS1-METAP 10HC`…`80HC`. The DSP programs and their allocation: [Vol. III ch. 9](../vol3_voice_allocation_scheduling/system1_polyphony_studies.md) §1.2.
+
+### 9.5 Panel light table of `SYSTEM1_SYNINFO` (which lights are on)
+
+> **Scope:** SYSTEM-1, OS 1.30 master. Mechanism **[code]**; light of each entry **[measured 2026-11-11]**.
+
+#### 9.5.1 Layout
+
+`SYSTEM1_SYNINFO` is the `0x28C`-byte block at the start of both regions of a SYSTEM-1 PLUG-OUT
+(`examples/system_s1cc/syninfo.h`, `struct syninfo1`). The panel part:
+
+| offset | type | content |
+|---|---|---|
+| `0x034` | 39 × `struct s1_ctl { u16 id; u16 on; u32 value; }` | the panel's lights, ids `0xC0`…`0xE5`, `0xEC` (§9.5.3) |
+| `0x16C` | 9 × `struct s1_sel { u16 id; u16 on; u8 allow[4]; }` | selector buttons, patch ids `0x171`, `0x172`, `0x178`, `0x179`, `0x17E`, `0x191`, `0x166`, `0x195`, `0x192`; `allow[k]` = position k allowed |
+| `0x1D4` | 7 × 2 × `i16` | panel buttons → patch id (−1 = none) |
+| `0x1F0` | 3 × `struct s1_sel` | second selector table |
+
+The `ctl[]` ids are **light ids, not parameter ids**: they number the panel's lights in panel order, section by
+section. `value`: `0xFF`, or for a selector its highest allowed position (`0xC0` LFO SHAPE = 4 in the SH-2 and PROMARS,
+5 in the SH-101; `0xC6`, `0xC7`, `0xC9`, `0xCB`, `0xCC`, `0xCF` = 5: the six-position selectors). How the OS uses
+`value` is **[open]**.
+
+#### 9.5.2 What the OS does with it [code]
+
+On every mode switch (`0x6001E494`: argument 0 = the stock synth, 1 = the PLUG-OUT, after its `get_b` / `get_a`) the
+master walks the current SYNINFO (`[0x60096F04 + 4]`: the OS's own, or **region 0** at `0x60800000` for the PLUG-OUT),
+sends one group-1 parameter message and posts two panel events:
+
+```c
+/* OS 1.30 master 0x6001E4F8..0x6001E558, as C */
+msg_begin(&m, 1, 0);                                   /* 0x6003C5B6 -> service 0x0100D095 */
+for (int k = 0; k <= 0x27; k++)                        /* 40 entries: ctl[0..38] and the first word pair of sel[0] */
+    msg_set(&m, syninfo->ctl[k].id, syninfo->ctl[k].on ? 1 : 0);   /* 0x6003C5C0 -> 0x0100D0E1 */
+msg_flush(&m);                                         /* 0x6003C5CA -> 0x0100D0D5 */
+post_event((void *)0x604BB32C, 0x40);                  /* 0x60040C9E: queues {0x20, flag} via 0x600032AA */
+post_event((void *)0x604BB32C, 0x10);
+```
+
+Only `on` is sent; `value` is not read on this path. **The same works at run time from region 0** [measured
+2026-11-11, `CTL_PROBE_TEST`, `examples/system_s1cc/model.c`]: the PLUG-OUT service `SVC(0x04)` `set(1, id, on)`
+(= begin / set / flush, `0x0100D21D`) followed by the two `0x60040C9F` calls switches one light. Without the two
+events nothing changes on the panel.
+
+#### 9.5.3 Light of each entry [measured 2026-11-11]
+
+Measured with `CTL_PROBE_TEST`: each LFO KEY TRIG press switched one entry off; the light that went out is named by
+the panel and, where the light belongs to a parameter, by the `s1panel.h` id.
+
+| ctl id | light | parameter | ctl id | light | parameter |
+|---|---|---|---|---|---|
+| `0xC0` | LFO SHAPE | `0x160` | `0xD4` | PITCH ENV AMOUNT | `0x17A` |
+| `0xC1` | LFO → PITCH | `0x163` | `0xD5` | PITCH ENV ATTACK | `0x17B` |
+| `0xC2` | LFO FADE | `0x161` | `0xD6` | PITCH ENV DECAY | `0x17C` |
+| `0xC3` | LFO → FILTER | `0x164` | `0xD7` | LPF CUTOFF | `0x17D` |
+| `0xC4` | LFO RATE | `0x162` | `0xD8` | HPF CUTOFF | — |
+| `0xC5` | LFO → AMP | `0x165` | `0xD9` | RESONANCE | `0x17F` |
+| `0xC6` | OSC1 WAVE | `0x167` | `0xDA` | FILTER ENV AMOUNT | `0x181` |
+| `0xC7` | OSC1 RANGE | `0x16A` | `0xDB` | FILTER KEY TRACK | `0x186` |
+| `0xC8` | OSC1 COLOR | `0x168` | `0xDC`–`0xDF` | FILTER ATTACK, DECAY, SUSTAIN, RELEASE | `0x182`–`0x185` |
+| `0xC9` | OSC1 COLOR MOD | `0x169` | `0xE0` | AMP TONE | `0x18B` |
+| `0xCA` | OSC1 CROSS MOD | — | `0xE1` | CRUSHER | — |
+| `0xCB` | OSC2 WAVE | `0x16C` | `0xE2`–`0xE5` | AMP ATTACK, DECAY, SUSTAIN, RELEASE | `0x187`–`0x18A` |
+| `0xCC` | OSC2 RANGE | `0x16F` | `0xEC` | PORTAMENTO | — |
+| `0xCD` | OSC2 COLOR | `0x16D` | | | |
+| `0xCE` | OSC2 TUNE | `0x170` | | | |
+| `0xCF` | OSC2 COLOR MOD | `0x16E` | | | |
+| `0xD0`–`0xD3` | MIXER OSC1, OSC2, SUB OSC, NOISE | `0x174`–`0x177` | | | |
+
+Not in the table: the buttons (their lights follow group-3 patch words, [examples/system_s1cc/README.md](../../examples/system_s1cc/README.md)
+§1.6), REVERB / DELAY, VOLUME.
+
+#### 9.5.4 Tables of the stock synth and the Roland PLUG-OUTs [data]
+
+Read from the OS image (`work/sys1_v130/app_master.bin` `0x6007BA48`) and from region 0 of the unpacked plug-ins
+(`work/unpack/*_S1_Code1/region0.bin`), named with §9.5.3:
+
+| image | lights off |
+|---|---|
+| SYSTEM-1 (stock, in the OS) | none |
+| SH-2 | LFO → AMP, NOISE MIX, PITCH ENV ATTACK / DECAY, HPF CUTOFF |
+| SH-101 | LFO FADE, LFO → AMP, OSC1 WAVE, OSC1 CROSS MOD, all of OSC2 (WAVE, RANGE, COLOR, TUNE, COLOR MOD), PITCH ENV AMOUNT / ATTACK / DECAY, HPF CUTOFF |
+| PROMARS | OSC1 CROSS MOD, OSC2 WAVE / RANGE / COLOR MOD, MIXER SUB OSC, PITCH ENV AMOUNT / ATTACK / DECAY |
+
+Every Roland image keeps all 9 `sel[]` entries with `on = 1`; they restrict buttons through `allow[]` only.
+
+A light that is off changes only the light: its control keeps sending its value to the PLUG-OUT [measured
+2026-11-11, TB-03-S1].
+
+#### 9.5.5 Open
+
+* How the OS uses `value`.
+
+How SYSTEM-S1CC fills the table from a per-kernel panel map: [Vol. V ch. 1](../vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.6.

@@ -221,6 +221,41 @@ el DSP: `C047` = `B6_LKT` multiplica el reinicio en `microcode/lfo.s`). Al carga
 `0x166`. Con DELAY TIME 0 el fade del LFO queda en 1 también con la puerta cerrada: el LFO está completo desde la
 primera muestra de la nota (antes salía de 0 y tardaba 1–2 ms, lo que leía el accent del TB-03 al empezar la nota).
 
+### 1.7 Luces del panel: el mapa del panel (`PANEL`) [medido 2026-11-11: TB-03-S1]
+
+Especificación (en inglés): el mecanismo del OS y la tabla de luces en [Vol. IV ch. 6](../../docs/vol4_firmware_container_protocol/base_firmware.md) §9.5; el mapa y las herramientas en [Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.6.
+
+**La tabla del OS.** SYSTEM1_SYNINFO `+0x034` = 39 × `{u16 id, u16 on, u32 value}`: **las luces del panel en orden de
+panel** (ids `0xC0`…`0xE5`, `0xEC`; no son ids de parámetro). Al entrar al PLUG-OUT el OS manda `on` de cada una por el
+grupo 1 y avisa al panel (`0x60040C9E`, eventos `0x40` y `0x10`). El orden, medido con `CTL_PROBE_TEST=1 build.sh`
+(cada pulsación de LFO KEY TRIG apaga una entrada desde `model.c`, con los mismos dos eventos): LFO SHAPE, → PITCH,
+FADE, → FILTER, RATE, → AMP; OSC1 WAVE, RANGE, COLOR, COLOR MOD, CROSS MOD; OSC2 WAVE, RANGE, COLOR, TUNE, COLOR MOD;
+MIXER OSC1, OSC2, SUB, NOISE; PITCH ENV AMOUNT, ATTACK, DECAY; LPF CUTOFF, HPF CUTOFF, RESONANCE, FILTER ENV AMOUNT,
+KEY TRACK; FILTER A, D, S, R; AMP TONE, CRUSHER; AMP A, D, S, R; PORTAMENTO. Los botones no están (sus luces van por
+palabras del grupo 3, §1.6).
+
+**El mapa** es un archivo de texto, una luz por línea: `NOMBRE on|off` (nombres en `panel_map.py` `LIGHTS`: los de
+`s1panel.h` sin `S1_`, más `OSC1_CROSS_MOD`, `HPF_CUTOFF`, `CRUSHER`, `PORTAMENTO`); `#` comenta; **lo que no aparece
+queda apagado**.
+
+| paso | quién | qué |
+|---|---|---|
+| 1 | el autor del kernel | `VOICE.panel` junto al fuente (p. ej. `sdk/s1cc/examples/tb03_ported/tb03.panel`) |
+| 2 | `s1cc build` | lo copia a `KERNEL/panel.txt` (sin `VOICE.panel`: no hay `panel.txt`) |
+| 3 | `build.sh` | `PANEL=archivo` (entorno o `S1_BUILD`), si no `KERNEL/panel.txt`, si no el borrador de `panel_map.py` en `build/panel.txt` |
+| 4 | `make_s1cc.py` | **sólo lee** el mapa: `#define S1_CTL_ON` (bit = id de la luz − `0xC0`) en `s1_programs.h` |
+| 5 | `syninfo.h` | `CTL(id)`: `on` = bit de `S1_CTL_ON`; sin mapa, todas encendidas |
+
+**El borrador** (`python3 examples/system_s1cc/panel_map.py KERNEL [-o archivo]`) sale de lo que lee el kernel, con el
+motivo de cada luz como comentario: tablas `S1_PARAM` / `S1_VOICE_PARAM`; `s1_color(i)` → OSCi COLOR y COLOR MOD;
+`s1_pitch` / `s1_dt` / `s1_rdt` con `LFO_PITCH=1` → LFO → PITCH, OSC1 RANGE, PITCH ENV y el LFO; `s1_lfo_filter` /
+`s1_lfo_amp` → LFO → FILTER / AMP y el LFO; `s1_env(0)` / `s1_env(1)` → ADSR del AMP / del filtro; el mezclador del
+host (`MIX=1`) → SUB / NOISE; las formas EDM y `SL_WT` → las perillas que leen `model.c` / `engine.c`. Una fuente de
+COLOR MOD sola no enciende su sección. CROSS MOD, HPF, CRUSHER, PORTAMENTO: apagadas. `--check archivo` muestra la máscara.
+
+TB-03-S1 (instalado 2026-11-11): 18 de 39 encendidas (`S1_CTL_ON = 0x00000ef0e3d7`). Una luz apagada sólo
+apaga la luz: el control sigue mandando su valor (medido 2026-11-11).
+
 ## 2. Qué corre en cada DSP
 
 ```
@@ -710,10 +745,11 @@ corregido, §7). Para repetir la prueba:
 | `microcode/*.s` | el ensamblador del host como fragmentos (`.fragment NOMBRE ARGS`); `make_s1cc.py frag()` elige y completa: `{expr}` / `{expr:04x}` / `{expr!r}` sobre los ARGS y las globales de `make_s1cc.py`, `.if` / `.elif` / `.else` / `.endif`, `.for NOMBRES in EXPR` / `.endfor`, `.include NOMBRE ARG=expr, ...`; `;;` comentario solo del archivo, `;` va al programa. `noise`, `lfo_b`, `lfo_shape_lut` (`lfo.s`); `penv_core`, `penv_b` (`penv.s`); `colors_b`, `colors_idx`, `sub_to_cmt` (`color.s`); `head_a`, `host_a`, `mixer`, `gate_copy` (`host_a.s`); `head_b`, `host_env`, `adsr` (`host_b.s`); `lut_head`, `lut_job`, `lut_read` (`lut.s`); `master`, `close`, `section_head` (`master.s`) |
 | `engine.c` | región 1, ARM del esclavo: el de MUTABLE-SYSTEM sin el panel de C-S1SY. Carga los programas; notas → banco 5; perillas → tablas del kernel |
 | `model.c` | región 0, ARM del maestro: el de MUTABLE-SYSTEM (asignador de `NV` voces, carga `s1mm1`, VOLUME, que reenvía en cada nota) |
-| `syninfo.h`, `link.ld` | copias de MUTABLE-SYSTEM |
+| `syninfo.h`, `link.ld` | copias de MUTABLE-SYSTEM; `syninfo.h` toma `S1_CTL_ON` (§1.7) |
+| `panel_map.py` | el mapa del panel (§1.7): borrador desde el kernel (`KERNEL [-o archivo]`), `--check archivo`; `parse` / `mask` los usa `make_s1cc.py` |
 | `microcode/split.s` | `kcopy`: las copias por el banco 5 de las entradas de un kernel fusionado (§1.3) |
 | `build.sh` | build completo → `plugins/<NAME>/Script/Code1.Dat` |
-| `build/` | todo lo generado (`OUTDIR` de `make_s1cc.py`, la carpeta de `build.sh`): `s1m0.s`, `s1m1.s`, `s1mm1.s`, `s1c0.s`, `s1c1.s`, las secciones `s1a?` / `s1b?` (+ `.hex`), `s1_programs.h`, `try_forms.txt`, `make_s1cc.log`, `region0.elf` / `region1.elf` y `proj/` (las regiones y `plugout.json`). Los `.o` se borran después de enlazar |
+| `build/` | todo lo generado (`OUTDIR` de `make_s1cc.py`, la carpeta de `build.sh`): `s1m0.s`, `s1m1.s`, `s1mm1.s`, `s1c0.s`, `s1c1.s`, las secciones `s1a?` / `s1b?` (+ `.hex`), `s1_programs.h`, `try_forms.txt`, `make_s1cc.log`, `panel.txt` (el borrador del mapa, si el kernel no trae uno), `region0.elf` / `region1.elf` y `proj/` (las regiones y `plugout.json`). Los `.o` se borran después de enlazar |
 
 ## 7. Reglas del SYSTEM-1 en la herramienta (`asm/s1rules.py`)
 

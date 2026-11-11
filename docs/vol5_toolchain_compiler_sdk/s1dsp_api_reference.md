@@ -129,6 +129,10 @@ HPF cutoff sends nothing.
 In MUTABLE-SYSTEM the host program (C-S1SY) also uses some of these controls; OSC1 / OSC2 COLOR are the free ones. In
 SYSTEM-S1CC there is no host: all of them are the kernel's.
 
+The same names (without `S1_`) name the panel lights in a kernel's panel map, `VOICE.panel`: which lights the
+PLUG-OUT switches on ([Vol. V ch. 1](s1cc_compiler_internals.md) §3.6). The OS numbers the lights separately
+(`0xC0`…`0xE5`, `0xEC`, panel order), not by these ids ([Vol. IV ch. 6](../vol4_firmware_container_protocol/base_firmware.md) §9.5).
+
 ## 4. Minimal example
 
 From [ch. 1](s1cc_compiler_internals.md) §7.6 (it uses only declared intrinsics):

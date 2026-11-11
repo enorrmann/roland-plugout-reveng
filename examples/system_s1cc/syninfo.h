@@ -43,8 +43,15 @@ _Static_assert(sizeof(struct syninfo1) == 0x28C, "layout");
 
 #define NPATCH 64
 
-/* every panel control on; 0xC0 = 4 as in the 4-voice SH-2 (meaning not known) */
-#define CTL(id) { id, 1, (id) == 0xC0 ? 4 : 0xFF }
+/* the panel lights on for this PLUG-OUT: ctl ids 0xC0..0xE5, 0xEC are the panel's lights in panel order (not parameter
+   ids; panel_map.py LIGHTS, measured 2026-11-11), on = bit (id - 0xC0) of S1_CTL_ON. Entering the PLUG-OUT the OS sends
+   every entry's on / off to the panel (OS 1.30 0x6001E526); make_s1cc.py writes S1_CTL_ON into s1_programs.h from
+   the panel map (README.md §1.7); without it every light is on. value: the highest position of a selector, 0xFF for
+   the rest (Roland's); ours 0xFF (and 0xC0 = 4 as in the SH-2) */
+#ifndef S1_CTL_ON
+#define S1_CTL_ON 0xFFFFFFFFFFFFull
+#endif
+#define CTL(id) { id, (uint16_t)((S1_CTL_ON >> ((id) - 0xC0)) & 1), (id) == 0xC0 ? 4 : 0xFF }
 #define CTLS \
     CTL(0xC0), CTL(0xC1), CTL(0xC2), CTL(0xC3), CTL(0xC4), CTL(0xC5), CTL(0xC6), CTL(0xC7), CTL(0xC8), CTL(0xC9), \
     CTL(0xCA), CTL(0xCB), CTL(0xCC), CTL(0xCD), CTL(0xCE), CTL(0xCF), CTL(0xD0), CTL(0xD1), CTL(0xD2), CTL(0xD3), \

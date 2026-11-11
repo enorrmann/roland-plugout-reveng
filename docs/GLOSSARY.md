@@ -168,6 +168,10 @@ words, latched per sample. No expansion is known; the S1 programs do not use it.
 **pair mailbox** — S8. Bank 5 `A400`–`A7FF`, shared by the two DSPs of a pair (0/1, 2/3, 4/5) in Roland's main
 programs. [Vol. I ch. 3](vol1_system_architecture/bus_interconnect.md) §4.4.
 
+**panel map (`VOICE.panel`)** — S1. A kernel's list of the panel lights its PLUG-OUT switches on (`LIGHT on|off`); it sets
+`ctl[].on` of `SYSTEM1_SYNINFO`. [Vol. V ch. 1](vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.6,
+[Vol. IV ch. 6](vol4_firmware_container_protocol/base_firmware.md) §9.5.
+
 **`ph_wrap`, `ph_tri`, `ph_clamp`** — both. Our names of the unit-B phase operations (wrap into [−1, 1), triangle,
 clamp). [Vol. III ch. 6](vol3_voice_allocation_scheduling/microcode_optimization.md).
 

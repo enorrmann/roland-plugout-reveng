@@ -702,6 +702,7 @@ The SYSTEM-1 receives on MIDI channel 5 here (--channel to change). Audio comes 
 | `--secs` | capture length (default 1.5) | `1.5` |
 | `--on` | delay before note-on (default 0.3) | `0.3` |
 | `--hold` | note held (default 1.0) | `1.0` |
+| `--cc` | control changes sent before the note, "CC=VALUE,..." (e.g. "74=127,71=0"; SYSTEM-S1CC maps 74 cutoff, 71 resonance, 79 filter env amount, 75 filter decay: examples/system_s1cc/README.md §1.5) |  |
 | `--cmd` | a shell command to run before the capture (e.g. a wt_load.py send) |  |
 | `--raw` | keep the raw audio at this path (default: a temp file, deleted) |  |
 | `--port` | amidi MIDI port (default: the SYSTEM-1) |  |
@@ -3896,6 +3897,9 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/vol5_toolchain_compiler_sdk/s1cc_c
                 600E..6021: docs/vol6_reference_designs_applications/mutable_memory.md §4.3)
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
+  PANEL=FILE    the panel map: which panel controls are lit (README.md §1.7). Default: VOICE.panel beside the
+                kernel's source (s1cc build copies it to KERNEL/panel.txt), else the draft that panel_map.py infers
+                from the kernel (build/panel.txt: copy it beside the source as VOICE.panel to customize)
 
 Examples:
   sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c
@@ -3966,3 +3970,25 @@ only what the device needs, in the forms MUTABLE-SYSTEM / C-S1SY13 proved on the
 ```
 
 Environment: `KERNEL` (default ''), `OUTDIR` (default os.path.join(HERE, 'build'), `SIM_N` (default '9600'), `VOICES` (default 'auto')
+
+### `examples/system_s1cc/panel_map.py`
+
+```
+panel_map.py: the SYSTEM-1 panel lights a SYSTEM-S1CC kernel uses, as a panel map (README.md §1.7).
+
+    python3 examples/system_s1cc/panel_map.py KERNEL_DIR [-o FILE]      draft map inferred from the kernel (stdout)
+    python3 examples/system_s1cc/panel_map.py --check FILE              parse a map, print the SYNINFO mask
+
+A panel map is a text file, one light per line: `NAME on|off`, NAME from LIGHTS below (the s1panel.h macro without
+`S1_` where the light belongs to a parameter); `#` starts a comment. A light the file does not list is off. The
+lights are the 39 entries of the OS's table (SYNINFO ctl[], ids 0xC0..0xE5, 0xEC, in panel order: LIGHTS, measured
+2026-11-11): entering the PLUG-OUT the OS sends each one's on / off to the panel (OS 1.30 0x6001E526).
+
+make_s1cc.py only reads the map (PANEL=FILE, default KERNEL_DIR/panel.txt: `s1cc build` copies VOICE.panel from
+beside the kernel's source there). This tool writes the first draft from what the kernel reads; edit it from there.
+Inference (the host of make_s1cc.py, README.md §3): the kernel's S1_PARAM / S1_VOICE_PARAM panels; s1_color(i) ->
+OSCi COLOR + COLOR MOD; s1_pitch / s1_dt / s1_rdt (LFO_PITCH=1) -> LFO -> PITCH, OSC1 RANGE, PITCH ENV and the LFO;
+s1_lfo_filter / s1_lfo_amp -> LFO -> FILTER / AMP and the LFO; s1_env(0) / s1_env(1) -> AMP / FILTER ADSR; the host
+mixer (MIX=1) -> SUB / NOISE MIX. A COLOR MOD source alone (the LFO, the envelopes) does not light its section: the
+MOD selector is lit. OSC1 CROSS MOD, HPF CUTOFF, AMP TONE, CRUSHER, PORTAMENTO: off (SYSTEM-S1CC has none of them).
+```

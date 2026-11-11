@@ -55,6 +55,9 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/vol5_toolchain_compiler_sdk/s1cc_c
                 600E..6021: docs/vol6_reference_designs_applications/mutable_memory.md §4.3)
   ENV_CURVE=sq|cube|sqrt|smooth|lin   one shared curve table for every host envelope, level = C(ADSR): ~7 DSP B
                 instructions per envelope
+  PANEL=FILE    the panel map: which panel controls are lit (README.md §1.7). Default: VOICE.panel beside the
+                kernel's source (s1cc build copies it to KERNEL/panel.txt), else the draft that panel_map.py infers
+                from the kernel (build/panel.txt: copy it beside the source as VOICE.panel to customize)
 
 Examples:
   sdk/s1cc/s1cc build sdk/s1cc/examples/simple_saw_wrapped/simple_saw_env.c
@@ -124,6 +127,14 @@ case "${EDM_PORT:-}" in ""|0) EDM_PORT= ;; r) ;; w) ;; d) ;; p) ;; *) echo "buil
 [ -z "$EDM_PORT" ] || [ -n "$PARAMLOG" ] || { echo "build.sh: EDM_PORT needs PARAMLOG=1" >&2; exit 2; }
 export KERNEL
 mkdir -p "$B"
+# the panel map (README.md §1.7): PANEL, else the kernel's own (VOICE.panel, copied by s1cc build), else the draft
+PANEL=${PANEL:-$(kopt PANEL)}
+if [ -z "$PANEL" ] && [ ! -f "$KERNEL/panel.txt" ]; then
+    python3 "$HERE/panel_map.py" "$KERNEL" -o "$B/panel.txt"
+    PANEL=$B/panel.txt
+    echo "panel: no VOICE.panel beside the kernel's source: inferred $PANEL (copy it there as VOICE.panel to edit it)"
+fi
+[ -z "$PANEL" ] || export PANEL
 # a failed build must leave nothing to install: the plug-out of an earlier build with this NAME goes first
 rm -f "$ROOT/plugins/$NAME/Script/Code1.Dat" "$ROOT/plugins/$NAME/Script/Code.Dat"
 # the most voices that fit: make_s1cc.py VOICES=auto computes them before it builds (exit 3: not even 1 fits)
@@ -147,7 +158,7 @@ with open(out, 'w') as f:
 PY
 fi
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
- -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_LINES:+-DEDM_LINES} ${EDM_WT:+-DEDM_WT} ${SL_LOAD:+-DSL_LOAD} ${WTL_WITNESS_TEST:+-DWTL_WITNESS_TEST} ${LED_PROBE_TEST:+-DLED_PROBE_TEST} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
+ -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_LINES:+-DEDM_LINES} ${EDM_WT:+-DEDM_WT} ${SL_LOAD:+-DSL_LOAD} ${WTL_WITNESS_TEST:+-DWTL_WITNESS_TEST} ${LED_PROBE_TEST:+-DLED_PROBE_TEST} ${CTL_PROBE_TEST:+-DCTL_PROBE_TEST} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
 for r in 0 1; do
     if [ $r = 0 ]; then SRC=model.c; BASE=0x60800000; CODE=0x9000; else SRC=engine.c; BASE=0x60200000; CODE=0x1000; fi
     arm-none-eabi-gcc $CFLAGS -c "$HERE/$SRC" -o "$B/region$r.o"

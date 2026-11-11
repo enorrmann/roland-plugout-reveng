@@ -1356,7 +1356,21 @@ static int cc_to_panel(int cc, int v)
 {
     if (cc == CC_LFO_KT) {
         (void)v;
-#ifdef LED_PROBE_TEST
+#ifdef CTL_PROBE_TEST
+        /* diagnostic (CTL_PROBE_TEST=1 build.sh, README.md §1.7): which panel light is SYNINFO ctl[k]? press n of KEY
+           TRIG sends ctl[n - 1] off through group 1 (as the OS at the switch, docs Vol. IV ch. 6 §9.5) and ctl[n - 2]
+           on again; ids 0xC0..0xE5, 0xEC in table order (press 39 = 0xEC, press 40 = all on, then again) */
+        static int k;
+        int prev = k == 0 ? 38 : k - 1;
+        p_set(G_PART, prev < 38 ? 0xC0 + prev : 0xEC, 1);
+        if (k < 39)
+            p_set(G_PART, k < 38 ? 0xC0 + k : 0xEC, 0);
+        k = (k + 1) % 40;
+        /* then, as the OS after its loop (0x6001E54A..0x6001E558): post {0x20, flag} 0x40 and 0x10 through
+           0x60040C9E (OS 1.30 master; unproven from a PLUG-OUT): the panel's refresh */
+        ((void (*)(void *, int))0x60040C9Fu)((void *)0x604BB32Cu, 0x40);
+        ((void (*)(void *, int))0x60040C9Fu)((void *)0x604BB32Cu, 0x10);
+#elif defined(LED_PROBE_TEST)
         /* diagnostic (LED_PROBE_TEST=1 build.sh): which group-3 word is which button's LED? press k of KEY TRIG sets
            candidate k to 1 and k - 1 back to 0 (KEY TRIG itself is 0x166, found the same way) */
         static const uint16_t cand[] = { 0x16B, 0x171, 0x172, 0x173, 0x178, 0x179, 0x180, 0x18C };

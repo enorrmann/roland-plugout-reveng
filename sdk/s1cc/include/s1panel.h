@@ -8,7 +8,12 @@
  * In MUTABLE-SYSTEM the host program (C-S1SY) also uses some of these controls: a voice that takes one of them adds
  * its own use to the host's (examples/mutable_system/README.md, panel table); OSC1 / OSC2 COLOR are the free
  * ones. In SYSTEM-S1CC (examples/system_s1cc) there is no host: all of them are the kernel's.
- * Not here: VOLUME (0x100) goes to the master (region 0), not to the voice; HPF cutoff sends nothing. */
+ * Not here: VOLUME (0x100) goes to the master (region 0), not to the voice; HPF cutoff sends nothing.
+ *
+ * Which lights are on: the kernel's panel map, VOICE.panel beside its source (lines `LIGHT on|off`, LIGHT = these
+ * macros without S1_, plus OSC1_CROSS_MOD, HPF_CUTOFF, CRUSHER, PORTAMENTO), copied by `s1cc build`; without one
+ * SYSTEM-S1CC drafts it from what the kernel reads (examples/system_s1cc/panel_map.py, README.md §1.7). The OS numbers
+ * the lights apart from these ids (ctl 0xC0.., panel order, docs Vol. IV ch. 6 §9.5). */
 #ifndef S1PANEL_H_
 #define S1PANEL_H_
 

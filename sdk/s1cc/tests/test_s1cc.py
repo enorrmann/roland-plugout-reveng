@@ -108,6 +108,25 @@ class TestExamples(unittest.TestCase):
                     self.assertLessEqual(info['B'][1], maxb, src)
 
 
+class TestPanelMap(unittest.TestCase):
+    """examples/system_s1cc panel map (README.md §1.7): NAME on|off -> SYNINFO S1_CTL_ON, unlisted off"""
+
+    def test_parse_mask(self):
+        sys.path.insert(0, os.path.join(ROOT, 'examples', 'system_s1cc'))
+        import panel_map
+        tmp = os.path.join(S1CC, 'build', 'test_panel.txt')
+        os.makedirs(os.path.dirname(tmp), exist_ok=True)
+        with open(tmp, 'w') as f:
+            f.write('FILTER_CUTOFF on  # comment\nS1_LFO_SHAPE on\nHPF_CUTOFF on\nOSC1_WAVE off\nPORTAMENTO on\n')
+        on = panel_map.parse(tmp)
+        self.assertEqual(len(on), 39)       # ctl ids: LFO SHAPE 0xC0, LPF CUTOFF 0xD7, HPF 0xD8, PORTAMENTO 0xEC
+        self.assertEqual(panel_map.mask(on), (1 << 0x17) | (1 << 0) | (1 << 0x18) | (1 << 0x2C))
+        with open(tmp, 'w') as f:
+            f.write('FILTER_CUTOF on\n')
+        with self.assertRaises(SystemExit):
+            panel_map.parse(tmp)
+
+
 if __name__ == '__main__':
     unittest.main()
 

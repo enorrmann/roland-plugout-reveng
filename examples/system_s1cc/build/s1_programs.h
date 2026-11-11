@@ -936,6 +936,8 @@ static const uint32_t half_bits[256] = {
     0x3ef0f0f1u, 0x3ef1f1f2u, 0x3ef2f2f3u, 0x3ef3f3f4u, 0x3ef4f4f5u, 0x3ef5f5f6u, 0x3ef6f6f7u, 0x3ef7f7f8u,
     0x3ef8f8f9u, 0x3ef9f9fau, 0x3efafafbu, 0x3efbfbfcu, 0x3efcfcfdu, 0x3efdfdfeu, 0x3efefeffu, 0x3f000000u
 };
+/* panel map sdk/s1cc/build/tb03/panel.txt: on LFO_SHAPE LFO_TO_PITCH LFO_FADE LFO_RATE OSC1_WAVE OSC1_RANGE OSC1_COLOR OSC1_COLOR_MOD OSC2_COLOR OSC2_FINE OSC2_COLOR_MOD PITCH_ENV_AMOUNT PITCH_ENV_ATTACK PITCH_ENV_DECAY FILTER_CUTOFF FILTER_RESONANCE FILTER_ENV_AMOUNT FILTER_KEY_TRACK */
+#define S1_CTL_ON 0x00000ef0e3d7ull  /* bit = ctl id - 0xC0 */
 #define MONO_LEGATO 1  /* mono assigner, legato keeps the gate (README §1.4) */
 #define GATE_ACCENT 0  /* gate word 2.0 at velocity >= 100 (README §1.4) */
 #define ARM_ENV 1

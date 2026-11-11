@@ -82,7 +82,7 @@ ones are:
 | [ch. 3 OS service tables](vol4_firmware_container_protocol/os_service_table.md) | both | The OS services PLUG-OUT code calls (S8 `0x0113FC00`, S1 `0x0100FC00`), with their sources. |
 | [ch. 4 USB install protocol](vol4_firmware_container_protocol/usb_sysex_protocol_spec.md) | both | The USB-MIDI install protocol, with code addresses; used by `tools/plugout_tool.py`. |
 | [ch. 5 Web installer](vol4_firmware_container_protocol/web_installer.md) | both | The browser installer in `web/`: use, blocking checks, port handling, tests. |
-| [ch. 6 Base firmware](vol4_firmware_container_protocol/base_firmware.md) | both | §1–§8 SYSTEM-8 (`SYSTEM8_UP.BIN`, the OS, `sys8fw.py`, OS dumps, sending MIDI from a PLUG-OUT, OS anatomy). §9 SYSTEM-1 (`SYSTEM1_UPD.BIN`, images, addresses, MIDI send). |
+| [ch. 6 Base firmware](vol4_firmware_container_protocol/base_firmware.md) | both | §1–§8 SYSTEM-8 (`SYSTEM8_UP.BIN`, the OS, `sys8fw.py`, OS dumps, sending MIDI from a PLUG-OUT, OS anatomy). §9 SYSTEM-1 (`SYSTEM1_UPD.BIN`, images, addresses, MIDI send, §9.5 the SYNINFO panel light table). |
 | [ch. 7 Updater versions](vol4_firmware_container_protocol/firmware_versions.md) | S8 | Updater versions 1.30, 1.31 and 1.32. |
 | [ch. 8 Decoded base engine](vol4_firmware_container_protocol/base_engine.md) | S8 | The region code of the stock plugouts; artefacts in [base-engine/README.md](../base-engine/README.md). |
 | [ch. 9 PLUG-OUT vs base system](vol4_firmware_container_protocol/plugout_vs_base.md) | S8 | Whether PLUG-OUTs add processing or only configure the base system. |

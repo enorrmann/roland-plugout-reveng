@@ -78,3 +78,4 @@ warning: s1m1: a1d9 never ran on the device (sB, asm/proven_addresses.txt): a pr
 warning: s1m1: a1e1 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: a1e9 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: a1f8 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+panel: sdk/s1cc/build/tb03/panel.txt: 18 of 39 on
