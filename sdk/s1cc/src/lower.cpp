@@ -307,6 +307,20 @@ struct Lowerer {
     LV minmax(LV a, LV b, bool isMin) {
         if (a.isConst() && b.isConst())
             return cst(isMin ? std::min(a.k, b.k) : std::max(a.k, b.k));
+        if (opt.rangeFold) {                         // one side always wins over the ranges: no op (2026-11-11; the
+            Range ra = rangeOf(a), rb = rangeOf(b);  // lift's K_RECIP guard max(|y|, 2^-9) on a value >= 2^-9)
+            double m = std::max({std::fabs(ra.lo), std::fabs(ra.hi), std::fabs(rb.lo), std::fabs(rb.hi)});
+            if (ra.seen() && rb.seen()) {
+                if (isMin ? apart(ra.hi, rb.lo, m) : apart(rb.hi, ra.lo, m)) {
+                    if (getenv("S1CC_TRACE_FOLD")) fprintf(stderr, "fold %s -> a: a [%g, %g] b [%g, %g]\n", isMin ? "min" : "max", ra.lo, ra.hi, rb.lo, rb.hi);
+                    return a;
+                }
+                if (isMin ? apart(rb.hi, ra.lo, m) : apart(ra.hi, rb.lo, m)) {
+                    if (getenv("S1CC_TRACE_FOLD")) fprintf(stderr, "fold %s -> b: a [%g, %g] b [%g, %g]\n", isMin ? "min" : "max", ra.lo, ra.hi, rb.lo, rb.hi);
+                    return b;
+                }
+            }
+        }
         if (a.isConst())
             std::swap(a, b);
         bool m = isMin == (a.s > 0);             // in r units, a negative scale flips min / max
@@ -330,9 +344,21 @@ struct Lowerer {
         return normalize(r);
     }
 
+    // range folds need the ranges apart by a margin (5 % of the largest magnitude involved): a range is a profile, and a
+    // value that only touched a bound there (a state the profile never moved, a value 1e-6 under a limit) does
+    // cross it on the device (TestSystemS1cc.test_chain, casio_cz: 2026-11-11)
+    static bool apart(double lo, double hi, double m) { return hi - lo >= 0.05 * m && hi > lo; }
+
     LV absLV(LV x) {
         if (x.isConst())
             return cst(std::fabs(x.k));
+        Range xr = rangeOf(x);
+        if (opt.rangeFold && xr.seen() && apart(0, xr.lo, std::max(std::fabs(xr.lo), std::fabs(xr.hi)))) {  // |x| = x
+            if (getenv("S1CC_TRACE_FOLD")) fprintf(stderr, "fold abs: [%g, %g]\n", xr.lo, xr.hi);
+            return x;
+        }
+        if (opt.rangeFold && xr.seen() && apart(xr.hi, 0, std::max(std::fabs(xr.lo), std::fabs(xr.hi))))
+            return neg(x);
         KVal *y = materialize(x, std::fabs(x.s), 0);
         LV r;
         r.r = K->max(y, KOperand::negOf(y));
@@ -1809,6 +1835,14 @@ struct Lowerer {
             LV x = in(0);
             if (x.isConst())
                 return cst(x.k > 0 ? 1 : x.k < 0 ? -1 : 0);
+            Range xr = rangeOf(x);                   // a value that keeps its sign: a constant (2026-11-11)
+            double xm = std::max(std::fabs(xr.lo), std::fabs(xr.hi));
+            if (opt.rangeFold && xr.seen() && apart(0, xr.lo, xm)) {
+                if (getenv("S1CC_TRACE_FOLD")) fprintf(stderr, "fold sign +1: [%g, %g] %s\n", xr.lo, xr.hi, where(n->v).c_str());
+                return cst(1);
+            }
+            if (opt.rangeFold && xr.seen() && apart(xr.hi, 0, xm))
+                return cst(-1);
             LV r;
             r.r = K->sign(materialize(x, 1, 0));
             r.V.add(-1);

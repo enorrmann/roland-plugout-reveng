@@ -30,6 +30,7 @@
 #define S1_OSC1_COLOR         0x168
 #define S1_OSC1_COLOR_MOD     0x169   /* selector 0..5: manual, LFO, pitch env, filter env, amp env, sub osc */
 #define S1_OSC1_RANGE         0x16A   /* selector 0..5: 64' .. 2' */
+#define S1_OSC1_CROSS_MOD     0x16B   /* CROSS MOD knob 0..255 (also CC 52); PARAMLOG 2026-11-11, JP-08-S1 */
 #define S1_OSC2_WAVE          0x16C
 #define S1_OSC2_COLOR         0x16D
 #define S1_OSC2_COLOR_MOD     0x16E

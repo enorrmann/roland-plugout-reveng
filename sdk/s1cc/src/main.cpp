@@ -170,6 +170,7 @@ int main(int argc, char **argv) {
             else if (a == "--no-div-clamp") opt.noDivClamp = true;
             else if (a == "--no-recipseed") opt.recipseed = false;
             else if (a == "--no-fuse-mac") opt.fuseMac = false;
+            else if (a == "--no-range-fold") opt.rangeFold = false;
             else if (a == "--no-native") opt.native = false;
             else if (a == "--trace") opt.trace = true;
             else if (a == "--no-derive") noDerive = true;   // no knob-derived columns (§4.6): every s1_param read stays

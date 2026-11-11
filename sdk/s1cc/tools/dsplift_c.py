@@ -506,6 +506,9 @@ class Run:
     def load(self, a, S):
         G, nm = self.G, self.names
         c = self.cell_of(a)
+        if c is not None and c in self.cell_in:       # --cell-in: the cell is an input of the caller
+            k = nm.const(self.cell_in[c])
+            return G.num(k) if k is not None else G.ld('KIN', self.cell_in[c])
         if c is not None:
             return S['c_%03x' % c]
         if 0xA000 <= a < 0xC000:
@@ -617,6 +620,13 @@ class Run:
                     n[o['a']] = src if w is None else G.sel(w, src, n[o['a']])
                 else:
                     v = r[o['a'] - 8]
+                    if self.cell_of(a) in self.cell_in:
+                        # --cell-in: the program's own value is replaced: the register it stores from holds the input
+                        # from here on (the program goes on using its register), the store itself is dropped
+                        if w is None:
+                            k = self.names.const(self.cell_in[self.cell_of(a)])
+                            n[o['a'] - 8] = G.num(k) if k is not None else G.ld('KIN', self.cell_in[self.cell_of(a)])
+                        continue
                     if self.cell_of(a) is not None:
                         key = 'c_%03x' % self.cell_of(a)
                     elif 0xA000 <= a < 0xC000:
@@ -842,6 +852,7 @@ def emit_kernel(ctx):
     cell_of = ctx.get('cell_of') or (lambda a: a & 0x7FF if a < 0x2000 else None)
     run.cell_of = cell_of
     run.kout_extra = set(ctx.get('kout_extra') or ())
+    run.cell_in = dict(ctx.get('cell_in') or {})
     written = [{cell_of(o['b']) for uk, o in units if uk == 'op' and o['kind'] == K['XMEM'] and o['a'] >= 8
                 and cell_of(o['b']) is not None} for units, _ in insns]
     cells = {p: set().union(*written[lo:hi]) for p, lo, hi in parts}
@@ -959,7 +970,7 @@ def emit_kernel(ctx):
         if not new:
             break
         roots += new
-    zero = {x for x in cand if (known is None or x in known) and G.isnum(states[owner[x]]['c_%03x' % x], 0)}
+    zero = {x for x in list(cand) if (known is None or x in known) and G.isnum(states[owner[x]]['c_%03x' % x], 0)}
     if zero != known:
         ctx['known'] = zero
         return emit_kernel(ctx)

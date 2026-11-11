@@ -1,0 +1,42 @@
+# panel map of sdk/s1cc/build/bq_jp08a: drafted by examples/system_s1cc/panel_map.py from the kernel
+# LIGHT on|off (panel order); unlisted = off
+
+LFO_SHAPE          on   # host LFO
+LFO_TO_PITCH       on   # host pitch modulation (s1_pitch / s1_dt / s1_rdt, LFO_PITCH=1)
+LFO_FADE           on   # host LFO
+LFO_TO_FILTER      off
+LFO_RATE           on   # host LFO
+LFO_TO_AMP         on   # s1_lfo_amp
+OSC1_WAVE          off
+OSC1_RANGE         on   # S1_PARAM range1f
+OSC1_COLOR         off
+OSC1_COLOR_MOD     off
+OSC1_CROSS_MOD     off
+OSC2_WAVE          off
+OSC2_RANGE         on   # S1_PARAM range2f
+OSC2_COLOR         on   # s1_color(1)
+OSC2_FINE          on   # S1_PARAM tune2
+OSC2_COLOR_MOD     on   # s1_color(1): COLOR MOD source
+OSC1_MIX           on   # S1_PARAM mix1
+OSC2_MIX           on   # S1_PARAM mix2
+SUB_MIX            off
+NOISE_MIX          off
+PITCH_ENV_AMOUNT   on   # host pitch modulation (s1_pitch / s1_dt / s1_rdt, LFO_PITCH=1)
+PITCH_ENV_ATTACK   on   # host pitch modulation (s1_pitch / s1_dt / s1_rdt, LFO_PITCH=1)
+PITCH_ENV_DECAY    on   # host pitch modulation (s1_pitch / s1_dt / s1_rdt, LFO_PITCH=1)
+FILTER_CUTOFF      on   # S1_PARAM cutoff
+HPF_CUTOFF         off
+FILTER_RESONANCE   on   # S1_PARAM reso
+FILTER_ENV_AMOUNT  on   # S1_PARAM envmod
+FILTER_KEY_TRACK   on   # S1_PARAM keyfollow
+FILTER_ATTACK      on   # s1_env(1)
+FILTER_DECAY       on   # s1_env(1)
+FILTER_SUSTAIN     on   # s1_env(1)
+FILTER_RELEASE     on   # s1_env(1)
+AMP_TONE           off
+CRUSHER            off
+AMP_ATTACK         on   # s1_env(0)
+AMP_DECAY          on   # s1_env(0)
+AMP_SUSTAIN        on   # s1_env(0)
+AMP_RELEASE        on   # s1_env(0)
+PORTAMENTO         off

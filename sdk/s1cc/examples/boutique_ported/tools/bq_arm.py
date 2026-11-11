@@ -53,7 +53,7 @@ PANEL = {   # (table, patch parameter id, SYSTEM-1 control, how the knob reads t
              ('lfo_pitch', 0x196, 'S1_LFO_TO_PITCH', 'bi', None),
              ('lfo_filter', 0x1AE, 'S1_LFO_TO_FILTER', 'bi', None),
              ('env_pitch', 0x197, 'S1_PITCH_ENV_AMOUNT', 'bi', None),
-             ('xmod', 0x19B, 'S1_OSC1_COLOR', 'sq', None), ('pwm', 0x199, 'S1_OSC2_COLOR', 'uni', None),
+             ('xmod', 0x19B, 'S1_OSC1_CROSS_MOD', 'uni', None), ('pwm', 0x199, 'S1_OSC2_COLOR', 'uni', None),
              ('tune2', 0x1A0, 'S1_OSC2_FINE', 'uni', None),
              ('mix1', 0x1A2, 'S1_OSC1_MIX', 'rev', [0x5A]), ('mix2', 0x1A2, 'S1_OSC2_MIX', 'uni', [0x5B]),
              ('cutoff', 0x1A9, 'S1_FILTER_CUTOFF', 'uni', None),
@@ -65,6 +65,21 @@ PANEL = {   # (table, patch parameter id, SYSTEM-1 control, how the knob reads t
              ('env2_a', 0x1C6, 'S1_AMP_ATTACK', 'uni', None), ('env2_d', 0x1C7, 'S1_AMP_DECAY', 'uni', None),
              ('env2_s', 0x1C8, 'S1_AMP_SUSTAIN', 'uni', None), ('env2_r', 0x1C9, 'S1_AMP_RELEASE', 'uni', None)],
 }
+
+
+# --host (README.md §8): the host's ADSRs, LFO and pitch envelope (SYSTEM-S1CC) take the LFO, ENV and PITCH ENV
+# controls; the voice keeps these. Words forced (HOST_WORDS): Roland's LFO -> pitch and ENV1 -> pitch off (the host
+# puts both into s1_pitch), FLT LFO MOD = 1 (s1_lfo_filter is already LFO x depth in octaves, the cutoff's unit),
+# PWM depth 1.2 (= Roland's PWM at 255: the knob is s1_color(1), input A090), LFO -> AMP off
+HOST_PANEL = {
+    'jp08': [('xmod', 0x19B, 'S1_OSC1_CROSS_MOD', 'uni', None), ('tune2', 0x1A0, 'S1_OSC2_FINE', 'uni', None),
+             ('mix1', 0x1A2, 'S1_OSC1_MIX', 'rev', [0x5A]), ('mix2', 0x1A2, 'S1_OSC2_MIX', 'uni', [0x5B]),
+             ('cutoff', 0x1A9, 'S1_FILTER_CUTOFF', 'uni', None),
+             ('reso', 0x1AA, 'S1_FILTER_RESONANCE', 'uni', None),
+             ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'bi', None),
+             ('keyfollow', 0x1AF, 'S1_FILTER_KEY_TRACK', 'uni', None)],
+}
+HOST_WORDS = {0x4A: 0.0, 0x4B: 0.0, 0x64: 1.0, 0x53: 1.2, 0x54: 1.2, 0x6B: 0.0}
 
 
 def row_of(kind, knob):
@@ -96,11 +111,13 @@ def chip0(p):
 
 
 def main():
-    model = sys.argv[1]
+    host = '--host' in sys.argv
+    model = [a for a in sys.argv[1:] if not a.startswith('--')][0]
     mode = MODELS[model]
     first = fx.setup(mode)
     patches = [(t, a, v) for (c, t, a), v in sorted(fx.portw().items()) if c == 0]
-    json.dump(patches, open(os.path.join(ROOT, 'work', 'bq1', '%s_patches.json' % model), 'w'))
+    if not host:
+        json.dump(patches, open(os.path.join(ROOT, 'work', 'bq1', '%s_patches.json' % model), 'w'))
     words = chip0(first)
     fx.call(0x60024ff0, fx.O, 60, 100, 0, count=5000000)        # vtable 10: the whole patch (r1 != 0: send it)
     words.update(chip0(fx.params()))
@@ -109,7 +126,7 @@ def main():
     words.update(chip0(fx.setp(0x108 - 0x141, 127)))           # internal id 0x108: velocity -> C069 = (v / 127)^2
     tables = []
     cache = {}
-    for name, pid, s1id, kind, only in PANEL[model]:
+    for name, pid, s1id, kind, only in (HOST_PANEL if host else PANEL)[model]:
         if pid not in cache:
             cache[pid] = [chip0(fx.setp(pid, k)) for k in range(256)]
             fx.setp(pid, DEFAULT[model].get(pid, 0))
@@ -122,6 +139,8 @@ def main():
             row, sign = row_of(kind, k)
             out_rows.append([sign * conv(a, rows[row].get(a, words.get(a, 0.0))) for a in addrs])
         tables.append((name, pid, s1id, addrs, out_rows))
+    if host:
+        words.update(HOST_WORDS)
     init = [conv(a, words.get(a, 0.0)) for a in range(0x70)]
     out = ['/* bq_%s_tables.h: the %s ARM side as data (Boutique 1.21, PX-11:Appli), written by tools/bq_arm.py from'
            ' the firmware run in an emulator; per-sample rates converted 44.1 -> 96 kHz. Do not edit: README.md §3. */'
@@ -159,7 +178,7 @@ def main():
     out.append('#endif')
     out.append('')
     out.append('#endif')
-    dst = os.path.join(HERE, '..', 'bq_%s_tables.h' % model)
+    dst = os.path.join(HERE, '..', 'bq_%s%s_tables.h' % (model, '_host' if host else ''))
     open(dst, 'w').write('\n'.join(out) + '\n')
     print('%s: %d patches, %d tables (%s)' % (dst, len(patches), len(tables),
                                             ' '.join('%s:%d' % (t[0], len(t[3])) for t in tables)))

@@ -270,6 +270,7 @@ struct LowerOptions {
     double fitTolLog = 0.0005;   // log2 metric (octaves; 0.0005 = 0.6 cent: increments are pitches)
     bool recipseed = true;       // 1/y by the SFU seed (proven on the SYSTEM-8 only); false (--no-recipseed): octave
                                  // normalisation with proven ops (experimental: less exact, more ops)
+    bool rangeFold = true;       // sign / abs / min / max whose result the ranges fix: folded (--no-range-fold), 2026-11-11
     bool native = true;          // the DSP's native ops where they are shorter: SFU exp split for exp2, floor / ceil,
                                  // the MAC for s1_mac2 (--no-native: the older sequences of mul / mad / addxy)
     bool fuseMac = true;         // acc + x y with acc a product, or the sum of two products: one MAC op (measured

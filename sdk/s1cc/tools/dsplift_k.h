@@ -20,6 +20,7 @@ static inline float s1_sign(float x) { return x > 0 ? 1.0f : x < 0 ? -1.0f : 0.0
 static inline float s1_wrap(float x) { return x - 2.0f * floorf((x + 1.0f) * 0.5f); }
 static inline float s1_clamp(float x) { return fminf(fmaxf(x, -1.0f), 1.0f); }
 static inline float s1_abs(float x) { return fabsf(x); }
+static inline float s1_tri(float x) { return 1.0f - 2.0f * fabsf(s1_wrap(-x - 1.5f)); }
 static inline float s1_range(float x, float lo, float hi) { (void)lo, (void)hi; return x; }
 #else
 #include "s1dsp.h"
@@ -44,19 +45,21 @@ static inline float s1_range(float x, float lo, float hi) { (void)lo, (void)hi; 
 #define K_GT0VZ(v, z) (1.0f - K_LE0VZ(v, z))
 #define K_LE0(v) K_LE0VZ(v, v)                                                /* v <= 0 */
 #define K_GT0(v) (1.0f - K_LE0(v))                                            /* v > 0 */
-/* max(-1, min(1, x)) */
-#define K_CLAMP(x) fmaxf(-1.0f, fminf(1.0f, x))
-/* Roland's polynomials (the TB-03 voice): sin(x) for |x| <= pi/2, e^x (expsplit: e^floor(x) times the series of the
-   fraction), and the triangle of unit B's phase op (x in 0..1 -> -1..1..-1) */
+/* The lift always uses the DSP's own ops where the program's operation is one (2026-11-11): K_CLAMP = max(-1, min(1, x))
+   and K_TRI = 1 - 2 |wrap(-x - 1.5)| are s1_clamp / s1_tri, which compile to Roland's own unit-B ops ph_clamp / ph_tri
+   (the same functions, 1 op each); K_EXP is s1_exp (the SFU's expsplit: 10 ops, 6e-8 from Roland's polynomial, which
+   took ~33). Only K_SIN stays Roland's polynomial (no sine op) */
+#define K_CLAMP(x) s1_clamp(x)
+/* Roland's sine polynomial (the TB-03 voice): sin(x) for |x| <= pi/2 */
 #define K_SIN(x) ({ float _x = (x), _x2 = _x * _x, _x3 = _x2 * _x; \
         _x2 * _x3 * (-0.00019836426f * _x2 + 0.008333325f + _x2 * _x2 * 2.7418137e-06f) + _x - 0.16666603f * _x3; })
-#define K_EXP(x) ({ float _x = (x), _f = s1_floor(_x), _r = _x - _f, _q = 0.25f * _r * _r; \
-        float _a = _q * (_q * (2.565328e-05f * _r + 0.00028218678f) + 0.006349206f + 0.0007054673f * _r); \
-        float _b = _q * (_q * (_a + 0.08888889f + 0.012698413f * _r) + 0.6666667f + 0.13333333f * _r); \
-        s1_exp(_f) * (_q * (_b + 2.0f + 0.6666667f * _r) + 1.0f + _r); })
-#define K_TRI(x) (1.0f - 2.0f * s1_abs(s1_wrap(-(x) - 1.5f)))
+#define K_EXP(x) s1_exp(x)
+#define K_TRI(x) s1_tri(x)
 /* recipseed with its newton steps: the exact reciprocal; |y| below 2^-9 is taken as 2^-9, y = 0 gives 0 */
 #define K_RECIP(y) (s1_sign(y) * s1_recip(fmaxf(s1_abs(y), 0x1p-9f)))
+/* the reciprocal of a value known to be >= 2^-9 (a caller's algebra: sdk/s1cc/examples/boutique_ported make_voice.py
+   micro_fix): recipseed + newton only, without K_RECIP's sign and limit */
+#define K_RECIP_POS(y) s1_recip(y)
 /* the A unit's overflow: |r| >= 512 wraps to copysign(|r| mod 512, r) (dspcore.h a_op); only where --overflow-wrap asks */
 #define KOVERFLOW(e) ({ float _r = (e); _r - 512.0f * s1_sign(_r) * s1_floor(s1_abs(_r) * (1.0f / 512.0f)); })
 #endif

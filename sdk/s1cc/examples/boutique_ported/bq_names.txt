@@ -16,10 +16,17 @@ const A086 5.5
 # envelope key follow (ENV2 KEY FOLLOW): 0
 const A085 0
 const A087 0
-# oscillator frequency factors: the ARM writes 2^range per note; 8' (A4 = 440 Hz) x 44100 / 96000 (README.md §2)
-const A088 0.2296875
-const A089 0.2296875
-const A08A-A08F 0
+# oscillator frequency factors: 2^range per note, 1 = 8' (A4 = 440 Hz), x 44100 / 96000 (README.md §2). (0.5 was a
+# compensation for A08B / A08D = 0, which ran the phase over half a ramp: an octave up, half the saw)
+const A088 0.459375
+const A089 0.459375
+# A08B / A08D: the oscillators' phase at a wrap: 1 keeps the remainder (free running), 0 restarts it at the
+# sub-sample (sync): 0 made the saw sharp at high notes (C7 +33 cents, measured 2026-11-11)
+const A08A 0
+const A08B 1
+const A08C 0
+const A08D 1
+const A08E-A08F 0
 const A094 1
 const A095 0
 const A096 0

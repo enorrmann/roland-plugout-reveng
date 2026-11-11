@@ -537,7 +537,7 @@ def cell_of(a, ring1):
 
 
 def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, zero_cells=(), export_base=0,
-           ranges=None, names=None, ring1=False, kout_extra=()):
+           ranges=None, names=None, ring1=False, kout_extra=(), cell_in=None):
     """one straight-line program (no jumps) as s1cc-ready C: `static inline void NAME(void)`, no loops and no arrays.
     Registers are named values; condition bits only for the groups a condition reads; bank-0 words are the ring
     resolved into delays (a word stored at X is read at X + 1 in the next sample): c_x = the cell this sample,
@@ -639,7 +639,7 @@ def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, ze
         live_r=live_r, live_f=live_f, bq2=bq2, bq2_flagless=bq2_flagless, overflow_wrap=set(overflow_wrap),
         split=split, zero_cells=set(zero_cells), export_base=export_base, ranges=ranges, names=names or dsplift_c.Names(),
         K=dict(A=K_A, B=K_B, M=K_M, XMEM=K_XMEM, XFLAG=K_XFLAG), warn=warn, cell_of=lambda a: cell_of(a, ring1),
-        kout_extra=kout_extra))
+        kout_extra=kout_extra, cell_in={cell_of(a, True) if a >= 0x2000 else a: v for a, v in (cell_in or {}).items()}))
 
 
 def main():
@@ -672,6 +672,10 @@ def main():
     ap.add_argument('--kout', default='', metavar='X,X,...',
                     help='--kernel: memory words (hex) whose stores are also outputs KOUT(X, v) (bank 0 / bank 1 '
                          'values another program reads: a voice\'s output handed to the next program)')
+    ap.add_argument('--cell-in', default='', metavar='X=ADDR,...',
+                    help='--kernel: memory words X (hex: bank 0 or, with --bank1-ring, bank 1) that are inputs of the caller: '
+                         'every load of X reads KIN(ADDR), the program\'s stores to X are dropped (what only fed them '
+                         'is removed): an envelope or LFO the host computes instead (sdk/s1cc/examples/boutique_ported)')
     ap.add_argument('--samples', type=int, default=64, help='samples per program in --check (64)')
     ap.add_argument('--seed', type=int, default=1, help='random seed of --check (1)')
     a = ap.parse_args()
@@ -699,7 +703,9 @@ def main():
                           ranges={l.split()[0]: (float(l.split()[1]), float(l.split()[2]))
                                   for l in open(a.import_ranges) if l.strip()} if a.import_ranges else None,
                           names=dsplift_c.Names(a.names, a.consts), ring1=a.bank1_ring,
-                          kout_extra={int(x, 16) for x in a.kout.split(',') if x}) + ['']
+                          kout_extra={int(x, 16) for x in a.kout.split(',') if x},
+                          cell_in={int(x.split('=')[0], 16): int(x.split('=')[1], 16)
+                                   for x in a.cell_in.split(',') if x}) + ['']
         open(a.out, 'w').write('\n'.join(out) + '\n')
         for w in warn:
             print('warning: ' + w, file=sys.stderr)

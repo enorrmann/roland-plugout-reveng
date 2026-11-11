@@ -89,10 +89,10 @@ static inline __attribute__((always_inline)) void jp08_voice_a(KARGS_A)
     float c_07f = KP(0xc03e) * 0.87f;                                                            /* 134 */
     float t137 = 0.02f * fmaxf(t133 + 0.01f, 1.0f) - 0.02f + c_07f;                              /* 137 */
     float t138 = SEL(K_GT0(c_077 * c_07e), 1.05f - (t129 - fmaxf(KP(0xc03c), 7.927418e-06f) * t129), D_07b_1) - t137; /* 138 */
-    float t142 = fmaxf(0.01f * (t138 * t133) + t137 + t138 * 0.99f, 0.0f);                       /* 142 */
+    float t142 = SEL(K_GT0(c_077 * c_07e), t138 + t137, fmaxf(0.01f * (t138 * t133) + t137 + t138 * 0.99f, 0.0f));                       /* 142  attack_fix */
     float t143 = fmaxf(1.0f - KP(0xc03f), 0.00014305115f);                                       /* 143 */
     float t146 = 0.02f * fmaxf(t143 + 0.01f, 1.0f) - 0.0007080078f;                              /* 146 */
-    float c_07b = SEL(c_07e_le0, fmaxf(LERP(t146, t142, 0.99f) + 0.01f * ((t142 - t146) * t143), 0.0f), t142); /* 153 */
+    float c_07b = SEL(c_07e_le0, fmaxf(LERP(t146, D_07b_1, 0.99f) + 0.01f * ((D_07b_1 - t146) * t143), 0.0f), t142); /* 153  release_fix */
     float c_081 = c_07b * c_07b * -0.09999484f * -10.0f;                                         /* 157 */
     float t165 = c_064 - D_082_1 - 1.0f;                                                         /* 165 */
     float b165_ge0 = K_GE0(SEL(K_LE0(D_088_1 - D_088_2), 0.0f, D_088_1) - 0.8925f);              /* 165 */
@@ -102,10 +102,10 @@ static inline __attribute__((always_inline)) void jp08_voice_a(KARGS_A)
     float c_08c = KP(0xc042) * 0.87f;                                                            /* 181 */
     float t184 = 0.02f * fmaxf(t180 + 0.01f, 1.0f) - 0.02f + c_08c;                              /* 184 */
     float t185 = SEL(K_GT0(c_084 * c_07e), 1.05f - (t176 - fmaxf(KP(0xc040), 7.927418e-06f) * t176), D_088_1) - t184; /* 185 */
-    float t189 = fmaxf(0.01f * (t185 * t180) + t184 + t185 * 0.99f, 0.0f);                       /* 189 */
+    float t189 = SEL(K_GT0(c_084 * c_07e), t185 + t184, fmaxf(0.01f * (t185 * t180) + t184 + t185 * 0.99f, 0.0f));                       /* 189  attack_fix */
     float t190 = fmaxf(1.0f - KP(0xc043), 0.00014305115f);                                       /* 190 */
     float t193 = 0.02f * fmaxf(t190 + 0.01f, 1.0f) - 0.0007080078f;                              /* 193 */
-    float c_088 = SEL(c_07e_le0, fmaxf(LERP(t193, t189, 0.99f) + 0.01f * ((t189 - t193) * t190), 0.0f), t189); /* 200 */
+    float c_088 = SEL(c_07e_le0, fmaxf(LERP(t193, D_088_1, 0.99f) + 0.01f * ((D_088_1 - t193) * t190), 0.0f), t189); /* 200  release_fix */
     float c_08e = c_088 * c_088 * -0.09999484f * -10.0f;                                         /* 204 */
     float t214 = c_039 * 0.5f + 0.5f;                                                            /* 214 */
     float c_095 = KIN(0xa090) + (KIN(0xa093) * t214 + (KIN(0xa092) * c_081 + t214 * KIN(0xa091))); /* 218 */
