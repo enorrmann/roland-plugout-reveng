@@ -1,24 +1,24 @@
-kernel options (S1_BUILD): NAME=TB-03-S1 MONO_LEGATO=1 GATE_ACCENT=1 MIX=0
+kernel options (S1_BUILD): NAME=TB-03-S1 MONO_LEGATO=1 MIX=0
 VOICES=auto: 1 voices by the estimate (budget A 703, B 708)
 MOD_DSP=auto: pitch envelope and COLOR MOD on DSP B
-s1m0    489 instructions, 2028 halfwords
-s1m1    461 instructions, 1983 halfwords
+s1m0    508 instructions, 2089 halfwords
+s1m1    453 instructions, 1961 halfwords
 s1mm1     7 instructions, 44 halfwords
 s1c0      2 instructions, 7 halfwords
 s1c1      2 instructions, 7 halfwords
 s1ma0     0 instructions, 7 halfwords
-kernel per voice: A 835 lines, 64 words; B 786 lines, 84 words
+kernel per voice: A 852 lines, 65 words; B 764 lines, 84 words
 A -> B export 1: one sample late (voices 0)
-A -> B export 7: one sample late (voices 0)
-A -> B export 9: one sample late (voices 0)
-A -> B export 10: same sample (voices 0)
 A -> B export 11: one sample late (voices 0)
-A -> B export 12: one sample late (voices 0)
 A -> B export 13: one sample late (voices 0)
-A -> B export 14: one sample late (voices 0)
+A -> B export 14: same sample (voices 0)
 A -> B export 15: one sample late (voices 0)
 A -> B export 16: one sample late (voices 0)
 A -> B export 17: one sample late (voices 0)
+A -> B export 18: one sample late (voices 0)
+A -> B export 19: one sample late (voices 0)
+A -> B export 20: one sample late (voices 0)
+A -> B export 21: one sample late (voices 0)
 warning: s1m0: a128 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m0: a188..a189 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m0: a190..a191 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
@@ -28,9 +28,10 @@ warning: s1m0: a1c0..a1c1 never ran on the device (sA, asm/proven_addresses.txt)
 warning: s1m0: a1c8..a1c9 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m0: a1d0..a1d1 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m0: a1d8..a1d9 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m0: a1e0 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m0: a1e8 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m0: a1f8 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1e0..a1e1 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1e8..a1e9 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1f1 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1f8..a1f9 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: 0601 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: 060a never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: 060e never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
@@ -62,12 +63,13 @@ warning: s1m1: 0686 never ran on the device (sB, asm/proven_addresses.txt): a pr
 warning: s1m1: 06a2 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: 06a8..06ab never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: a128 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: a189 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: a190..a191 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: a199 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: a1b9 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: a1c1 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: a1c9 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: a1d8 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: a1e8 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1d1 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1d9 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1e1 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1e9 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: a1f8 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing

@@ -177,6 +177,19 @@ los valores de esas notas quedaban fuera de los rangos para los que el port est�
 ranura dan más ranuras: ranura i = palabra (i / 12)·NV + v de la ranura i mod 12, hasta 12·(8 / NV) (96 con una voz;
 el TB-03 usa 20).
 
+### 1.5 MIDI CC → perillas del panel [2026-11-11; sin probar en el equipo]
+
+`model.c` (`a_cc`, tabla `cc_panel`) lleva estos CC a la palabra de patch del control, como cuando se mueve la
+perilla: el OS se la manda al engine y la tabla `S1_PARAM` del kernel la sigue. Valor 0…127 → 0…255 (64 → 128, el
+centro de una perilla bipolar). Para medir en el equipo: `python3 tools/s1_capture.py --cc "74=127,71=0"`.
+
+| CC | control |
+|---|---|
+| 74 | FILTER CUTOFF (`0x17D`) |
+| 71 | FILTER RESONANCE (`0x17F`) |
+| 79 | FILTER ENV AMOUNT (`0x181`, bipolar) |
+| 75 | FILTER DECAY (`0x183`) |
+
 ## 2. Qué corre en cada DSP
 
 ```
@@ -735,3 +748,11 @@ KERNELS="sdk/s1cc/build/mp_saw sdk/s1cc/build/mp_square 2:sdk/s1cc/build/mp_phas
   Si el panel ya tiene OSC1 WAVE ≠ 0 al elegir el PLUG-OUT y el OS no lo manda, suena el kernel de la posición 0
   hasta mover la perilla.
 
+
+## 10. Pendiente
+
+* **MIDI CC en el engine (pedido del usuario, 2026-11-11).** Hecho para CUTOFF, RESONANCE, ENV AMOUNT y DECAY (§1.5); falta el resto de los controles. El SYSTEM-1 les pasa los CC a los PLUG-OUTs; decidir qué
+  hacen es responsabilidad nuestra (`engine.c` / `model.c`). Objetivo: que un CC llegue por el mismo camino que la
+  perilla del panel (las tablas `S1_PARAM` del kernel), así las pruebas en el equipo (`tools/s1_capture.py`) pueden
+  mover CUTOFF, ENV MOD, DECAY, etc. sin tocar el panel. CCs ya identificados: [examples/system_1_synth/README.md](../system_1_synth/README.md) §8;
+  los de cutoff, resonancia y envolvente de filtro no están registrados todavía.

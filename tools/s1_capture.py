@@ -92,6 +92,8 @@ def main():
     ap.add_argument('--secs', type=float, default=1.5, help='capture length (default 1.5)')
     ap.add_argument('--on', type=float, default=0.3, help='delay before note-on (default 0.3)')
     ap.add_argument('--hold', type=float, default=1.0, help='note held (default 1.0)')
+    ap.add_argument('--cc', help='control changes sent before the note, "CC=VALUE,..." (e.g. "74=127,71=0"; SYSTEM-S1CC '
+                    'maps 74 cutoff, 71 resonance, 79 filter env amount, 75 filter decay: examples/system_s1cc/README.md §1.5)')
     ap.add_argument('--cmd', help='a shell command to run before the capture (e.g. a wt_load.py send)')
     ap.add_argument('--raw', help='keep the raw audio at this path (default: a temp file, deleted)')
     ap.add_argument('--port', help='amidi MIDI port (default: the SYSTEM-1)')
@@ -110,6 +112,15 @@ def main():
     if a.cmd:
         print('$', a.cmd)
         subprocess.run(a.cmd, shell=True, check=False)
+        time.sleep(0.2)
+
+    if a.cc:
+        for item in a.cc.split(','):
+            c, v = (int(x) for x in item.split('='))
+            if not (0 <= c <= 127 and 0 <= v <= 127):
+                raise SystemExit('s1_capture.py: --cc values are 0..127')
+            subprocess.run(['amidi', '-p', port, '-S', '%02x %02x %02x' % (0xB0 | (a.channel - 1), c, v)], check=False)
+        print('sent CC', a.cc)
         time.sleep(0.2)
 
     path = a.raw or os.path.join(os.environ.get('TMPDIR', '/tmp'), 's1_capture_%d.raw' % os.getpid())

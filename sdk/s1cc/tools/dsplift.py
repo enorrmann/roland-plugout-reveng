@@ -91,6 +91,13 @@ def unit_a(o):
     return ['n[%d] = AWRAP(%s);' % (d, e)]
 
 
+def bq2_flagless(o):
+    """BQ2 implicit flags: a mov (unit A, op 0, x 1: rD = Y) sets no condition group and takes no group number;
+    the next arithmetic unit does (TB-03 voice, the piecewise cutoff map: docs/vol5_toolchain_compiler_sdk/dsplift.md §5.1)"""
+    w = o['w']
+    return o['kind'] == K_A and (w >> 12) < 8 and (w >> 9) & 7 == 0 and (w >> 6) & 7 == 1
+
+
 def unit_b(o):
     """unit B (dspcore.h b_op, sfu)"""
     w = o['w']
@@ -339,7 +346,7 @@ def lift(name, words, out, warn, bq2=None):
                 if kind in (K_A, K_B, K_M):
                     st = {K_A: unit_a, K_B: unit_b, K_M: unit_m}[kind](o)
                     body = ['RESET();'] + st + ['QUANT(n);', 'DONE(%d, %d);' % (o['unit'], (o['w'] >> 12) & 7)]
-                    if bq2 is not None:
+                    if bq2 is not None and not bq2_flagless(o):
                         if kind == K_B:
                             nb += 1
                             g = 2 + nb
@@ -568,7 +575,7 @@ def kernel_insn(k, prog, units, normal, unit_code, used_cc, used_g, own5, overfl
             txt = re.sub(r'RESZ\((n\d), \((-?)(r\d)\) == ([^)]+)\);', r'RESZ(\1, (\2\3) - (\4));', txt)
             dest = (o['w'] >> 12) & 7
             grp = None
-            if bq2 is not None:
+            if bq2 is not None and not bq2_flagless(o):
                 if kind == K_B:
                     nb += 1
                     grp = 2 + nb if nb <= 2 else None
@@ -942,7 +949,7 @@ def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, ze
                     txt = txt.replace('AWRAP(', 'KOVERFLOW(')
                 dest = (o['w'] >> 12) & 7
                 grp = None
-                if bq2 is not None:
+                if bq2 is not None and not bq2_flagless(o):
                     if kind == K_B:
                         nb += 1
                         grp = 2 + nb if nb <= 2 else None

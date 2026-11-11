@@ -88,17 +88,26 @@ per parameter, the value at +4) is recorded:
 | RESONANCE | FILTER RESONANCE | `C01A` |
 | ENV MOD | FILTER ENV AMOUNT (0…255, not bipolar) | `C01B` |
 | DECAY | FILTER DECAY | `C00D` = `tb03_decay[knob >> 1]` |
-| ACCENT | OSC1 COLOR | `C01C` |
+| ACCENT | OSC1 COLOR | `C01C` (the accent's strength) |
 | TUNE | OSC2 FINE (128 = in tune, ±1 octave) | `C010` |
 | WAVEFORM | OSC1 WAVE (position 0 saw, 1…5 square) | `C029` / `C02A` = 1 / 0 or 0 / 1 |
+| accent of the notes (the TB-03's per-step accent) | OSC2 COLOR (0 none … 255 full) | input `A006` |
 
 | input | value |
 |---|---|
-| `A003` | 1 (the TB-03 init) |
+| `A003` | 1: selects the note inputs `A004…A007` (0 would select `A104…A107`, the same inputs written by another ARM path; the voice crossfades the two by `A003`, instructions 99–111) |
 | `A004` | pitch in octaves, `s1_pitch()` ((note − 12) / 12) |
-| `A005` gate, `A006` accent | the gate word with `GATE_ACCENT=1`: 0 off, 1 on, 2 on with accent (velocity ≥ 100, as the TB-03's ARM `0x6001d490`) |
+| `A005` gate | the gate word, 0 / 1 |
+| `A006` accent | OSC2 COLOR / 255, taken when a new gate starts (held for the note) |
 | `A007` slide | a new note while the gate stayed on (legato, `MONO_LEGATO=1`: the host keeps the gate on and changes the pitch), until the gate closes (`0x6001e376`) |
 | `A104…A109` | 0: with the TB-03's parameters they do not change the output (measured on the lift) |
+
+**Accent from OSC2 COLOR, not velocity (2026-11-11).** The TB-03 sets a note's accent at velocity ≥ 100 (its ARM,
+`0x6001d4ae`), and its voice program then also forces the filter envelope to a fixed short decay (`C00D` replaced by
+0.1865, instructions 137–143): accented notes ignore DECAY, as on a TB-303. The SYSTEM-1 keyboard has no velocity
+(it sends a fixed value above 100), so with the velocity rule every note was accented and DECAY did nothing
+(measured on the device: DECAY at maximum, velocity 90 → the filter sweep lasts ~1 s; velocity 110 → closed in
+100 ms). The accent is therefore the OSC2 COLOR knob, latched at each new gate (`GATE_ACCENT` is no longer used).
 
 Gate, accent and slide are made from 0 / 1 arithmetic (`s1_sign`, `fminf`, `fmaxf`), not compares: a compare the
 profiling never sees flip would be folded by s1cc.
@@ -115,7 +124,7 @@ KERNEL=sdk/s1cc/build/tb03 VOICES=1 sh examples/system_s1cc/build.sh
 python3 tools/plugout_tool.py install plugins/TB-03-S1 --slot 1 --force --no-patches -y
 ```
 
-`S1_BUILD("NAME=TB-03-S1 MONO_LEGATO=1 GATE_ACCENT=1 MIX=0")`, `S1_COMPILE("--no-fused --regs 0,1,2,3,4,5,6,7")`.
+`S1_BUILD("NAME=TB-03-S1 MONO_LEGATO=1 MIX=0")`, `S1_COMPILE("--no-fused --regs 0,1,2,3,4,5,6,7")`.
 The s1cc driver finds `dsplift_k.h` (`sdk/s1cc/tools`) by itself.
 
 | check [sim, 2026-11-11] | result |

@@ -119,7 +119,13 @@ group 3; `addxy r0, r0, #0` placed two instructions before a condition is a flag
 | second B unit | 4 (16–19) |
 
 Same bits as `X9bY` (`!Z`, `!N`, `!V`, `N or Z`) and the same latency: the instruction after the next one sees them.
-A unit skipped by a condition sets nothing. Example (TB-03 voice, a piecewise polynomial): `mac_p1 r3, … |
+A unit skipped by a condition sets nothing. A `mov` (unit A, op 0, x 1: rD = Y) sets no group and takes no number: the next
+arithmetic unit of the instruction is "first" (2026-11-11). Evidence: the TB-03 voice's cutoff map (instructions
+250–271) is a piecewise polynomial whose segment tests are written `mov rA, rB | addxy rC, x, #-edge`; with the
+`mov` counted, the tests read a constant and the map was not monotonic (filter cut-off never below ~4 kHz, knobs
+moving it by 1 octave); without it the map rises monotonically, and the filter sweeps ~100 Hz … several kHz with
+CUTOFF and ENV MOD as a TB-303's, DECAY shaping the sweep (lift, frequency response measured by injecting a sine
+at the filter input). Example (TB-03 voice, a piecewise polynomial): `mac_p1 r3, … |
 subxy r2, r0, #1` (group 2 = 1 − r0), one instruction, then `mov r3, r4 | cond !11, 1, 0`: r3 = second polynomial
 when r0 ≥ 1.
 

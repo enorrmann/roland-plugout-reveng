@@ -1323,8 +1323,31 @@ static void a_bend(struct assign *a, int v)                  /* 0..0x3FFF -> -0x
     vset(ID_BEND, v);
 }
 
+/* MIDI CC -> panel controls (examples/system_s1cc/README.md §1.5): the value goes to the patch word of the control,
+   as when its knob moves, so the OS sends it to the engine (vt+0x30) and the kernel's S1_PARAM table follows. For
+   tests on the device (tools/s1_capture.py --cc); CC 0..127 -> 0..255 (64 -> 128, the centre of a bipolar knob) */
+static const struct { uint8_t cc; uint16_t id; } cc_panel[] = {
+    { 74, 0x17D },      /* FILTER CUTOFF */
+    { 71, 0x17F },      /* FILTER RESONANCE */
+    { 79, 0x181 },      /* FILTER ENV AMOUNT (bipolar, 128 = 0) */
+    { 75, 0x183 },      /* FILTER DECAY */
+};
+
+static int cc_to_panel(int cc, int v)
+{
+    for (unsigned i = 0; i < sizeof cc_panel / sizeof cc_panel[0]; i++)
+        if (cc_panel[i].cc == cc) {
+            p_set(G_PANEL, cc_panel[i].id, v >= 127 ? 255 : v * 2);
+            p_flush(G_PANEL);
+            return 1;
+        }
+    return 0;
+}
+
 static void a_cc(struct assign *a, int cc, int v)
 {
+    if (cc_to_panel(cc, v))
+        return;
     switch (cc) {
     case 1: vset(ID_MOD, v); p_flush(G_PATCH); break;
     case 11: vset(ID_EXPR, v); break;
@@ -1399,7 +1422,7 @@ static int m_nop(struct model *m) { (void)m; return 0; }
    IEEE float bits) is the master's immediate parameter write. */
 typedef void (*env_fn)(int sel, int id, uint32_t value);
 enum { ID_VOLUME = 0x100 };
-static int volume = 255;                                         /* full until the OS sends the knob */
+static int volume = 255;                                         /* m_load reads the knob (group 2) */
 
 static void set_volume(int v)
 {
@@ -1555,6 +1578,11 @@ static void m_load(struct model *m)                           /* vt+0x08 */
 #ifdef EDM_WT
     wt_load();                                                /* (the request block: edm_call above, EDM_CALL) */
 #endif
+    /* the VOLUME knob as it is now: the OS keeps it as id 0x100 of group 2 (OS 1.30 0x60006c88: set(2, 0x100, v)),
+       the group of the voice ids; without this the PLUG-OUT started at full volume until the knob moved */
+    int v = p_get(G_VOICE, ID_VOLUME);
+    if (v >= 0 && v <= 255)
+        volume = v;
     set_volume(volume);
     vol_again = VOL_AGAIN;
     resend_panel();

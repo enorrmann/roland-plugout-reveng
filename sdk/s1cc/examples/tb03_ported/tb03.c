@@ -8,9 +8,11 @@
  *                  pitch, gate, accent, slide (README.md §4)
  *
  * Panel (TB-03 -> SYSTEM-1):  CUTOFF -> FILTER CUTOFF, RESONANCE -> FILTER RESONANCE, ENV MOD -> FILTER ENV AMOUNT
- * (0..255, not bipolar), DECAY -> FILTER DECAY, ACCENT -> OSC1 COLOR, TUNE -> OSC2 FINE (128 = in tune, +-1
- * octave as on the TB-03), WAVEFORM -> OSC1 WAVE (0 saw, any other position square). Accent: velocity >= 100;
- * slide: a key played while another is down (legato), as on the TB-03 (MONO_LEGATO, GATE_ACCENT in S1_BUILD). */
+ * (0..255, not bipolar), DECAY -> FILTER DECAY, ACCENT -> OSC1 COLOR (with its COLOR MOD), TUNE -> OSC2 FINE (128 = in tune, +-1
+ * octave as on the TB-03), WAVEFORM -> OSC1 WAVE (0 saw, any other position square). The accent of a note: OSC2
+ * COLOR with its COLOR MOD (0 none .. 1 full, taken when the note starts; the SYSTEM-1 keyboard has no velocity, so the TB-03's
+ * velocity >= 100 rule cannot be used: README.md §4); slide: a key played while another is down (legato), as on the
+ * TB-03 (MONO_LEGATO in S1_BUILD). */
 #include <math.h>
 #include "s1dsp.h"
 #include "tb03_tables.h"
@@ -19,8 +21,10 @@ S1_PARAM(cutoff, S1_FILTER_CUTOFF, 1) { out[0] = tb03_cutoff[knob]; }
 S1_PARAM(resonance, S1_FILTER_RESONANCE, 1) { out[0] = tb03_resonance[knob]; }
 S1_PARAM(envmod, S1_FILTER_ENV_AMOUNT, 1) { out[0] = tb03_envmod[knob]; }
 S1_PARAM(decay, S1_FILTER_DECAY, 1) { out[0] = tb03_decay[knob >> 1]; }
-S1_PARAM(accent, S1_OSC1_COLOR, 1) { out[0] = tb03_accent[knob]; }
 S1_PARAM(tune, S1_OSC2_FINE, 1) { out[0] = tb03_tune[knob]; }
+/* ACCENT (C01C) is s1_color(0), OSC1 COLOR with its COLOR MOD: the TB-03's table is knob / 255 (tb03_accent, within
+   3e-8), so the color is the value. The accent of the notes is s1_color(1) (S1_DSP_A). README.md §4 */
+static float accstr;
 /* WAVEFORM: the TB-03 writes C029 = 1, C02A = 0 (saw) or C029 = 0, C02A = 1 (square); row 128 (before the panel
    arrives) = saw */
 S1_PARAM(wave, S1_OSC1_WAVE, 2) { int sq = knob >= 1 && knob <= 5; out[0] = !sq; out[1] = sq; }
@@ -33,7 +37,7 @@ static inline float tb03_param(int a)
     case 0x1a: return s1_param(resonance, 0);
     case 0x1b: return s1_param(envmod, 0);
     case 0x0d: return s1_param(decay, 0);
-    case 0x1c: return s1_param(accent, 0);
+    case 0x1c: return accstr;                       /* ACCENT: OSC1 COLOR (s1_color(0)), read in part A only */
     case 0x10: return s1_param(tune, 0);
     case 0x29: return s1_param(wave, 0);
     case 0x2a: return s1_param(wave, 1);
@@ -75,21 +79,21 @@ static float out_a100;
 #define TB03_GAIN 12.0f
 #endif
 
-static float last_gate, last_pitch, slide;
+static float last_gate, last_pitch, slide, accent;
 
 /* DSP A: the inputs, then the first part of the voice (pitch, glide, envelopes, accent, filter coefficients and the
-   two oscillators); it hands 20 values to DSP B (s1_export slots 0..TB03_VOICE_SLOTS-1) */
+   two oscillators); it hands TB03_VOICE_SLOTS values to DSP B (s1_export slots 0..TB03_VOICE_SLOTS-1) */
 S1_DSP_A {
-    float g = s1_range(s1_gate(), 0.0f, 2.0f), p = s1_pitch();
-    /* TB-03 ARM (0x6001d490, 0x6001e376): gate on at velocity > 0; accent = velocity >= 100 (GATE_ACCENT: the gate
-       word is then 2.0); slide = the note started while the gate was already on (legato), until the gate closes */
+    float on = s1_range(s1_gate(), 0.0f, 1.0f), p = s1_pitch();
+    /* TB-03 ARM (0x6001e376): slide = the note started while the gate was already on (legato), until the gate
+       closes. Accent: OSC2 COLOR, latched when a new gate starts (README.md §4) */
     /* no compares (a compare the profiling never flips would be folded): 0 / 1 values from s1_sign, min, max */
-    float on = fminf(g, 1.0f);
-    float accent = fmaxf(g - 1.0f, 0.0f);
     float changed = s1_abs(s1_sign(p - last_pitch));         /* 1: a new note's pitch */
     float legato = changed * on * last_gate;                  /* a new note while the gate stayed on */
     float rise = on * (1.0f - last_gate);                     /* a new gate */
     slide = on * fmaxf(slide, legato) * (1.0f - rise);
+    accent = accent + rise * (s1_color(1) - accent);       /* OSC2 COLOR x its COLOR MOD, latched at the gate */
+    accstr = s1_color(0);                                     /* ACCENT: OSC1 COLOR x its COLOR MOD */
     last_gate = on;
     last_pitch = p;
     tb03_voice_a(on, accent, slide);
@@ -103,6 +107,6 @@ S1_DSP_B {
     return out_a100 * TB03_GAIN;
 }
 
-S1_BUILD("NAME=TB-03-S1 MONO_LEGATO=1 GATE_ACCENT=1 MIX=0");
+S1_BUILD("NAME=TB-03-S1 MONO_LEGATO=1 MIX=0");
 /* the voice in two parts (DSP A, DSP B: tb03_voice.h --split), all eight registers (no host in SYSTEM-S1CC) */
 S1_COMPILE("--no-fused --regs 0,1,2,3,4,5,6,7");

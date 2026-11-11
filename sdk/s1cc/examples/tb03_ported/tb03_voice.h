@@ -227,7 +227,7 @@ static float K5_a103;
 #define KARGS_B void
 #endif
 /* handed from part A to part B: s1_export / s1_import slots 0.. */
-#define TB03_VOICE_SLOTS 20
+#define TB03_VOICE_SLOTS 24
 static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
 {
     float r0 = 0.0f, r1 = 0.0f, r2 = 0.0f, r3 = 0.0f, r4 = 0.0f, r5 = 0.0f, r6 = 0.0f, r7 = 0.0f;
@@ -676,9 +676,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 19: 1704 1050 0a10 0000 */
     {
         float n1 = r1;
-        float u19_0v = 0.0f, u19_0z = 0.0f;
         { float _w = (1.0f - f5); float o1 = n1;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = 0x0.0p+0f; u19_0v = rs ? rvv : n1; u19_0z = rs ? rzd : n1; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = 0x0.0p+0f; }
           n1 = o1 + _w * (n1 - o1); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -686,7 +685,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f5); pv4 = s1_abs(s1_sign(u19_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u19_0v)); pv7 = (1.0f - fmaxf(s1_sign(u19_0v), 0.0f) * s1_abs(s1_sign(u19_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r1 = n1;
@@ -694,13 +693,11 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 20: 2d05 6047 6050 1212 3000 */
     {
         float n6 = r6;
-        float u20_0v = 0.0f, u20_0z = 0.0f;
         { float _w = (1.0f - f9); float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = r7; u20_0v = rs ? rvv : n6; u20_0z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = r7; }
           n6 = o6 + _w * (n6 - o6); }
-        float u20_1v = 0.0f, u20_1z = 0.0f;
         { float _w = f9; float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; u20_1v = rs ? rvv : n6; u20_1z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; }
           n6 = o6 + _w * (n6 - o6); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -708,8 +705,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f9); pv4 = s1_abs(s1_sign(u20_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u20_0v)); pv7 = (1.0f - fmaxf(s1_sign(u20_0v), 0.0f) * s1_abs(s1_sign(u20_0z)));
-        pm2 = f9; pv9 = fminf(1.0f, 1.0f + s1_sign(u20_1v)); pv11 = (1.0f - fmaxf(s1_sign(u20_1v), 0.0f) * s1_abs(s1_sign(u20_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r6 = n6;
     }
@@ -737,8 +734,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n0 = r0, n4 = r4;
         float u22_0v = 0.0f, u22_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = AWRAP(r1 + r0); u22_0v = rs ? rvv : n0; u22_0z = rs ? rzd : n0; }
-        float u22_1v = 0.0f, u22_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = -r4; u22_1v = rs ? rvv : n4; u22_1z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = -r4; }
         c_00c = r5;
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -747,7 +743,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u22_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u22_0v)); pv7 = (1.0f - fmaxf(s1_sign(u22_0v), 0.0f) * s1_abs(s1_sign(u22_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u22_1v)); pv11 = (1.0f - fmaxf(s1_sign(u22_1v), 0.0f) * s1_abs(s1_sign(u22_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r4 = n4;
@@ -828,9 +824,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 27: 3204 5044 2310 0a20 */
     {
         float n5 = r5;
-        float u27_0v = 0.0f, u27_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f17)); float o5 = n5;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = r4; u27_0v = rs ? rvv : n5; u27_0z = rs ? rzd : n5; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = r4; }
           n5 = o5 + _w * (n5 - o5); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -838,7 +833,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f17)); pv4 = s1_abs(s1_sign(u27_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u27_0v)); pv7 = (1.0f - fmaxf(s1_sign(u27_0v), 0.0f) * s1_abs(s1_sign(u27_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r5 = n5;
@@ -1558,15 +1553,14 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 71: 0904 0060 22fc 0700 */
     {
         float n0 = r0;
-        float u71_0v = 0.0f, u71_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.7e03800000000p-3f; u71_0v = rs ? rvv : n0; u71_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.7e03800000000p-3f; }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
         f7 = f7 + pm1 * (pv7 - f7);
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u71_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u71_0v)); pv7 = (1.0f - fmaxf(s1_sign(u71_0v), 0.0f) * s1_abs(s1_sign(u71_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
@@ -1810,8 +1804,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 86: 3408 7074 4fe0 5fe2 002e 002f 001f 07c1 */
     {
         float n4 = r4, n5 = r5, n7 = r7;
-        float u86_0v = 0.0f, u86_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.f07c100000000p-12f; u86_0v = rs ? rvv : n7; u86_0z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.f07c100000000p-12f; }
           n4 = c_02e;
           n5 = c_02f;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -1820,7 +1813,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u86_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u86_0v)); pv7 = (1.0f - fmaxf(s1_sign(u86_0v), 0.0f) * s1_abs(s1_sign(u86_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r4 = n4;
@@ -2270,8 +2263,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n1 = r1, n2 = r2, n3 = r3, n5 = r5;
         float u115_0v = 0.0f, u115_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = AWRAP(r0 + -r6); u115_0v = rs ? rvv : n3; u115_0z = rs ? rzd : n3; }
-        float u115_1v = 0.0f, u115_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -r2; u115_1v = rs ? rvv : n2; u115_1z = rs ? rzd : n2; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -r2; }
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = pymax(r5, 0x0.0p+0f); RESZ(n5, (r5) - (0x0.0p+0f)); }
         c_03f = r0;
           n1 = c_03c;
@@ -2282,7 +2274,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u115_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u115_0v)); pv7 = (1.0f - fmaxf(s1_sign(u115_0v), 0.0f) * s1_abs(s1_sign(u115_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u115_1v)); pv11 = (1.0f - fmaxf(s1_sign(u115_1v), 0.0f) * s1_abs(s1_sign(u115_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r1 = n1;
         r2 = n2;
@@ -2389,13 +2381,11 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 121: 2d05 3050 3046 0e12 3000 */
     {
         float n3 = r3;
-        float u121_0v = 0.0f, u121_0z = 0.0f;
         { float _w = (1.0f - f7); float o3 = n3;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.0000000000000p+0f; u121_0v = rs ? rvv : n3; u121_0z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.0000000000000p+0f; }
           n3 = o3 + _w * (n3 - o3); }
-        float u121_1v = 0.0f, u121_1z = 0.0f;
         { float _w = f7; float o3 = n3;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r6; u121_1v = rs ? rvv : n3; u121_1z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r6; }
           n3 = o3 + _w * (n3 - o3); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -2403,8 +2393,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f7); pv4 = s1_abs(s1_sign(u121_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u121_0v)); pv7 = (1.0f - fmaxf(s1_sign(u121_0v), 0.0f) * s1_abs(s1_sign(u121_0z)));
-        pm2 = f7; pv9 = fminf(1.0f, 1.0f + s1_sign(u121_1v)); pv11 = (1.0f - fmaxf(s1_sign(u121_1v), 0.0f) * s1_abs(s1_sign(u121_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r3 = n3;
     }
@@ -2447,13 +2437,11 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 124: 2d04 1043 1047 0e12 */
     {
         float n1 = r1;
-        float u124_0v = 0.0f, u124_0z = 0.0f;
         { float _w = (1.0f - f7); float o1 = n1;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r3; u124_0v = rs ? rvv : n1; u124_0z = rs ? rzd : n1; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r3; }
           n1 = o1 + _w * (n1 - o1); }
-        float u124_1v = 0.0f, u124_1z = 0.0f;
         { float _w = f7; float o1 = n1;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r7; u124_1v = rs ? rvv : n1; u124_1z = rs ? rzd : n1; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r7; }
           n1 = o1 + _w * (n1 - o1); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -2461,8 +2449,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f7); pv4 = s1_abs(s1_sign(u124_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u124_0v)); pv7 = (1.0f - fmaxf(s1_sign(u124_0v), 0.0f) * s1_abs(s1_sign(u124_0z)));
-        pm2 = f7; pv9 = fminf(1.0f, 1.0f + s1_sign(u124_1v)); pv11 = (1.0f - fmaxf(s1_sign(u124_1v), 0.0f) * s1_abs(s1_sign(u124_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r1 = n1;
     }
@@ -2852,9 +2840,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 148: 1703 3044 1710 */
     {
         float n3 = r3;
-        float u148_0v = 0.0f, u148_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f11)); float o3 = n3;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; u148_0v = rs ? rvv : n3; u148_0z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; }
           n3 = o3 + _w * (n3 - o3); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -2862,7 +2849,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f11)); pv4 = s1_abs(s1_sign(u148_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u148_0v)); pv7 = (1.0f - fmaxf(s1_sign(u148_0v), 0.0f) * s1_abs(s1_sign(u148_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r3 = n3;
@@ -2902,9 +2889,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 151: 1703 3044 0b10 */
     {
         float n3 = r3;
-        float u151_0v = 0.0f, u151_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o3 = n3;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; u151_0v = rs ? rvv : n3; u151_0z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; }
           n3 = o3 + _w * (n3 - o3); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -2912,7 +2898,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u151_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u151_0v)); pv7 = (1.0f - fmaxf(s1_sign(u151_0v), 0.0f) * s1_abs(s1_sign(u151_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r3 = n3;
@@ -2920,8 +2906,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 152: 1804 0043 bfe0 0044 */
     {
         float n0 = r0;
-        float u152_0v = 0.0f, u152_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r3; u152_0v = rs ? rvv : n0; u152_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r3; }
         c_044 = r3;
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -2929,7 +2914,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u152_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u152_0v)); pv7 = (1.0f - fmaxf(s1_sign(u152_0v), 0.0f) * s1_abs(s1_sign(u152_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
@@ -3103,13 +3088,11 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 163: 2d05 3050 3046 0e12 3199 */
     {
         float n3 = r3;
-        float u163_0v = 0.0f, u163_0z = 0.0f;
         { float _w = (1.0f - f7); float o3 = n3;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.1990000000000p+0f; u163_0v = rs ? rvv : n3; u163_0z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.1990000000000p+0f; }
           n3 = o3 + _w * (n3 - o3); }
-        float u163_1v = 0.0f, u163_1z = 0.0f;
         { float _w = f7; float o3 = n3;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r6; u163_1v = rs ? rvv : n3; u163_1z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r6; }
           n3 = o3 + _w * (n3 - o3); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -3117,21 +3100,19 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f7); pv4 = s1_abs(s1_sign(u163_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u163_0v)); pv7 = (1.0f - fmaxf(s1_sign(u163_0v), 0.0f) * s1_abs(s1_sign(u163_0z)));
-        pm2 = f7; pv9 = fminf(1.0f, 1.0f + s1_sign(u163_1v)); pv11 = (1.0f - fmaxf(s1_sign(u163_1v), 0.0f) * s1_abs(s1_sign(u163_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r3 = n3;
     }
     /* 164: 2d05 7050 7046 1212 0000 */
     {
         float n7 = r7;
-        float u164_0v = 0.0f, u164_0z = 0.0f;
         { float _w = (1.0f - f9); float o7 = n7;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x0.0p+0f; u164_0v = rs ? rvv : n7; u164_0z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x0.0p+0f; }
           n7 = o7 + _w * (n7 - o7); }
-        float u164_1v = 0.0f, u164_1z = 0.0f;
         { float _w = f9; float o7 = n7;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = r6; u164_1v = rs ? rvv : n7; u164_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = r6; }
           n7 = o7 + _w * (n7 - o7); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -3139,8 +3120,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f9); pv4 = s1_abs(s1_sign(u164_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u164_0v)); pv7 = (1.0f - fmaxf(s1_sign(u164_0v), 0.0f) * s1_abs(s1_sign(u164_0z)));
-        pm2 = f9; pv9 = fminf(1.0f, 1.0f + s1_sign(u164_1v)); pv11 = (1.0f - fmaxf(s1_sign(u164_1v), 0.0f) * s1_abs(s1_sign(u164_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r7 = n7;
     }
@@ -3175,13 +3156,11 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 167: 2d04 1043 1047 0e12 */
     {
         float n1 = r1;
-        float u167_0v = 0.0f, u167_0z = 0.0f;
         { float _w = (1.0f - f7); float o1 = n1;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r3; u167_0v = rs ? rvv : n1; u167_0z = rs ? rzd : n1; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r3; }
           n1 = o1 + _w * (n1 - o1); }
-        float u167_1v = 0.0f, u167_1z = 0.0f;
         { float _w = f7; float o1 = n1;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r7; u167_1v = rs ? rvv : n1; u167_1z = rs ? rzd : n1; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r7; }
           n1 = o1 + _w * (n1 - o1); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -3189,8 +3168,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f7); pv4 = s1_abs(s1_sign(u167_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u167_0v)); pv7 = (1.0f - fmaxf(s1_sign(u167_0v), 0.0f) * s1_abs(s1_sign(u167_0z)));
-        pm2 = f7; pv9 = fminf(1.0f, 1.0f + s1_sign(u167_1v)); pv11 = (1.0f - fmaxf(s1_sign(u167_1v), 0.0f) * s1_abs(s1_sign(u167_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r1 = n1;
     }
@@ -3319,8 +3298,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 175: 1804 0041 7fe0 004a */
     {
         float n0 = r0, n7 = r7;
-        float u175_0v = 0.0f, u175_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r1; u175_0v = rs ? rvv : n0; u175_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r1; }
           n7 = c_04a;
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -3328,7 +3306,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u175_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u175_0v)); pv7 = (1.0f - fmaxf(s1_sign(u175_0v), 0.0f) * s1_abs(s1_sign(u175_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
@@ -3531,15 +3509,14 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 188: 0904 0060 3000 0000 */
     {
         float n0 = r0;
-        float u188_0v = 0.0f, u188_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.0000000000000p+0f; u188_0v = rs ? rvv : n0; u188_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.0000000000000p+0f; }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
         f7 = f7 + pm1 * (pv7 - f7);
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u188_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u188_0v)); pv7 = (1.0f - fmaxf(s1_sign(u188_0v), 0.0f) * s1_abs(s1_sign(u188_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
@@ -3625,18 +3602,16 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 194: 1506 2060 3063 b000 0000 0000 */
     {
         float n2 = r2, n3 = r3;
-        float u194_0v = 0.0f, u194_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -0x1.0000000000000p+0f; u194_0v = rs ? rvv : n2; u194_0z = rs ? rzd : n2; }
-        float u194_1v = 0.0f, u194_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x0.0p+0f; u194_1v = rs ? rvv : n3; u194_1z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -0x1.0000000000000p+0f; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x0.0p+0f; }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
         f7 = f7 + pm1 * (pv7 - f7);
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u194_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u194_0v)); pv7 = (1.0f - fmaxf(s1_sign(u194_0v), 0.0f) * s1_abs(s1_sign(u194_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u194_1v)); pv11 = (1.0f - fmaxf(s1_sign(u194_1v), 0.0f) * s1_abs(s1_sign(u194_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r2 = n2;
         r3 = n3;
@@ -3644,13 +3619,11 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 195: 5d05 004a 004b 0e10 1220 */
     {
         float n0 = r0;
-        float u195_0v = 0.0f, u195_0z = 0.0f;
         { float _w = (1.0f - f7); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r2; u195_0v = rs ? rvv : n0; u195_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r2; }
           n0 = o0 + _w * (n0 - o0); }
-        float u195_1v = 0.0f, u195_1z = 0.0f;
         { float _w = (1.0f - f9); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r3; u195_1v = rs ? rvv : n0; u195_1z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r3; }
           n0 = o0 + _w * (n0 - o0); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -3658,8 +3631,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f7); pv4 = s1_abs(s1_sign(u195_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u195_0v)); pv7 = (1.0f - fmaxf(s1_sign(u195_0v), 0.0f) * s1_abs(s1_sign(u195_0z)));
-        pm2 = (1.0f - f9); pv9 = fminf(1.0f, 1.0f + s1_sign(u195_1v)); pv11 = (1.0f - fmaxf(s1_sign(u195_1v), 0.0f) * s1_abs(s1_sign(u195_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
     }
@@ -3958,9 +3931,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         { float _w = (1.0f - f7); float o4 = n4;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = AWRAP(0x1.c28f70c000000p-2f - r4 * r4); u212_0v = rs ? rvv : n4; u212_0z = rs ? rzd : n4; }
           n4 = o4 + _w * (n4 - o4); }
-        float u212_1v = 0.0f, u212_1z = 0.0f;
         { float _w = f7; float o4 = n4;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = r1; u212_1v = rs ? rvv : n4; u212_1z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = r1; }
           n4 = o4 + _w * (n4 - o4); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -3969,7 +3941,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = (1.0f - f7); pv4 = s1_abs(s1_sign(u212_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u212_0v)); pv7 = (1.0f - fmaxf(s1_sign(u212_0v), 0.0f) * s1_abs(s1_sign(u212_0z)));
-        pm2 = f7; pv9 = fminf(1.0f, 1.0f + s1_sign(u212_1v)); pv11 = (1.0f - fmaxf(s1_sign(u212_1v), 0.0f) * s1_abs(s1_sign(u212_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r4 = n4;
     }
@@ -4714,9 +4686,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 253: 2d06 1046 6c30 1610 c40e bedf */
     {
         float n1 = r1, n6 = r6;
-        float u253_0v = 0.0f, u253_0z = 0.0f;
         { float _w = (1.0f - f11); float o1 = n1;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r6; u253_0v = rs ? rvv : n1; u253_0z = rs ? rzd : n1; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r6; }
           n1 = o1 + _w * (n1 - o1); }
         float u253_1v = 0.0f, u253_1z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = AWRAP(r0 + -0x1.03afb7c000000p+2f); u253_1v = rs ? rvv : n6; u253_1z = rs ? rzd : n6; }
@@ -4726,8 +4697,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f11); pv4 = s1_abs(s1_sign(u253_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u253_0v)); pv7 = (1.0f - fmaxf(s1_sign(u253_0v), 0.0f) * s1_abs(s1_sign(u253_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u253_1v)); pv11 = (1.0f - fmaxf(s1_sign(u253_1v), 0.0f) * s1_abs(s1_sign(u253_1z)));
+        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u253_1z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u253_1v)); pv7 = (1.0f - fmaxf(s1_sign(u253_1v), 0.0f) * s1_abs(s1_sign(u253_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r1 = n1;
         r6 = n6;
@@ -4753,9 +4724,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n0 = r0, n6 = r6;
         float u255_0v = 0.0f, u255_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = (0x1.5e9e1b0000000p-7f * r3) + (0x1.fcac082000000p-1f); u255_0v = rs ? rvv : n6; u255_0z = rs ? rzd : n6; }
-        float u255_1v = 0.0f, u255_1z = 0.0f;
         { float _w = (1.0f - f5); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r6; u255_1v = rs ? rvv : n0; u255_1z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r6; }
           n0 = o0 + _w * (n0 - o0); }
         { float _w = f5; float o0 = n0;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r1; }
@@ -4767,7 +4737,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u255_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u255_0v)); pv7 = (1.0f - fmaxf(s1_sign(u255_0v), 0.0f) * s1_abs(s1_sign(u255_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u255_1v)); pv11 = (1.0f - fmaxf(s1_sign(u255_1v), 0.0f) * s1_abs(s1_sign(u255_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r6 = n6;
@@ -5008,9 +4978,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 269: 5e08 3044 2c32 1610 6fe0 005f c3b6 c8b4 */
     {
         float n2 = r2, n3 = r3, n6 = r6;
-        float u269_0v = 0.0f, u269_0z = 0.0f;
         { float _w = (1.0f - f11); float o3 = n3;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; u269_0v = rs ? rvv : n3; u269_0z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; }
           n3 = o3 + _w * (n3 - o3); }
         float u269_1v = 0.0f, u269_1z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = AWRAP(r0 + -0x1.db645a0000000p+1f); u269_1v = rs ? rvv : n2; u269_1z = rs ? rzd : n2; }
@@ -5021,8 +4990,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f11); pv4 = s1_abs(s1_sign(u269_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u269_0v)); pv7 = (1.0f - fmaxf(s1_sign(u269_0v), 0.0f) * s1_abs(s1_sign(u269_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u269_1v)); pv11 = (1.0f - fmaxf(s1_sign(u269_1v), 0.0f) * s1_abs(s1_sign(u269_1z)));
+        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u269_1z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u269_1v)); pv7 = (1.0f - fmaxf(s1_sign(u269_1v), 0.0f) * s1_abs(s1_sign(u269_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r2 = n2;
         r3 = n3;
@@ -5050,13 +5019,11 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 271: 5905 0044 0043 1041 0a12 */
     {
         float n0 = r0, n1 = r1;
-        float u271_0v = 0.0f, u271_0z = 0.0f;
         { float _w = (1.0f - f5); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r4; u271_0v = rs ? rvv : n0; u271_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r4; }
           n0 = o0 + _w * (n0 - o0); }
-        float u271_1v = 0.0f, u271_1z = 0.0f;
         { float _w = f5; float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r3; u271_1v = rs ? rvv : n0; u271_1z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r3; }
           n0 = o0 + _w * (n0 - o0); }
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r1; }
         f4 = f4 + pm1 * (pv4 - f4);
@@ -5065,8 +5032,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f5); pv4 = s1_abs(s1_sign(u271_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u271_0v)); pv7 = (1.0f - fmaxf(s1_sign(u271_0v), 0.0f) * s1_abs(s1_sign(u271_0z)));
-        pm2 = f5; pv9 = fminf(1.0f, 1.0f + s1_sign(u271_1v)); pv11 = (1.0f - fmaxf(s1_sign(u271_1v), 0.0f) * s1_abs(s1_sign(u271_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r1 = n1;
@@ -5583,9 +5550,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 303: 1703 7042 0a10 */
     {
         float n7 = r7;
-        float u303_0v = 0.0f, u303_0z = 0.0f;
         { float _w = (1.0f - f5); float o7 = n7;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = r2; u303_0v = rs ? rvv : n7; u303_0z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = r2; }
           n7 = o7 + _w * (n7 - o7); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -5593,7 +5559,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f5); pv4 = s1_abs(s1_sign(u303_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u303_0v)); pv7 = (1.0f - fmaxf(s1_sign(u303_0v), 0.0f) * s1_abs(s1_sign(u303_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r7 = n7;
@@ -5601,9 +5567,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 304: 1704 7050 1310 0000 */
     {
         float n7 = r7;
-        float u304_0v = 0.0f, u304_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f9)); float o7 = n7;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x0.0p+0f; u304_0v = rs ? rvv : n7; u304_0z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x0.0p+0f; }
           n7 = o7 + _w * (n7 - o7); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -5611,7 +5576,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f9)); pv4 = s1_abs(s1_sign(u304_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u304_0v)); pv7 = (1.0f - fmaxf(s1_sign(u304_0v), 0.0f) * s1_abs(s1_sign(u304_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r7 = n7;
@@ -5647,9 +5612,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 307: 1703 1047 0b10 */
     {
         float n1 = r1;
-        float u307_0v = 0.0f, u307_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o1 = n1;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r7; u307_0v = rs ? rvv : n1; u307_0z = rs ? rzd : n1; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r7; }
           n1 = o1 + _w * (n1 - o1); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -5657,7 +5621,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u307_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u307_0v)); pv7 = (1.0f - fmaxf(s1_sign(u307_0v), 0.0f) * s1_abs(s1_sign(u307_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r1 = n1;
@@ -5790,18 +5754,16 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 316: 1506 2060 3063 ca00 0042 0000 */
     {
         float n2 = r2, n3 = r3;
-        float u316_0v = 0.0f, u316_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -0x1.4000000000000p+3f; u316_0v = rs ? rvv : n2; u316_0z = rs ? rzd : n2; }
-        float u316_1v = 0.0f, u316_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.0000000000000p+1f; u316_1v = rs ? rvv : n3; u316_1z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -0x1.4000000000000p+3f; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.0000000000000p+1f; }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
         f7 = f7 + pm1 * (pv7 - f7);
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u316_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u316_0v)); pv7 = (1.0f - fmaxf(s1_sign(u316_0v), 0.0f) * s1_abs(s1_sign(u316_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u316_1v)); pv11 = (1.0f - fmaxf(s1_sign(u316_1v), 0.0f) * s1_abs(s1_sign(u316_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r2 = n2;
         r3 = n3;
@@ -5809,13 +5771,11 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 317: 5d05 004a 004b 0e10 1220 */
     {
         float n0 = r0;
-        float u317_0v = 0.0f, u317_0z = 0.0f;
         { float _w = (1.0f - f7); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r2; u317_0v = rs ? rvv : n0; u317_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r2; }
           n0 = o0 + _w * (n0 - o0); }
-        float u317_1v = 0.0f, u317_1z = 0.0f;
         { float _w = (1.0f - f9); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r3; u317_1v = rs ? rvv : n0; u317_1z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r3; }
           n0 = o0 + _w * (n0 - o0); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -5823,8 +5783,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f7); pv4 = s1_abs(s1_sign(u317_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u317_0v)); pv7 = (1.0f - fmaxf(s1_sign(u317_0v), 0.0f) * s1_abs(s1_sign(u317_0z)));
-        pm2 = (1.0f - f9); pv9 = fminf(1.0f, 1.0f + s1_sign(u317_1v)); pv11 = (1.0f - fmaxf(s1_sign(u317_1v), 0.0f) * s1_abs(s1_sign(u317_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
     }
@@ -6065,9 +6025,8 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     /* 333: 1705 0070 0810 0000 0001 */
     {
         float n0 = r0;
-        float u333_0v = 0.0f, u333_0z = 0.0f;
         { float _w = (1.0f - f4); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.0000000000000p-32f; u333_0v = rs ? rvv : n0; u333_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.0000000000000p-32f; }
           n0 = o0 + _w * (n0 - o0); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -6075,7 +6034,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f4); pv4 = s1_abs(s1_sign(u333_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u333_0v)); pv7 = (1.0f - fmaxf(s1_sign(u333_0v), 0.0f) * s1_abs(s1_sign(u333_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
@@ -7310,8 +7269,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n0 = r0, n3 = r3, n4 = r4, n7 = r7;
         float u404_0v = 0.0f, u404_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r3) + (r7 * -r4); u404_0v = rs ? rvv : n0; u404_0z = rs ? rzd : n0; }
-        float u404_1v = 0.0f, u404_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.c6bf800000000p-7f; u404_1v = rs ? rvv : n7; u404_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.c6bf800000000p-7f; }
         c_07a = r2;
           n3 = c_072;
           n4 = c_079;
@@ -7322,7 +7280,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u404_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u404_0v)); pv7 = (1.0f - fmaxf(s1_sign(u404_0v), 0.0f) * s1_abs(s1_sign(u404_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u404_1v)); pv11 = (1.0f - fmaxf(s1_sign(u404_1v), 0.0f) * s1_abs(s1_sign(u404_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r3 = n3;
@@ -7334,8 +7292,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n0 = r0, n3 = r3, n4 = r4, n7 = r7;
         float u405_0v = 0.0f, u405_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r3) + (r0) + (r7 * -r4); u405_0v = rs ? rvv : n0; u405_0z = rs ? rzd : n0; }
-        float u405_1v = 0.0f, u405_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.c19b000000000p-6f; u405_1v = rs ? rvv : n7; u405_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.c19b000000000p-6f; }
           n3 = c_076;
           n4 = c_075;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -7345,7 +7302,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u405_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u405_0v)); pv7 = (1.0f - fmaxf(s1_sign(u405_0v), 0.0f) * s1_abs(s1_sign(u405_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u405_1v)); pv11 = (1.0f - fmaxf(s1_sign(u405_1v), 0.0f) * s1_abs(s1_sign(u405_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r3 = n3;
@@ -7357,8 +7314,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n0 = r0, n3 = r3, n4 = r4, n7 = r7;
         float u406_0v = 0.0f, u406_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r3) + (r0) + (r7 * -r4); u406_0v = rs ? rvv : n0; u406_0z = rs ? rzd : n0; }
-        float u406_1v = 0.0f, u406_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.8785200000000p-5f; u406_1v = rs ? rvv : n7; u406_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.8785200000000p-5f; }
           n3 = c_07a;
           n4 = c_071;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -7368,7 +7324,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u406_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u406_0v)); pv7 = (1.0f - fmaxf(s1_sign(u406_0v), 0.0f) * s1_abs(s1_sign(u406_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u406_1v)); pv11 = (1.0f - fmaxf(s1_sign(u406_1v), 0.0f) * s1_abs(s1_sign(u406_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r3 = n3;
@@ -7380,8 +7336,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n0 = r0, n3 = r3, n4 = r4, n7 = r7;
         float u407_0v = 0.0f, u407_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r3) + (r0) + (r7 * -r4); u407_0v = rs ? rvv : n0; u407_0z = rs ? rzd : n0; }
-        float u407_1v = 0.0f, u407_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.2524f00000000p-4f; u407_1v = rs ? rvv : n7; u407_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.2524f00000000p-4f; }
           n3 = c_06f;
           n4 = c_07c;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -7391,7 +7346,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u407_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u407_0v)); pv7 = (1.0f - fmaxf(s1_sign(u407_0v), 0.0f) * s1_abs(s1_sign(u407_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u407_1v)); pv11 = (1.0f - fmaxf(s1_sign(u407_1v), 0.0f) * s1_abs(s1_sign(u407_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r3 = n3;
@@ -7403,8 +7358,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n0 = r0, n3 = r3, n4 = r4, n7 = r7;
         float u408_0v = 0.0f, u408_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r3) + (r0) + (r7 * -r4); u408_0v = rs ? rvv : n0; u408_0z = rs ? rzd : n0; }
-        float u408_1v = 0.0f, u408_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.8390b00000000p-4f; u408_1v = rs ? rvv : n7; u408_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.8390b00000000p-4f; }
           n3 = c_073;
           n4 = c_078;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -7414,7 +7368,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u408_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u408_0v)); pv7 = (1.0f - fmaxf(s1_sign(u408_0v), 0.0f) * s1_abs(s1_sign(u408_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u408_1v)); pv11 = (1.0f - fmaxf(s1_sign(u408_1v), 0.0f) * s1_abs(s1_sign(u408_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r3 = n3;
@@ -7426,8 +7380,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n0 = r0, n3 = r3, n4 = r4, n7 = r7;
         float u409_0v = 0.0f, u409_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r3) + (r0) + (r7 * -r4); u409_0v = rs ? rvv : n0; u409_0z = rs ? rzd : n0; }
-        float u409_1v = 0.0f, u409_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.ce14900000000p-4f; u409_1v = rs ? rvv : n7; u409_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.ce14900000000p-4f; }
           n3 = c_077;
           n4 = c_074;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -7437,7 +7390,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u409_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u409_0v)); pv7 = (1.0f - fmaxf(s1_sign(u409_0v), 0.0f) * s1_abs(s1_sign(u409_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u409_1v)); pv11 = (1.0f - fmaxf(s1_sign(u409_1v), 0.0f) * s1_abs(s1_sign(u409_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r3 = n3;
@@ -7449,8 +7402,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         float n0 = r0, n3 = r3, n4 = r4, n7 = r7;
         float u410_0v = 0.0f, u410_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r3) + (r0) + (r7 * -r4); u410_0v = rs ? rvv : n0; u410_0z = rs ? rzd : n0; }
-        float u410_1v = 0.0f, u410_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.f71b900000000p-4f; u410_1v = rs ? rvv : n7; u410_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.f71b900000000p-4f; }
           n3 = c_07b;
           n4 = c_070;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -7460,7 +7412,7 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u410_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u410_0v)); pv7 = (1.0f - fmaxf(s1_sign(u410_0v), 0.0f) * s1_abs(s1_sign(u410_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u410_1v)); pv11 = (1.0f - fmaxf(s1_sign(u410_1v), 0.0f) * s1_abs(s1_sign(u410_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r3 = n3;
@@ -7538,20 +7490,24 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
     s1_export(3, pv5);
     s1_export(4, f7);
     s1_export(5, pv7);
-    s1_export(6, r3);
-    s1_export(7, r0);
-    s1_export(8, r5);
-    s1_export(9, r2);
-    s1_export(10, c_033);
-    s1_export(11, c_052);
-    s1_export(12, c_053);
-    s1_export(13, c_067);
-    s1_export(14, c_068);
-    s1_export(15, c_041);
-    s1_export(16, c_04e);
-    s1_export(17, c_055);
-    s1_export(18, c_054);
-    s1_export(19, c_06b);
+    s1_export(6, f9);
+    s1_export(7, pv9);
+    s1_export(8, f11);
+    s1_export(9, pv11);
+    s1_export(10, r3);
+    s1_export(11, r0);
+    s1_export(12, r5);
+    s1_export(13, r2);
+    s1_export(14, c_033);
+    s1_export(15, c_052);
+    s1_export(16, c_053);
+    s1_export(17, c_067);
+    s1_export(18, c_068);
+    s1_export(19, c_041);
+    s1_export(20, c_04e);
+    s1_export(21, c_055);
+    s1_export(22, c_054);
+    s1_export(23, c_06b);
     D_000_1 = c_000;
     D_001_1 = c_001;
     D_002_1 = c_002;
@@ -7684,40 +7640,40 @@ static inline __attribute__((always_inline)) void tb03_voice_a(KARGS_A)
 }
 static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
 {
-    float r0 = s1_range(s1_import(7), -1.4996847185f, 1.4998216305f);
+    float r0 = s1_range(s1_import(11), -1.499740986f, 1.499709932f);
     float r1 = s1_range(s1_import(1), -0.251f, 1.251f);
-    float r2 = s1_range(s1_import(9), -0.10394117624999999f, 1.22158823525f);
-    float r3 = s1_range(s1_import(6), -1.50084157075f, 1.50083119975f);
-    float r4 = s1_range(s1_import(0), -1.5008301265f, 1.5008301265f);
-    float r5 = s1_range(s1_import(8), -0.9699455625f, 4.8457278125f);
+    float r2 = s1_range(s1_import(13), -0.10394117624999999f, 1.22158823525f);
+    float r3 = s1_range(s1_import(10), -1.500820993f, 1.500846325f);
+    float r4 = s1_range(s1_import(0), -1.5008280405f, 1.5008268485f);
+    float r5 = s1_range(s1_import(12), -0.9699455625f, 4.8457278125f);
     float r6 = 0.0f;
     float r7 = 0.12282902f;
     float f4 = 1.0f;
     float f5 = s1_range(s1_import(2), -0.251f, 1.251f);
     float f7 = s1_range(s1_import(4), -0.251f, 1.251f);
-    float f9 = 1.0f;
-    float f11 = 0.0f;
+    float f9 = s1_range(s1_import(6), -0.251f, 1.251f);
+    float f11 = s1_range(s1_import(8), -0.251f, 1.251f);
     float f17 = 1.0f;
     float pm1 = 0.0f, pv4 = 1.0f, pv5 = s1_range(s1_import(3), -0.251f, 1.251f), pv7 = s1_range(s1_import(5), -0.251f, 1.251f);
-    float pm2 = 0.0f, pv9 = 1.0f, pv11 = 0.0f;
+    float pm2 = 0.0f, pv9 = s1_range(s1_import(7), -0.251f, 1.251f), pv11 = s1_range(s1_import(9), -0.251f, 1.251f);
     float pm4 = 0.0f, pv17 = 1.0f;
     float c_004 = 0.0f;
-    float c_01b = 0.0f;
+    float c_01b = -0.0f;
     float c_01d = 0.0f;
-    float c_033 = s1_range(s1_import(10), -1.6987500326249998f, 8.627750174525f);
-    float c_041 = s1_range(s1_import(15), -0.228223441f, 1.137117205f);
-    float c_04e = s1_range(s1_import(16), -0.2506477365f, 1.2492386825f);
+    float c_033 = s1_range(s1_import(14), -1.6987500326249998f, 8.627750174525f);
+    float c_041 = s1_range(s1_import(19), -0.22822341125f, 1.1371170562500001f);
+    float c_04e = s1_range(s1_import(20), -0.250647811f, 1.2492390549999999f);
     float c_050 = 0.0f;
     float c_051 = 0.0f;
-    float c_052 = s1_range(s1_import(11), -0.251f, 1.251f);
-    float c_053 = s1_range(s1_import(12), -0.10394117624999999f, 1.22158823525f);
-    float c_054 = s1_range(s1_import(18), -0.251f, 1.251f);
-    float c_055 = s1_range(s1_import(17), -0.251f, 1.251f);
+    float c_052 = s1_range(s1_import(15), -0.251f, 1.251f);
+    float c_053 = s1_range(s1_import(16), -0.10394117624999999f, 1.22158823525f);
+    float c_054 = s1_range(s1_import(22), -0.251f, 1.251f);
+    float c_055 = s1_range(s1_import(21), -0.251f, 1.251f);
     float c_057 = 0.477958947f;
     float c_058 = 1.0f;
-    float c_067 = s1_range(s1_import(13), 0.16130773999999998f, 1.5369649600000002f);
-    float c_068 = s1_range(s1_import(14), -0.610039037875f, 3.1898956435750003f);
-    float c_06b = s1_range(s1_import(19), -1.06799388975f, 5.56252900595f);
+    float c_067 = s1_range(s1_import(17), -0.19455601075f, 1.03120900495f);
+    float c_068 = s1_range(s1_import(18), -1.3512529111249998f, 6.895990122225f);
+    float c_06b = s1_range(s1_import(23), -1.06799388975f, 5.56252900595f);
     float c_081 = 0.0f /* written before read */;
     float c_082 = D_081_1;
     float c_083 = D_082_1;
@@ -8150,18 +8106,16 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 435: 1506 2060 3063 ca00 0042 0000 */
     {
         float n2 = r2, n3 = r3;
-        float u435_0v = 0.0f, u435_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -0x1.4000000000000p+3f; u435_0v = rs ? rvv : n2; u435_0z = rs ? rzd : n2; }
-        float u435_1v = 0.0f, u435_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.0000000000000p+1f; u435_1v = rs ? rvv : n3; u435_1z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -0x1.4000000000000p+3f; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.0000000000000p+1f; }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
         f7 = f7 + pm1 * (pv7 - f7);
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u435_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u435_0v)); pv7 = (1.0f - fmaxf(s1_sign(u435_0v), 0.0f) * s1_abs(s1_sign(u435_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u435_1v)); pv11 = (1.0f - fmaxf(s1_sign(u435_1v), 0.0f) * s1_abs(s1_sign(u435_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r2 = n2;
         r3 = n3;
@@ -8169,13 +8123,11 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 436: 5d05 004a 004b 0e10 1220 */
     {
         float n0 = r0;
-        float u436_0v = 0.0f, u436_0z = 0.0f;
         { float _w = (1.0f - f7); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r2; u436_0v = rs ? rvv : n0; u436_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r2; }
           n0 = o0 + _w * (n0 - o0); }
-        float u436_1v = 0.0f, u436_1z = 0.0f;
         { float _w = (1.0f - f9); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r3; u436_1v = rs ? rvv : n0; u436_1z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r3; }
           n0 = o0 + _w * (n0 - o0); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -8183,8 +8135,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f7); pv4 = s1_abs(s1_sign(u436_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u436_0v)); pv7 = (1.0f - fmaxf(s1_sign(u436_0v), 0.0f) * s1_abs(s1_sign(u436_0z)));
-        pm2 = (1.0f - f9); pv9 = fminf(1.0f, 1.0f + s1_sign(u436_1v)); pv11 = (1.0f - fmaxf(s1_sign(u436_1v), 0.0f) * s1_abs(s1_sign(u436_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
     }
@@ -8449,9 +8401,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 453: 1703 3044 1710 */
     {
         float n3 = r3;
-        float u453_0v = 0.0f, u453_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f11)); float o3 = n3;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; u453_0v = rs ? rvv : n3; u453_0z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; }
           n3 = o3 + _w * (n3 - o3); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -8459,7 +8410,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f11)); pv4 = s1_abs(s1_sign(u453_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u453_0v)); pv7 = (1.0f - fmaxf(s1_sign(u453_0v), 0.0f) * s1_abs(s1_sign(u453_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r3 = n3;
@@ -8499,9 +8450,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 456: 1703 3044 0b10 */
     {
         float n3 = r3;
-        float u456_0v = 0.0f, u456_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o3 = n3;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; u456_0v = rs ? rvv : n3; u456_0z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = r4; }
           n3 = o3 + _w * (n3 - o3); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -8509,7 +8459,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u456_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u456_0v)); pv7 = (1.0f - fmaxf(s1_sign(u456_0v), 0.0f) * s1_abs(s1_sign(u456_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r3 = n3;
@@ -8517,8 +8467,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 457: 1804 0043 bfe0 0087 */
     {
         float n0 = r0;
-        float u457_0v = 0.0f, u457_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r3; u457_0v = rs ? rvv : n0; u457_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = r3; }
         c_087 = r3;
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -8526,7 +8475,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u457_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u457_0v)); pv7 = (1.0f - fmaxf(s1_sign(u457_0v), 0.0f) * s1_abs(s1_sign(u457_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
@@ -8594,9 +8543,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 462: 1705 0070 0810 0000 0001 */
     {
         float n0 = r0;
-        float u462_0v = 0.0f, u462_0z = 0.0f;
         { float _w = (1.0f - f4); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.0000000000000p-32f; u462_0v = rs ? rvv : n0; u462_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.0000000000000p-32f; }
           n0 = o0 + _w * (n0 - o0); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -8604,7 +8552,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f4); pv4 = s1_abs(s1_sign(u462_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u462_0v)); pv7 = (1.0f - fmaxf(s1_sign(u462_0v), 0.0f) * s1_abs(s1_sign(u462_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
@@ -8741,13 +8689,11 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 471: 2d06 4050 4052 0b12 3000 0000 */
     {
         float n4 = r4;
-        float u471_0v = 0.0f, u471_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o4 = n4;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x1.0000000000000p+0f; u471_0v = rs ? rvv : n4; u471_0z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x1.0000000000000p+0f; }
           n4 = o4 + _w * (n4 - o4); }
-        float u471_1v = 0.0f, u471_1z = 0.0f;
         { float _w = (1.0f - f5); float o4 = n4;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x0.0p+0f; u471_1v = rs ? rvv : n4; u471_1z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x0.0p+0f; }
           n4 = o4 + _w * (n4 - o4); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -8755,21 +8701,19 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u471_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u471_0v)); pv7 = (1.0f - fmaxf(s1_sign(u471_0v), 0.0f) * s1_abs(s1_sign(u471_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u471_1v)); pv11 = (1.0f - fmaxf(s1_sign(u471_1v), 0.0f) * s1_abs(s1_sign(u471_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r4 = n4;
     }
     /* 472: 2d06 5050 5052 0b12 b000 3000 */
     {
         float n5 = r5;
-        float u472_0v = 0.0f, u472_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o5 = n5;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = -0x1.0000000000000p+0f; u472_0v = rs ? rvv : n5; u472_0z = rs ? rzd : n5; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = -0x1.0000000000000p+0f; }
           n5 = o5 + _w * (n5 - o5); }
-        float u472_1v = 0.0f, u472_1z = 0.0f;
         { float _w = (1.0f - f5); float o5 = n5;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = 0x1.0000000000000p+0f; u472_1v = rs ? rvv : n5; u472_1z = rs ? rzd : n5; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = 0x1.0000000000000p+0f; }
           n5 = o5 + _w * (n5 - o5); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -8777,21 +8721,19 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u472_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u472_0v)); pv7 = (1.0f - fmaxf(s1_sign(u472_0v), 0.0f) * s1_abs(s1_sign(u472_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u472_1v)); pv11 = (1.0f - fmaxf(s1_sign(u472_1v), 0.0f) * s1_abs(s1_sign(u472_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r5 = n5;
     }
     /* 473: 2d06 6050 6052 0b12 3000 b000 */
     {
         float n6 = r6;
-        float u473_0v = 0.0f, u473_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; u473_0v = rs ? rvv : n6; u473_0z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; }
           n6 = o6 + _w * (n6 - o6); }
-        float u473_1v = 0.0f, u473_1z = 0.0f;
         { float _w = (1.0f - f5); float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = -0x1.0000000000000p+0f; u473_1v = rs ? rvv : n6; u473_1z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = -0x1.0000000000000p+0f; }
           n6 = o6 + _w * (n6 - o6); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -8799,8 +8741,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u473_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u473_0v)); pv7 = (1.0f - fmaxf(s1_sign(u473_0v), 0.0f) * s1_abs(s1_sign(u473_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u473_1v)); pv11 = (1.0f - fmaxf(s1_sign(u473_1v), 0.0f) * s1_abs(s1_sign(u473_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r6 = n6;
     }
@@ -9263,13 +9205,11 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 500: 2d06 4050 4052 0b12 3000 0000 */
     {
         float n4 = r4;
-        float u500_0v = 0.0f, u500_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o4 = n4;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x1.0000000000000p+0f; u500_0v = rs ? rvv : n4; u500_0z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x1.0000000000000p+0f; }
           n4 = o4 + _w * (n4 - o4); }
-        float u500_1v = 0.0f, u500_1z = 0.0f;
         { float _w = (1.0f - f5); float o4 = n4;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x0.0p+0f; u500_1v = rs ? rvv : n4; u500_1z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x0.0p+0f; }
           n4 = o4 + _w * (n4 - o4); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -9277,21 +9217,19 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u500_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u500_0v)); pv7 = (1.0f - fmaxf(s1_sign(u500_0v), 0.0f) * s1_abs(s1_sign(u500_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u500_1v)); pv11 = (1.0f - fmaxf(s1_sign(u500_1v), 0.0f) * s1_abs(s1_sign(u500_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r4 = n4;
     }
     /* 501: 2d06 5050 5052 0b12 b000 3000 */
     {
         float n5 = r5;
-        float u501_0v = 0.0f, u501_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o5 = n5;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = -0x1.0000000000000p+0f; u501_0v = rs ? rvv : n5; u501_0z = rs ? rzd : n5; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = -0x1.0000000000000p+0f; }
           n5 = o5 + _w * (n5 - o5); }
-        float u501_1v = 0.0f, u501_1z = 0.0f;
         { float _w = (1.0f - f5); float o5 = n5;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = 0x1.0000000000000p+0f; u501_1v = rs ? rvv : n5; u501_1z = rs ? rzd : n5; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = 0x1.0000000000000p+0f; }
           n5 = o5 + _w * (n5 - o5); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -9299,21 +9237,19 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u501_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u501_0v)); pv7 = (1.0f - fmaxf(s1_sign(u501_0v), 0.0f) * s1_abs(s1_sign(u501_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u501_1v)); pv11 = (1.0f - fmaxf(s1_sign(u501_1v), 0.0f) * s1_abs(s1_sign(u501_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r5 = n5;
     }
     /* 502: 2d06 6050 6052 0b12 3000 b000 */
     {
         float n6 = r6;
-        float u502_0v = 0.0f, u502_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; u502_0v = rs ? rvv : n6; u502_0z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; }
           n6 = o6 + _w * (n6 - o6); }
-        float u502_1v = 0.0f, u502_1z = 0.0f;
         { float _w = (1.0f - f5); float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = -0x1.0000000000000p+0f; u502_1v = rs ? rvv : n6; u502_1z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = -0x1.0000000000000p+0f; }
           n6 = o6 + _w * (n6 - o6); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -9321,8 +9257,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u502_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u502_0v)); pv7 = (1.0f - fmaxf(s1_sign(u502_0v), 0.0f) * s1_abs(s1_sign(u502_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u502_1v)); pv11 = (1.0f - fmaxf(s1_sign(u502_1v), 0.0f) * s1_abs(s1_sign(u502_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r6 = n6;
     }
@@ -9785,13 +9721,11 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 529: 2d06 4050 4052 0b12 3000 0000 */
     {
         float n4 = r4;
-        float u529_0v = 0.0f, u529_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o4 = n4;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x1.0000000000000p+0f; u529_0v = rs ? rvv : n4; u529_0z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x1.0000000000000p+0f; }
           n4 = o4 + _w * (n4 - o4); }
-        float u529_1v = 0.0f, u529_1z = 0.0f;
         { float _w = (1.0f - f5); float o4 = n4;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x0.0p+0f; u529_1v = rs ? rvv : n4; u529_1z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x0.0p+0f; }
           n4 = o4 + _w * (n4 - o4); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -9799,21 +9733,19 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u529_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u529_0v)); pv7 = (1.0f - fmaxf(s1_sign(u529_0v), 0.0f) * s1_abs(s1_sign(u529_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u529_1v)); pv11 = (1.0f - fmaxf(s1_sign(u529_1v), 0.0f) * s1_abs(s1_sign(u529_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r4 = n4;
     }
     /* 530: 2d06 5050 5052 0b12 b000 3000 */
     {
         float n5 = r5;
-        float u530_0v = 0.0f, u530_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o5 = n5;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = -0x1.0000000000000p+0f; u530_0v = rs ? rvv : n5; u530_0z = rs ? rzd : n5; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = -0x1.0000000000000p+0f; }
           n5 = o5 + _w * (n5 - o5); }
-        float u530_1v = 0.0f, u530_1z = 0.0f;
         { float _w = (1.0f - f5); float o5 = n5;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = 0x1.0000000000000p+0f; u530_1v = rs ? rvv : n5; u530_1z = rs ? rzd : n5; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = 0x1.0000000000000p+0f; }
           n5 = o5 + _w * (n5 - o5); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -9821,21 +9753,19 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u530_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u530_0v)); pv7 = (1.0f - fmaxf(s1_sign(u530_0v), 0.0f) * s1_abs(s1_sign(u530_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u530_1v)); pv11 = (1.0f - fmaxf(s1_sign(u530_1v), 0.0f) * s1_abs(s1_sign(u530_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r5 = n5;
     }
     /* 531: 2d06 6050 6052 0b12 3000 b000 */
     {
         float n6 = r6;
-        float u531_0v = 0.0f, u531_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; u531_0v = rs ? rvv : n6; u531_0z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; }
           n6 = o6 + _w * (n6 - o6); }
-        float u531_1v = 0.0f, u531_1z = 0.0f;
         { float _w = (1.0f - f5); float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = -0x1.0000000000000p+0f; u531_1v = rs ? rvv : n6; u531_1z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = -0x1.0000000000000p+0f; }
           n6 = o6 + _w * (n6 - o6); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -9843,8 +9773,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u531_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u531_0v)); pv7 = (1.0f - fmaxf(s1_sign(u531_0v), 0.0f) * s1_abs(s1_sign(u531_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u531_1v)); pv11 = (1.0f - fmaxf(s1_sign(u531_1v), 0.0f) * s1_abs(s1_sign(u531_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r6 = n6;
     }
@@ -10307,13 +10237,11 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 558: 2d06 4050 4052 0b12 3000 0000 */
     {
         float n4 = r4;
-        float u558_0v = 0.0f, u558_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o4 = n4;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x1.0000000000000p+0f; u558_0v = rs ? rvv : n4; u558_0z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x1.0000000000000p+0f; }
           n4 = o4 + _w * (n4 - o4); }
-        float u558_1v = 0.0f, u558_1z = 0.0f;
         { float _w = (1.0f - f5); float o4 = n4;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x0.0p+0f; u558_1v = rs ? rvv : n4; u558_1z = rs ? rzd : n4; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = 0x0.0p+0f; }
           n4 = o4 + _w * (n4 - o4); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -10321,21 +10249,19 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u558_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u558_0v)); pv7 = (1.0f - fmaxf(s1_sign(u558_0v), 0.0f) * s1_abs(s1_sign(u558_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u558_1v)); pv11 = (1.0f - fmaxf(s1_sign(u558_1v), 0.0f) * s1_abs(s1_sign(u558_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r4 = n4;
     }
     /* 559: 2d06 5050 5052 0b12 b000 3000 */
     {
         float n5 = r5;
-        float u559_0v = 0.0f, u559_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o5 = n5;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = -0x1.0000000000000p+0f; u559_0v = rs ? rvv : n5; u559_0z = rs ? rzd : n5; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = -0x1.0000000000000p+0f; }
           n5 = o5 + _w * (n5 - o5); }
-        float u559_1v = 0.0f, u559_1z = 0.0f;
         { float _w = (1.0f - f5); float o5 = n5;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = 0x1.0000000000000p+0f; u559_1v = rs ? rvv : n5; u559_1z = rs ? rzd : n5; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = 0x1.0000000000000p+0f; }
           n5 = o5 + _w * (n5 - o5); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -10343,21 +10269,19 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u559_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u559_0v)); pv7 = (1.0f - fmaxf(s1_sign(u559_0v), 0.0f) * s1_abs(s1_sign(u559_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u559_1v)); pv11 = (1.0f - fmaxf(s1_sign(u559_1v), 0.0f) * s1_abs(s1_sign(u559_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r5 = n5;
     }
     /* 560: 2d06 6050 6052 0b12 3000 b000 */
     {
         float n6 = r6;
-        float u560_0v = 0.0f, u560_0z = 0.0f;
         { float _w = (1.0f - (1.0f - f5)); float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; u560_0v = rs ? rvv : n6; u560_0z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.0000000000000p+0f; }
           n6 = o6 + _w * (n6 - o6); }
-        float u560_1v = 0.0f, u560_1z = 0.0f;
         { float _w = (1.0f - f5); float o6 = n6;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = -0x1.0000000000000p+0f; u560_1v = rs ? rvv : n6; u560_1z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = -0x1.0000000000000p+0f; }
           n6 = o6 + _w * (n6 - o6); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -10365,8 +10289,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - (1.0f - f5)); pv4 = s1_abs(s1_sign(u560_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u560_0v)); pv7 = (1.0f - fmaxf(s1_sign(u560_0v), 0.0f) * s1_abs(s1_sign(u560_0z)));
-        pm2 = (1.0f - f5); pv9 = fminf(1.0f, 1.0f + s1_sign(u560_1v)); pv11 = (1.0f - fmaxf(s1_sign(u560_1v), 0.0f) * s1_abs(s1_sign(u560_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r6 = n6;
     }
@@ -10776,8 +10700,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         float n0 = r0, n5 = r5, n6 = r6, n7 = r7;
         float u583_0v = 0.0f, u583_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r5) + (r7 * -r6); u583_0v = rs ? rvv : n0; u583_0z = rs ? rzd : n0; }
-        float u583_1v = 0.0f, u583_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.c6bf800000000p-7f; u583_1v = rs ? rvv : n7; u583_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.c6bf800000000p-7f; }
         c_096 = r2;
           n5 = c_08e;
           n6 = c_095;
@@ -10788,7 +10711,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u583_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u583_0v)); pv7 = (1.0f - fmaxf(s1_sign(u583_0v), 0.0f) * s1_abs(s1_sign(u583_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u583_1v)); pv11 = (1.0f - fmaxf(s1_sign(u583_1v), 0.0f) * s1_abs(s1_sign(u583_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r5 = n5;
@@ -10800,8 +10723,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         float n0 = r0, n5 = r5, n6 = r6, n7 = r7;
         float u584_0v = 0.0f, u584_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r5) + (r0) + (r7 * -r6); u584_0v = rs ? rvv : n0; u584_0z = rs ? rzd : n0; }
-        float u584_1v = 0.0f, u584_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.c19b000000000p-6f; u584_1v = rs ? rvv : n7; u584_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.c19b000000000p-6f; }
           n5 = c_092;
           n6 = c_091;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -10811,7 +10733,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u584_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u584_0v)); pv7 = (1.0f - fmaxf(s1_sign(u584_0v), 0.0f) * s1_abs(s1_sign(u584_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u584_1v)); pv11 = (1.0f - fmaxf(s1_sign(u584_1v), 0.0f) * s1_abs(s1_sign(u584_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r5 = n5;
@@ -10823,8 +10745,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         float n0 = r0, n5 = r5, n6 = r6, n7 = r7;
         float u585_0v = 0.0f, u585_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r5) + (r0) + (r7 * -r6); u585_0v = rs ? rvv : n0; u585_0z = rs ? rzd : n0; }
-        float u585_1v = 0.0f, u585_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.8785200000000p-5f; u585_1v = rs ? rvv : n7; u585_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.8785200000000p-5f; }
           n5 = c_096;
           n6 = c_08d;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -10834,7 +10755,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u585_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u585_0v)); pv7 = (1.0f - fmaxf(s1_sign(u585_0v), 0.0f) * s1_abs(s1_sign(u585_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u585_1v)); pv11 = (1.0f - fmaxf(s1_sign(u585_1v), 0.0f) * s1_abs(s1_sign(u585_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r5 = n5;
@@ -10846,8 +10767,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         float n0 = r0, n5 = r5, n6 = r6, n7 = r7;
         float u586_0v = 0.0f, u586_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r5) + (r0) + (r7 * -r6); u586_0v = rs ? rvv : n0; u586_0z = rs ? rzd : n0; }
-        float u586_1v = 0.0f, u586_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.2524f00000000p-4f; u586_1v = rs ? rvv : n7; u586_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.2524f00000000p-4f; }
           n5 = c_08b;
           n6 = c_098;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -10857,7 +10777,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u586_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u586_0v)); pv7 = (1.0f - fmaxf(s1_sign(u586_0v), 0.0f) * s1_abs(s1_sign(u586_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u586_1v)); pv11 = (1.0f - fmaxf(s1_sign(u586_1v), 0.0f) * s1_abs(s1_sign(u586_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r5 = n5;
@@ -10869,8 +10789,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         float n0 = r0, n5 = r5, n6 = r6, n7 = r7;
         float u587_0v = 0.0f, u587_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r5) + (r0) + (r7 * -r6); u587_0v = rs ? rvv : n0; u587_0z = rs ? rzd : n0; }
-        float u587_1v = 0.0f, u587_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.8390b00000000p-4f; u587_1v = rs ? rvv : n7; u587_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.8390b00000000p-4f; }
           n5 = c_08f;
           n6 = c_094;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -10880,7 +10799,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u587_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u587_0v)); pv7 = (1.0f - fmaxf(s1_sign(u587_0v), 0.0f) * s1_abs(s1_sign(u587_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u587_1v)); pv11 = (1.0f - fmaxf(s1_sign(u587_1v), 0.0f) * s1_abs(s1_sign(u587_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r5 = n5;
@@ -10892,8 +10811,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         float n0 = r0, n5 = r5, n6 = r6, n7 = r7;
         float u588_0v = 0.0f, u588_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r5) + (r0) + (r7 * -r6); u588_0v = rs ? rvv : n0; u588_0z = rs ? rzd : n0; }
-        float u588_1v = 0.0f, u588_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.ce14900000000p-4f; u588_1v = rs ? rvv : n7; u588_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.ce14900000000p-4f; }
           n5 = c_093;
           n6 = c_090;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -10903,7 +10821,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u588_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u588_0v)); pv7 = (1.0f - fmaxf(s1_sign(u588_0v), 0.0f) * s1_abs(s1_sign(u588_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u588_1v)); pv11 = (1.0f - fmaxf(s1_sign(u588_1v), 0.0f) * s1_abs(s1_sign(u588_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r5 = n5;
@@ -10915,8 +10833,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         float n0 = r0, n5 = r5, n6 = r6, n7 = r7;
         float u589_0v = 0.0f, u589_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -(r7 * r5) + (r0) + (r7 * -r6); u589_0v = rs ? rvv : n0; u589_0z = rs ? rzd : n0; }
-        float u589_1v = 0.0f, u589_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.f71b900000000p-4f; u589_1v = rs ? rvv : n7; u589_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x1.f71b900000000p-4f; }
           n5 = c_097;
           n6 = c_08c;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -10926,7 +10843,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u589_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u589_0v)); pv7 = (1.0f - fmaxf(s1_sign(u589_0v), 0.0f) * s1_abs(s1_sign(u589_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u589_1v)); pv11 = (1.0f - fmaxf(s1_sign(u589_1v), 0.0f) * s1_abs(s1_sign(u589_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
         r5 = n5;
@@ -10953,8 +10870,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 591: 3406 1043 8fe0 2fe2 00a1 0089 */
     {
         float n1 = r1, n2 = r2;
-        float u591_0v = 0.0f, u591_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r3; u591_0v = rs ? rvv : n1; u591_0z = rs ? rzd : n1; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n1 = r3; }
         c_0a1 = r0;
           n2 = c_089;
         f4 = f4 + pm1 * (pv4 - f4);
@@ -10963,7 +10879,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u591_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u591_0v)); pv7 = (1.0f - fmaxf(s1_sign(u591_0v), 0.0f) * s1_abs(s1_sign(u591_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r1 = n1;
@@ -11332,18 +11248,16 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 613: 1506 2060 3063 ca00 0042 0000 */
     {
         float n2 = r2, n3 = r3;
-        float u613_0v = 0.0f, u613_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -0x1.4000000000000p+3f; u613_0v = rs ? rvv : n2; u613_0z = rs ? rzd : n2; }
-        float u613_1v = 0.0f, u613_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.0000000000000p+1f; u613_1v = rs ? rvv : n3; u613_1z = rs ? rzd : n3; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n2 = -0x1.4000000000000p+3f; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n3 = 0x1.0000000000000p+1f; }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
         f7 = f7 + pm1 * (pv7 - f7);
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u613_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u613_0v)); pv7 = (1.0f - fmaxf(s1_sign(u613_0v), 0.0f) * s1_abs(s1_sign(u613_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u613_1v)); pv11 = (1.0f - fmaxf(s1_sign(u613_1v), 0.0f) * s1_abs(s1_sign(u613_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r2 = n2;
         r3 = n3;
@@ -11351,13 +11265,11 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 614: 5d05 004a 004b 0e10 1220 */
     {
         float n0 = r0;
-        float u614_0v = 0.0f, u614_0z = 0.0f;
         { float _w = (1.0f - f7); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r2; u614_0v = rs ? rvv : n0; u614_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r2; }
           n0 = o0 + _w * (n0 - o0); }
-        float u614_1v = 0.0f, u614_1z = 0.0f;
         { float _w = (1.0f - f9); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r3; u614_1v = rs ? rvv : n0; u614_1z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r3; }
           n0 = o0 + _w * (n0 - o0); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -11365,8 +11277,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f7); pv4 = s1_abs(s1_sign(u614_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u614_0v)); pv7 = (1.0f - fmaxf(s1_sign(u614_0v), 0.0f) * s1_abs(s1_sign(u614_0z)));
-        pm2 = (1.0f - f9); pv9 = fminf(1.0f, 1.0f + s1_sign(u614_1v)); pv11 = (1.0f - fmaxf(s1_sign(u614_1v), 0.0f) * s1_abs(s1_sign(u614_1z)));
+        pm1 = 0.0f;
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
     }
@@ -11607,9 +11519,8 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 630: 1705 0070 0810 0000 0001 */
     {
         float n0 = r0;
-        float u630_0v = 0.0f, u630_0z = 0.0f;
         { float _w = (1.0f - f4); float o0 = n0;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.0000000000000p-32f; u630_0v = rs ? rvv : n0; u630_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = 0x1.0000000000000p-32f; }
           n0 = o0 + _w * (n0 - o0); }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -11617,7 +11528,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = (1.0f - f4); pv4 = s1_abs(s1_sign(u630_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u630_0v)); pv7 = (1.0f - fmaxf(s1_sign(u630_0v), 0.0f) * s1_abs(s1_sign(u630_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
@@ -11832,15 +11743,14 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 643: 0902 0048 */
     {
         float n0 = r0;
-        float u643_0v = 0.0f, u643_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r0; u643_0v = rs ? rvv : n0; u643_0z = rs ? rzd : n0; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n0 = -r0; }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
         f7 = f7 + pm1 * (pv7 - f7);
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u643_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u643_0v)); pv7 = (1.0f - fmaxf(s1_sign(u643_0v), 0.0f) * s1_abs(s1_sign(u643_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r0 = n0;
@@ -11941,8 +11851,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 650: 1806 6062 2fe0 00b0 11c6 3200 */
     {
         float n2 = r2, n6 = r6;
-        float u650_0v = 0.0f, u650_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.1c63200000000p-4f; u650_0v = rs ? rvv : n6; u650_0z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.1c63200000000p-4f; }
           n2 = c_0b0;
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -11950,7 +11859,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u650_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u650_0v)); pv7 = (1.0f - fmaxf(s1_sign(u650_0v), 0.0f) * s1_abs(s1_sign(u650_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r2 = n2;
@@ -12780,8 +12689,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         float n4 = r4, n7 = r7;
         float u698_0v = 0.0f, u698_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n4 = AWRAP(r0 + -r3); u698_0v = rs ? rvv : n4; u698_0z = rs ? rzd : n4; }
-        float u698_1v = 0.0f, u698_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x0.0p+0f; u698_1v = rs ? rvv : n7; u698_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x0.0p+0f; }
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
         f7 = f7 + pm1 * (pv7 - f7);
@@ -12789,7 +12697,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u698_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u698_0v)); pv7 = (1.0f - fmaxf(s1_sign(u698_0v), 0.0f) * s1_abs(s1_sign(u698_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u698_1v)); pv11 = (1.0f - fmaxf(s1_sign(u698_1v), 0.0f) * s1_abs(s1_sign(u698_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r4 = n4;
         r7 = n7;
@@ -12844,8 +12752,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         float n5 = r5, n7 = r7;
         float u701_0v = 0.0f, u701_0z = 0.0f;
         { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n5 = (r6) + (-r4) + (r0); u701_0v = rs ? rvv : n5; u701_0z = rs ? rzd : n5; }
-        float u701_1v = 0.0f, u701_1z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x0.0p+0f; u701_1v = rs ? rvv : n7; u701_1z = rs ? rzd : n7; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n7 = 0x0.0p+0f; }
         c_0c1 = r6;
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -12854,7 +12761,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
         pm1 = 1.0f; pv4 = s1_abs(s1_sign(u701_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u701_0v)); pv7 = (1.0f - fmaxf(s1_sign(u701_0v), 0.0f) * s1_abs(s1_sign(u701_0z)));
-        pm2 = 1.0f; pv9 = fminf(1.0f, 1.0f + s1_sign(u701_1v)); pv11 = (1.0f - fmaxf(s1_sign(u701_1v), 0.0f) * s1_abs(s1_sign(u701_1z)));
+        pm2 = 0.0f;
         pm4 = 0.0f;
         r5 = n5;
         r7 = n7;
@@ -12913,8 +12820,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
     /* 705: 1806 6062 2fe0 00c6 0013 bb00 */
     {
         float n2 = r2, n6 = r6;
-        float u705_0v = 0.0f, u705_0z = 0.0f;
-        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.3bb0000000000p-12f; u705_0v = rs ? rvv : n6; u705_0z = rs ? rzd : n6; }
+        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; n6 = 0x1.3bb0000000000p-12f; }
           n2 = c_0c6;
         f4 = f4 + pm1 * (pv4 - f4);
         f5 = f5 + pm1 * (pv5 - f5);
@@ -12922,7 +12828,7 @@ static inline __attribute__((always_inline)) void tb03_voice_b(KARGS_B)
         f9 = f9 + pm2 * (pv9 - f9);
         f11 = f11 + pm2 * (pv11 - f11);
         f17 = f17 + pm4 * (pv17 - f17);
-        pm1 = 1.0f; pv4 = s1_abs(s1_sign(u705_0z)); pv5 = fminf(1.0f, 1.0f + s1_sign(u705_0v)); pv7 = (1.0f - fmaxf(s1_sign(u705_0v), 0.0f) * s1_abs(s1_sign(u705_0z)));
+        pm1 = 0.0f;
         pm2 = 0.0f;
         pm4 = 0.0f;
         r2 = n2;
