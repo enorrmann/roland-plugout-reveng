@@ -343,7 +343,7 @@ Consequences:
 
 **State (2026-11-04): works on the device, 6 voices, «sounds very nice» (user).** Build:
 `sdk/s1cc/s1cc build sdk/s1cc/examples/edm/edm_string.c && KERNEL=sdk/s1cc/build/edm_string sh
-examples/system_s1cc/build.sh` (`EDM_STR=1 EDM_STR_ONE=1` come from the kernel's `S1_BUILD`) → `plugins/MP-EDMSTR` (the
+examples/system_s1cc/build.sh` (`EDM_LINES=1 EDM_STR_ONE=1` come from the kernel's `S1_BUILD`) → `plugins/MP-EDMSTR` (the
 build says «8 voices»: those of the slave; the assigner of region 0 uses the 6 strings).
 
 The form that works (`EDM_STR_ONE`, the last of the table of tests below):
@@ -400,6 +400,16 @@ string engine); master `edm_str.s master_pstr`, 6 voices:
 Measured on the device (OSC2 COLOR, note 48, `disp.wav`): minimum, partials at +1 cent; maximum of the 50-cent version:
 2nd +5, 4th +18, 8th +55 (the computed values) → barely audible; hence the curve `300 amt³`.
 
+**The same string in C (MP-PLSTRC, 2026-11-10): works on the device** (first as MP-PLSTRC-T; user: «funciona»). `edm_plstring.c` now has the loop in `S1_MASTER` and
+its tuning (the bisection of `pl_loop`) in an `S1_VOICE_PARAM`, through the line intrinsics `s1_line_tap` /
+`s1_line_write` ([Vol. V ch. 1](../vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.5); no `EDM_STR_*` option.
+The frame (slave → master words, line map, request block, master parameters) is now named `EDM_LINES=1` (before
+2026-11-10: `EDM_LINES`); `S1_MASTER` turns it on. First install (2026-11-10) was silent: build.sh had compiled region 0 without
+the frame (it read only the option), so no line was mapped; fixed the same day.
+The assembly form that ran is kept as `edm_plstring_asm.c` (`pl_sim.py`). `km_sim.py`: master program vs the native C
+96…115 dB, pitches ±2.5 cents; 363 master instructions. On the device: plays (2026-11-10); bank-0 words
+`0356`…`0371` of master B and the ages stored by the main are now proven (`asm/proven_addresses.txt`).
+
 **BLOWN (MP-BLOWN, `EDM_STR_BLOWN=1`): works** (2026-11-04, «sounds good»). Braids `RenderBlown` (reed + tube, 6 voices) in
 `master_blown`; the breath is made on the slave (`edm_blown.c`). Changes against Braids, measured:
 
@@ -451,7 +461,7 @@ table at each note: `NAME=MP-EDMSTRL PARAMLOG=1` (id `0x3D00` state, `0x3D01 + k
 | piece | where | what |
 |---|---|---|
 | excitation | `edm_string.c` (slave, DSP A of the kernel) | noise burst of 1–16 ms (OSC1 COLOR) × OSC1 MIX at each note, like `edm_pluck.c` |
-| transport | `host_b.s head_b`, `.if EDM_STR` | no mix: the output of voice v × `C000` → IOMD `6006 + v` (8 words, the ones the OS's stock mixer reads on the master: [code], §1 of [Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) Part B) |
+| transport | `host_b.s head_b`, `.if EDM_LINES` | no mix: the output of voice v × `C000` → IOMD `6006 + v` (8 words, the ones the OS's stock mixer reads on the master: [code], §1 of [Vol. I ch. 3](../vol1_system_architecture/bus_interconnect.md) Part B) |
 | lines | `model.c edm_str`, in `load` | one `FC3C` data queue `{0x110, 41 × 8 bytes}`: per voice one write `[4040 + 8v]` → `0x440000 + 0x4000 v` and four reads `[4041/43/45/47 + 8v]` ← that address `+ d … + d + 3`; a zero entry behind (entries 34–74 of the table). Even words write, odd words read (the OS's convention) |
 | pitch | `model.c edm_str_note`, at each note | another `FC3C` queue with the voice's four reads (`d` of the note) and `f` at `C020 + v` (`FCEC`) |
 | loop | `microcode/edm_str.s master_str` (main program of master B, 220 instructions, one per line like `edm_ecf.s`) | `F0 = a (y0 + y2) + c y1`, `F1 = a (y1 + y3) + c y2` (linear-phase filter `[a, 1 − 2a, a]`, 1 sample), `z = F0 + f (F1 − F0)`, `w = x + fb z` → `[4040 + 8v]`; the sum × 0.5 × VOLUME → send of the effect |
@@ -1032,11 +1042,28 @@ Moreover the morph lines are remade in the DSP from the table with two fixed rea
 FIR that the DSP cannot do per sample, and filling each octave by the ARM (`FCEC`, ~6 s per table) does not scale. Only a
 compromise remains open: ONE filtered table for the high range instead of the morph lines.
 
+**The read noise found: holes in the stored table (2026-11-10, measured).** The 17–22 dB excess over the read model
+(above) was not the read. Steps, all with `WT_LINES=0` and `80's PWM.wav` unless said:
+
+| build | what | result |
+|---|---|---|
+| WT-IAGE-T (`WT_IAGE_TEST=1`, 3 voices) | phase as whole samples + fraction `q`; OSC2 COLOR picks the read live: the `tapreq`'s 1/64 fraction with a fractional age (as before), or `1 − q` of 1 / 2 samples before with a whole age (as MP-PLSTRING) | flat −43 dB non-harmonic over 20 s, whatever the knob (`wt_iage_203736.raw`); the residue: sidebands at f₀ ± 16.6 Hz and a line at 114.2 Hz = the folds of harmonics 733 / 734 at 96 kHz: high-frequency content in the TABLE, not the read. Emulator (`wt_iage_sim.py`): the three reads behave as designed |
+| WT-DIAG-SIN-T (`WT_DIAG=1`, a sine table: 31 frames × one cycle) | left = the loop itself, right = voice 0's read | loop vs a perfect sine **−20.8 dB**: ~400 samples per lap at **0**, 80 % the same every lap (stored), in residue-3 runs; the read is as bad (−20.8 dB): the holes are all of it |
+| WT-FILL2-T (coverage, one pair per sample) | | worse: 20 % of the samples hold a neighbour's value: the pair (value, then index) is not atomic, a slot reused every 2 samples is seen with the new value and the old index |
+| WT-FILL3-T (coverage per residue class, pairs 3 apart; 6 rounds, lead 3 then 5) | | 246 zeros per lap, **96 samples apart** (the ARM's 1 ms tick loses the pair being sent); lead 5 lets a slot be reused before `c` reaches its index (k ≤ t + 7, reuse at t + 6), so the second rounds repaired nothing |
+| **WT-FILL4-T** (9 rounds, each class three times, lead 3) | `WT_FILLCOV=1`, now the default | **0 holes, the loop vs the sine −97.7 dB**; voice 0's read −60.0 dB non-harmonic, H2–H4 ≈ −120 dB (`wt_fill4_205635.raw`) |
+
+Cause [measured]: the old index-gated fill counted its 9 passes in fill time (blocks of ≤ 500 ms, one per note, `c`
+running on between notes), so some indices were never sent, and each lost pair stayed a 0 for ever; each hole is a
+one-sample spike that, read at the note's pitch, folds back as non-harmonic noise. The coverage fill (`model.c`
+`WT_FILLCOV`) ends a round only when every index of its residue class was sent. What remains (−60 dB on a sine) is the
+read path's own floor; the tapreq fraction test can be repeated on a clean table. WT-LINES8 rebuilt with it.
+
 **Possible improvement (not done): longer tables in several lines.** Today the table lives in ONE line of the EDM
 (`WT_A = 0x440000`, loop of `WT_LEN`); the 6 voices read from that same line with one `tapreq` each (6 per sample = the
 measured limit, §3.3.5). A line does not go beyond `WT_GAP` = 262 144 samples (2.73 s: the writer of the OS's delay at
 `0x400000`, §3.3.6). For more, split the table into several looped lines (each with its write/read pair in the map table,
-like those of `EDM_STR` at `0x440000 + 0x4000 v`, loaded with `FC3C`), one after another: the recirculation goes through
+like those of `EDM_LINES` at `0x440000 + 0x4000 v`, loaded with `FC3C`), one after another: the recirculation goes through
 the entries of the map table, not through `tapreq`, so it **costs no voices**; the voice keeps one `tapreq` and chooses the
 line by the base of its request. Open: how many map entries and how much EDM remain free, and the size of the table in
 region 0 (≈ 0.94 MB per region, from the project's notes on long samples: ≈ 470 000 int16 samples ≈ 4.9 s), which limits
@@ -1117,7 +1144,7 @@ notes `0x110+v` and velocities `0x120+v`, also of group 2, do arrive). If it doe
 
 | piece | what it does | where |
 |---|---|---|
-| `s1_delay_write(line, x)` / `s1_delay_read(line, d)` (`d` float, interpolated) | one line per voice in bank 0: the ring reserver gives it `b`, takes the rest of the state out of `S + b … S + b + dmax`; `hset h6` + `ldidx` | `s1dsp.h`, `graph.cpp` (today E303: computed index into a state array), `kernel.cpp` (reservation), `make_s1cc.py` (that the host does not overwrite the line) |
+| `s1_delay_write(line, x)` / `s1_delay_read(line, d)` in bank 0 of the slave (the EDM ones on master B exist: `s1_line_write` / `s1_line_tap`, Vol. V ch. 1 §3.5) | one line per voice in bank 0: the ring reserver gives it `b`, takes the rest of the state out of `S + b … S + b + dmax`; `hset h6` + `ldidx` | `s1dsp.h`, `graph.cpp` (today E303: computed index into a state array), `kernel.cpp` (reservation), `make_s1cc.py` (that the host does not overwrite the line) |
 | `S1_TABLE(name, n)` in bank 5 + `s1_table(name, phase)` | a table the ARM writes (from a function that runs on the PC, like `S1_PARAM`) and the DSP reads with `da` interpolating | `s1dsp.h`, `lower.cpp` (`ldb5`), `engine.c` (copy with `FD6C` in `load` and when the knob moves) |
 | `S1_FRAMES(name, panel_id, n)` | control frames that the tick writes with `FCEC` (speech) | `engine.c` (tick), `make_s1cc.py` |
 | emulator | the ring of bank 0 is already exact; indexed bank 5 too (`emu/dspcore.h`) | — |

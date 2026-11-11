@@ -12,6 +12,9 @@
 |---|---|---|
 | `S1_DSP_A` | `float s1_dsp_a(void)` (with `extern "C"` in C++) | the voice on the slave's DSP A, every sample, every voice; returns the voice signal (≈ −1…1) |
 | `S1_DSP_B` | `float s1_dsp_b(float x)` | optional, the voice on the slave's DSP B; `x` = the host's voice signal |
+| `S1_MASTER` | `float s1_master(float x)` | optional, master DSP B, once per line voice; `x` = the voice's slave output; returns its contribution to the mix ([ch. 1](s1cc_compiler_internals.md) §3.5) |
+| `S1_VOICE_PARAM(name, count, panel_a, panel_b)` | a `static` function `s1_vparam_fn_<name>(int note, int ka, int kb, float *out)` and a descriptor `s1_vparam_desc_<name>` (type `s1_vparam_desc`) in section `s1_vparams` | per-voice table, computed on the PC for note 0..127 and `S1_VOICE_STEPS` = 8 steps of each knob (`ka`, `kb` = 0, 36, …, 255; panel 0: 128); region 0 writes the voice's row into master parameters at each note and knob step. `S1_MASTER` only |
+| `s1_vparam(name, i)` | `s1_vparam_get(&s1_vparam_desc_<name>, i)` | value `i` of the voice's row |
 | `S1_INIT` | `void s1_init(void)` | optional; runs on the PC only, before the reference and each profiling scenario; the state it leaves is the DSP's initial state |
 | `S1_PARAM(name, panel_id, count)` | a `static` function `s1_param_fn_<name>(int knob, float *out)` and a descriptor `s1_param_desc_<name>` in section `s1_params` | knob table: computed on the PC for knob = 0..255; on the synth the ARM writes the knob's row into DSP parameters (row 128 at load, then whenever the control moves) |
 | `s1_param(name, i)` | `s1_param_get(&s1_param_desc_<name>, i)` | value `i` of the knob table |
@@ -59,10 +62,13 @@ after it); `S1_FN` = `const, nothrow` (a function of its arguments only).
 | `float s1_env(int i)` | `S1_IN` | `S1_DSP_B` only: host envelope i, 0..1 (0 = AMP, 1 = FILTER); the native reference and `check` give the gate | B |
 | `float s1_color(int i)` | `S1_IN` | `S1_DSP_A` only: OSC1 (0) / OSC2 (1) COLOR, 0..1, with its COLOR MOD source; reference and `check`: the knob (`color0=K` / `color1=K`, default 128) | A |
 | `float s1_lfo_filter(void)`, `float s1_lfo_amp(void)` | `S1_IN` | host LFO → FILTER (octaves −4..+4) and → AMP (gain 0..1); on A and B; reference and `check`: 0 and 1 | A, B |
+| `float s1_line_tap(int line, float d, int k)` | `S1_IN` | `S1_MASTER` only: `w[n − d − 1 − k]` of the voice's line `line`, `k` 0 / 1, `d` whole samples (one `d` per line; it acts one sample late) | M |
+| `void s1_line_write(int line, float w)` | — | `S1_MASTER` only: write `w` into the voice's line this sample | M |
+| `float s1_vparam_get(const s1_vparam_desc *, int)` | `S1_IN` | used through `s1_vparam(name, i)` | M |
 | `float s1_host_mix(void)` | `S1_IN` | only `s1cc fuse` calls it: the host's SUB / NOISE between A and B | (fused voice) |
 
-"A / B only" restrictions are enforced by the compiler with errors E114/E115 (export/import), E117 (`s1_env` in A) and
-E119 (`s1_color` in B) ([ch. 1](s1cc_compiler_internals.md) §9.2.2, §9.2.7).
+"A / B only" restrictions are enforced by the compiler with errors E114/E115 (export/import), E117 (`s1_env` in A),
+E119 (`s1_color` in B) and E122–E127 (`S1_MASTER`: only `s1_gate`, `s1_param`, `s1_vparam` and the line intrinsics) ([ch. 1](s1cc_compiler_internals.md) §9.2.2, §9.2.7).
 
 ### 2.1 Notes
 

@@ -35,7 +35,8 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/vol5_toolchain_compiler_sdk/s1cc_c
                 DSP B instructions per voice; the sine is a true sine (examples/system_s1cc/README.md §3.6)
   SPLIT=auto|n  a kernel built with s1cc --fused: voices 0..n-1 run the whole voice on DSP A, the rest on DSP B;
                 auto (default) balances the two DSPs (examples/system_s1cc/README.md §1.3)
-  EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5):
+  EDM_LINES=1   (automatic with S1_MASTER) own lines in the delay memory of master B, by default
+                a Karplus-Strong string per voice (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5):
                 the kernel makes the excitation; AMP DECAY / AMP RELEASE = feedback held / released, FILTER CUTOFF =
                 brightness (sdk/s1cc/examples/edm/edm_string.c)
   EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8, §4.4):
@@ -96,10 +97,13 @@ EDM_FB=${EDM_FB:-0.975}
 # master B's map table (model.c edm_ecf, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.4)
 [ -n "${EDM_ECF+x}" ] || EDM_ECF=$(kopt EDM_ECF)
 [ "$EDM_ECF" = 0 ] && EDM_ECF=
-# EDM_STR=1 (make_s1cc.py option): a Karplus string per voice in its own delay-memory line (model.c edm_str,
-# microcode/edm_str.s, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5)
-[ -n "${EDM_STR+x}" ] || EDM_STR=$(kopt EDM_STR)
-[ "$EDM_STR" = 0 ] && EDM_STR=
+# EDM_LINES=1 (make_s1cc.py option): own delay-memory lines on master B, one
+# or more per voice (model.c edm_str, microcode/edm_str.s, docs/vol6_reference_designs_applications/mutable_memory.md
+# §3.3.5); the program on them: an EDM_STR_* assembly string, or the kernel's S1_MASTER
+[ -n "${EDM_LINES+x}" ] || EDM_LINES=$(kopt EDM_LINES)
+[ "$EDM_LINES" = 0 ] && EDM_LINES=
+# a kernel with S1_MASTER (.dsp M) always: region 0 maps its lines and writes its master parameters (STR_KM)
+grep -q '^\.dsp M' "$KERNEL/voice.s1k" && EDM_LINES=1
 # EDM_GLIDE=1 (with EDM_KS): region 0 patches the effect's delay-time smoothing in the OS's copy of its master-B set
 [ -n "${EDM_GLIDE+x}" ] || EDM_GLIDE=$(kopt EDM_GLIDE)
 [ "$EDM_GLIDE" = 0 ] && EDM_GLIDE=
@@ -143,7 +147,7 @@ with open(out, 'w') as f:
 PY
 fi
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
- -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_STR:+-DEDM_STR} ${EDM_WT:+-DEDM_WT} ${SL_LOAD:+-DSL_LOAD} ${WTL_WITNESS_TEST:+-DWTL_WITNESS_TEST} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
+ -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_LINES:+-DEDM_LINES} ${EDM_WT:+-DEDM_WT} ${SL_LOAD:+-DSL_LOAD} ${WTL_WITNESS_TEST:+-DWTL_WITNESS_TEST} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
 for r in 0 1; do
     if [ $r = 0 ]; then SRC=model.c; BASE=0x60800000; CODE=0x9000; else SRC=engine.c; BASE=0x60200000; CODE=0x1000; fi
     arm-none-eabi-gcc $CFLAGS -c "$HERE/$SRC" -o "$B/region$r.o"

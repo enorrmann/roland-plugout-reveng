@@ -59,6 +59,28 @@
  *   s1_range(x, lo, hi)   x, declaring its range: lo and hi go to s1cc as constants, and the profile must reach
  *                         the call (a branch that always takes the same way leaves it unseen: docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2)
  *
+ * Master DSP B and the delay memory (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.5; SYSTEM-S1CC builds it with its frame EDM_LINES):
+ *   S1_MASTER { ... return y; }   optional: master DSP B, every sample, once per LINE VOICE (6 of them, as many as
+ *                                   the delay memory serves: 6 own requests per sample, docs/vol6_reference_designs_
+ *                                   applications/mutable_memory.md §3.3.5). x = what the voice's slave program
+ *                                   returned (S1_DSP_A / S1_DSP_B, sent to the master instead of the mix); y = the
+ *                                   voice's output, summed over the voices (x VOLUME) by the host. Its state words are
+ *                                   its own (one copy per voice, bank 0 of the master), not shared with A / B
+ *   s1_line_write(line, w)  S1_MASTER only: write w into the voice's delay line `line` (a constant, 0 .. 5; lines
+ *                         per voice x voices <= 6) this sample. Each line holds 16 384 samples
+ *   s1_line_tap(line, d, k) S1_MASTER only: w[n - d - 1 - k] of that line, k = 0 or 1 (two neighbours, for an
+ *                         interpolation: x0 + g (x1 - x0) is a delay of d + 1 + g). d: whole samples, 0 .. 16 380, the
+ *                         same d for both k of a line (ONE delay-memory request per line and sample). The request
+ *                         takes d of the previous sample (the host's tapreq reads the age the main stored then)
+ *   S1_VOICE_PARAM(name, count, panel_a, panel_b) { out[0..count-1] = f(note, ka, kb); }   a per-voice table: runs
+ *                         on the PC at build time for note = 0..127 and 8 steps of each knob (ka, kb = 0, 36, 73, ..,
+ *                         255; a panel_id of 0: no knob, always 128). On the synth region 0 writes the voice's row into
+ *                         master parameters at every note and when a knob changes step. What the DSP cannot compute
+ *                         (a tuning by bisection, atan2, a table per note) goes here. S1_MASTER only
+ *   s1_vparam(name, i)    value i of the voice's S1_VOICE_PARAM row
+ *   s1_gate() and s1_param(...) also work in S1_MASTER (a master parameter per voice / per table, region 0 writes
+ *   them); the other inputs do not reach the master.
+ *
  * Native ops: one call = the DSP's own op (docs/vol2_dsp_core_isa/core_architecture.md §5, measured exact on the SYSTEM-8 master with
  * re/dspnative.py; docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §7.6 has the table, costs and limits). s1cc also uses them on its own where they are
  * shorter (exp2, exp, divisions, floor, multiplies by big powers of two); these calls ask for them explicitly:
@@ -127,6 +149,8 @@ S1_EXTERN S1_IN float s1_env(int i);
 S1_EXTERN S1_IN float s1_color(int i);
 S1_EXTERN S1_IN float s1_lfo_filter(void);
 S1_EXTERN S1_IN float s1_lfo_amp(void);
+S1_EXTERN S1_IN float s1_line_tap(int line, float d, int k);
+S1_EXTERN void s1_line_write(int line, float w);
 S1_EXTERN S1_IN float s1_host_mix(void);      /* only s1cc fuse calls it: the host's SUB / NOISE between A and B */
 
 #define s1_param(name, i) s1_param_get(&s1_param_desc_##name, (i))
@@ -136,6 +160,21 @@ S1_EXTERN S1_IN float s1_host_mix(void);      /* only s1cc fuse calls it: the ho
     __attribute__((used, section("s1_params"))) const s1_param_desc s1_param_desc_##name =                   \
         { #name, panel_id, count, s1_param_fn_##name };                                                      \
     static void s1_param_fn_##name(int knob, float *out)
+
+typedef struct s1_vparam_desc {
+    const char *name;
+    int panel_a, count;            /* the same places as s1_param_desc's panel_id, count (s1cc reads both alike) */
+    int panel_b;
+    void (*fn)(int note, int ka, int kb, float *out);
+} s1_vparam_desc;
+S1_EXTERN S1_IN float s1_vparam_get(const s1_vparam_desc *param, int i);
+#define s1_vparam(name, i) s1_vparam_get(&s1_vparam_desc_##name, (i))
+#define S1_VOICE_PARAM(name, count, panel_a, panel_b)                                                         \
+    static void s1_vparam_fn_##name(int note, int ka, int kb, float *out);                                   \
+    __attribute__((used, section("s1_vparams"))) const s1_vparam_desc s1_vparam_desc_##name =                \
+        { #name, panel_a, count, panel_b, s1_vparam_fn_##name };                                             \
+    static void s1_vparam_fn_##name(int note, int ka, int kb, float *out)
+#define S1_VOICE_STEPS 8           /* steps of each knob of an S1_VOICE_PARAM (knob >> 5) */
 
 /* S1_NOTE_RANGE(lo, hi): the MIDI notes the voice is played at (default 0..127). The profiling runs only those
  * notes, so what only happens beyond them (Braids' CSAW: both edges in one sample above ~note 115) is not compiled */
@@ -153,5 +192,6 @@ S1_EXTERN S1_IN float s1_host_mix(void);      /* only s1cc fuse calls it: the ho
 #define S1_DSP_A S1_EXTERN float s1_dsp_a(void)
 #define S1_INIT S1_EXTERN void s1_init(void)
 #define S1_DSP_B S1_EXTERN float s1_dsp_b(float x)
+#define S1_MASTER S1_EXTERN float s1_master(float x)
 
 #endif

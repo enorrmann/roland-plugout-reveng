@@ -86,7 +86,7 @@ struct StateVar {
     int bits = 0;
     bool isUnsigned = false;
     double init = 0;
-    std::string dsp;             // "A" / "B"
+    std::string dsp;             // "A" / "B" / "M"
     Node *final = nullptr;       // value at the end of the sample (stored back to the ring)
 };
 
@@ -99,11 +99,12 @@ struct Island {
 };
 
 struct Dsp {
-    std::string name;            // "A" / "B"
+    std::string name;            // "A" / "B" / "M" (S1_MASTER: master DSP B, one copy per line voice)
     llvm::Function *fn = nullptr;
     std::vector<std::unique_ptr<Node>> nodes;   // topological order
     Node *ret = nullptr;
     std::map<int, Node *> exports;
+    std::map<int, Node *> lineWrites;   // M: s1_line_write(line, w): the value written into line `line` this sample
     std::vector<int> states;     // indices of the state words this DSP writes
     std::vector<Island> islands; // candidates (several roots per bad node)
 };
@@ -112,9 +113,13 @@ struct Program {
     llvm::Module *M = nullptr;
     std::vector<StateVar> states;
     Dsp A, B;                    // B.fn == nullptr: no S1_DSP_B
+    Dsp MB;                      // S1_MASTER (s1_master): master DSP B, delay-memory lines; M.fn == nullptr: none
+    std::vector<Dsp *> dsps() { return {&A, &B, &MB}; }
     bool fused = false;          // s1cc fuse: A is S1_DSP_B(S1_DSP_A()) in one function (__s1_fused, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.4)
     std::map<std::string, llvm::GlobalVariable *> params;   // name -> descriptor
     std::map<std::string, int> paramCount;
+    std::map<std::string, int> vparamCount; // S1_VOICE_PARAM tables (per note and two knob steps; DSP M only)
+    std::map<std::string, std::string> paramDsp;   // table name -> the one DSP that reads it ("M" or the slave's)
     // knob-derived columns (§4.6): `prof sweep` values, record id -> knob table -> value at knob 0..255; build() turns
     // every value that depends on one knob only into a table of its own (derived: name -> 256 values, base: its knob)
     std::map<int, std::map<std::string, std::vector<double>>> sweep;
@@ -231,6 +236,11 @@ public:
     bool fuseMac = false;                           // mad / add of two products -> one MAC op (LowerOptions::fuseMac)
     bool fuseAbs = false;                           // |a| + b -> absadd, b - |a| -> subabs (LowerOptions::native)
     bool fuseSum = false;                           // (a + b) + c -> sum8 (LowerOptions::native)
+    // master DSP B (S1_MASTER): an immediate whose value runs differently there than in the emulator (a non-round
+    // 16-bit immediate: `mov r3, #11.49609` ran as 5.748, 2026-11-05) is loaded from {K:<value>} instead, a master
+    // parameter the host writes; mad -> mul + addxy (only the forms of asm/master_b_forms.txt ran there)
+    bool master = false;
+    static bool masterImmOk(double a);
     KVal *sum3(KVal *a, KVal *b, KVal *c);          // a + b + c: sum8
     std::vector<std::string> lines();
     int units() const;

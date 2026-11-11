@@ -69,7 +69,28 @@ KVal *Kernel::val(const std::string &name) {
     return vals_.back().get();
 }
 
+// master DSP B: the immediates seen right there (0, 2^-14 .. 8 with at most 5 significant bits: 1, 0.5, 0.125, 2^-6,
+// 5.75 ...; asm/master_b_forms.txt); any other value comes from a parameter word {K:<value>} (Kernel::master)
+bool Kernel::masterImmOk(double a) {
+    if (a == 0)
+        return true;
+    double m = std::fabs(a);
+    if (m > 8 || m < std::ldexp(1.0, -14))
+        return false;
+    int e;
+    double f = std::frexp(m, &e);                   // m = f 2^e, f in [0.5, 1)
+    double q = std::ldexp(f, 5);                    // 5 significant bits: an integer
+    return q == std::floor(q);
+}
+
 KVal *Kernel::op(const std::string &fmt, std::vector<KOperand> args, KVal *acc) {
+    if (master)                                     // master DSP B: unsafe immediates from {K:<value>}
+        for (auto &a : args)
+            if (!a.v && !masterImmOk(a.imm)) {
+                char buf[64];
+                snprintf(buf, sizeof buf, "{K:%.17g}", a.imm);
+                a = KOperand::of(load(buf, "const"));
+            }
     // the same op on the same values again (two C expressions that lower alike): its first result (values are
     // single-assignment, ops have no side effect; loads and stores are not ops)
     for (auto it = ops_.rbegin(); it != ops_.rend(); ++it) {
@@ -123,6 +144,11 @@ void Kernel::comment(const std::string &text) {
 KVal *Kernel::mov(KOperand y) {
     if (!y.v && std::fabs(y.imm) >= 512)
         fail("E701", "kernel: constant " + std::to_string(y.imm) + " outside the DSP range (+-512)");
+    if (master && !y.v && !masterImmOk(y.imm)) {
+        char buf[64];
+        snprintf(buf, sizeof buf, "{K:%.17g}", y.imm);
+        return load(buf, "const");
+    }
     return op("mov {d}, {0}", {y});
 }
 // an immediate the DSP holds well: |a| <= 256, and below 2^-12 only a power of two (the grid is 2^-32 there)
@@ -238,6 +264,8 @@ KVal *Kernel::macOf(KOperand p, KOperand q, KOperand r, KOperand s) {
 }
 
 KVal *Kernel::mad(KVal *acc, KVal *x, KOperand y) {
+    if (master)                                     // no mad on master DSP B (asm/master_b_forms.txt)
+        return add(acc, KOperand::of(mul(x, y)));
     if (fuseMac)                                    // acc = p q: acc + x y = p q + x y, one MAC
         if (const KOp *m = productOf(ops_, acc))
             if (KVal *r = macOf(m->args[0], m->args[1], KOperand::of(x), y))

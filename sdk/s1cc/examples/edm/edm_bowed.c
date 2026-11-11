@@ -8,7 +8,7 @@
 #include "../mutable_ported/include/mp_dsp_a.h"
 #include "../mutable_ported/include/mp_dsp_b.h"
 
-S1_BUILD("NAME=MP-BOWED EDM_STR=1 EDM_STR_ONE=1 EDM_STR_BOWED=1");
+S1_BUILD("NAME=MP-BOWED EDM_LINES=1 EDM_STR_ONE=1 EDM_STR_BOWED=1");
 /* bow velocity 0.04 .. 0.16 (above it the string goes to its second mode at most pressures: bowed_sim.py) */
 S1_PARAM(level, S1_OSC1_MIX, 1) { out[0] = 0.04f + 0.12f * knob / 255.0f; }
 

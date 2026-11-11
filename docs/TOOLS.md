@@ -3780,7 +3780,8 @@ S1_BUILD("NAME=MY-SYNTH ARM_ENV=1 ..."), docs/vol5_toolchain_compiler_sdk/s1cc_c
                 DSP B instructions per voice; the sine is a true sine (examples/system_s1cc/README.md §3.6)
   SPLIT=auto|n  a kernel built with s1cc --fused: voices 0..n-1 run the whole voice on DSP A, the rest on DSP B;
                 auto (default) balances the two DSPs (examples/system_s1cc/README.md §1.3)
-  EDM_STR=1     a Karplus-Strong string per voice in the delay memory of master B (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5):
+  EDM_LINES=1   (automatic with S1_MASTER) own lines in the delay memory of master B, by default
+                a Karplus-Strong string per voice (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5):
                 the kernel makes the excitation; AMP DECAY / AMP RELEASE = feedback held / released, FILTER CUTOFF =
                 brightness (sdk/s1cc/examples/edm/edm_string.c)
   EDM_WT=1      a wavetable stored whole in the delay memory of master B (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.8, §4.4):

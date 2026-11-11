@@ -12,8 +12,12 @@ import re
 PH = re.compile(r'\{([^}]+)\}')
 
 
+VSTEPS = 8                                       # S1_VOICE_PARAM: steps of each knob (knob >> 5)
+
+
 def read_tables(path):
-    """{name: (panel_id, count, [256 x count floats])} from `PROG tables`"""
+    """{name: (panel_id, count, [256 x count floats])} from `PROG tables`; an S1_VOICE_PARAM:
+    {name: ((panel_a, panel_b), count, [128 notes x 8 x 8 steps x count floats])}"""
     out, f = {}, open(path).read().split('\n')
     i = 0
     while i < len(f):
@@ -23,6 +27,12 @@ def read_tables(path):
             rows = [list(map(float, f[i + 1 + v].split())) for v in range(256)]
             out[name] = (panel, count, [x for r in rows for x in r])
             i += 257
+        elif p and p[0] == 'v':
+            name, pa, pb, count = p[1], int(p[2]), int(p[3]), int(p[4])
+            n = 128 * VSTEPS * VSTEPS
+            rows = [list(map(float, f[i + 1 + r].split())) for r in range(n)]
+            out[name] = ((pa, pb), count, [x for r in rows for x in r])
+            i += 1 + n
         else:
             i += 1
     return out
@@ -35,6 +45,9 @@ def on_grid(x):
 class Kernel:
     def __init__(self):
         self.states, self.params, self.exports, self.inputs_b, self.dsps = [], [], {}, [], {}
+        # S1_MASTER (master DSP B, dsps['M']): its states, its S1_PARAMs, its S1_VOICE_PARAMs and lines per voice,
+        # apart from the slaves' (states / params are the slaves' only)
+        self.mstates, self.mparams, self.vparams, self.lines = [], [], [], 0
         self.options, self.compile = {}, []     # S1_BUILD (.option KEY VALUE), S1_COMPILE (.compile ...)
         self.fused = False                      # .fused: dsps['A'] is the whole voice, S1_DSP_B(S1_DSP_A())
 
@@ -46,10 +59,16 @@ class Kernel:
             if not p or line.startswith(';') and cur is None:
                 continue
             if p[0] == '.state':
-                k.states.append({'index': int(p[1]), 'dsp': p[2], 's': float(p[3]), 'o': float(p[4]),
-                                 'name': p[5]})
+                (k.mstates if p[2] == 'M' else k.states).append(
+                    {'index': int(p[1]), 'dsp': p[2], 's': float(p[3]), 'o': float(p[4]), 'name': p[5]})
             elif p[0] == '.param':
-                k.params.append({'name': p[1], 'count': int(p[2]), 'scale': float(p[3])})
+                (k.mparams if p[4:5] == ['M'] else k.params).append(
+                    {'name': p[1], 'count': int(p[2]), 'scale': float(p[3])})
+            elif p[0] == '.vparam':                 # name count scale0 .. scale(count - 1) M
+                k.vparams.append({'name': p[1], 'count': int(p[2]),
+                                  'scales': [float(x) for x in p[3:3 + int(p[2])]]})
+            elif p[0] == '.lines':
+                k.lines = int(p[1])
             elif p[0] == '.export':
                 k.exports[int(p[1])] = (float(p[2]), float(p[3]))
             elif p[0] == '.option' and cur is None:

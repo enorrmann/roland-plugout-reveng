@@ -6,7 +6,7 @@
 #include "../mutable_ported/include/mp_dsp_a.h"
 #include "../mutable_ported/include/mp_dsp_b.h"
 
-S1_BUILD("NAME=MP-BLOWN EDM_STR=1 EDM_STR_ONE=1 EDM_STR_BLOWN=1");
+S1_BUILD("NAME=MP-BLOWN EDM_LINES=1 EDM_STR_ONE=1 EDM_STR_BLOWN=1");
 /* Braids blows at 0.8 with noise +-0.68 .. 0.29 of it: on the device a square with noise (2026-11-04: H3 -10 dB,
    H5 -16 dB, H7 -15 dB, noise -30 dB). Here the pressure is OSC1 MIX, 0.35 (just above the reed's threshold: round)
    .. 0.9 (Braids': square), and the noise OSC1 COLOR, 0 .. 0.25 of the pressure */

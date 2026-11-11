@@ -273,7 +273,8 @@ const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_in
                                         "s1_export", "s1_import", "s1_ldb5", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env",
                                         "s1_color", "s1_lfo_filter", "s1_lfo_amp", "s1_host_mix",
                                         "s1_range", "s1_floor", "s1_ceil", "s1_sign", "s1_abs", "s1_recip", "s1_exp",
-                                        "s1_log2", "s1_ldexp", "s1_sum3", "s1_mac2", "s1_sqrt", "s1_rsqrt"};
+                                        "s1_log2", "s1_ldexp", "s1_sum3", "s1_mac2", "s1_sqrt", "s1_rsqrt",
+                                        "s1_line_tap", "s1_line_write", "s1_vparam_get"};
 
 std::string intrinsicBase(const std::string &fn) { return fn.substr(5, fn.find('.', 5) - 5); }   // llvm.<base>.<type>
 
@@ -380,6 +381,7 @@ struct Builder {
     std::map<const Value *, Ptr> pmap;
     std::map<int, Node *> cur;           // state index -> current value
     std::map<std::string, Node *> inputs;
+    std::map<int, Node *> lineDelay;          // S1_MASTER: the d of each line's request (one per line)
 
     Builder(Program &p, Dsp &s) : P(p), S(s), DL(p.M->getDataLayout()) {}
 
@@ -552,7 +554,7 @@ struct Builder {
         for (auto &s : P.states)
             if (s.gv == gv && s.offset == off) {
                 if (s.dsp != S.name)
-                    fail("E302", "state `" + s.name + "` used by both S1_DSP_A and S1_DSP_B (" + where(at) + ")");
+                    fail("E302", "state `" + s.name + "` used by two of S1_DSP_A, S1_DSP_B, S1_MASTER (" + where(at) + ")");
                 return s.index;
             }
         StateVar s;
@@ -692,7 +694,7 @@ struct Builder {
         cur[idx] = pred ? sel(pred, v, old, v) : v;
     }
 
-    std::string paramName(Value *desc, long &count) {
+    std::string paramName(Value *desc, long &count, bool voice = false) {
         auto *gv = dyn_cast<GlobalVariable>(desc->stripPointerCasts());
         if (!gv || !gv->hasInitializer())
             fail("E112", "s1_param: unknown table " + where(desc));
@@ -703,8 +705,19 @@ struct Builder {
         auto *str = ngv ? dyn_cast<ConstantDataArray>(ngv->getInitializer()) : nullptr;
         count = cast<ConstantInt>(cs->getOperand(2))->getSExtValue();
         std::string name = str ? str->getAsCString().str() : gv->getName().str();
+        bool isVoice = gv->getSection() == "s1_vparams";
+        if (isVoice != voice)
+            fail("E113", std::string(voice ? "s1_vparam: not an S1_VOICE_PARAM" : "s1_param: not an S1_PARAM") +
+                             " descriptor (`" + name + "`) " + where(desc));
+        auto pd = P.paramDsp.find(name);
+        if (pd != P.paramDsp.end() && (pd->second == "M") != (S.name == "M"))
+            fail("E127", "table `" + name + "` read by S1_MASTER and by the slave " + where(desc) +
+                             ": the master's and the slaves' parameters are written apart (two S1_PARAMs)");
+        P.paramDsp[name] = S.name;
         P.params[name] = gv;
         P.paramCount[name] = (int)count;
+        if (voice)
+            P.vparamCount[name] = (int)count;
         return name;
     }
 
@@ -862,6 +875,9 @@ struct Builder {
         };
         if (fn == "s1_pitch" || fn == "s1_gate" || fn == "s1_trig" || fn == "s1_increment" || fn == "s1_dt" ||
             fn == "s1_rdt" || fn == "s1_lfo_filter" || fn == "s1_lfo_amp" || fn == "s1_host_mix") {
+            if (S.name == "M" && fn != "s1_gate")
+                fail("E122", fn + " in S1_MASTER " + where(CI) + ": only s1_gate, s1_param and s1_vparam reach the "
+                             "master (the note's tables go in an S1_VOICE_PARAM)");
             Node *&n = inputs[fn];
             if (!n) {
                 n = mk(fn == "s1_increment" ? NK::Increment : NK::Input, fn, {}, CI);
@@ -871,6 +887,8 @@ struct Builder {
             return;
         }
         if (fn == "s1_env") {                             // the host's envelopes: inputs of DSP B only
+            if (S.name == "M")
+                fail("E122", "s1_env in S1_MASTER " + where(CI) + ": the host's envelopes run on the slave");
             if (S.name != "B" && !P.fused)
                 fail("E117", "s1_env in S1_DSP_A " + where(CI) + ": the host's envelopes run on DSP B");
             long i = constArg(0);
@@ -898,6 +916,50 @@ struct Builder {
                 n->name = name;
             }
             vmap[CI] = n;
+            return;
+        }
+        if (fn == "s1_vparam_get") {                      // S1_VOICE_PARAM: per voice, written by region 0
+            if (S.name != "M")
+                fail("E123", "s1_vparam in S1_DSP_" + S.name + " " + where(CI) + ": the per-voice tables are written "
+                             "into the master (S1_MASTER only)");
+            long i = constArg(1);
+            long count = 0;
+            std::string name = paramName(CI->getArgOperand(0), count, true);
+            if (i < 0 || i >= count)
+                fail("E111", "s1_vparam(" + name + ", " + std::to_string(i) + "): index out of the table " + where(CI));
+            Node *n = mk(NK::Param, "param", {}, CI);
+            n->name = name;
+            n->c = (double)i;
+            vmap[CI] = n;
+            return;
+        }
+        if (fn == "s1_line_tap") {                        // a delay-memory request's result (the host's tapreq)
+            if (S.name != "M")
+                fail("E124", "s1_line_tap in S1_DSP_" + S.name + " " + where(CI) + ": the delay memory is the master's (S1_MASTER)");
+            long line = constArg(0), k = constArg(2);
+            if (line < 0 || line > 5 || k < 0 || k > 1)
+                fail("E125", "s1_line_tap(" + std::to_string(line) + ", d, " + std::to_string(k) + "): line 0..5, k 0 or 1 " + where(CI));
+            Node *d = arg(1);
+            Node *&first = lineDelay[line];
+            if (first && first != d)
+                fail("E126", "s1_line_tap: line " + std::to_string(line) + " read with two delays " + where(CI) +
+                             ": one request per line and sample (the same d for k = 0 and 1)");
+            first = d;
+            Node *n = mk(NK::Op, fn, {d}, CI);
+            n->name = "L" + std::to_string(line) + ":" + std::to_string(k);
+            n->c = (double)(line * 2 + k);
+            vmap[CI] = n;
+            return;
+        }
+        if (fn == "s1_line_write") {
+            if (S.name != "M")
+                fail("E124", "s1_line_write in S1_DSP_" + S.name + " " + where(CI) + ": the delay memory is the master's (S1_MASTER)");
+            int line = (int)constArg(0);
+            if (line < 0 || line > 5)
+                fail("E125", "s1_line_write(" + std::to_string(line) + ", w): line 0..5 " + where(CI));
+            Node *v = arg(1);
+            auto it = S.lineWrites.find(line);
+            S.lineWrites[line] = pred ? sel(pred, v, it != S.lineWrites.end() ? it->second : cst(0), v) : v;
             return;
         }
         if (fn == "s1_param_get") {
@@ -1481,6 +1543,8 @@ void markLive(Program &P, Dsp &S) {
         stack.push_back(S.ret);
     for (auto &kv : S.exports)
         stack.push_back(kv.second);
+    for (auto &kv : S.lineWrites)
+        stack.push_back(kv.second);
     std::set<int> rooted;
     for (bool more = true; more;) {
         while (!stack.empty()) {
@@ -1813,7 +1877,7 @@ void speculation(Dsp &S) {
 // Plaits' per-block coefficients from a knob). Run after islands(), so the island ids stay those of the profile.
 void deriveKnobColumns(Program &P) {
     assignProfIds(P);
-    for (Dsp *S : {&P.A, &P.B}) {
+    for (Dsp *S : P.dsps()) {
         if (!S->fn)
             continue;
         std::map<Node *, std::string> dep;      // "" constants only, a table name, "*" anything else
@@ -1844,6 +1908,8 @@ void deriveKnobColumns(Program &P) {
             roots.insert(S->ret);
         for (auto &kv : S->exports)
             roots.insert(kv.second);
+        for (auto &kv : S->lineWrites)
+            roots.insert(kv.second);
         for (int s : S->states)
             if (P.states[s].final)
                 roots.insert(P.states[s].final);
@@ -1870,6 +1936,8 @@ void deriveKnobColumns(Program &P) {
             P.derived[name] = v;
             P.derivedBase[name] = d;
             P.params[name] = P.params.at(d);
+            if (P.paramDsp.count(d))
+                P.paramDsp[name] = P.paramDsp.at(d);
             P.paramCount[name] = 1;
             n->kind = NK::Param;
             n->op = "param";
@@ -1902,7 +1970,7 @@ void relive(Program &P, Dsp &S) {
 void assignProfIds(Program &P) {
     int id = 0;
     std::map<Value *, int> ids;
-    for (Dsp *S : {&P.A, &P.B}) {
+    for (Dsp *S : P.dsps()) {
         if (!S->fn)
             continue;
         for (auto &n : S->nodes) {
@@ -1921,8 +1989,12 @@ void build(Program &P, Module &M) {
     P.M = &M;
     P.A.name = "A";
     P.B.name = "B";
+    P.MB.name = "M";
     P.A.fn = M.getFunction("s1_dsp_a");
     P.B.fn = M.getFunction("s1_dsp_b");
+    P.MB.fn = M.getFunction("s1_master");
+    if (P.MB.fn && P.MB.fn->isDeclaration())
+        P.MB.fn = nullptr;
     if (!P.A.fn || P.A.fn->isDeclaration())
         fail("E008", "no S1_DSP_A (s1_dsp_a) in the module");
     if (P.B.fn && P.B.fn->isDeclaration())
@@ -1930,7 +2002,7 @@ void build(Program &P, Module &M) {
     P.fused = M.getNamedGlobal("__s1_fused") != nullptr;
     if (P.fused && P.B.fn)
         fail("E014", "fused module with an s1_dsp_b: run s1cc fuse on the module before the other steps");
-    for (Dsp *S : {&P.A, &P.B}) {
+    for (Dsp *S : P.dsps()) {
         if (!S->fn)
             continue;
         Builder b(P, *S);
@@ -1960,11 +2032,11 @@ void build(Program &P, Module &M) {
         markLive(P, *S);
     }
     for (int k = 0; k < 4; k++)
-        for (Dsp *S : {&P.A, &P.B})
+        for (Dsp *S : P.dsps())
             if (S->fn)
                 signedness(P, *S);
     int id = 0;
-    for (Dsp *S : {&P.A, &P.B}) {
+    for (Dsp *S : P.dsps()) {
         if (!S->fn)
             continue;
         speculation(*S);
@@ -1992,7 +2064,7 @@ std::string diagnose(Module &M, const std::string &remarksText) {
         }
     }
     std::ostringstream o;
-    for (const char *voice : {"s1_dsp_a", "s1_dsp_b"}) {
+    for (const char *voice : {"s1_dsp_a", "s1_dsp_b", "s1_master"}) {
         Function *V = M.getFunction(voice);
         if (!V || V->isDeclaration())
             continue;
@@ -2030,7 +2102,7 @@ std::string diagnose(Module &M, const std::string &remarksText) {
                         w.push_back(at);
                 }
         }
-        std::string entry = std::string(voice) == "s1_dsp_a" ? "S1_DSP_A" : "S1_DSP_B";
+        std::string entry = std::string(voice) == "s1_dsp_a" ? "S1_DSP_A" : std::string(voice) == "s1_dsp_b" ? "S1_DSP_B" : "S1_MASTER";
         if (bad.empty())
             o << entry << " (" << voice << "): every call inlined, every instruction supported\n";
         else

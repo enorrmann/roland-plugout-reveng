@@ -1,4 +1,4 @@
-;; EDM_STR (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): a Karplus-Strong string per voice in the delay memory, on master B's main
+;; EDM_LINES (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): a Karplus-Strong string per voice in the delay memory, on master B's main
 ;; (0x1000). The slave sends voice v's excitation (the kernel's output) on IOMD 6006 + v (host_b.s head_b). Each voice
 ;; has its own line through master B's map table (region 0, model.c edm_str): write word W = STR_W + 8v at address
 ;; STR_A0 + v STR_DA, read words W + 1, W + 3, W + 5, W + 7 at that address + d, d + 1, d + 2, d + 3, so that this
@@ -412,6 +412,33 @@ st r6, [{FX_SEND[0]:04x}]
 .else
     st r6, [{FX_SEND[1]:04x}]
 .endif
+ld r2, [{FX_RET[0]:04x}]
+ld r3, [{FX_RET[1]:04x}]
+mov r4, r4
+st r2, [{M_OUT[0]:04x}]
+st r3, [{M_OUT[1]:04x}]
+mov r2, #0.0
+.for x in M_ZERO
+    st r2, [{x:04x}]
+.endfor
+
+
+;; KM (S1_MASTER): after the kernel's voices (make_s1cc.py master_km), their outputs (one bank-0 word each, outs)
+;; summed x STR_GAIN x VOLUME -> the OS effect's sends, as master_pstr; the effect's return -> the master out
+.fragment master_km_sum outs
+ld r6, [{outs[0]:04x}]
+.for a in outs[1:]
+    ld r0, [{a:04x}]
+    mov r7, r7
+    addxy r6, r6, r0
+.endfor
+ld r7, [c{M_VOLUME:03x}]
+mul r6, r6, #{STR_GAIN}
+mov r3, r3
+mul r6, r6, r7
+mov r3, r3
+st r6, [{FX_SEND[0]:04x}]
+st r6, [{FX_SEND[1]:04x}]
 ld r2, [{FX_RET[0]:04x}]
 ld r3, [{FX_RET[1]:04x}]
 mov r4, r4

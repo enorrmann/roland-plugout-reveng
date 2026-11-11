@@ -69,7 +69,7 @@ tapreq r2, 0
 hset h4, #256@0:24
 cond 0, 15, 8
 
-;; EDM_STR with STR_TAP (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): the strings' reads by tapreq instead of map-table reads (the
+;; EDM_LINES with STR_TAP (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): the strings' reads by tapreq instead of map-table reads (the
 ;; table cannot change at run time: the data queue drains only when the PLUG-OUT is selected, a live ARM store hung
 ;; the device, 2026-11-04). Per voice v two requests on its own line (base (STR_A0 + v STR_DA) / 16384, the OS's form
 ;; age - p, measured on our line by MP-EDMIDX: 48000 -> 48001): age d_v (C030 + v, written by region 0 at every note)
@@ -102,6 +102,21 @@ cond 0, 15, 8
     ld r2, [c{STR_PAGE0 + v:03x}]
     hset h4, #{(STR_A0 + STR_DA * v) // 16384}@0:24
     hset h5, #{(STR_RES + 8 * v - 0x4000) / 16384}@0:16
+    f6 r2, -r4
+    tapreq r2, 0
+.endfor
+hset h4, #256@0:24
+cond 0, 15, 8
+
+
+;; KM (S1_MASTER, make_s1cc.py master_km): one request per line of the kernel, line k = voice k // STR_LPV's line
+;; k % STR_LPV, at its own address STR_A0 + k STR_DA (as edm_str_block1); the age d / 16384 the kernel stored in its
+;; voice's block (km_age: at X and X + 1, read at X + 1 as edm_wt_block), results x0, x1 at STR_RES + 8k
+.fragment edm_km_block
+.for k in range(str_lines())
+    ld r2, [{km_age(k) + 1:04x}]
+    hset h4, #{(STR_A0 + STR_DA * k) // 16384}@0:24
+    hset h5, #{(STR_RES + 8 * k - 0x4000) / 16384}@0:16
     f6 r2, -r4
     tapreq r2, 0
 .endfor

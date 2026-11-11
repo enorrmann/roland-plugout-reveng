@@ -281,6 +281,63 @@ st r1, [{WT_W:04x}]
 ld r2, [c{WT_PHALF:03x}]
 .for v in range(WT_NV)
     ;; voice {v}: phase p += dt (C0{WT_PDT0 + v:02x}), less one frame (WT_F) when it reaches it
+    ; @voice {v}
+;; WT_IAGE_TEST (2026-11-10, the read-noise test): the phase in whole samples p (units, C0{WT_PDT0 + v:02x} = the
+;; step's whole part) and its fraction q in [0, 1) (bank 0 WT_Q + 4v, C0{WT_PDTF0 + v:02x} = the step's fraction), so the
+;; request's age can be whole (as MP-PLSTRING's, which reads clean) and the interpolation can use our own fraction
+;; instead of the tapreq's (1/64, truncated). The selector (OSC2 COLOR, C0{WT_PSEL0:02x}..: one-hot w_hw, w_1, w_2)
+;; picks: the tapreq's fraction with the fractional age (as before), or 1 - q of one or two samples before with the
+;; whole age. carry / wrap at >=: 1 + s/2 - s^2/2 (s = sign; 1 at 0, as sign(0) = 0 must)
+.if WT_IAGE_TEST
+    ld r4, [{WT_S + 8 + 4 * v + 1:04x}]
+    ld r5, [c{WT_PDT0 + v:03x}]
+    ld r1, [{WT_Q + 4 * v + 1:04x}]
+    ld r6, [c{WT_PDTF0 + v:03x}]
+    mov r7, r7
+    addxy r4, r4, r5
+    st r1, [{WT_Q + 4 * v + 2:04x}]
+    addxy r1, r1, r6
+    mov r3, #-1.0
+    mov r7, r7
+    addxy r3, r3, r1
+    mov r7, r7
+    sign r3, r3
+    mov r7, r7
+    mov r5, r3
+    mov r7, r7
+    mul r5, r5, r5
+    mov r7, r7
+    subxy r3, r5, r3
+    mov r7, r7
+    mul r3, r3, #0.5
+    mov r7, r7
+    addxy r3, r3, #1.0
+    mov r7, r7
+    subxy r1, r3, r1
+    mul r3, r3, #{2.0 ** -14!r}
+    mov r7, r7
+    st r1, [{WT_Q + 4 * v:04x}]
+    addxy r4, r4, r3
+    mov r3, #{WT_F / 16384!r}
+    mov r7, r7
+    subxy r3, r3, r4
+    mov r7, r7
+    sign r3, r3
+    mov r7, r7
+    mov r5, r3
+    mov r7, r7
+    mul r5, r5, r5
+    mov r7, r7
+    subxy r3, r5, r3
+    mov r7, r7
+    mul r3, r3, #0.5
+    mov r7, r7
+    addxy r3, r3, #1.0
+    mov r7, r7
+    mul r3, r3, #{WT_F / 16384!r}
+    mov r7, r7
+    subxy r4, r3, r4
+.else
     ld r4, [{WT_S + 8 + 4 * v + 1:04x}]
     ld r5, [c{WT_PDT0 + v:03x}]
     mov r3, #{WT_F / 16384!r}
@@ -303,6 +360,7 @@ ld r2, [c{WT_PHALF:03x}]
     mul r3, r3, #{WT_F / 32768!r}
     mov r6, r6
     subxy r4, r3, r4
+.endif
 .if WT_CMOD
     ld r5, [{wt_s2m(v):04x}]
 .else
@@ -363,9 +421,53 @@ ld r2, [c{WT_PHALF:03x}]
     addxy r6, r6, #0.015625
     mov r5, r5
 .endif
+.if WT_IAGE_TEST
+    ;; the age requested: A - 2^-14 (1 + w_hw (q - 1)): w_hw = 1 the fractional age of before (A - q), else the whole
+    ;; age A - 1 sample (its pair: ages A, A + 1 -> y = x0 + (1 - q) (x1 - x0))
+    ld r3, [c{WT_PSEL0:03x}]
+    addxy r5, r1, #-1.0
+    mov r7, r7
+    mul r5, r5, r3
+    mov r7, r7
+    addxy r5, r5, #1.0
+    mov r7, r7
+    mul r5, r5, #{-(2.0 ** -14)!r}
+    mov r7, r7
+    addxy r6, r6, r5
+    mov r7, r7
+.endif
     st r6, [{WT_AGEB + 4 * v:04x}]
     st r6, [{WT_AGEB + 4 * v + 1:04x}]
     ;; the last sample's result, interpolated: y = x0 + (x1 - x0) fr -> the slave
+.if WT_IAGE_TEST
+    ;; g = w_hw fr + w_1 (1 - q[n-1]) + w_2 (1 - q[n-2]): the pair read now was asked one or two samples ago
+    ld r4, [{WT_RES + 8 * v:04x}]
+    ld r5, [{WT_RES + 8 * v + 1:04x}]
+    ld r6, [{WT_RES + 8 * v + 2:04x}]
+    ld r3, [c{WT_PSEL0:03x}]
+    mov r7, r7
+    subxy r5, r4, r5
+    mul r6, r6, r3
+    ld r1, [{WT_Q + 4 * v + 1:04x}]
+    ld r3, [c{WT_PSEL0 + 1:03x}]
+    mov r7, r7
+    mul r1, r1, r3
+    addxy r6, r6, r3
+    mov r7, r7
+    subxy r6, r1, r6
+    ld r1, [{WT_Q + 4 * v + 3:04x}]
+    ld r3, [c{WT_PSEL0 + 2:03x}]
+    mov r7, r7
+    mul r1, r1, r3
+    addxy r6, r6, r3
+    mov r7, r7
+    subxy r6, r1, r6
+    mov r7, r7
+    mul r5, r5, r6
+    mov r7, r7
+    addxy r1, r4, r5
+    mov r3, r3
+.else
     ld r4, [{WT_RES + 8 * v:04x}]
     ld r5, [{WT_RES + 8 * v + 1:04x}]
     ld r6, [{WT_RES + 8 * v + 2:04x}]
@@ -376,6 +478,7 @@ ld r2, [c{WT_PHALF:03x}]
     mov r3, r3
     addxy r1, r4, r5
     mov r3, r3
+.endif
 .if WT_VTAG
     ;; WT_VTAG probe: voice {v} at (v + 1) / 8 of its level (which voice a note got)
     mul r1, r1, #{(v + 1) / 8!r}
@@ -383,6 +486,7 @@ ld r2, [c{WT_PHALF:03x}]
 .endif
     st r1, [{WT_M2S + v:04x}]
 .endfor
+; @voices end
 ;; the slave's mix x VOLUME -> the OS effect sends; the effect's return -> the OS output program (A118 / A119)
 .if WT_AGEFIX
 ;; WT_AGEFIX: left = voice 0's read, right = voice 1's (what was sent to 600E / 600F), not the slave

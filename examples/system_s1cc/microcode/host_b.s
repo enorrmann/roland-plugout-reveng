@@ -4,8 +4,8 @@
 ;; the mix of the sample before's voice outputs (B outputs: ring S+1; A outputs as they are) x GAIN x C000 (the
 ;; volume) -> 6006 / 6007, the other outputs 0; then the noise of the host LFOs' sample & hold
 ; s1m1: slave DSP B main @0x0100: mix of {NV} voices x {GAIN!r} x C000 -> 6006 / 6007{"; per voice s1cc kernel DSP B" if HAS_B else ""}{f"; fused kernel of voices {NA}..{NV - 1}" if FUSED and NA < NV else ""}
-.if EDM_STR
-    ;; EDM_STR: no mix; voice v's output x C000 -> 6006 + v, one word per voice, the master B's strings take it
+.if EDM_LINES
+    ;; EDM_LINES: no mix; voice v's output x C000 -> 6006 + v, one word per voice, the master B's strings take it
     ;; (microcode/edm_str.s); the words past NV stay 0
     ld r6, [c000]
     .for v in range(NV)

@@ -34,7 +34,7 @@ From [ch. 7](mutable_memory.md) §4.0, the practical rule:
 | case | plug-out | example kernel | measured |
 |---|---|---|---|
 | single-cycle oscillator (one wave or a few frames) | slave, **fixed frame in bank 5** (`SL_WT=b5`) | `sdk/s1cc/examples/wavetable/jp8_saw.c`, `wt_slave.c` (WT-SLAVE5) | 8 voices; 127 points (63 harmonics) at `A080`–`A0FF`; harmonics within 0.5 dB of the ideal saw, inter-harmonic floor ~−161 dB (2026-11-06) |
-| long multi-frame table with morph | **master's EDM** (`EDM_WT=1`) | `sdk/s1cc/examples/wavetable/wt_edm_cmod.c` (WT-LINES8) | ~6 voices, fills in the first ~13 notes, 17–22 dB more noise than the ideal read; morph by ⅛ frame works (2026-11-06) |
+| long multi-frame table with morph | **master's EDM** (`EDM_WT=1`) | `sdk/s1cc/examples/wavetable/wt_edm_cmod.c` (WT-LINES8) | ~6 voices, fills in the first ~20 notes; the old excess noise was holes left by the fill, fixed 2026-11-10 (`WT_FILLCOV`, ch. 7 §4.4: a sine's loop exact to −97.7 dB, read −60 dB); morph by ⅛ frame works (2026-11-06) |
 
 Other variants measured on the device (ch. 7 §4.1, §4.4): WT-SLAVE768 (a 768-point loop in bank 0 of slave DSP A, refilled
 by the ARM in blocks of 64 points every 12 ms: works, 8 voices, but measured worse than bank 5: 3.7 dB error, floor
