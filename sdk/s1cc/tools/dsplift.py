@@ -45,6 +45,7 @@ import chain     # noqa: E402
 import disasm    # noqa: E402
 import dspcomp   # noqa: E402
 import dspref    # noqa: E402
+import dsplift_c  # noqa: E402
 import isa       # noqa: E402
 from dspcomp import K_A, K_B, K_M, K_J, K_HID, K_X28, K_XB5, K_XFLAG, K_XMEM, K_XTAP  # noqa: E402
 
@@ -521,274 +522,22 @@ def sfu_kernel(w):
     raise SystemExit('SFU %04x: not in --kernel' % w)
 
 
-def kernel_insn(k, prog, units, normal, unit_code, used_cc, used_g, own5, overflow_wrap, bq2, warn, name):
-    """the C lines of instruction k (--kernel): registers r0..r7 / n0..n7, condition bits f, pending pm / pv.
-
-    No comparison of floats: s1cc compiles a compare into clamped arithmetic, and near a tie (an envelope at its
-    turning point) its select gave a value that was neither side (TB-03, 2026-11-11). The condition bits are floats
-    0 / 1 made from the SFU sign of the result (exact): !Z = |sign(z)|, !N = min(1, 1 + sign(v)), N|Z =
-    1 - max(sign(v), 0) |sign(z)|; a unit a condition may skip is blended, n = old + w (new - old), with w = 0 / 1"""
-    out = ['    /* %d: %s */' % (k, ' '.join('%04x' % w for w in prog.ins[k])), '    {']
-    written = set()
-    for uk, o in units:
-        if uk == 'op' and o['kind'] in (K_A, K_B, K_M):
-            written |= {int(x) for x in re.findall(r'\bn(\d)\b', unit_code(o))}
-        if uk == 'op' and o['kind'] == K_XMEM and o['a'] < 8:
-            written.add(o['a'])
-    if written:
-        out.append('        float %s;' % ', '.join('n%d = r%d' % (i, i) for i in sorted(written)))
-    skips = []
-    for cc, neg, T, F in normal:
-        c = ('(1.0f - f%d)' % cc) if neg else 'f%d' % cc        # the condition, 0 / 1
-        if 1 <= T <= len(units) or 1 <= F <= len(units):
-            skips.append((c, T, F))
-
-    def weight(i):
-        """the unit runs with weight w (0 / 1): skipped if the condition holds and it is T, or fails and it is F"""
-        w = []
-        for c, T, F in skips:
-            if T == i + 1:
-                w.append('(1.0f - %s)' % c)
-            if F == i + 1:
-                w.append(c)
-        return ' * '.join(w) if w else None
-
-    def blend(i, lines_fn, regs):
-        """unit i's lines, blended by its weight when a condition can skip it"""
-        w = weight(i)
-        if w is None:
-            return lines_fn()
-        keep = ' '.join('float o%d = n%d;' % (r, r) for r in sorted(regs))
-        mix = ' '.join('n%d = o%d + _w * (n%d - o%d);' % (r, r, r, r) for r in sorted(regs))
-        return ['        { float _w = %s; %s' % (w, keep)] + lines_fn() + ['          %s }' % mix]
-    newp = {}
-    nam = nb = 0
-    for i, (uk, o) in enumerate(units):
-        if uk == 'ctl':
-            out.append('        /* control word %x%x: no effect */' % (o[2], o[3]))
-            continue
-        kind = o['kind']
-        if kind in (K_A, K_B, K_M):
-            txt = unit_code(o)
-            if k in overflow_wrap:
-                txt = txt.replace('AWRAP(', 'KOVERFLOW(')
-            txt = re.sub(r'RESZ\((n\d), \((-?)(r\d)\) == ([^)]+)\);', r'RESZ(\1, (\2\3) - (\4));', txt)
-            dest = (o['w'] >> 12) & 7
-            grp = None
-            if bq2 is not None and not bq2_flagless(o):
-                if kind == K_B:
-                    nb += 1
-                    grp = 2 + nb if nb <= 2 else None
-                else:
-                    nam += 1
-                    grp = nam if nam <= 2 else None
-            regs = {int(x) for x in re.findall(r'\bn(\d)\b', txt)}
-            fl = ''
-            if grp in used_g:
-                vv = 'u%d_%d' % (k, i)
-                out.append('        float %sv = 0.0f, %sz = 0.0f;' % (vv, vv))
-                fl = ' %sv = rs ? rvv : n%d; %sz = rs ? rzd : n%d;' % (vv, dest, vv, dest)
-                newp[grp] = (vv, weight(i))
-            out += blend(i, lambda: ['        { int rs = 0; float rvv = 0, rzd = 0; (void)rs, (void)rvv, (void)rzd; %s%s }'
-                                      % (txt, fl)], regs)
-        elif kind == K_XFLAG:
-            raise SystemExit('%s %d: X9bY not in --kernel' % (name, k))
-        elif kind == K_XMEM:
-            a = o['b']
-            w = weight(i)
-            if o['a'] < 8:                                         # a load: blended like a unit
-                if a < 0x2000:
-                    src = 'c_%03x' % (a & 0x7FF)
-                elif 0xA000 <= a < 0xC000:
-                    src = ('K5_%04x' % a) if a in own5 else 'KIN(0x%04x)' % a
-                elif 0xC000 <= a < 0xE000:
-                    src = 'KP(0x%04x)' % a
-                elif a >= 0xE000:
-                    src = 'KE(0x%04x)' % a
-                else:
-                    warn.append('%s %d: access %04x not modelled' % (name, k, a))
-                    continue
-                out += blend(i, lambda: ['          n%d = %s;' % (o['a'], src)], {o['a']})
-            else:
-                v = 'r%d' % (o['a'] - 8)
-                if a < 0x2000:
-                    dst = 'c_%03x' % (a & 0x7FF)
-                    out.append('        %s = %s;' % (dst, v) if w is None else
-                               '        %s = %s + (%s) * (%s - %s);' % (dst, dst, w, v, dst))
-                elif 0xA000 <= a < 0xC000:
-                    val = v if w is None else 'K5_%04x + (%s) * (%s - K5_%04x)' % (a, w, v, a)
-                    out.append('        K5_%04x = %s; KOUT(0x%04x, K5_%04x);' % (a, val, a, a))
-                else:
-                    warn.append('%s %d: access %04x not modelled' % (name, k, a))
-    for g in used_g:                               # pending of the instruction before -> condition bits
-        for c in used_cc:
-            if c >> 2 == g:
-                out.append('        f%d = f%d + pm%d * (pv%d - f%d);' % (c, c, g, c, c))
-    for g in used_g:                               # this instruction's -> pending (a skipped unit sets none)
-        if g in newp:
-            vv, w = newp[g]
-            sv, sz = 's1_sign(%sv)' % vv, 's1_abs(s1_sign(%sz))' % vv
-            bits = {0: sz, 1: 'fminf(1.0f, 1.0f + %s)' % sv, 2: '1.0f', 3: '(1.0f - fmaxf(%s, 0.0f) * %s)' % (sv, sz)}
-            out.append('        pm%d = %s; %s' % (g, w or '1.0f', ' '.join('pv%d = %s;' % (c, bits[c & 3])
-                                                                        for c in used_cc if c >> 2 == g)))
-        else:
-            out.append('        pm%d = 0.0f;' % g)
-    for i in sorted(written):
-        out.append('        r%d = n%d;' % (i, i))
-    out.append('    }')
-    return out
+BANK1_CELLS = 0x400         # --bank1-ring: bank-1 word X is kernel cell 0x400 + (X & 0x3FF) (bank 0 stays below)
 
 
-STATE_RE = re.compile(r'\b(r[0-7]|f\d+|pm\d+|pv\d+|c_[0-9a-f]{3})\b')
-
-
-def kernel_split(name, prog, insns, unit_code, touched, own5, used_cc, used_g, live_r, live_f, warn, bq2,
-                 overflow_wrap, K, zero_cells, export_base, ranges=None):
-    """--split K: instructions 0..K-1 as NAME_a (S1_DSP_A), K.. as NAME_b (S1_DSP_B). What B reads before writing it
-    (registers, condition bits, bank-0 cells) A hands over with s1_export / s1_import (slots export_base..); each
-    delay chain D_x belongs to the part that writes x last. A cell A reads from a chain B owns would be a value going
-    back from B to A, which SYSTEM-S1CC has no path for: only the zero_cells (known 0 in the caller's setup) may."""
-    if live_r or live_f:
-        raise SystemExit('%s: registers / condition bits live between samples: no --split' % name)
-    blocks = [kernel_insn(k, prog, u, n, unit_code, used_cc, used_g, own5, overflow_wrap, bq2, warn, name)
-              for k, (u, n) in enumerate(insns)]
-    N = len(blocks)
-    writes = [set() for _ in range(N)]
-    for k, b in enumerate(blocks):
-        for ln in b:
-            for m in re.finditer(r'\b(r[0-7]|f\d+|pm\d+|pv\d+|c_[0-9a-f]{3}) = ', ln):
-                writes[k].add(m.group(1))
-    # what B reads before it writes it (a read and a write in one instruction: the read first)
-    imp, defined = [], set()
-    for k in range(K, N):
-        for ln in blocks[k]:
-            for m in STATE_RE.finditer(ln):
-                v = m.group(1)
-                if v not in defined and v not in imp and not re.match(r'\s*' + v + r' = ', ln[m.start():]):
-                    if not (ln[m.start():].startswith(v + ' = ') and v not in ln[m.end():]):
-                        imp.append(v)
-        defined |= writes[k]
-    cellsA = {a for k in range(K) for a in [int(v[2:], 16) for v in writes[k] if v.startswith('c_')]}
-    readA = set()
-    for k in range(K):
-        readA |= {int(v, 16) for ln in blocks[k] for v in re.findall(r'\bc_([0-9a-f]{3})\b', ln)}
-    cellsB = {a for k in range(K, N) for a in [int(v[2:], 16) for v in writes[k] if v.startswith('c_')]}
-    owner = {}                                     # the part that writes the cell last; a cell nobody writes only
-    for a in sorted(touched):                      # carries its delay source along: that source's part
-        if a in cellsB:
-            owner[a] = 'B'
-        elif a in cellsA:
-            owner[a] = 'A'
-        else:
-            owner[a] = next((owner[a - d] for d in range(1, 64) if a - d in touched), 'A')
-    need = {}
-    for a in touched:
-        for d in range(1, 64):
-            if a - d in touched:
-                need[a - d] = max(need.get(a - d, 0), d)
-                break
-
-    def livein(a, part):
-        for d in range(1, 64):
-            if a - d in touched:
-                if owner[a - d] != part:
-                    if a in zero_cells:
-                        return '0.0f /* zero cell */'
-                    raise SystemExit('%s: --split %d: cell %03x of part %s comes from %03x of the other part '
-                                     '(a value back from B to A): not possible' % (name, K, a, part, a - d))
-                return 'D_%03x_%d' % (a - d, d)
-        return '0.0f'
-    def src_owner(a):
-        for d in range(1, 64):
-            if a - d in touched:
-                return owner[a - d]
-        return None
-    # a cell B reads before writing: from A when A wrote it this sample or its delay source is A's; otherwise B
-    # takes it from its own delay chain
-    imp = [v for v in imp if not v.startswith('c_') or int(v[2:], 16) in cellsA or src_owner(int(v[2:], 16)) == 'A']
-    impc = [int(v[2:], 16) for v in imp if v.startswith('c_')]
-    # --import-ranges: a value that kept one value in every measured scenario is that constant in B (not handed
-    # over); the others get their measured range, widened by a quarter (s1cc scales a value by its range)
-    ranges = ranges or {}
-    const = {v: ranges[v][0] for v in imp if v in ranges and ranges[v][0] == ranges[v][1]}
-    hand = [v for v in imp if v not in const]
-    out = ['/* %s: written by sdk/s1cc/tools/dsplift.py --kernel --split %d (exact semantics without the RAW rounding) */'
-           % (name, K)]
-    for a in sorted(need):
-        out.append('static float %s;   /* part %s */' % (', '.join('D_%03x_%d' % (a, kk) for kk in range(1, need[a] + 1)),
-                                                     owner[a]))
-    for a in sorted(own5):
-        out.append('static float K5_%04x;' % a)
-    out.append('/* the parts\' arguments: what the including file\'s KIN / KP / KOUT use (default: none) */')
-    out.append('#ifndef KARGS_A\n#define KARGS_A void\n#endif\n#ifndef KARGS_B\n#define KARGS_B void\n#endif')
-    out.append('/* handed from part A to part B: s1_export / s1_import slots %d.. */' % export_base)
-    out.append('#define %s_SLOTS %d' % (name.upper(), len(hand)))
-    for part, lo, hi in (('a', 0, K), ('b', K, N)):
-        P = part.upper()
-        out.append('static inline __attribute__((always_inline)) void %s_%s(KARGS_%s)' % (name, part, P))
-        out.append('{')
-        if part == 'a':
-            out.append('    float %s;' % ', '.join('r%d = 0.0f' % i for i in range(8)))
-            for c in used_cc:
-                out.append('    float f%d = 0.0f;' % c)
-            for g in used_g:
-                out.append('    float pm%d = 0.0f, %s;' % (g, ', '.join('pv%d = 0.0f' % c for c in used_cc if c >> 2 == g)))
-            for a in sorted((readA | cellsA | set(impc) | {x for x in need if owner[x] == 'A'}) & touched):
-                out.append('    float c_%03x = %s;' % (a, livein(a, 'A')))
-        else:
-            slot = {v: export_base + i for i, v in enumerate(hand)}
-
-            def imp_expr(v, cast=''):
-                if v in const:
-                    return '%s%r' % (cast, const[v]) + ('f' if not cast else '')
-                e = 's1_import(%d)' % slot[v]
-                if v in ranges:
-                    lo, hi = ranges[v]
-                    m = 0.25 * (hi - lo) + 1e-3
-                    e = 's1_range(%s, %rf, %rf)' % (e, lo - m, hi + m)
-                return cast + e
-            slot.update({v: None for v in const})
-            for i in range(8):
-                v = 'r%d' % i
-                out.append('    float %s = %s;' % (v, imp_expr(v) if v in slot else '0.0f'))
-            for c in used_cc:
-                v = 'f%d' % c
-                out.append('    float %s = %s;' % (v, imp_expr(v) if v in slot else '0.0f'))
-            for g in used_g:
-                parts = ['pm%d = %s' % (g, imp_expr('pm%d' % g) if 'pm%d' % g in slot else '0.0f')]
-                parts += ['pv%d = %s' % (c, imp_expr('pv%d' % c) if 'pv%d' % c in slot else '0.0f')
-                          for c in used_cc if c >> 2 == g]
-                out.append('    float %s;' % ', '.join(parts))
-            readB = set()
-            for k in range(K, N):
-                readB |= {int(v, 16) for ln in blocks[k] for v in re.findall(r'\bc_([0-9a-f]{3})\b', ln)}
-            for a in sorted(readB | cellsB):
-                v = 'c_%03x' % a
-                if v in slot:
-                    init = imp_expr(v)
-                elif src_owner(a) == 'B' or src_owner(a) is None:
-                    init = livein(a, 'B')
-                else:
-                    init = '0.0f /* written before read */'
-                out.append('    float %s = %s;' % (v, init))
-        for k in range(lo, hi):
-            out += blocks[k]
-        if part == 'a':
-            for i, v in enumerate(hand):
-                out.append('    s1_export(%d, %s);' % (export_base + i, v))
-        for a in sorted(need):
-            if owner[a] == P:
-                for kk in range(need[a], 1, -1):
-                    out.append('    D_%03x_%d = D_%03x_%d;' % (a, kk, a, kk - 1))
-                out.append('    D_%03x_1 = c_%03x;' % (a, a))
-        out.append('}')
-    print('%s: --split %d: %d values A -> B (%s), %d constants' % (name, K, len(hand), ' '.join(hand), len(const)),
-          file=sys.stderr)
-    return out
+def cell_of(a, ring1):
+    """the kernel cell (ring index) of a memory address, or None: bank 0 always, bank 1 with --bank1-ring"""
+    if a < 0x2000:
+        return a & 0x7FF
+    if ring1 and a < 0x4000:
+        if a & 0x1FFF >= 0x400:
+            raise SystemExit('--bank1-ring: bank-1 address %04x above 0x23FF' % a)
+        return BANK1_CELLS + (a & 0x3FF)
+    return None
 
 
 def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, zero_cells=(), export_base=0,
-           ranges=None):
+           ranges=None, names=None, ring1=False):
     """one straight-line program (no jumps) as s1cc-ready C: `static inline void NAME(void)`, no loops and no arrays.
     Registers are named values; condition bits only for the groups a condition reads; bank-0 words are the ring
     resolved into delays (a word stored at X is read at X + 1 in the next sample): c_x = the cell this sample,
@@ -820,8 +569,11 @@ def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, ze
             normal = [(cc, neg, ot + 1 if ot >= 0 else 0, of + 1 if of >= 0 else 0) for cc, neg, ot, of in conds]
         for uk, o in units:
             if uk == 'op' and o['kind'] == K_XMEM:
-                if o['b'] < 0x2000:
-                    touched.add(o['b'] & 0x7FF)
+                c = cell_of(o['b'], ring1)
+                if c is not None:
+                    if ring1 and o['b'] < 0x2000 and c >= BANK1_CELLS - 64:
+                        raise SystemExit('%s: --bank1-ring: bank-0 address %04x too high' % (name, o['b']))
+                    touched.add(c)
                 if 0xA000 <= o['b'] < 0xC000 and o['a'] >= 8:
                     own5.add(o['b'])
         insns.append((units, normal))
@@ -877,140 +629,11 @@ def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, ze
                     seen_f |= {4 * (2 + nb) + i for i in range(4)}
     live_f = {c for c in live_f if c in used_cc}
 
-    out = ['/* %s: written by sdk/s1cc/tools/dsplift.py --kernel (exact semantics without the RAW rounding) */' % name]
-    if split is not None:
-        return kernel_split(name, prog, insns, unit_code, touched, own5, used_cc, used_g, live_r, live_f, warn, bq2,
-                            overflow_wrap, split, set(zero_cells), export_base, ranges)
-    need = {}
-    for a in touched:
-        for d in range(1, 64):
-            if a - d in touched:
-                need[a - d] = max(need.get(a - d, 0), d)
-                break
-    for a in sorted(need):
-        out.append('static float %s;' % ', '.join('D_%03x_%d' % (a, k) for k in range(1, need[a] + 1)))
-    for a in sorted(own5):
-        out.append('static float K5_%04x;' % a)
-    if live_r:
-        out.append('static float %s;            /* registers read before written: from the sample before */'
-                   % ', '.join('%s_r%d' % (name, i) for i in sorted(live_r)))
-    if live_f:
-        out.append('static float %s;' % ', '.join('%s_f%d' % (name, c) for c in sorted(live_f)))
-    out.append('static inline __attribute__((always_inline)) void %s(void)' % name)
-    out.append('{')
-    out.append('    float %s;' % ', '.join(('r%d = %s_r%d' % (i, name, i)) if i in live_r else 'r%d = 0.0f' % i
-                                         for i in range(8)))
-    for c in used_cc:
-        out.append('    float f%d = %s;' % (c, ('%s_f%d' % (name, c)) if c in live_f else '0.0f'))
-    for g in used_g:                                   # the pending bits of the instruction before
-        out.append('    float pm%d = 0.0f, %s;' % (g, ', '.join('pv%d = 0.0f' % c for c in used_cc if c >> 2 == g)))
-    for a in sorted(touched):
-        live = None
-        for d in range(1, 64):
-            if a - d in touched:
-                live = 'D_%03x_%d' % (a - d, d)
-                break
-        out.append('    float c_%03x = %s;' % (a, live or '0.0f'))
-    for k, (units, normal) in enumerate(insns):
-        out.append('    /* %d: %s */' % (k, ' '.join('%04x' % w for w in prog.ins[k])))
-        out.append('    {')
-        written = set()
-        for uk, o in units:
-            if uk == 'op' and o['kind'] in (K_A, K_B, K_M):
-                written |= {int(x) for x in re.findall(r'\bn(\d)\b', unit_code(o))}
-            if uk == 'op' and o['kind'] == K_XMEM and o['a'] < 8:
-                written.add(o['a'])
-        if written:
-            out.append('        float %s;' % ', '.join('n%d = r%d' % (i, i) for i in sorted(written)))
-        skips = []
-        for cc, neg, T, F in normal:
-            cnd = '(f%d != %d)' % (cc, int(neg))
-            if 1 <= T <= len(units) or 1 <= F <= len(units):
-                skips.append((cnd, T, F))
-        def guard(i):
-            g = []
-            for cnd, T, F in skips:
-                if T == i + 1:
-                    g.append('!%s' % cnd)
-                if F == i + 1:
-                    g.append('%s' % cnd)
-            return ('if (%s) ' % ' && '.join(g)) if g else ''
-        newp = {}
-        nam = nb = 0
-        for i, (uk, o) in enumerate(units):
-            if uk == 'ctl':
-                out.append('        /* control word %x%x: no effect */' % (o[2], o[3]))
-                continue
-            kind = o['kind']
-            gd = guard(i)
-            if kind in (K_A, K_B, K_M):
-                txt = unit_code(o)
-                if k in overflow_wrap:
-                    txt = txt.replace('AWRAP(', 'KOVERFLOW(')
-                dest = (o['w'] >> 12) & 7
-                grp = None
-                if bq2 is not None and not bq2_flagless(o):
-                    if kind == K_B:
-                        nb += 1
-                        grp = 2 + nb if nb <= 2 else None
-                    else:
-                        nam += 1
-                        grp = nam if nam <= 2 else None
-                fl = ''
-                if grp in used_g:
-                    vv = 'u%d_%d' % (k, i)
-                    fl = (' %sv = rs ? rvv : n%d; %sz = rs ? rzz : n%d == 0;' % (vv, dest, vv, dest))
-                    out.append('        float %sv = 0.0f; int %sz = 0, %se = 0;' % (vv, vv, vv))
-                    fl += ' %se = 1;' % vv
-                    newp[grp] = vv
-                out.append('        %s{ int rs = 0; float rvv = 0; int rzz = 0; (void)rs, (void)rvv, (void)rzz; %s%s }'
-                           % (gd, txt, fl))
-            elif kind == K_XFLAG:
-                raise SystemExit('%s %d: X9bY not in --kernel' % (name, k))
-            elif kind == K_XMEM:
-                a = o['b']
-                if a < 0x2000:
-                    if o['a'] < 8:
-                        out.append('        %sn%d = c_%03x;' % (gd, o['a'], a & 0x7FF))
-                    else:
-                        out.append('        %sc_%03x = r%d;' % (gd, a & 0x7FF, o['a'] - 8))
-                elif 0xA000 <= a < 0xC000:
-                    if o['a'] < 8:
-                        src = ('K5_%04x' % a) if a in own5 else 'KIN(0x%04x)' % a
-                        out.append('        %sn%d = %s;' % (gd, o['a'], src))
-                    else:
-                        out.append('        %s{ K5_%04x = r%d; KOUT(0x%04x, r%d); }' % (gd, a, o['a'] - 8, a, o['a'] - 8))
-                elif 0xC000 <= a < 0xE000 and o['a'] < 8:
-                    out.append('        %sn%d = KP(0x%04x);' % (gd, o['a'], a))
-                elif a >= 0xE000 and o['a'] < 8:
-                    out.append('        %sn%d = KE(0x%04x);' % (gd, o['a'], a))
-                else:
-                    warn.append('%s %d: access %04x not modelled' % (name, k, a))
-        for g in used_g:                               # pending of the instruction before -> condition bits
-            for c in used_cc:
-                if c >> 2 == g:
-                    out.append('        f%d = pm%d ? pv%d : f%d;' % (c, g, c, c))
-        for g in used_g:                               # this instruction's -> pending (a skipped unit sets none)
-            if g in newp:
-                vv = newp[g]
-                bits = {0: '!%sz' % vv, 1: '!(%sv < 0)' % vv, 2: '1', 3: '(%sv < 0 || %sz)' % (vv, vv)}
-                out.append('        pm%d = %se; %s' % (g, vv, ' '.join('pv%d = %s;' % (c, bits[c & 3])
-                                                                     for c in used_cc if c >> 2 == g)))
-            else:
-                out.append('        pm%d = 0;' % g)
-        for i in sorted(written):
-            out.append('        r%d = n%d;' % (i, i))
-        out.append('    }')
-    for i in sorted(live_r):
-        out.append('    %s_r%d = r%d;' % (name, i, i))
-    for c in sorted(live_f):
-        out.append('    %s_f%d = f%d;' % (name, c, c))
-    for a in sorted(need):
-        for kk in range(need[a], 1, -1):
-            out.append('    D_%03x_%d = D_%03x_%d;' % (a, kk, a, kk - 1))
-        out.append('    D_%03x_1 = c_%03x;' % (a, a))
-    out.append('}')
-    return out
+    return dsplift_c.emit_kernel(dict(
+        name=name, insns=insns, unit_code=unit_code, touched=touched, own5=own5, used_cc=used_cc, used_g=used_g,
+        live_r=live_r, live_f=live_f, bq2=bq2, bq2_flagless=bq2_flagless, overflow_wrap=set(overflow_wrap),
+        split=split, zero_cells=set(zero_cells), export_base=export_base, ranges=ranges, names=names or dsplift_c.Names(),
+        K=dict(A=K_A, B=K_B, M=K_M, XMEM=K_XMEM, XFLAG=K_XFLAG), warn=warn, cell_of=lambda a: cell_of(a, ring1)))
 
 
 def main():
@@ -1033,6 +656,13 @@ def main():
     ap.add_argument('--overflow-wrap', default='', metavar='K,K,...',
                     help='--kernel: instructions whose A-unit result reaches +-512 and must wrap as on the DSP (the '
                          'others are plain arithmetic); find them with the lift (§6)')
+    ap.add_argument('--names', default=None, metavar='FILE',
+                    help='--kernel: names of parameters, inputs, outputs, cells, values and sections (dsplift_c.Names)')
+    ap.add_argument('--consts', default=None, metavar='FILE',
+                    help='--kernel: memory words that are constants in the caller\'s setup, "ADDR[-ADDR] VALUE" (hex)')
+    ap.add_argument('--bank1-ring', action='store_true',
+                    help='bank 1 (2000-23FF) is a ring as bank 0 (store at X, read X + 1 in the next sample: the '
+                         'programs of one DSP hand values over in bank 1, §5.4); the emulator\'s ring1')
     ap.add_argument('--samples', type=int, default=64, help='samples per program in --check (64)')
     ap.add_argument('--seed', type=int, default=1, help='random seed of --check (1)')
     a = ap.parse_args()
@@ -1042,6 +672,8 @@ def main():
         ap.error('--check compares with the emulator, which has no BQ2 model')
     out = ['/* written by sdk/s1cc/tools/dsplift.py%s: %s */' % (' --bq2' if a.bq2 else '', ' '.join(a.progs)),
            '#include "dsplift_rt.h"', '']
+    if a.bank1_ring:
+        out[1:1] = ['#define DSPLIFT_RING1 1']
     if a.bq2:
         out += ['static void CALL(LiftM *M, int byte_address);', '']
     warn, progs, addr = [], [], {}
@@ -1056,7 +688,8 @@ def main():
                           zero_cells={int(x, 16) for x in a.zero_cells.split(',') if x},
                           export_base=a.export_base,
                           ranges={l.split()[0]: (float(l.split()[1]), float(l.split()[2]))
-                                  for l in open(a.import_ranges) if l.strip()} if a.import_ranges else None) + ['']
+                                  for l in open(a.import_ranges) if l.strip()} if a.import_ranges else None,
+                          names=dsplift_c.Names(a.names, a.consts), ring1=a.bank1_ring) + ['']
         open(a.out, 'w').write('\n'.join(out) + '\n')
         for w in warn:
             print('warning: ' + w, file=sys.stderr)

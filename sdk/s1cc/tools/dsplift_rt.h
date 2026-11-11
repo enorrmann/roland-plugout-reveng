@@ -177,13 +177,18 @@ static inline void WR(LiftM *M, int64_t a, double v)
 }
 #else
 static inline int64_t l_ring(LiftM *M, int64_t a) { return (a - M->t) & 0x7FF; }
+#ifdef DSPLIFT_RING1                 /* dsplift.py --bank1-ring: bank 1 is a ring as bank 0 (the Boutique BQ DSPs) */
+#define L_B1(M, off) l_ring(M, (off) & 0x7FF)
+#else
+#define L_B1(M, off) ((off) & 0x7FF)
+#endif
 static inline double RD(LiftM *M, int64_t a)
 {
     if (a < 0) return 0;
     int64_t off = a & 0x1FFF;
     switch (a >> 13) {
     case 0: return M->bank0[l_ring(M, off & 0x7FF)];
-    case 1: return M->bank1[off & 0x7FF];
+    case 1: return M->bank1[L_B1(M, off)];
     case 2: return M->bank2[M->t & 1][off];
     case 3: return M->iomd[off];
     case 5: return M->bank5[off & 0x7FF];
@@ -199,7 +204,7 @@ static inline void WR(LiftM *M, int64_t a, double v)
     int64_t off = a & 0x1FFF;
     switch (a >> 13) {
     case 0: M->bank0[l_ring(M, off & 0x7FF)] = v; break;
-    case 1: M->bank1[off & 0x7FF] = v; break;
+    case 1: M->bank1[L_B1(M, off)] = v; break;
     case 2: M->bank2[M->t & 1][off] = v; break;
     case 3: M->iomd[off] = v; break;
     case 5: M->bank5[off & 0x7FF] = v; break;

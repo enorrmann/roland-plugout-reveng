@@ -1,7 +1,8 @@
 /* tb03.c: the Roland TB-03 (Boutique, BQ2_UPD.BIN 1.07) voice for SYSTEM-S1CC, ported from the firmware.
  *
  *   tb03_voice.h   the TB-03's voice DSP program (oscillators, filter, envelopes, accent, slide, VCA) translated to C
- *                  by dsplift.py --bq2 --kernel: every operation of Roland's microcode, in order (README.md §2)
+ *                  by dsplift.py --bq2 --kernel: every operation of Roland's microcode that reaches the output, in
+ *                  order, as named expressions (tb03_names.txt; README.md §2)
  *   tb03_tables.h  the TB-03's ARM side as data: the parameter values after its init and the knob tables, recorded
  *                  by running its knob handlers in an ARM emulator (README.md §3)
  *   this file      the inputs the TB-03's ARM and second DSP give the voice, from the SYSTEM-1: parameters (knobs),
@@ -67,9 +68,8 @@ static float out_a100;
 #define KIN(a) tb03_in(a, in_gate, in_accent, in_slide)
 #define KOUT(a, v) do { if ((a) == 0xa100) out_a100 = (v); } while (0)
 #define KE(a) 0.0f
-/* the TB-03 switches parts of its voice off with parameters at 0 (a third oscillator, an FM matrix, an LFO: C02B..C02E,
-   C035..C03C, C002..C004 are 0 after its init and no knob moves them): without fast floating point clang keeps
-   x * 0.0 (it may be NaN), so the dead parts would be compiled. Only for the voice (README.md §6) */
+/* the parameters no knob moves are constants in tb03_voice.h already (make_voice.sh --consts: the parts the TB-03
+   switches off are not in it); fast floating point only for the voice (README.md §6) */
 #pragma float_control(precise, off, push)
 #include "tb03_voice.h"
 #pragma float_control(pop)

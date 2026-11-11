@@ -3645,8 +3645,31 @@ Documentation: docs/vol5_toolchain_compiler_sdk/dsplift.md.
 | `--export-base` | --split: first s1_export slot (0) | `0` |
 | `--import-ranges` | --split: "NAME LO HI" per handed value, measured: constants stay in B, the rest get the range |  |
 | `--overflow-wrap` | --kernel: instructions whose A-unit result reaches +-512 and must wrap as on the DSP (the others are plain arithmetic); find them with the lift (§6) | `` |
+| `--names` | --kernel: names of parameters, inputs, outputs, cells, values and sections (dsplift_c.Names) |  |
+| `--consts` | --kernel: memory words that are constants in the caller's setup, "ADDR[-ADDR] VALUE" (hex) |  |
 | `--samples` | samples per program in --check (64) | `64` |
 | `--seed` | random seed of --check (1) | `1` |
+
+### `sdk/s1cc/tools/dsplift_c.py`
+
+```
+dsplift_c.py: the C that `dsplift.py --kernel` writes (docs/vol5_toolchain_compiler_sdk/dsplift.md §6).
+
+The program is run symbolically, instruction by instruction, with the semantics of dsplift.py's units (all units read
+the registers of the instruction start, loads land at its end, condition bits arrive one instruction later, a unit a
+condition may skip is blended by a 0 / 1 weight). What it computes becomes an expression graph:
+
+  - exact folding only: constants (float32 arithmetic), x * 1, x + 0, x * 0 (the DSP has no inf / NaN), x + (-y) ->
+    x - y, 1 - (1 - b) -> b for 0 / 1 values, a blend whose weight is a constant; common subexpressions are shared;
+  - what reaches no output is dropped, across samples too (a delay chain only lives while something live reads it);
+  - a value is written as a named local when it is used more than once, stored in a bank-0 cell, named in the names
+    file, or too long to inline; the rest is inlined;
+  - idioms are macros of dsplift_k.h that expand to the same expression: SEL (a condition's blend), LERP (a + t (b - a)),
+    K_NZ / K_GE0 / K_LE0 (the condition bits), K_RECIP (recipseed and its newton steps).
+
+The C keeps the evaluation tree of every operation (no reassociation), so it computes what the per-instruction form
+computed; the names file (--names) and the constants (--consts) only change names and fold known values.
+```
 
 ### `sdk/s1cc/tools/s1check.py`
 

@@ -2,7 +2,7 @@
 
 > **Scope:** both (any program of the DSP ISA: SYSTEM-8, SYSTEM-1, and the Boutique `BQ2` firmware of the TB-03).
 
-Specification. State: 2026-11-11, version 1.1.
+Specification. State: 2026-11-11, version 1.2.
 
 `sdk/s1cc/tools/dsplift.py` translates a DSP program into one C function that does what the emulator's C core
 (`examples/from_scratch/emu/dspcore.h`, the reference) does with it. It is the reverse direction of s1cc
@@ -32,6 +32,8 @@ cc -O2 -ffp-contract=off -I sdk/s1cc/tools -c OUT.c          # the lifted C comp
 | `--kernel` | write s1cc-ready C instead of the machine-mode lift (§6) |
 | `--split K`, `--zero-cells X,…`, `--export-base N`, `--import-ranges FILE` | `--kernel`: the program in two parts, DSP A and DSP B (§6.3) |
 | `--overflow-wrap K,…` | `--kernel`: the instructions whose A-unit result reaches ±512 and must wrap as on the DSP (§6.2) |
+| `--names FILE` | `--kernel`: names of parameters, inputs, outputs, cells, values, section headings; unused outputs; constant inputs (§6.4) |
+| `--consts FILE` | `--kernel`: memory words that are constants in the caller's setup, lines `ADDR[-ADDR] VALUE` (hex addresses) (§6.4) |
 | `--samples N`, `--seed S` | samples per program in `--check` (64) and the random seed (1) |
 
 The words after the last instruction (a header of length 0: `0000` padding) are left out, with a note on stderr.
@@ -169,20 +171,52 @@ voice — the reference of the port — was wrong where they are skipped. Fixed;
 ## 6. s1cc kernels (`--kernel`) [sim, 2026-11-11]
 
 `--kernel` writes the program as C that s1cc compiles ([ch. 1](s1cc_compiler_internals.md)), for a port that runs
-Roland's operations as they are. It needs a program without jumps (a straight line; `--bq2` control words that only
-call or return are fine) and writes `#include "dsplift_k.h"` (runtime, `sdk/s1cc/tools`; the s1cc driver adds that
-directory to the include path) and one `static inline void NAME(void)` (or `NAME_a` / `NAME_b`, §6.3).
+Roland's operations as they are, and as C a person reads. It needs a program without jumps (a straight line; `--bq2`
+control words that only call or return are fine) and writes `#include "dsplift_k.h"` (runtime, `sdk/s1cc/tools`; the
+s1cc driver adds that directory to the include path) and one `static inline void NAME(void)` (or `NAME_a` /
+`NAME_b`, §6.3). The emitter is `sdk/s1cc/tools/dsplift_c.py`.
 
 ### 6.1 Form
 
+The program is run symbolically, instruction by instruction, with the semantics of the units (all units read the
+registers of the instruction start, loads land at its end, condition bits arrive one instruction later, a unit a
+condition may skip is blended by a 0 / 1 weight). What it computes is an expression graph, written as C:
+
 | element | rule |
 |---|---|
-| registers | named values `r0…r7` (start of the instruction) and `n0…n7` (results); a register read before it is written in the sample is `static` (kept from the sample before, as on the DSP) |
-| condition bits | floats 0 / 1, only for the groups a condition reads (`f4…`, pending `pm` / `pv` with the one-instruction latency) |
-| bank 0 | the ring as delays: `c_x` = the cell this sample, `D_x_k` = what address x held k samples ago (a word stored at X is read at X + 1 in the next sample) |
-| memory | `KP(a)` parameter words (`C000…`), `KIN(a)` bank-5 inputs, `KOUT(a, v)` bank-5 outputs, `KE(a)` bank 7: macros the including file defines (`KARGS_A` / `KARGS_B`: extra arguments of the two parts). Bank-5 words the program writes are its own state |
-| SFU | intrinsics: `recipseed` → `s1_sign(Y) · s1_recip(max(|Y|, 2⁻⁹))` with r(D+1) = rY = 1 (the newton steps after it then keep the exact reciprocal), `expsplit` → `s1_exp(floor Y)` and the fraction, `sign` / `floor` / `ceil` → `s1_sign` / `s1_floor` / `s1_ceil`; `sqrtsplit` is not supported |
+| values | one `float NAME = expression;` per value that is used more than once, stored in a bank-0 cell, named in the names file, or longer than 100 characters inlined; everything else is inlined. The comment after the line is the instruction that makes the value |
+| default names | a cell's value: `c_X` (X = the bank-0 address); a parameter / input: `p_cXXX` / `in_aXXX`; a condition bit: `<value>_ge0`, … ; any other value: `tK` (K = the instruction), `tK_2` … for more in one instruction |
+| bank 0 | the ring as delays: a cell's value at the start of a sample is what the nearest touched address below held one or more samples ago. Statics `X_zK` (with a name) or `D_X_K`: what cell X held K samples ago. A cell the program never writes only delays its source: its reads are the source further back (`saw_s0_z3`, not a chain of copies) |
+| memory | `KP(a)` parameter words (`C000…`), `KIN(a)` bank-5 inputs, `KOUT(a, v)` bank-5 outputs (a statement where the program writes), `KE(a)` bank 7: macros the including file defines (`KARGS_A` / `KARGS_B`: extra arguments of the two parts). Named words use `#define P_NAME` / `IN_NAME` / `OUT_NAME`. Bank-5 words the program writes are its own state |
+| registers, flags | not in the C: they are the edges of the graph. A register or condition bit read before it is written in the sample is a `static` (`NAME_rN`, `NAME_fC`; not with `--split`) |
+| only what is needed | what reaches no output (`KOUT` not named `unused`, the hand-over, live statics) is left out, across samples too: a delay chain exists only while a needed value reads it |
 | no RAW rounding | plain float arithmetic: what s1cc compiles is compared with the lift in doubles |
+
+Exact simplifications only (the evaluation tree of every operation is kept, nothing is reassociated): float32
+constant folding; `x · 1`, `x + 0`, `x − 0`, `x · 0 = 0` (the DSP has no inf / NaN); `x + (−y) → x − y`,
+`x + (−c) · y → x − c · y`; `1 − (1 − b) → b` for 0 / 1 values; a blend whose weight is 0, or 1 between 0 / 1 values;
+shared subexpressions; `pymod` and the condition bits of constants. A delay chain that only ever holds 0 is 0: the
+lifter assumes it for all chains, runs, keeps those that are written 0, and runs again until nothing changes (the
+greatest fixed point; statics start at 0, so by induction they stay 0). A blend with weight 1 between values that are
+not 0 / 1 would not be exact; it is counted and reported (none in the TB-03 voice).
+
+Idioms are macros of `dsplift_k.h` that expand to the expression the operations compute, so the C means the same
+whether a macro or its expansion is read:
+
+| macro | expression | from |
+|---|---|---|
+| `SEL(w, a, b)` | `b + w (a − b)`, w = 0 / 1: w ? a : b | a unit a condition may skip (§6.2) |
+| `LERP(a, b, t)` | `a + t (b − a)` | one-pole steps, crossfades |
+| `XFADE(a, b, w)` | `w b + a − w a` | the same crossfade as a MAC computes it (products in either order: exact) |
+| `K_NZ`, `K_Z`, `K_GE0`, `K_LT0`, `K_LE0`, `K_GT0`, `K_LE0VZ`, `K_GT0VZ` | the condition bits and their complements `1 − bit` (§6.2) | condition words |
+| `K_RECIP(y)` | `s1_sign(y) · s1_recip(max(|y|, 2⁻⁹))` | recipseed and its newton steps |
+| `K_CLAMP(x)` | `max(−1, min(1, x))` | unit B clamp |
+| `K_TRI(x)` | `1 − 2 |wrap(−x − 1.5)|` | unit B's triangle |
+| `K_SIN(x)`, `K_EXP(x)` | Roland's polynomials: sin x for \|x\| ≤ π/2; e^x (expsplit: e^floor(x) times the series of the fraction) | recognised by building the macro's expression on the candidate argument: the node must be that expression |
+
+The SFU parts are intrinsics: `recipseed` → `K_RECIP` (the newton steps after it fold away: r(D+1) = rY = 1),
+`expsplit` → `s1_exp(floor Y)` and the fraction, `sign` / `floor` / `ceil` → `s1_sign` / `s1_floor` / `s1_ceil`;
+`sqrtsplit` is not supported.
 
 ### 6.2 Conditions without compares
 
@@ -190,14 +224,15 @@ s1cc compiles a float compare into clamped arithmetic; near a tie (an envelope a
 a value that was neither side (TB-03, 2026-11-11). `--kernel` therefore makes the condition bits from the exact SFU
 sign of the unit's result:
 
-| bit | expression |
-|---|---|
-| `!Z` | `s1_abs(s1_sign(z))` |
-| `!N` | `fminf(1, 1 + s1_sign(v))` |
-| `N or Z` | `1 − fmaxf(s1_sign(v), 0) · s1_abs(s1_sign(z))` |
+| bit | macro | expression |
+|---|---|---|
+| `!Z` | `K_NZ(z)` | `s1_abs(s1_sign(z))` |
+| `!N` | `K_GE0(v)` | `fminf(1, 1 + s1_sign(v))` |
+| `N or Z` | `K_LE0VZ(v, z)`, `K_LE0(v)` when v = z | `1 − fmaxf(s1_sign(v), 0) · s1_abs(s1_sign(z))` |
 
 (v = the value whose sign gives N; z = the value whose zero gives Z: for `min` / `max` z = X − Y.) A unit a
-condition may skip is blended: `n = old + w · (new − old)`, w = 0 / 1.
+condition may skip is blended: `n = SEL(w, new, old)`. A nested `SEL(K_LT0(x), a, SEL(K_GE0(x), b, c))` is not
+simplified to `SEL(K_LT0(x), a, b)`: `c + 1 · (b − c)` need not be `b` in float.
 
 The A unit's ±512 wrap is left out (plain arithmetic) except at the instructions named by `--overflow-wrap`
 (`KOVERFLOW`: `|r| mod 512` with the sign of r). Find them with the lift (`dsplift_rt.h` without
@@ -210,22 +245,59 @@ A program longer than one slave DSP's budget (703 / 708 instructions) is cut: in
 
 | item | rule |
 |---|---|
-| hand-over | what part B reads before it writes it (registers, condition bits, bank-0 cells) part A sends with `s1_export(slot, v)`, B reads with `s1_import(slot)`; slots from `--export-base` (0), count `NAME_SLOTS` (a `#define`). B sees them one sample late (the slave ring): part B is delayed by one sample as a whole |
-| delay chains | each `D_x` belongs to the part that writes x last |
+| hand-over | what part B needs of part A's state (registers, condition bits, bank-0 cells) A sends with `s1_export(slot, v)`, B reads with `s1_import(slot)`, named as in A; one slot per distinct value, slots from `--export-base` (0), count `NAME_SLOTS` (a `#define`). B sees them one sample late (the slave ring): part B is delayed by one sample as a whole |
+| constants | a value that is a constant at the end of A is written into B (no slot); so is a value `--import-ranges` measured constant |
+| delay chains | each chain belongs to the part that writes its cell last |
 | B → A | a cell A reads from a chain B owns would be a value going back from B to A: SYSTEM-S1CC has no path. The tool stops, except for the cells named in `--zero-cells` (known 0 in the caller's setup) |
-| `--import-ranges FILE` | lines `NAME LO HI`, measured on the lift: a value with LO = HI is a constant and is written into B (no slot), the others give s1cc the range of the import |
+| `--import-ranges FILE` | lines `NAME LO HI` (NAME = `r4`, `f5`, `c_033`, …), measured on the lift: LO = HI is a constant, the others give s1cc the range of the import |
 | no state between samples | registers or condition bits live from one sample to the next: no `--split` |
 
-Example: the TB-03 voice (751 instructions, `--split 415`: 20 values handed over, 20 constants, two zero cells):
-[`sdk/s1cc/examples/tb03_ported`](../../sdk/s1cc/examples/tb03_ported/README.md). Compiled by s1cc it matches the
-lift within 76–80 dB on sustained notes, 34–48 dB on sequences with accent and slide.
+### 6.4 Names and constants (`--names`, `--consts`)
+
+The names file is what is known of the program; the C is regenerated from it (`dsplift_c.Names`). Lines (`#`
+comments):
+
+| line | effect |
+|---|---|
+| `param C019 cutoff [knob]` | the parameter's name (`KP(P_CUTOFF)`, a local `cutoff`); `knob` = set by the panel: may not be a constant |
+| `in A004 pitch`, `out A100 voice` | an input's / output's name |
+| `unused A101 A102` | outputs the including file ignores: not computed |
+| `const A003 1`, `const A104-A109 0` | inputs that are constants in the caller's setup |
+| `cell 041 flt_env` | the value stored in bank-0 cell 041 (and its chain: `flt_env_z1`) |
+| `value t331 saw_inc` | renames the value the C calls `t331` (a name that no longer exists is a warning) |
+| `section 312 saw oscillator` | a heading above the values from instruction 312 on |
+
+`--consts FILE`: lines `ADDR[-ADDR] VALUE` (hex), the same as `const`; for the parameters the caller's init sets and
+no knob moves. With constants the parts of a program its setup switches off fold away (§6.1: `x · 0`, delay chains
+of 0).
+
+### 6.5 Checks
+
+The C keeps every operation's tree, so it computes what the per-instruction form of version 1.1 computed. Example: the
+TB-03 voice (751 instructions, `--split 415`), compiled natively (clang, `-ffp-contract=off`), 100 000 samples with
+knobs, notes, gate, accent and slide changing [native, 2026-11-11]:
+
+| C | against the per-instruction form |
+|---|---|
+| no names, no constants | all five outputs bit-identical, also with every parameter and input random |
+| `tb03_names.txt` and the TB-03 init as constants | the voice output `A100` bit-identical in the TB-03 setup |
+
+| | per-instruction form (1.1) | this form |
+|---|---|---|
+| `tb03_voice.h` | 13 663 lines | 357 lines (383 without `--names` / `--consts`) |
+| values A → B | 24 | 9 |
+| s1cc: DSP A / DSP B instructions | 497 / 427 | 468 / 410 |
+
+Example: [`sdk/s1cc/examples/tb03_ported`](../../sdk/s1cc/examples/tb03_ported/README.md). Compiled by s1cc it matches
+the lift within 76–80 dB on sustained notes, 34–48 dB on sequences with accent and slide.
 
 ## 7. Files
 
 | file | what it is |
 |---|---|
 | `sdk/s1cc/tools/dsplift.py` | the translator and `--check` |
+| `sdk/s1cc/tools/dsplift_c.py` | the `--kernel` C: symbolic run, expression graph, idioms, names (§6) |
 | `sdk/s1cc/tools/dsplift_rt.h` | the runtime of the lifted C: memory, SFU, flags, the macros of the units |
-| `sdk/s1cc/tools/dsplift_k.h` | the runtime of `--kernel` C: the result / flag macros, `KOVERFLOW`, the SFU as intrinsics (`-DDSPLIFT_K_NATIVE`: libm instead of `s1dsp.h`) |
+| `sdk/s1cc/tools/dsplift_k.h` | the runtime of `--kernel` C: the idiom macros (`SEL`, `LERP`, `XFADE`, condition bits, `K_RECIP`, `K_SIN`, `K_EXP`, …), `KOVERFLOW` (`-DDSPLIFT_K_NATIVE`: libm instead of `s1dsp.h`) |
 | `sdk/s1cc/tests/test_dsplift.py` | the test (§3) |
 | `examples/from_scratch/emu/dspcore.h`, `dspdec.h` | the reference it follows (decoding: `dspcomp.decode_program`) |

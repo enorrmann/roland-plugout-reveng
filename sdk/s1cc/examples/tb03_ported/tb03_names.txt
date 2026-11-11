@@ -1,0 +1,134 @@
+# tb03_names.txt: names for the lifted TB-03 voice (dsplift.py --names, README.md §2). Hand-written: what is known of
+# the program is written here, tb03_voice.h is regenerated (tools/make_voice.sh).
+#
+#   param ADDR NAME [knob]   a parameter word; knob = set by the panel (tb03.c). The other parameters are the TB-03
+#                            init's values (tb03_tables.h tb03_init): make_voice.sh hands them to dsplift as constants
+#   in / out ADDR NAME       bank-5 inputs / outputs
+#   unused ADDR...           outputs tb03.c's KOUT ignores
+#   const ADDR[-ADDR] VALUE  inputs that are constants in tb03.c (tb03_in)
+#   cell X NAME              the value stored in bank-0 cell X
+#   value K rN NAME          the value register rN holds after instruction K
+#   section K TEXT           a heading above the values from instruction K on
+
+# the panel (README.md §4)
+param C010 tune knob
+param C00D decay knob
+param C019 cutoff knob
+param C01A resonance knob
+param C01B envmod knob
+param C01C accent_level knob
+param C029 saw_level knob
+param C02A square_level knob
+
+# the per-note inputs (tb03.c tb03_in, README.md §4)
+in A004 pitch
+in A005 gate
+in A006 accent
+in A007 slide
+const A003 1
+const A002 0
+const A104-A109 0
+
+out A100 voice
+unused A000 A101 A102 A103
+
+# ---- what the program computes, read from the lift (dsplift.py --names): the cells by what is stored in them.
+# Names say what a value is computed as; where its musical role is not measured the name stays technical.
+
+section 59 pitch: glide (slide) and TUNE
+cell 029 glide_err
+cell 02a glide_step
+cell 02b glide_pitch
+cell 033 osc_pitch
+
+section 110 VCA envelope (from the gate)
+cell 034 gate
+cell 03f gate_prev
+cell 037 amp_att
+cell 038 amp_att_x
+cell 039 amp_lvl
+cell 03a amp_dec
+cell 03b amp_env
+
+section 139 filter envelope; an accented note decays with 0.1865 instead of DECAY (README.md §4)
+cell 042 note_accent
+cell 043 decay_eff
+cell 044 fenv_coef
+cell 045 fenv_att
+cell 046 fenv_att_x
+cell 047 fenv_lvl
+cell 048 fenv_dec
+cell 049 fenv
+cell 04e accent_env
+
+section 184 cutoff / resonance / env mod / accent -> the SVF's coefficients
+cell 05a fenv_clip
+cell 05c fenv_clip2
+cell 063 cutoff_curve
+cell 05b svf_f
+cell 05e svf_q
+cell 060 svf_q_norm
+cell 068 svf_damp
+
+section 312 saw oscillator: four sub-samples per sample (rounded edge), 20-tap FIR decimation
+cell 06a saw_pitch
+cell 06b saw_freq
+cell 06c saw_phase
+cell 06e saw_s0
+cell 072 saw_s1
+cell 076 saw_s2
+cell 07a saw_s3
+cell 080 saw
+value t331 osc_inc_raw
+value t333 osc_inc
+value t336 saw_phase0
+value t353 saw_phase1
+value t370 saw_phase2
+value t338 osc_edge
+
+section 415 saw shaping: one-pole lowpass of the saw, resonance / cutoff dependent gains
+cell 081 saw_lp
+cell 083 saw_shaped
+
+section 429 square oscillator: pulse width from the pitch, four sub-samples, the same FIR
+cell 085 sq_pitch
+cell 086 sq_freq
+cell 087 sq_pw
+cell 09e sq_thr
+cell 09d sq_ph
+cell 088 sq_phase
+cell 09f sq_lim
+cell 09a sq_leak
+cell 09b sq_slew
+cell 08a sq_s0
+cell 08e sq_s1
+cell 092 sq_s2
+cell 096 sq_s3
+cell 0a1 square
+cell 0a2 square_lp
+cell 0a4 square_shaped
+value t462 sq_inc
+value t487 sq_edge
+
+section 673 mixer: SAW / SQUARE levels (WAVEFORM)
+cell 0b4 saw_mix
+cell 0b5 square_mix
+cell 0ba osc_mix
+
+section 694 filter: state-variable filter (svf_f, svf_damp from DSP A), one more pole, DC blocker
+cell 0c0 svf_bp
+cell 0c1 svf_lp
+cell 0c2 filter_lp
+cell 0c5 filter_dc
+cell 0c4 filter_out
+
+section 709 output: fixed two-pole stage, accent and amp envelopes smoothed, VCA
+cell 0c7 post_s1
+cell 0c8 post_s2
+value t717 post_in
+value t720 post_out
+value t721 accent_gain_tgt
+cell 0cc accent_gain
+cell 0ca amp_gain
+cell 0c9 vca
+cell 0d1 voice_out
