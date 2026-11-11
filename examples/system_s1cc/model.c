@@ -939,6 +939,16 @@ static void wt_color(int knob)                                /* OSC1 COLOR: fra
     wt_prm(WT_PFRAME, wt_i2f((int32_t)(f * WT_F), 14));
     wt_prm(WT_PMIX, wt_i2f((int32_t)(r * 65536u / 255u), 16));
 }
+#if WT_IAGE_TEST
+/* WT_IAGE_TEST (edm_wt.s master_wt_s): the read under test, one-hot at C048 / C049 / C04A: 0 = the tapreq's fraction
+   (fractional age, as before), 1 / 2 = our fraction 1 - q of one / two samples before (whole age). OSC2 COLOR */
+static uint8_t wt_mode;
+static void wt_sel(void)
+{
+    for (int k = 0; k < 3; k++)
+        wt_prm(WT_PSEL0 + k, k == wt_mode ? F_ONE : F_ZERO);
+}
+#endif
 static void wt_limits(void)                                   /* edm_wt.s: c's limit and the age's wrap, exact */
 {
     wt_prm(WT_PLIM, wt_i2f((int32_t)(2u * WT_LEN - 1u), 15));  /* (WT_LEN - 1/2) / 16384 */
@@ -951,8 +961,14 @@ static void wt_load(void)                                     /* m_load */
 #if !WT_SLAVE
         wt_prm(WT_PGAIN0 + v, 0);                             /* (WT_SLAVE: the slave's amp; C033.. are phase steps) */
 #endif
-        wt_prm(WT_PDT0 + v, wt_dt_bits[60]);
+        wt_prm(WT_PDT0 + v, WT_IAGE_TEST ? wt_dti_bits[60] : wt_dt_bits[60]);
+#if WT_IAGE_TEST
+        wt_prm(WT_PDTF0 + v, wt_dtf_bits[60]);
+#endif
     }
+#if WT_IAGE_TEST
+    wt_sel();
+#endif
 #if WT_DIAG == 4
     wt_prm(WT_PSTG, 0x3F800000u);                             /* the main reads it (edm_wt.s WT_DIAG=4); no fill */
     wt_state = 1;
@@ -967,7 +983,75 @@ static void wt_load(void)                                     /* m_load */
     ((s1_queue_fn)SVC(0x3C))(wt_set);
     wt_state = 0;
 }
-#if WT_FILLIDX
+#if WT_FILLIDX && WT_FILLCOV
+/* WT_FILLCOV (default; proven 2026-11-10 as WT_FILL2_TEST, WT-FILL4-T: the loop exact, -97.7 dB against the sine):
+   the index-gated fill by COVERAGE. WT-DIAG-SIN-T (a sine table, the loop on the left
+   channel) measured the old fill's table: ~470 samples per lap left at 0 (0.7 %), in residue-3 runs: its passes were
+   counted in fill time, not in indices covered (a block per note, c runs on between notes), so some indices were
+   never sent. Here a round is one residue class r of k mod 3 and ends only when every index of the class was sent
+   (wt_done: sent this round); rounds r = 0, 1, 2, three times, lead d = 3. As in the old fill a pair
+   goes only for k = the first index of the class >= t + d (k 3 apart, a slot reused ~6 samples later, after c passed
+   its old index): the pair is not atomic (value, then index), and a slot reused every sample (the first WT-FILL2-T,
+   one pair per sample) wrote neighbours' values: 20 % of the table wrong. A sent pair is lost now and then: the second
+   build (6 rounds, d = 3 then 5) left 246 zeros per lap, 96 samples apart (the ARM's 1 ms tick), and d = 5 lets a slot
+   be reused before c reaches its index (k up to t + 7, reuse at t + 6): hence d = 3 only and three rounds per class (the
+   tick's phase against c moves every lap: 63488 is not a multiple of 96). Same master B program */
+#define WT_F2ROUNDS 9u
+static uint32_t wt_c0, wt_p0, wt_round, wt_nsent, wt_pairs;
+static void wt_fill(void)
+{
+    *(volatile uint32_t *)0xE000EDFCu |= 1u << 24;
+    *(volatile uint32_t *)0xE0001000u |= 1u;
+    if (!wt_c0) {                                             /* the first note: the sync (c = 0) */
+        static uint32_t sync;
+        sync ^= 0x3F800000u;
+        wt_prm(WT_PSYNC, sync);
+        wt_c0 = WT_CYC;
+        wt_p0 = WT_CTR;
+        if (!wt_c0)
+            wt_c0 = 1;
+        for (unsigned i = 0; i < sizeof wt_done; i++)
+            wt_done[i] = 0;
+    }
+    uint32_t cref = WT_CYC, tref = (wt_p0 - WT_CTR) & 0x7FFFFFu;
+    uint32_t start = cref, last = 0xFFFFFFFFu, lastk = 0xFFFFFFFFu, slot = 0, sent = 0;
+    while (WT_CYC - start < WT_BLOCK_MS * 156000u && wt_round < WT_F2ROUNDS) {
+        uint32_t t = tref + (WT_CYC - cref) / 1625u;          /* samples since the sync */
+        if (t == last)
+            continue;
+        last = t;
+        uint32_t r = wt_round % 3u, d = 3u;
+        uint32_t k = (t + d) % WT_LEN;                        /* the table index c reaches d samples on */
+        k += (r + 3u - k % 3u) % 3u;                          /* the first index of class r from there */
+        if (k >= WT_LEN)
+            k = r;                                            /* past the table's end: the class's first */
+        if (k == lastk)
+            continue;
+        lastk = k;
+        if (wt_done[k >> 3] & (1u << (k & 7)))
+            continue;
+        wt_prm(slot ? WT_PV1 : WT_PV0, wt_i2f(wt_table[k], 16 - WT_SCALE2));   /* the value first, then the index */
+        wt_prm(slot ? WT_PI1 : WT_PI0, wt_i2f((int32_t)k, 14));
+        slot ^= 1u;
+        sent++;
+        wt_done[k >> 3] |= (uint8_t)(1u << (k & 7));
+        if (++wt_nsent >= (WT_LEN - r + 2u) / 3u) {         /* the indices of class r: all sent */                             /* the class covered: the next round */
+            wt_nsent = 0;
+            wt_round++;
+            for (unsigned i = 0; i < sizeof wt_done; i++)
+                wt_done[i] = 0;
+        }
+    }
+    wt_pairs += sent;
+    if (wt_round >= WT_F2ROUNDS)
+        wt_state = 1;
+#ifdef PARAMLOG
+    param_log(0x3F80, 0, (int)sent);
+    param_log(0x3F81, 0, (int)wt_pairs);
+    param_log(0x3F82, 0, (int)wt_round);
+#endif
+}
+#elif WT_FILLIDX
 /* WT_FILLIDX (make_s1cc.py): index-gated fill. Master B writes the loop only when its counter c equals the index of a
    slot (C03A/C03B, C03C/C03D: index, value), so a late, early or lost write is dropped instead of landing elsewhere
    (WT-DIAG2, 2026-11-05: the timed fill lost ~7 % and later notes overwrote good samples). Each lap of filling ("pass")
@@ -1118,8 +1202,16 @@ static void wt_voice(int v, int note)                         /* region 0's assi
 {
     if (v >= 0 && v < WT_NV)                                  /* the note's step FIRST: the fill's parameters queue
                                                                  up behind it (it came 40-350 ms late, 2026-11-05) */
-        wt_prm(WT_PDT0 + v, wt_dt_bits[note & 0x7F]);
+    {
+        wt_prm(WT_PDT0 + v, WT_IAGE_TEST ? wt_dti_bits[note & 0x7F] : wt_dt_bits[note & 0x7F]);
+#if WT_IAGE_TEST
+        wt_prm(WT_PDTF0 + v, wt_dtf_bits[note & 0x7F]);
+#endif
+    }
     wt_limits();                                              /* again: a write in load can land before the program */
+#if WT_IAGE_TEST
+    wt_sel();
+#endif
     if (wt_state == 0)
         wt_fill();                                            /* the first notes fill the table (<= WT_BLOCK_MS each) */
 }
@@ -1382,6 +1474,12 @@ static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x
 #ifdef EDM_WT
     if (id == 0x168)                                          /* OSC1 COLOR: the position in the table */
         wt_color(value);
+#if WT_IAGE_TEST
+    if (id == 0x16D && (unsigned)value <= 255) {              /* OSC2 COLOR: the read under test */
+        wt_mode = value < 86 ? 0 : value < 171 ? 1 : 2;
+        wt_sel();
+    }
+#endif
 #endif
 #ifdef EDM_LINES
     edm_str_param(id, value);

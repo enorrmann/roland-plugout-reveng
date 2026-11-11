@@ -1042,6 +1042,23 @@ Moreover the morph lines are remade in the DSP from the table with two fixed rea
 FIR that the DSP cannot do per sample, and filling each octave by the ARM (`FCEC`, ~6 s per table) does not scale. Only a
 compromise remains open: ONE filtered table for the high range instead of the morph lines.
 
+**The read noise found: holes in the stored table (2026-11-10, measured).** The 17–22 dB excess over the read model
+(above) was not the read. Steps, all with `WT_LINES=0` and `80's PWM.wav` unless said:
+
+| build | what | result |
+|---|---|---|
+| WT-IAGE-T (`WT_IAGE_TEST=1`, 3 voices) | phase as whole samples + fraction `q`; OSC2 COLOR picks the read live: the `tapreq`'s 1/64 fraction with a fractional age (as before), or `1 − q` of 1 / 2 samples before with a whole age (as MP-PLSTRING) | flat −43 dB non-harmonic over 20 s, whatever the knob (`wt_iage_203736.raw`); the residue: sidebands at f₀ ± 16.6 Hz and a line at 114.2 Hz = the folds of harmonics 733 / 734 at 96 kHz: high-frequency content in the TABLE, not the read. Emulator (`wt_iage_sim.py`): the three reads behave as designed |
+| WT-DIAG-SIN-T (`WT_DIAG=1`, a sine table: 31 frames × one cycle) | left = the loop itself, right = voice 0's read | loop vs a perfect sine **−20.8 dB**: ~400 samples per lap at **0**, 80 % the same every lap (stored), in residue-3 runs; the read is as bad (−20.8 dB): the holes are all of it |
+| WT-FILL2-T (coverage, one pair per sample) | | worse: 20 % of the samples hold a neighbour's value: the pair (value, then index) is not atomic, a slot reused every 2 samples is seen with the new value and the old index |
+| WT-FILL3-T (coverage per residue class, pairs 3 apart; 6 rounds, lead 3 then 5) | | 246 zeros per lap, **96 samples apart** (the ARM's 1 ms tick loses the pair being sent); lead 5 lets a slot be reused before `c` reaches its index (k ≤ t + 7, reuse at t + 6), so the second rounds repaired nothing |
+| **WT-FILL4-T** (9 rounds, each class three times, lead 3) | `WT_FILLCOV=1`, now the default | **0 holes, the loop vs the sine −97.7 dB**; voice 0's read −60.0 dB non-harmonic, H2–H4 ≈ −120 dB (`wt_fill4_205635.raw`) |
+
+Cause [measured]: the old index-gated fill counted its 9 passes in fill time (blocks of ≤ 500 ms, one per note, `c`
+running on between notes), so some indices were never sent, and each lost pair stayed a 0 for ever; each hole is a
+one-sample spike that, read at the note's pitch, folds back as non-harmonic noise. The coverage fill (`model.c`
+`WT_FILLCOV`) ends a round only when every index of its residue class was sent. What remains (−60 dB on a sine) is the
+read path's own floor; the tapreq fraction test can be repeated on a clean table. WT-LINES8 rebuilt with it.
+
 **Possible improvement (not done): longer tables in several lines.** Today the table lives in ONE line of the EDM
 (`WT_A = 0x440000`, loop of `WT_LEN`); the 6 voices read from that same line with one `tapreq` each (6 per sample = the
 measured limit, §3.3.5). A line does not go beyond `WT_GAP` = 262 144 samples (2.73 s: the writer of the OS's delay at

@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (examples/system_s1cc/README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP')
+           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -1252,6 +1252,11 @@ WT_PSTG, WT_PSYNC = 0x3E, 0x3F                # master B C03E: a table sample; C
 # first, then the index); master B writes the loop only when its c equals a slot's index, so a late or lost write never
 # lands at a wrong place (the ARM-timed fill lost ~7 % and misplaced later writes, WT-DIAG2 2026-11-05). 0: the old fill
 WT_FILLIDX = opt('WT_FILLIDX', '1') == '1'
+# WT_FILLCOV=1 (default, with WT_FILLIDX; proven 2026-11-10 as WT_FILL2_TEST, WT-FILL4-T): region 0 fills by coverage
+# (model.c: a round = one residue class of k mod 3, ended when every index of it was sent; 9 rounds, each class three
+# times, lead 3). The sine table's loop came out exact (-97.7 dB against a sine; the time-based fill, WT_FILLCOV=0,
+# left ~400 zeros per lap: -20.8 dB, the read noise of every EDM wavetable build before)
+WT_FILLCOV = opt('WT_FILLCOV', '1') == '1'
 # WT_SCALE2=1: the table is stored in the EDM at twice the amplitude (fill at 2^-15, the WAV peak -> +-1.0 full scale
 # instead of +-0.5), to use the whole word of the delay-memory read and lower its noise floor; the slave halves it
 # again at the voice input, before the filter (sl_wt.s sl_m2s_voice), so the level and the headroom are unchanged.
@@ -1321,6 +1326,18 @@ WT_PLIM, WT_PHALF = 0x38, 0x39                # master B C038: c's limit WT_LEN 
                                               # parameters, not immediates: those ran wrong on master B, §4.4)
 WT_GK = 0.002                                 # the gain's one-pole per sample (~5 ms)
 WT_LAT = 2                                    # samples between a table sample's write and the request that finds it
+# WT_IAGE_TEST=1 (WT_SLAVE, 2026-11-10, the read-noise test, edm_wt.s master_wt_s): the phase as whole samples + a
+# fraction q, so the request's age can be whole; OSC2 COLOR picks the read live: low = the tapreq's own fraction and a
+# fractional age (as every build before), middle = 1 - q of the sample before, high = 1 - q of two samples before,
+# with a whole age (as MP-PLSTRING, which reads clean). Each voice's block is scheduled one op per instruction
+# (km_schedule) to stay inside master B's budget
+WT_IAGE_TEST = opt('WT_IAGE_TEST', '0') == '1'
+WT_Q = 0x0358                                 # master B bank 0: WT_Q + 4v q (+1 read), + 2 q one sample older (+3 read)
+WT_PDTF0 = 0x40                               # master B C040 + v: the step's fraction (WT_PDT0 + v: its whole part)
+WT_PSEL0 = 0x48                               # master B C048, C049, C04A: the read selector, one-hot
+if WT_IAGE_TEST:                               # 3 voices: the three reads cost ~20 instructions per voice and master B
+    WT_NV = 3                                 # hung at 640 (2026-11-06); a noise test needs one note
+    WT_REQ = WT_NV if WT_SLAVE else 2 * WT_NV
 WT_SLOT0 = 34                                 # map-table entries 34, 35, then a zero entry
 
 
@@ -1393,7 +1410,7 @@ def wt_header():
         f'#define WT_RDIST {WT_RDIST or n - 2}u\n#define WT_DIAG {WT_DIAG}\n'
         f'#define WT_LEN {n}u\n#define WT_F {WT_F}u\n#define WT_FRAMES {n // WT_F}u\n#define WT_A 0x{WT_A:06x}u',
         f'#define WT_W 0x{WT_W - 0x4000:02x}u\n#define WT_R 0x{WT_R - 0x4000:02x}u\n#define WT_SLOT0 {WT_SLOT0}',
-        f'#define WT_PSTG 0x{WT_PSTG:02x}\n#define WT_PSYNC 0x{WT_PSYNC:02x}\n#define WT_FILLIDX {int(WT_FILLIDX and WT_SLAVE)}'
+        f'#define WT_PSTG 0x{WT_PSTG:02x}\n#define WT_PSYNC 0x{WT_PSYNC:02x}\n#define WT_FILLIDX {int(WT_FILLIDX and WT_SLAVE)}\n#define WT_FILLCOV {int(WT_FILLCOV)}'
         f'\n#define WT_LINES {int(WT_LINES)}\n#define WT_LSUB {WT_LSUB}\n#define WT_SCALE2 {int(WT_SCALE2)}'
         f'\n#define WT_RN 0x{WT_RN - 0x4000:02x}u\n#define WT_LINE_MAP '
         + ', '.join(f'{{ 0x80000000u | 0x{WT_A + wt_loff(j + 1):x}u, 0x{w - 0x4000:02x}u << 16 }}' for j, w in enumerate(WT_LW))
@@ -1403,6 +1420,10 @@ def wt_header():
         '#ifndef EDM_CALL\n#define EDM_CALL 1   /* the request block in the OS effect (edm_call.h) */\n#endif',
         '/* phase step per sample of a MIDI note, in samples / 16384 of one frame */',
         table('wt_dt_bits', dt),
+        f'#define WT_IAGE_TEST {int(WT_IAGE_TEST)}\n#define WT_PDTF0 0x{WT_PDTF0:02x}\n#define WT_PSEL0 0x{WT_PSEL0:02x}',
+        '/* WT_IAGE_TEST: the step split in whole samples (units) and its fraction (samples) */',
+        table('wt_dti_bits', [math.floor(x * 16384) / 16384 for x in dt]),
+        table('wt_dtf_bits', [x * 16384 - math.floor(x * 16384) for x in dt]),
         f'static const int16_t wt_table[{n}] = {{\n    ' + ',\n    '.join(rows) + '\n};'])
 
 
@@ -1658,6 +1679,17 @@ def km_schedule(lines, gap):
     return out
 
 
+def wt_sched(lines):
+    """WT_IAGE_TEST: each voice's block of master_wt_s (from '; @voice v' to the next, the last to '; @voices end')
+    scheduled one op per instruction (km_schedule), the rest as written"""
+    heads = [i for i, t in enumerate(lines) if t.strip().startswith('; @voice ')]
+    end = next(i for i, t in enumerate(lines) if t.strip() == '; @voices end')
+    out = lines[:heads[0]]
+    for a, b in zip(heads, heads[1:] + [end]):
+        out += [lines[a]] + km_schedule(lines[a + 1:b], True)
+    return out + lines[end:]
+
+
 def master_km():
     """KM: master B's main: the kernel once per line voice, then the voices' outputs summed x STR_GAIN x VOLUME"""
     off, size = km_words()
@@ -1755,6 +1787,10 @@ def edm_call_header(path):
 def prog_master():
     """C-S1SY13's master B (microcode/master.s master), or with EDM_TAP its taps of the delay memory (microcode/edm.s),
     or with EDM_ECF its own delay-memory lines (microcode/edm_ecf.s)"""
+    if EDM_WT and WT_IAGE_TEST:
+        if not WT_SLAVE:
+            raise SystemExit('make_s1cc.py: WT_IAGE_TEST needs WT_SLAVE=1 (master_wt_s)')
+        return wt_sched(frag('master_wt_s'))
     if EDM_WT:
         return frag('master_wt_s' if WT_SLAVE else 'master_wt')
     if KM:
