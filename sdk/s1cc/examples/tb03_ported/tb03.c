@@ -8,7 +8,7 @@
  *                  pitch, gate, accent, slide (README.md §4)
  *
  * Panel (TB-03 -> SYSTEM-1):  CUTOFF -> FILTER CUTOFF, RESONANCE -> FILTER RESONANCE, ENV MOD -> FILTER ENV AMOUNT
- * (0..255, not bipolar), DECAY -> FILTER DECAY, ACCENT -> OSC1 COLOR (with its COLOR MOD), TUNE -> OSC2 FINE (128 = in tune, +-1
+ * (0..255, not bipolar), DECAY -> FILTER KEY TRACK (the knob, 2026-11-11), ACCENT -> OSC1 COLOR (with its COLOR MOD), TUNE -> OSC2 FINE (128 = in tune, +-1
  * octave as on the TB-03), WAVEFORM -> OSC1 WAVE (0 saw, any other position square). The accent of a note: OSC2
  * COLOR with its COLOR MOD (0 none .. 1 full, taken when the note starts; the SYSTEM-1 keyboard has no velocity, so the TB-03's
  * velocity >= 100 rule cannot be used: README.md §4); slide: a key played while another is down (legato), as on the
@@ -20,7 +20,7 @@
 S1_PARAM(cutoff, S1_FILTER_CUTOFF, 1) { out[0] = tb03_cutoff[knob]; }
 S1_PARAM(resonance, S1_FILTER_RESONANCE, 1) { out[0] = tb03_resonance[knob]; }
 S1_PARAM(envmod, S1_FILTER_ENV_AMOUNT, 1) { out[0] = tb03_envmod[knob]; }
-S1_PARAM(decay, S1_FILTER_DECAY, 1) { out[0] = tb03_decay[knob >> 1]; }
+S1_PARAM(decay, S1_FILTER_KEY_TRACK, 1) { out[0] = tb03_decay[knob >> 1]; }
 S1_PARAM(tune, S1_OSC2_FINE, 1) { out[0] = tb03_tune[knob]; }
 /* ACCENT (C01C) is s1_color(0), OSC1 COLOR with its COLOR MOD: the TB-03's table is knob / 255 (tb03_accent, within
    3e-8), so the color is the value. The accent of the notes is s1_color(1) (S1_DSP_A). README.md §4 */

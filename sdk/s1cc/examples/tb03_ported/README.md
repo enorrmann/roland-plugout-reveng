@@ -87,18 +87,18 @@ per parameter, the value at +4) is recorded:
 | CUTOFF | FILTER CUTOFF | `C019` = `tb03_cutoff[knob]` |
 | RESONANCE | FILTER RESONANCE | `C01A` |
 | ENV MOD | FILTER ENV AMOUNT (0…255, not bipolar) | `C01B` |
-| DECAY | FILTER DECAY | `C00D` = `tb03_decay[knob >> 1]` |
-| ACCENT | OSC1 COLOR | `C01C` (the accent's strength) |
+| DECAY | FILTER KEY TRACK (`0x186`) | `C00D` = `tb03_decay[knob >> 1]` |
+| ACCENT | OSC1 COLOR with OSC1 COLOR MOD (`s1_color(0)`) | `C01C` (the accent's strength; the TB-03's table is knob / 255, so the color is the value) |
 | TUNE | OSC2 FINE (128 = in tune, ±1 octave) | `C010` |
 | WAVEFORM | OSC1 WAVE (position 0 saw, 1…5 square) | `C029` / `C02A` = 1 / 0 or 0 / 1 |
-| accent of the notes (the TB-03's per-step accent) | OSC2 COLOR (0 none … 255 full) | input `A006` |
+| accent of the notes (the TB-03's per-step accent) | OSC2 COLOR with OSC2 COLOR MOD (`s1_color(1)`, 0 none … 1 full) | input `A006` |
 
 | input | value |
 |---|---|
 | `A003` | 1: selects the note inputs `A004…A007` (0 would select `A104…A107`, the same inputs written by another ARM path; the voice crossfades the two by `A003`, instructions 99–111) |
 | `A004` | pitch in octaves, `s1_pitch()` ((note − 12) / 12) |
 | `A005` gate | the gate word, 0 / 1 |
-| `A006` accent | OSC2 COLOR / 255, taken when a new gate starts (held for the note) |
+| `A006` accent | `s1_color(1)`, taken when a new gate starts (held for the note) |
 | `A007` slide | a new note while the gate stayed on (legato, `MONO_LEGATO=1`: the host keeps the gate on and changes the pitch), until the gate closes (`0x6001e376`) |
 | `A104…A109` | 0: with the TB-03's parameters they do not change the output (measured on the lift) |
 
@@ -108,6 +108,13 @@ per parameter, the value at +4) is recorded:
 (it sends a fixed value above 100), so with the velocity rule every note was accented and DECAY did nothing
 (measured on the device: DECAY at maximum, velocity 90 → the filter sweep lasts ~1 s; velocity 110 → closed in
 100 ms). The accent is therefore the OSC2 COLOR knob, latched at each new gate (`GATE_ACCENT` is no longer used).
+
+**COLOR MOD (2026-11-11).** Both are `s1_color` (examples/system_s1cc/README.md §3.2): color = knob × the source of
+its COLOR MOD selector (0…1). OSC2 COLOR MOD = LFO gives accents that vary from note to note (the value at the note's
+start); the envelopes are ~0 when a note starts, so for the note accent only MANUAL and LFO are useful. OSC1 COLOR
+(ACCENT strength) is read every sample, so any source modulates it. Cost: the host's color machinery (LFO, pitch
+envelope, sub oscillator, two ADSRs on DSP B, `MOD_DSP=auto` → B): DSP A 516, DSP B 462 instructions (budgets
+703 / 708).
 
 Gate, accent and slide are made from 0 / 1 arithmetic (`s1_sign`, `fminf`, `fmaxf`), not compares: a compare the
 profiling never sees flip would be folded by s1cc.

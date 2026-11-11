@@ -189,6 +189,37 @@ centro de una perilla bipolar). Para medir en el equipo: `python3 tools/s1_captu
 | 71 | FILTER RESONANCE (`0x17F`) |
 | 79 | FILTER ENV AMOUNT (`0x181`, bipolar) |
 | 75 | FILTER DECAY (`0x183`) |
+| 78 | FILTER KEY TRACK (`0x186`) |
+| 50 / 55 | OSC1 / OSC2 COLOR (`0x168` / `0x16D`) |
+| 60 / 63 | OSC1 / OSC2 COLOR MOD (`0x169` / `0x16E`), selector: CC 0…127 → 0…5 (MANUAL 0, LFO 25, PITCH ENV 51, FILTER ENV 76, AMP ENV 102, SUB 127) |
+
+### 1.6 Botones del panel y LFO KEY TRIG [medido 2026-11-11]
+
+Con PARAMLOG (`model.c` registra también `a_cc`, id `0x1000 + CC`, flag 9): **cada pulsación de un botón llega al
+modelo como un CC con valor 42**; ningún parámetro lleva el estado del botón, así que el PLUG-OUT lo lleva (alterna
+en cada pulsación). Los LED siguen palabras de patch del grupo 3: escribir 1 / 0 prende / apaga el LED, y el OS le
+pasa la palabra al engine como si fuera una perilla. Las palabras se encontraron escribiendo candidatas de a una
+(`LED_PROBE_TEST=1 build.sh`: cada pulsación de KEY TRIG prueba la siguiente). Mapa en `sdk/s1cc/include/s1panel.h`.
+
+| botón | CC | palabra (LED) |
+|---|---|---|
+| OSC2 RING | 111 | `0x171` |
+| OSC2 SYNC | 112 | `0x172` |
+| LPF TYPE | 115 | `0x17E` |
+| LEGATO | 116 | — |
+| LFO KEY TRIG | 117 | `0x166` |
+| TEMPO SYNC | 118 | — |
+| MONO | 119 | — |
+| SUB OSC TYPE | sin medir | `0x178` |
+| NOISE TYPE | sin medir | `0x179` |
+
+`0x16B`, `0x173`, `0x180` y `0x18C` no prenden nada.
+
+**LFO KEY TRIG** (implementado): `a_cc` alterna el estado con CC 117 y lo escribe en `0x166` (el LED lo muestra); el
+engine lo recibe y con KEY TRIG apagado no reinicia la fase del LFO al empezar una nota (`ARM_LFO`: `lfo_step`; LFO en
+el DSP: `C047` = `B6_LKT` multiplica el reinicio en `microcode/lfo.s`). Al cargar, el modelo lee el estado guardado en
+`0x166`. Con DELAY TIME 0 el fade del LFO queda en 1 también con la puerta cerrada: el LFO está completo desde la
+primera muestra de la nota (antes salía de 0 y tardaba 1–2 ms, lo que leía el accent del TB-03 al empezar la nota).
 
 ## 2. Qué corre en cada DSP
 

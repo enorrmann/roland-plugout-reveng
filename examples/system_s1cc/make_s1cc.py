@@ -403,6 +403,7 @@ A6_LPITCH, A6_PAMT, A6_RANGE1 = 0x4B, 0x5E, 0x5F   # DSP A: LFO TO PITCH, PITCH 
 RANGE_64FT = -1.0
 # DSP B: the LFO (rate, S&G coefficient, shape alpha / beta / K / w, fade step, -> filter, -> amp M / |M|)
 B6_LRATE, B6_LSG, B6_LWAVE, B6_LDELAY, B6_LFILT, B6_LAMP, B6_LAMPABS = 0x48, 0x49, 0x4A, 0x4E, 0x4F, 0x50, 0x51
+B6_LKT = 0x47                                   # LFO KEY TRIG (1 / 0), the engine writes it (README.md §1.6) [unproven address]
 LFB = [0xA120 + v for v in range(NV_MAX)]           # bank 5: lf of voice v, DSP B -> DSP A
 A6_SUBMIX, A6_NOISEMIX = 0x56, 0x57             # the host mixer's SUB / NOISE levels
 # the host LFO's controls, in engine.c's order (hlfo_panel): names, panel ids, defaults until a control moves
@@ -1092,6 +1093,7 @@ def hlfo_params(knobs):
     pb = {0xC000 + B6_LRATE: f32(lfo_rate(k['lfo_rate'])), 0xC000 + B6_LSG: f32(lfo_sg(k['lfo_rate'])),
           0xC000 + B6_LDELAY: f32(lfo_delay(k['lfo_delay'])), 0xC000 + B6_LFILT: f32(lfo_filt(k['lfo_filter'])),
           0xC000 + B6_LAMP: f32(lfo_amp(k['lfo_amp'])), 0xC000 + B6_LAMPABS: f32(abs(lfo_amp(k['lfo_amp']))),
+          0xC000 + B6_LKT: 1.0,
           }
     pm = pb if MOD_B else pa                        # pitch envelope and COLOR MOD: DSP B or A (MOD_DSP)
     pm[0xC000 + (B6_PENV if MOD_B else A6_PENV)] = f32(decay_rate(k['penv_d']))
@@ -2259,7 +2261,7 @@ def header(progs):
                    f'   (panel id, default); tables */\n'
                    f'#define B6_LRATE 0x{B6_LRATE:02x}\n#define B6_LSG 0x{B6_LSG:02x}\n#define B6_LWAVE 0x{B6_LWAVE:02x}\n'
                    f'#define B6_LDELAY 0x{B6_LDELAY:02x}\n#define B6_LFILT 0x{B6_LFILT:02x}\n#define B6_LAMP 0x{B6_LAMP:02x}\n'
-                   f'#define B6_LAMPABS 0x{B6_LAMPABS:02x}\n'
+                   f'#define B6_LAMPABS 0x{B6_LAMPABS:02x}\n#define B6_LKT 0x{B6_LKT:02x}\n'
                    f'#define M6_SEL {int(MOD_B)}  /* pitch envelope and COLOR MOD: DSP B (1) or A (0), MOD_DSP */\n'
                    f'#define M6_PENV 0x{B6_PENV if MOD_B else A6_PENV:02x}\n'
                    f'#define M6_COL0 0x{(B6_COL if MOD_B else A6_COL)[0]:02x}\n'

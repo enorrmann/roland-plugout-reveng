@@ -19,7 +19,7 @@ st r2, [{G["nz"]:04x}]
 .fragment lfo_b v hb G
 ;; the host LFO of voice v on DSP B, before its envelopes; four registers r0..r3 = a, b, c, d (pairs: r4..r7 for the
 ;; odd voice); hb: the voice's host words on DSP B, G: lfo_block('B')
-;; * note start d: the trigger copy changed
+;; * note start d: the trigger copy changed; the phase restarts there only with LFO KEY TRIG (B6_LKT = 1)
 ;; * LFO (MUTABLE-SYSTEM step 11 step_lfo_voice, proven on the device): phase restarted at the note start, own S&H
 ;;   of DSP B's noise at each wrap, own sample & glide g += k (h - g) (k = 1: sample & hold);
 ;;   lfo = w g + ph_clamp(K p) + t (alpha + beta t^2), t the triangle of the phase p (B6_LSG .. : k, alpha, beta,
@@ -45,7 +45,9 @@ mul r1, r1, r1
     ; voice {v}: LFO phase a, 0 at a note start; c = 2 at a wrap
     ld r0, [{hb["lph"] + 1:04x}]
     ld r2, [c0{B6_LRATE:02x}]
+    ld r3, [c0{B6_LKT:02x}]
     mov r0, r0
+    mul r1, r1, r3
     mad r0, r0, -r1
     addxy r2, r0, r2
     ph_wrap r0, r3, r2

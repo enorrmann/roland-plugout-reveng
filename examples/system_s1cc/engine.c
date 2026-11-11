@@ -120,6 +120,10 @@ static void henv_set(int id, int value) { (void)id; (void)value; }
 static void henv_all(void) {}
 #endif
 
+/* LFO KEY TRIG: 1 = the host LFO's phase restarts at each note, 0 = free running (model.c, README.md §1.6) */
+enum { ID_LFO_KT = 0x166 };                  /* LFO KEY TRIG's group-3 word: model.c send_lfo_kt */
+static int lfo_kt = 1;
+
 /* ---- the host (HOST_LFO): LFO (DSP B, hlfo_voice_b), pitch envelope, COLOR MOD, mixer (DSP A, hlfo_voice) -------- */
 
 #if HOST_LFO
@@ -191,6 +195,9 @@ static void hlfo_all(void)
 {
     for (int c = 0; c < C_N; c++)
         hlfo_apply(c);
+#if !ARM_LFO
+    b6(1, B6_LKT, lfo_kt ? F_ONE : F_ZERO);    /* LFO KEY TRIG (lfo.s) */
+#endif
 }
 #else
 static void hlfo_set(int id, int value) { (void)id; (void)value; }
@@ -300,9 +307,10 @@ static int32_t lfo_shape(int sh, uint32_t ph, int v)
 static void lfo_step(int v, int m)                     /* m sixteenths of a step (ARM_SEG_MS) at once */
 {
     int sh = hlfo_knob[C_LFO_SHAPE] > 5 ? 5 : hlfo_knob[C_LFO_SHAPE], r = hlfo_knob[C_LFO_RATE];
-    if (lfo_restart[v]) {                              /* a note start: the phase from 0 (as on DSP B) */
+    if (lfo_restart[v]) {                              /* a note start: the phase from 0 (as on DSP B) with KEY TRIG */
         lfo_restart[v] = 0;
-        lfo_ph[v] = 0;
+        if (lfo_kt)
+            lfo_ph[v] = 0;
     }
     uint32_t old = lfo_ph[v];
     lfo_ph[v] = old + (lfo_seg_inc[r] >> 4) * (uint32_t)m;
@@ -321,9 +329,9 @@ static void lfo_step(int v, int m)                     /* m sixteenths of a step
         lfo_fade[v] += (int32_t)((lfo_fade_seg[hlfo_knob[C_LFO_DELAY]] >> 4) * (uint32_t)m);
         if (lfo_fade[v] > Q1)
             lfo_fade[v] = Q1;
-    } else {
-        lfo_fade[v] = 0;
-    }
+    } else {                                           /* gate closed: the fade restarts at the next note; with */
+        lfo_fade[v] = lfo_fade_seg[hlfo_knob[C_LFO_DELAY]] >= Q1 ? Q1 : 0;   /* DELAY 0 the LFO is full at once (the */
+    }                                                  /* value a note start latches, e.g. the TB-03 port's accent) */
 #else
     lfo_fade[v] = Q1;                                  /* ARM_FADE=0: no DELAY TIME */
 #endif
@@ -837,6 +845,13 @@ static void e_refresh(engine_t *e, int all)                      /* vt+0x24 */
 static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
 {
     (void)flag;
+    if (id == ID_LFO_KT) {                     /* LFO KEY TRIG from the model (model.c a_cc, README.md §1.6) */
+        lfo_kt = value != 0;
+#if HOST_LFO && !ARM_LFO
+        b6(1, B6_LKT, lfo_kt ? F_ONE : F_ZERO);
+#endif
+        return;
+    }
 #if defined(SL_LOAD) && !SL_B0
 #ifdef WTL_WITNESS_TEST
     if (id == WTL_DATA_ID) { sl_witness(1); return; }  /* bend -> triangle (does 0x130 reach region 1?) */

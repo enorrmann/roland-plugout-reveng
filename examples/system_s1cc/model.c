@@ -1326,26 +1326,71 @@ static void a_bend(struct assign *a, int v)                  /* 0..0x3FFF -> -0x
 /* MIDI CC -> panel controls (examples/system_s1cc/README.md §1.5): the value goes to the patch word of the control,
    as when its knob moves, so the OS sends it to the engine (vt+0x30) and the kernel's S1_PARAM table follows. For
    tests on the device (tools/s1_capture.py --cc); CC 0..127 -> 0..255 (64 -> 128, the centre of a bipolar knob) */
-static const struct { uint8_t cc; uint16_t id; } cc_panel[] = {
-    { 74, 0x17D },      /* FILTER CUTOFF */
-    { 71, 0x17F },      /* FILTER RESONANCE */
-    { 79, 0x181 },      /* FILTER ENV AMOUNT (bipolar, 128 = 0) */
-    { 75, 0x183 },      /* FILTER DECAY */
+static const struct { uint8_t cc; uint16_t id; uint8_t steps; } cc_panel[] = {
+    { 74, 0x17D, 0 },   /* FILTER CUTOFF */
+    { 71, 0x17F, 0 },   /* FILTER RESONANCE */
+    { 79, 0x181, 0 },   /* FILTER ENV AMOUNT (bipolar, 128 = 0) */
+    { 75, 0x183, 0 },   /* FILTER DECAY */
+    { 78, 0x186, 0 },   /* FILTER KEY TRACK */
+    { 50, 0x168, 0 },   /* OSC1 COLOR (the OS maps it too: examples/system_1_synth/README.md §8) */
+    { 55, 0x16D, 0 },   /* OSC2 COLOR */
+    { 60, 0x169, 6 },   /* OSC1 COLOR MOD: selector 0..5 (CC 0, 25, 51, 76, 102, 127) */
+    { 63, 0x16E, 6 },   /* OSC2 COLOR MOD */
 };
+
+/* LFO KEY TRIG (panel button, measured 2026-11-11 with PARAMLOG: each press = CC 117 value 42, the button's state is
+   not sent): toggled here and written to the button's own group-3 word 0x166 (S1_LFO_KEY_TRIG_WORD, found
+   2026-11-11 with LED_PROBE_TEST: writing it lights the KEY TRIG LED); the OS hands it to the engine like a knob.
+   1 = the LFO's phase restarts at each note, 0 = the LFO runs free (README.md §1.6)
+   (README.md §1.6) */
+enum { CC_LFO_KT = 117, ID_LFO_KT = 0x166 };
+static int lfo_kt = 1;
+
+static void send_lfo_kt(void)
+{
+    p_set(G_PANEL, ID_LFO_KT, lfo_kt);
+    p_flush(G_PANEL);
+}
 
 static int cc_to_panel(int cc, int v)
 {
+    if (cc == CC_LFO_KT) {
+        (void)v;
+#ifdef LED_PROBE_TEST
+        /* diagnostic (LED_PROBE_TEST=1 build.sh): which group-3 word is which button's LED? press k of KEY TRIG sets
+           candidate k to 1 and k - 1 back to 0 (KEY TRIG itself is 0x166, found the same way) */
+        static const uint16_t cand[] = { 0x16B, 0x171, 0x172, 0x173, 0x178, 0x179, 0x180, 0x18C };
+        static int k;
+        if (k > 0)
+            p_set(G_PANEL, cand[(k - 1) % 8], 0);
+        p_set(G_PANEL, cand[k % 8], 1);
+        p_flush(G_PANEL);
+        k++;
+#else
+        lfo_kt ^= 1;
+        send_lfo_kt();
+#endif
+        return 1;
+    }
     for (unsigned i = 0; i < sizeof cc_panel / sizeof cc_panel[0]; i++)
         if (cc_panel[i].cc == cc) {
-            p_set(G_PANEL, cc_panel[i].id, v >= 127 ? 255 : v * 2);
+            int x = cc_panel[i].steps ? (v * cc_panel[i].steps) >> 7 : v >= 127 ? 255 : v * 2;
+            p_set(G_PANEL, cc_panel[i].id, x);
             p_flush(G_PANEL);
             return 1;
         }
     return 0;
 }
 
+#ifdef PARAMLOG
+static void param_log(int id, int flag, int value);
+#endif
+
 static void a_cc(struct assign *a, int cc, int v)
 {
+#ifdef PARAMLOG
+    param_log(0x1000 | cc, 9, v);                             /* the assigner's CC calls: id 0x1000 + CC, flag 9 */
+#endif
     if (cc_to_panel(cc, v))
         return;
     switch (cc) {
@@ -1585,6 +1630,10 @@ static void m_load(struct model *m)                           /* vt+0x08 */
         volume = v;
     set_volume(volume);
     vol_again = VOL_AGAIN;
+    int kt = p_get(G_PANEL, ID_LFO_KT);                       /* the state the button had (its LED) */
+    if (kt == 0 || kt == 1)
+        lfo_kt = kt;
+    send_lfo_kt();
     resend_panel();
 }
 

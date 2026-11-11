@@ -58,9 +58,33 @@
 #define S1_AMP_SUSTAIN        0x189
 #define S1_AMP_RELEASE        0x18A
 
+#define S1_AMP_TONE           0x18B   /* (examples/system_1_synth/README.md §8: CC 69) */
+
 /* effects */
 #define S1_REVERB_AMOUNT      0x18D
 #define S1_DELAY_AMOUNT       0x18E
 #define S1_DELAY_TIME         0x18F
+
+
+/* buttons (PARAMLOG 2026-11-11, examples/system_s1cc/README.md §1.6): each press reaches the PLUG-OUT's model (region
+ * 0, the assigner's cc()) as this MIDI CC with value 42; no parameter carries the button's state, the PLUG-OUT keeps
+ * it (toggle per press). Their LEDs follow group-3 patch words (writing 1 lights the LED, 0 turns it off), and the OS
+ * hands a written word to the engine like a knob. Found 2026-11-11 by writing candidate words one at a time
+ * (examples/system_s1cc model.c LED_PROBE_TEST): 0x16B, 0x173, 0x180, 0x18C light nothing; TEMPO SYNC, MONO and
+ * LEGATO have no word among the gaps of the map (global settings?). Not usable from a kernel (S1_PARAM): the model (examples/system_s1cc/model.c)
+ * handles them and hands the state to the engine. */
+#define S1_CC_OSC2_RING       111
+#define S1_CC_OSC2_SYNC       112
+#define S1_CC_LPF_TYPE        115
+#define S1_CC_LEGATO          116
+#define S1_CC_LFO_KEY_TRIG    117
+#define S1_CC_TEMPO_SYNC      118
+#define S1_CC_MONO            119
+#define S1_LPF_TYPE_WORD      0x17E   /* group 3: lights LPF TYPE (2026-11-11) */
+#define S1_LFO_KEY_TRIG_WORD  0x166   /* group 3: lights LFO KEY TRIG (2026-11-11, LED_PROBE_TEST) */
+#define S1_OSC2_RING_WORD     0x171   /* group 3: lights OSC2 RING */
+#define S1_OSC2_SYNC_WORD     0x172   /* group 3: lights OSC2 SYNC */
+#define S1_SUB_OSC_TYPE_WORD  0x178   /* group 3: lights SUB OSC TYPE (its button: CC not captured yet) */
+#define S1_NOISE_TYPE_WORD    0x179   /* group 3: lights NOISE TYPE (its button: CC not captured yet) */
 
 #endif
