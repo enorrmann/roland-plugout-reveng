@@ -44,6 +44,15 @@ second command. `build` also accepts `--tol X` (tolerance of the fits, range met
 (metric in octaves, default 0.0005 = 0.6 cent: the increments are pitches), `--maxdeg N` (maximum degree of a
 polynomial, 11) and `--regs LIST` (the registers the kernel may use, §1.1).
 
+| option | effect |
+|---|---|
+| `--exact-float-eq` | float `==` / `!=` as C has them (§7.2). The default since 2026-11-11 |
+| `--loose-float-eq` | the form before 2026-11-11: equal when \|a − b\| < 0.5 |
+| `--no-div-clamp` | no divisor clamp from the profile (W903, §7.3): for a ported program whose rare small divisors are the point. Not the default: it made Plaits' variable-shape oscillator worse (73 example kernels compared, 2026-11-11) |
+
+The driver adds `sdk/s1cc/tools` to the include path: `dsplift_k.h`, the runtime of the C that `dsplift.py --kernel`
+writes ([ch. 8 §6](dsplift.md)).
+
 ### 1.1 Registers (`--regs`)
 
 `--regs-a LIST` / `--regs-b LIST`: the same for a single DSP. SYSTEM-S1CC with `PAIRS=1` needs the kernel in r0–r3
@@ -92,6 +101,7 @@ Dependencies:
 | `sdk/s1cc/Makefile` | make | builds `build/s1cc` |
 | `sdk/s1cc/tools/s1kernel.py` | Python | reads a `.s1k` and places it at real addresses (examples, `check`) |
 | `sdk/s1cc/tools/s1check.py` | Python | `s1cc check` (§10) |
+| `sdk/s1cc/tools/dsplift.py`, `dsplift_rt.h` | Python, C | the reverse direction: an existing DSP program → plain C, to port it as a kernel ([ch. 8](dsplift.md)) |
 | `sdk/s1cc/examples/` | C / C++ | `braids_saw_swarm.cc`, `braids_saw_swarm_s1.cc`, `va_saw_svf.c` (§11) |
 | `sdk/s1cc/tests/test_s1cc.py` | Python | end-to-end tests (§13) |
 | `sdk/s1cc/build/` | — | builds and outputs (not in git) |
@@ -252,7 +262,7 @@ S1_COMPILE("--regs 0,1,2,3");                               /* options of s1cc l
 | macro | what it does |
 |---|---|
 | `S1_BUILD("KEY=VALUE ...")` | `s1cc lower` copies each pair to `voice.s1k` as `.option KEY VALUE` (§7.4), in the given order. `KEY`: `A`–`Z`, `0`–`9`, `_`; `VALUE` without spaces, or between quotes (`NAME=\"MY SYNTH\"`). s1cc does not interpret the keys: the host validates them. SYSTEM-S1CC takes them as default values of its variables, and an environment variable wins ([examples/system_s1cc/README.md](../../examples/system_s1cc/README.md) §1.2) |
-| `S1_COMPILE("--option value ...")` | options of `s1cc lower` (`--regs`, `--regs-a`, `--regs-b`, `--tol`, `--tollog`, `--maxdeg`, `--maxknots`, `--trace`, `--no-exact-init`, `--no-fold-branches`, `--no-recipseed`, `--no-fuse-mac`, `--no-native`, `--no-derive`; and `--fused` / `--no-fused`, §3.4). They are applied before those of the command line: `s1cc build ... --regs 0,1,2,3,4,5,6,7` wins. `voice.s1k` keeps them in `.compile` |
+| `S1_COMPILE("--option value ...")` | options of `s1cc lower` (`--regs`, `--regs-a`, `--regs-b`, `--tol`, `--tollog`, `--maxdeg`, `--maxknots`, `--trace`, `--no-exact-init`, `--no-fold-branches`, `--no-recipseed`, `--no-fuse-mac`, `--no-native`, `--no-derive`, `--exact-float-eq`, `--loose-float-eq`, `--no-div-clamp`; and `--fused` / `--no-fused`, §3.4). They are applied before those of the command line: `s1cc build ... --regs 0,1,2,3,4,5,6,7` wins. `voice.s1k` keeps them in `.compile` |
 
 * One of each per voice, at file level (two `S1_BUILD` are a redefinition: E010).
 * They are constants of the module (`s1_build_opts`, `s1_compile_opts`) that the driver leaves public; `lower` reads
@@ -474,6 +484,13 @@ Scenarios (`s1rt.c prof`):
 
 Each one over 14 notes from 0 to 127, 2400 samples per note, with the gate closing halfway.
 
+When `S1_BUILD` sets `GATE_ACCENT=1` or `MONO_LEGATO=1` (SYSTEM-S1CC host options: the gate word is 2.0 at velocity
+≥ 100; a key played while another is down changes the pitch with the gate held), 24 more scenarios play 16-step
+sequences with random knob sets: accented steps (gate 2.0), steps tied to the one before (new pitch, gate held) and
+releases between steps (`run_seq`). Without them the values of accented or tied notes fell outside the ranges the
+port is scaled for (TB-03, 2026-11-11). The runtime keeps 128 `s1_export` / `s1_import` slots (before: 16; a voice
+split by `dsplift --split` hands over 20).
+
 ## 6. Function fitting (`fit.cpp`)
 
 The domain is brought to t = ta·V + tb ∈ [−1, 1], with V the value of the root. The models that meet the tolerance are
@@ -522,12 +539,13 @@ Each value V of the program lives in a register r with a scale s and an offset o
 |---|---|
 | `a + b`, `a - b` | r = rₐ + q·r_b, with q = s_b / sₐ (`addxy` / `subxy` / `mad`); o = oₐ + q·o_b. If it goes to a wrap, the base is the operand with the scale of the wrap |
 | `a + c`, `a * c`, `a << n`, `a >> n`, `a / c` | only s and o change |
-| `a * b` | materialises o = 0 in both (0–2 ops) and one `mul` |
+| `a * b` | materialises o = 0 in both (0–2 ops) and one `mul`. A factor whose offset is large for its range (\|V\|ₘₐₓ / \|s\| > the normalisation limit: a value near 1 kept as a small deviation, o = −14016 at s = 7·10⁻⁵) is materialised at the scale of its range (the power of 2 above \|V\|ₘₐₓ) instead of its own: r − o would leave the DSP's ±512 and the addition wraps. Before 2026-11-11 it did; the TB-03 port's DECAY and ENV MOD had no effect. No other example kernel changed (73 compared) |
 | overflow of `add`/`sub`/`shl` in C (seen in the profile) | V mod 2ⁿ = 2ⁿ⁻¹·(wrap(V/2ⁿ⁻¹ − 1) + 1): `ph_wrap` plus 0–2 ops; signed, wrap(V/2ⁿ⁻¹) |
 | overflow of `mul` in C | warning; the port computes without wrapping (in real code it is almost always a bug, like the one of Braids, [Vol. V ch. 3](mport_mutable_sdk.md) §7.3) |
 | `x & (2ᵐ − 1)`, contiguous mask, `x ^ 2ᵇ`, `~x` | mod 2ᵐ; difference of two mods; + 2ᵇ mod 2ᵇ⁺¹; −x − 1 |
 | `a < b` and the other comparisons | `ph_clamp(K·(a − b − θ))` in stages of gain ≤ 16. Integers: θ = ±0.5, exact. Floats: up to 2¹⁷ / range |
 | `a == b` between integers | −\|a − b\| ≥ 0 (θ = −0.5). Until 2026-10-27 it was 0.5 − \|a − b\|, half-integer: with \|a − b\| = 1 it gave 0.5 |
+| `a == b`, `a != b` between floats | 1 − \|sign(a − b)\| (SFU `sign`, exact down to the RAW grid 2⁻³²), 1–2 ops. Until 2026-11-11 (`--loose-float-eq`) \|a − b\| < 0.5: `x != 0` was false for every \|x\| < 0.5 (TB-03). The 73 example kernels compiled to the same instructions and SNR with both |
 | comparison of a binary value against a threshold between 0 and 1 | the value itself (or 1 − value), 0 ops. Binary = always 0 or 1: `s1_gate()`, `s1_trig()`, the constants 0 / 1, booleans, `select` / product / `min` / `max` of binaries, and a state whose initial and stored values are binary (a flag) |
 | `a == b`, `a != b` between two binaries | (a − b)², 1 op |
 | `c ? a : b` | two forms, and the one that emits fewer ops stays (dead code removes the other): (b − o_c·s_c·d) + r_c·(s_c·d) with d = a − b, one `mad` on the condition's register without turning it into 0 / 1; or b + c01·d with c01 = c materialised. With a constant d: c scaled (free) + one addition; with constant arms, affine in c (0 ops). 2026-10-27: ADSR of DSP B 46 → 43, Plaits 311 → 303 |
@@ -577,7 +595,7 @@ Each value V of the program lives in a register r with a scale s and an offset o
 | function | how |
 |---|---|
 | `exp`, `exp2`, `pow(c, x)` | range up to ±8 octaves: degree-4 Taylor of e^(x·ln2/16) and 4 squarings, centred on the argument's range (the error goes down with x⁵). Wider (up to 20 octaves): `expsplit` + degree-6 polynomial (§7.6), 10 ops, 6·10⁻⁸, instead of one more squaring for each doubling of the range |
-| `x / y`, `1/y` | if y comes from an `exp2` (`s1_increment`, frequencies): 2^(−argument), exact. Otherwise: y' = y/2ᵏ (k centres the range in octaves) and `recipseed` + 3 `newton` (§7.6), 4 ops, 10⁻⁸. `--no-recipseed`: normalisation by octaves with `mul`/`mad` (more ops) |
+| `x / y`, `1/y` | if y comes from an `exp2` (`s1_increment`, frequencies): 2^(−argument), exact. Otherwise: y' = y/2ᵏ (k centres the range in octaves) and `recipseed` + 3 `newton` (§7.6), 4 ops, 10⁻⁸. `--no-recipseed`: normalisation by octaves with `mul`/`mad` (more ops). A divisor whose profiled range reaches 0 or crosses its sign is clamped at the 0.05 % quantile of its profiled values (W903); `--no-div-clamp` leaves that clamp out |
 | `floor` (`floorf`), `s1_floor`, `s1_ceil` | SFU `floor` / `ceil`, one op, if the profiled range is within ±511; otherwise x − (x mod 1) |
 | `sin`, `cos`, `tan`, `tanh`, `sinh`, `cosh`, `log`, `log2`, `log10`, `sqrt`, `atan`, `asin`, `acos`, `cbrt`, `pow(x, c)` | analytic fit over the profiled range of the argument (§6). The argument can depend on any number of values |
 | others | island (§4.3) |

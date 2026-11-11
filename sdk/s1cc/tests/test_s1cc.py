@@ -20,6 +20,13 @@ import numpy as np  # noqa: E402
 
 import s1check  # noqa: E402
 
+def device_safety_filtered(out):
+    """make_s1cc.py's output without its device-safety notes ("never ran on the device": an address no build that
+    ran on the device used yet, asm/proven_addresses.txt). They are about installing, not about what these emulator
+    tests check; every other warning still fails the test"""
+    return '\n'.join(ln for ln in out.splitlines() if 'never ran on the device' not in ln)
+
+
 EURORACK = os.environ.get('EURORACK', os.path.expanduser('~/git/eurorack'))
 BRAIDS = [os.path.join(EURORACK, 'braids', 'resources.cc'), '-I', os.path.join(ROOT, 'sdk', 'mport', 'ref'),
           '-I', EURORACK]
@@ -153,7 +160,7 @@ class TestSystemS1cc(unittest.TestCase):
             # instead of 91.8, and over the whole run 72 dB instead of 24)
             self.assertTrue(all(x > 88 for x in snrs), (voices, r.stdout))
             self.assertIn('no notes: peak 0.000000', r.stdout)
-            self.assertNotIn('warning', r.stdout)
+            self.assertNotIn('warning', device_safety_filtered(r.stdout))
 
     def test_header_layout(self):
         # the OS loader reads 32-bit words with the first halfword in the high half; a uint16_t array would reach the
@@ -167,7 +174,9 @@ class TestSystemS1cc(unittest.TestCase):
             self.assertEqual(m.group(1), '0x0a02ff71', name)        # the section start marker 0a02 ff71
 
     def test_budget_guard(self):
-        r = subprocess.run([sys.executable, self.gen], env=dict(self.env, BUDGET='100'), capture_output=True, text=True)
+        # VOICES fixed: with VOICES=auto the generator picks as many voices as fit (one fits in 100)
+        r = subprocess.run([sys.executable, self.gen], env=dict(self.env, BUDGET='100', VOICES='8'),
+                           capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('voices do not fit', r.stdout + r.stderr)
         self.assertIn('budget 100', r.stdout + r.stderr)
@@ -191,7 +200,7 @@ class TestSystemS1ccHostEnvelopes(unittest.TestCase):
                                env=dict(os.environ, KERNEL=kernel, OUTDIR=out, VOICES='6'), capture_output=True,
                                text=True)          # 6: with the host LFO on DSP B, 8 voices pass its budget (715)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            self.assertNotIn('warning', r.stdout)
+            self.assertNotIn('warning', device_safety_filtered(r.stdout))
             self.assertIn('no notes: peak 0.000000', r.stdout)
             seg = [float(x) for x in re.search(r'peak per 5 ms: ([0-9. ]+)', r.stdout).group(1).split()]
             top = max(seg)
@@ -283,7 +292,7 @@ class TestFused(unittest.TestCase):
                                                 SPLIT=split))
                     self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
                     self.assertIn('fused kernel:', r.stdout)
-                    self.assertNotIn('warning', r.stdout)
+                    self.assertNotIn('warning', device_safety_filtered(r.stdout))
                     self.assertIn('no notes: peak 0.000000', r.stdout)
                     seg = [float(x) for x in re.search(r'peak per 5 ms: ([0-9. ]+)', r.stdout).group(1).split()]
                     self.assertGreater(max(seg), 0.03)                  # attacks

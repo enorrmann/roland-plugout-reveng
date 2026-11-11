@@ -3597,7 +3597,55 @@ when a source is newer.
     x = reference.braids(shape=1, note=69, p1=16000, p2=10922, n=9600)    # numpy float array, int16 / 32768
 ```
 
-## s1cc glue: kernel placement and emulator check (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) (`sdk/s1cc/tools/`)
+## s1cc glue: kernel placement, emulator check, dsplift (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md, dsplift.md) (`sdk/s1cc/tools/`)
+
+### `sdk/s1cc/tools/dsplift.py`
+
+```
+dsplift.py: DSP microcode -> plain C, one function per program, with the emulator's semantics (a study tool).
+
+    python3 sdk/s1cc/tools/dsplift.py OUT.c NAME=PROGRAM.hex [NAME=PROGRAM.hex ...]
+    python3 sdk/s1cc/tools/dsplift.py OUT.c NAME=PROGRAM.hex --check [--samples 64] [--seed 1]
+
+PROGRAM.hex: the program's 16-bit words in execution order, hexadecimal, separated by blanks (the form of the
+corpus files and of `dis_all`-style extractions; a leading run of 0000 / 0001 data words is skipped with --skip-lead).
+
+Every instruction becomes a C block that does what the emulator's C core (examples/from_scratch/emu/dspcore.h) does:
+all units read the registers of the instruction start; conditions skip units; X9bY flags arrive one instruction
+later; loads land in the register at the end of the instruction; jumps (009Y) are gotos. The disassembly of each
+instruction is a comment above it. The runtime (registers, flags, hidden registers, memory) is
+sdk/s1cc/tools/dsplift_rt.h; the C is meant to be read and rewritten by hand into a kernel (for example
+sdk/s1cc/examples/tb03_ported), and to serve as the native oracle of that rewrite.
+
+--check builds the lifted C with -DDSPLIFT_FLAT -DDSPLIFT_QUANT (the emulator's machine mode: flat memory, RAW
+quantisation) and runs it against the emulator (dspref.Machine) for --samples samples, each with random values in
+every word the program reads (0, 1, or uniform -1..1, as system-1/s1_progs.py) and the same start state. It
+reports the largest difference of the registers and of the memory per program. The MAC of the lift is the double
+path (the emulator takes an exact 128-bit path first), so differences of a few RAW LSB are expected; anything
+larger is a lifter bug.
+
+What is not modelled (reported as a comment in the C and on stderr): delay-tap requests (Xa9Y), the bank-4 MXM,
+and condition words whose skipped unit does not exist in the instruction (the BQ2 control words 00aY / 00cY / 00fY
+that the emulator decodes as conditions; docs/vol5_toolchain_compiler_sdk/dsplift.md §5).
+
+Documentation: docs/vol5_toolchain_compiler_sdk/dsplift.md.
+```
+
+| option | help | default |
+|---|---|---|
+| `out` | the C file to write |  |
+| `progs` | NAME=PROGRAM.hex[@ADDRESS]: C function name, the program words, and (--bq2) its byte address in program memory |  |
+| `--skip-lead` | skip a leading run of 0000 / 0001 data words |  |
+| `--bq2` | Boutique BQ2 DSP: implicit flags, control words (§5) |  |
+| `--check` | compare the lift with the emulator (random inputs) |  |
+| `--kernel` | write s1cc-ready C instead (straight-line programs, §6) |  |
+| `--split` | --kernel: instructions 0..K-1 as NAME_a (DSP A), the rest as NAME_b (DSP B), §6 |  |
+| `--zero-cells` | --split: bank-0 cells (hex) part A may read as 0 (their source is in part B and is 0 in the setup used) | `` |
+| `--export-base` | --split: first s1_export slot (0) | `0` |
+| `--import-ranges` | --split: "NAME LO HI" per handed value, measured: constants stay in B, the rest get the range |  |
+| `--overflow-wrap` | --kernel: instructions whose A-unit result reaches +-512 and must wrap as on the DSP (the others are plain arithmetic); find them with the lift (§6) | `` |
+| `--samples` | samples per program in --check (64) | `64` |
+| `--seed` | random seed of --check (1) | `1` |
 
 ### `sdk/s1cc/tools/s1check.py`
 
@@ -3637,6 +3685,54 @@ and the repo's Python assembler / scheduler / emulator. Used by s1check.py and b
     k = Kernel.read('voice.s1k')
     lines_a = k.place('A', {'IN:pitch': 0xA030, 'S0': 0x0100, ..., 'OUT': 0xA151})   # one-unit lines
     k.param_values('ratio', knob=128, tables=read_tables('tables.txt'))             # floats the ARM writes
+```
+
+## TB-03 port: firmware extraction, ARM tables, voice lift (sdk/s1cc/examples/tb03_ported/README.md) (`sdk/s1cc/examples/tb03_ported/tools/`)
+
+### `sdk/s1cc/examples/tb03_ported/tools/make_voice.sh`
+
+```
+make_voice.sh: writes tb03_voice.h (the TB-03 voice program as s1cc C) from Roland's updater. README.md §2.
+
+sh sdk/s1cc/examples/tb03_ported/tools/make_voice.sh [BQ2_UPD.BIN]
+
+BQ2_UPD.BIN (TB-03 1.07) is only needed when work/tb03/progs/v_0022.hex is not there yet (tools/tb03_extract.py).
+```
+
+### `sdk/s1cc/examples/tb03_ported/tools/tb03_arm.py`
+
+```
+tb03_arm.py: run pieces of the TB-03's ARM code (BQ2:Appli 1.07) in an emulator and write tb03_tables.h.
+
+    python3 sdk/s1cc/examples/tb03_ported/tools/tb03_arm.py [WORKDIR] [-o tb03_tables.h]   (WORKDIR: work/tb03)
+
+Needs the decoded image (tools/tb03_extract.py) and the unicorn module (pip install unicorn). The image is mapped at
+0x60000000, its ITCM copy (0x60163b4c, 0xd710 bytes) at 0x01000300 and its SRAM data (0x601712a8, 0x560 bytes) at
+0x20000000, as its own start code copies them; the peripherals are plain memory and every write to the two
+parameter windows (0x4014c000, 0x4016c000: 16 bytes per parameter, the value at +4) is recorded. Unmapped pages
+are mapped on first touch. What is called (addresses in BQ2:Appli; README.md §3):
+    0x6001da18  the TB-03 voice object's constructor (parameter ids of the oscillator mixer)
+    0x6001e138  its init: every voice parameter's start value
+    knob handlers (the TB-03 knob dispatcher 0x6001d520, param 3..9): TUNE 0x6001e108, CUTOFF 0x6001defe,
+    RESONANCE 0x6001ded0, ENV MOD 0x6001de20, DECAY 0x6001de86, ACCENT 0x6001ddf2; each called with every knob value.
+```
+
+### `sdk/s1cc/examples/tb03_ported/tools/tb03_extract.py`
+
+```
+tb03_extract.py: the TB-03's DSP programs and ARM image out of Roland's updater (sdk/s1cc/examples/tb03_ported).
+
+    python3 sdk/s1cc/examples/tb03_ported/tools/tb03_extract.py BQ2_UPD.BIN [OUTDIR]     (OUTDIR: work/tb03)
+
+BQ2_UPD.BIN = "Boutique2 System Program 107" (boutique2_sys_107.zip, TB-03 1.07, 2021-01-21). The module "BQ2:Appli"
+(0x40-byte header + LZSS, the codec of tools/lzss.py) is decoded and checked (SHA-256), then the TB-03's DSP program
+sets are written as hex word files, halfwords in execution order (each 32-bit little-endian word upper half first),
+the leading 0000 / 0001 data words skipped:
+    OUTDIR/BQ2_Appli.bin             the decoded ARM image (base 0x60000000)
+    OUTDIR/progs/v_ADDR.hex          voice DSP (set 0x6014e184): 0x0000, 0x0022 (the voice), 0x1c6c
+    OUTDIR/progs/b_ADDR.hex          second DSP (set 0x6015006c): call list, post-processing, effects, output
+    OUTDIR/progs/fxN_ADDR.hex        effect variants (sets 0x60150828 ... 0x60151e6c)
+README.md §1.
 ```
 
 ## MUTABLE-SYSTEM (SYSTEM-1) (`examples/mutable_system/`)

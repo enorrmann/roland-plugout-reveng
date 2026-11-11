@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (examples/system_s1cc/README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV')
+           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV', 'MONO_LEGATO', 'GATE_ACCENT')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -208,11 +208,15 @@ B_IN = ('IN:env0', 'IN:env1', 'IN:lfo_amp', 'IN:lfo_filter')                    
 
 
 def export_addr(i, v):
-    """bank-5 word of export slot i, voice v (slots 0..2 where MUTABLE-SYSTEM has them, then the free words)"""
-    base = X0 + 8 * i if i < 3 else 0xA1B8 + 8 * (i - 3)
-    if i < 0 or base + 7 > 0xA1FF:
-        raise SystemExit(f'make_s1cc.py: s1_export({i}): SYSTEM-S1CC has export slots 0..11 (bank 5 A100..A1FF)')
-    return base + v
+    """bank-5 word of export slot i, voice v (slots 0..2 where MUTABLE-SYSTEM has them, then the free words). Slots
+    12.. reuse the 12 slots' words the voices leave free: slot i = word (i // 12) NV + v of slot i % 12 (with fewer
+    voices more slots: 96 with one voice, the TB-03 port)"""
+    j, lane = i % 12, (i // 12) * NV + v
+    base = X0 + 8 * j if j < 3 else 0xA1B8 + 8 * (j - 3)
+    if i < 0 or lane > 7 or base + 7 > 0xA1FF:
+        raise SystemExit(f'make_s1cc.py: s1_export({i}): with {NV} voices SYSTEM-S1CC has export slots '
+                         f'0..{12 * (8 // NV) - 1} (bank 5 A100..A1FF)')
+    return base + lane
 # bank 0 (ring, S / S+1): the voice blocks of the kernel, sized by what it needs, in the regions our device-proven
 # programs used (C-S1V8 / C-S1SY: slave A 0x0300.., slave B 0x0400..; MUTABLE-SYSTEM's kernel B: 0x0600..)
 # A_BLOCK0 / B_OUT0 options: SL_WT=b0 SL_L=1024 moves them out of the loop (wt_slave.c, docs/vol6_reference_designs_applications/mutable_memory.md §4.1)
@@ -2283,6 +2287,8 @@ def header(progs):
         out.append(table('lfo_ampabs_bits', [abs(lfo_amp(v)) for v in range(256)]))
         out.append(table('half_bits', [v / 510.0 for v in range(256)]))
     check_arm_ids()
+    out.append(f'#define MONO_LEGATO {int(opt("MONO_LEGATO", "0") == "1")}  /* mono assigner, legato keeps the gate (README §1.4) */\n'
+               f'#define GATE_ACCENT {int(opt("GATE_ACCENT", "0") == "1")}  /* gate word 2.0 at velocity >= 100 (README §1.4) */')
     out.append(f'#define ARM_ENV {int(ARM_ENV)}\n#define ARM_LFO {int(ARM_LFO)}\n'
                f'#define ARM_DIAG {int(ARM_DIAG)}\n#define ARM_TICK {int(ARM_TICK)}\n#define ARM_PROBE {int(ARM_PROBE)}\n'
                f'#define ARM_RAMPTEST {int(ARM_RAMPTEST)}\n'
@@ -2565,7 +2571,10 @@ def sim_report(progs):
         print('amp envelope (A 60, D 128, S 128, R 60), peak per 5 ms: ' + ' '.join('%.3f' % x for x in seg[:20]))
     for note in (45, 69) if not HOST_ENV_KERNEL else ():
         out = np.array(simulate(progs, {0: [(0, note)]}, n))
-        ra, rb = s1check.run_ref(KERNEL, note, n, {})
+        # the host adds OSC1 RANGE to the pitch (RANGE_64FT + position: +2 octaves at its default 8', the
+        # calibration against the stock SYSTEM-1 above); the native reference has no host: the same note + that shift
+        shift = 12 * (RANGE_64FT + HLFO_DEFAULT["range1"]) if PITCH_MOD else 0
+        ra, rb = s1check.run_ref(KERNEL, note + shift, n, {})
         ref = (rb if HAS_B or FUSED else ra) * GAIN
         best = None
         for lag in range(0, 6):                    # the chain's latency in samples (ring words, IOMD, master)

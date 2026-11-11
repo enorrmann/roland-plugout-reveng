@@ -34,8 +34,8 @@ S1_INIT {
 
 S1_DSP_A {
     float hz = 440.0f * s1_exp2(s1_pitch() - 4.75f);   /* s1_pitch: octaves, 4.75 = A 440; LFO and RANGE included */
-    saw_set_frequency(&osc1, hz, 96000.0f);            /* the DSP runs at 96 kHz */
-    saw_set_frequency(&osc2, hz * s1_param(detune, 0), 96000.0f);
+    saw_set_frequency(&osc1, hz / 96000.0f);           /* cycles per sample: the DSP runs at 96 kHz */
+    saw_set_frequency(&osc2, hz * s1_param(detune, 0) / 96000.0f);
     float mix = 0.5f * (saw_process(&osc1) + saw_process(&osc2));
     return mix * s1_param(level, 0) * s1_gate();
 }

@@ -120,9 +120,35 @@ static void release_all(struct assign *a)
         gate_off(a, v);
 }
 
+#if MONO_LEGATO
+/* the highest key still down, or -1 */
+static int top_key(const struct assign *a)
+{
+    for (int n = 127; n >= 0; n--)
+        if (a->keys[(n >> 5) & 3] >> (n & 31) & 1) return n;
+    return -1;
+}
+#endif
+
 /* same note again > oldest free voice > oldest voice released under hold > oldest voice */
 static void key(struct assign *a, int note, int vel)
 {
+#if MONO_LEGATO
+    /* one voice, last note priority; a key while another is down keeps the gate (legato: the TB-03's slide); the
+       release of the sounding key goes back to the highest key still down, legato */
+    if (!vel) {
+        if (a->v[0].vel && a->v[0].note == note) {
+            int k = top_key(a);
+            if (k >= 0) play(a, 0, k, a->v[0].vel);
+            else if (a->hold) a->v[0].held = 1;
+            else gate_off(a, 0);
+        }
+        return;
+    }
+    if (a->v[0].held) gate_off(a, 0);                /* a key after a held release starts a new gate */
+    play(a, 0, note, vel);
+    return;
+#endif
     if (!vel) {
         for (int v = 0; v < NV; v++)
             if (a->v[v].vel && a->v[v].note == note) {

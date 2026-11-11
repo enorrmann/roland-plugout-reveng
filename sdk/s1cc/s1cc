@@ -39,7 +39,7 @@ build)
             -I*) incs="$incs $1" ;;
             -o) out=$2; shift ;;
             --tol|--tollog|--maxdeg|--maxknots|--regs|--regs-a|--regs-b) lower_opts="$lower_opts $1 $2"; shift ;;
-            --trace|--no-exact-init|--no-fold-branches|--no-recipseed|--no-fuse-mac|--no-derive) lower_opts="$lower_opts $1" ;;
+            --trace|--no-exact-init|--no-fold-branches|--no-recipseed|--no-fuse-mac|--no-derive|--exact-float-eq|--loose-float-eq|--no-div-clamp) lower_opts="$lower_opts $1" ;;
             --fused) fused=1 ;;
             --no-fused) fused=0 ;;
             --check) check=1 ;;
@@ -56,6 +56,7 @@ build)
     out=${out:-$HERE/build/$name}
     mkdir -p "$out"
     make -s -C "$HERE" build/s1cc
+    incs="$incs -I$HERE/tools"                # dsplift_k.h: the runtime of the C that dsplift.py --kernel writes
     dbgflags=
     if [ "$debug" != 0 ]; then
         export S1CC_DEBUG=$debug

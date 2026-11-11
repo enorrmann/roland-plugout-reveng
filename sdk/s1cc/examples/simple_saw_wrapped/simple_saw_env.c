@@ -44,8 +44,8 @@ S1_INIT {
 
 S1_DSP_A {
     float hz = 440.0f * s1_exp2(s1_pitch() - 4.75f);
-    saw_set_frequency(&osc1, hz, 96000.0f);
-    saw_set_frequency(&osc2, hz * s1_param(fine2, 0), 96000.0f);
+    saw_set_frequency(&osc1, hz / 96000.0f);
+    saw_set_frequency(&osc2, hz * s1_param(fine2, 0) / 96000.0f);
     return 0.5f * (saw_process(&osc1) * s1_param(mix1, 0) + saw_process(&osc2) * s1_param(mix2, 0));
 }
 

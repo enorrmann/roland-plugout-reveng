@@ -276,6 +276,8 @@ struct LowerOptions {
                                  // forms only; --no-fuse-mac: mul + mad)
     bool foldBranches = true;    // a compare with one value in every profiling scenario is that constant (W909)
     bool exactInit = true;       // state words with a non-zero start: first-sample flag + one mad each
+    bool noDivClamp = false;     // --no-div-clamp: no divisor clamp from the profile's 0.05 % quantile (W903)
+    bool exactFloatEq = true;    // float == / != exact (sign of the difference); --loose-float-eq: |a - b| < 0.5 (before 2026-11-11)
     bool trace = false;          // debugging: every lowered value also stored to {D:<record id>} (s1cc check --trace)
     int maxDeg = 11;
 };

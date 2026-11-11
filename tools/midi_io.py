@@ -15,12 +15,14 @@ appears as subdevice 1 ("hw:N,0,1", sometimes named "SYSTEM-8 MIDI 2").
 
 from __future__ import annotations
 
+import atexit
 import ctypes
 import ctypes.util
 import errno
 import re
 import shutil
 import subprocess
+import sys
 import time
 
 DEVICE_HINTS = ("SYSTEM-8", "SYSTEM-1")
@@ -102,15 +104,36 @@ class AlsaPort:
         lib.snd_strerror.restype = ctypes.c_char_p
 
         self._in, self._out = ctypes.c_void_p(), ctypes.c_void_p()
-        rc = lib.snd_rawmidi_open(ctypes.byref(self._in), ctypes.byref(self._out),
-                                  name.encode(), SND_RAWMIDI_NONBLOCK)
+        self._dropped: list[tuple[str, str]] = []
+        rc = self._open(name)
+        if rc == -errno.EBUSY:
+            # Usually the udev rule's sequencer subscription (SYSTEM-1 -> Midi Through,
+            # docs/vol5_toolchain_compiler_sdk/linux_usb_midi_host.md) holding the input:
+            # drop it for the session, put it back in close().
+            self._dropped = _drop_seq_subscriptions(name)
+            if self._dropped:
+                atexit.register(self._restore)
+                rc = self._open(name)
         if rc < 0:
+            self._restore()
             raise MidiError(f"cannot open {name}: {lib.snd_strerror(rc).decode()}")
         # In and out share one file descriptor, so both stay non-blocking;
         # send() retries on EAGAIN instead.
         self.name = name
         self._parser = SysexParser()
         self._rbuf = ctypes.create_string_buffer(4096)
+
+    def _open(self, name: str) -> int:
+        return self._lib.snd_rawmidi_open(ctypes.byref(self._in), ctypes.byref(self._out),
+                                          name.encode(), SND_RAWMIDI_NONBLOCK)
+
+    def _restore(self) -> None:
+        dropped, self._dropped = self._dropped, []
+        for src, dst in dropped:
+            subprocess.run(["aconnect", src, dst], capture_output=True)
+        if dropped:
+            print("midi_io: restored " + ", ".join(f"{s} -> {d}" for s, d in dropped),
+                  file=sys.stderr)
 
     def send(self, msg: bytes) -> None:
         view = memoryview(bytes(msg))
@@ -139,6 +162,48 @@ class AlsaPort:
             if h:
                 self._lib.snd_rawmidi_close(h)
         self._in = self._out = ctypes.c_void_p()
+        self._restore()
+
+
+def _seq_subscriptions(card: int) -> list[tuple[str, str]]:
+    """[(sender, dest)] ALSA sequencer subscriptions touching the kernel client of this card
+    (from `aconnect -l`), as client:port pairs."""
+    if not shutil.which("aconnect"):
+        return []
+    out = subprocess.run(["aconnect", "-l"], capture_output=True, text=True).stdout
+    subs, client, port = [], None, None
+    for line in out.splitlines():
+        m = re.match(r"client (\d+): .*card=(\d+)", line)
+        if m or line.startswith("client "):
+            client = m.group(1) if m and int(m.group(2)) == card else None
+            port = None
+            continue
+        if client is None:
+            continue
+        m = re.match(r"\s+(\d+) '", line)
+        if m:
+            port = f"{client}:{m.group(1)}"
+            continue
+        m = re.match(r"\s+(Connecting To|Connected From): (.*)", line)
+        if m and port:
+            for peer in re.findall(r"(\d+:\d+)", m.group(2)):
+                subs.append((port, peer) if m.group(1) == "Connecting To" else (peer, port))
+    return subs
+
+
+def _drop_seq_subscriptions(name: str) -> list[tuple[str, str]]:
+    """Disconnect the sequencer subscriptions of the card behind hw:C,D[,S]; returns what was dropped."""
+    m = re.match(r"hw:(\d+)", name)
+    if not m:
+        return []
+    dropped = []
+    for src, dst in _seq_subscriptions(int(m.group(1))):
+        if subprocess.run(["aconnect", "-d", src, dst], capture_output=True).returncode == 0:
+            dropped.append((src, dst))
+    if dropped:
+        print("midi_io: port busy, dropped " + ", ".join(f"{s} -> {d}" for s, d in dropped)
+              + " (restored on exit)", file=sys.stderr)
+    return dropped
 
 
 # ---------------------------------------------------------------------------

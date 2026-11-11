@@ -264,10 +264,19 @@ struct Lowerer {
             return scale(b, a.k);
         if (b.isConst())
             return scale(a, b.k);
-        KVal *x = materialize(a, a.s, 0), *y = materialize(b, b.s, 0);
+        // each factor as (r - 0) s at its own scale, unless its offset is big for its range (a value near 1 kept
+        // as a small deviation, o = -14016 at s = 7e-5, TB-03 2026-11-11): r - o would leave the DSP's +-512 (the
+        // adds wrap); then at the scale of its range
+        auto fit = [&](const LV &x) {
+            Range v = rangeOf(x);
+            double m = std::max(std::fabs(v.lo), std::fabs(v.hi));
+            return (v.seen() && m / std::fabs(x.s) > LIM) ? p2ceil(m) * (x.s < 0 ? -1 : 1) : x.s;
+        };
+        double sa = fit(a), sb = fit(b);
+        KVal *x = materialize(a, sa, 0), *y = materialize(b, sb, 0);
         LV r;
         r.r = K->mul(x, KOperand::of(y));
-        r.s = a.s * b.s;
+        r.s = sa * sb;
         r.o = 0;
         Range v;
         Range ra = rangeOf(a), rb = rangeOf(b);
@@ -383,6 +392,23 @@ struct Lowerer {
         if (le) return positive(diff(b, a), isInt, false);
         if (gt) return positive(diff(a, b), isInt, true);
         if (ge) return positive(diff(a, b), isInt, false);
+        if (!isInt && opt.exactFloatEq &&
+            (p == "oeq" || p == "ueq" || p == "one" || p == "une")) {
+            // a == b as C has it (the default since 2026-11-11; --loose-float-eq: the old |a - b| < 0.5), from the
+            // SFU sign of the difference (one op: -1, 0, +1; exact down to the RAW grid, 2^-32): equal = 1 - |sign(a -
+            // b)|. The old form made x != 0 false for every |x| < 0.5 (sdk/s1cc/examples/tb03_ported); no other example
+            // kernel changed (73 kernels, same instructions and SNR, 2026-11-11)
+            LV d = diff(a, b);
+            if (d.isConst())
+                return cst((d.k == 0) == (p == "oeq" || p == "ueq"));
+            LV sg;
+            sg.r = K->sign(materialize(d, 1, 0));
+            sg.V.add(-1);
+            sg.V.add(1);
+            LV ne = absLV(sg);
+            ne.isBool = true;
+            return (p == "one" || p == "une") ? ne : bnot(ne);
+        }
         if (p == "eq" || p == "oeq" || p == "ne" || p == "one" || p == "une" || p == "ueq") {
             LV d = absLV(diff(a, b));
             // integers: -|a - b| >= 0 (an integer against the threshold -0.5: always 0.5 away from it); floats:
@@ -652,7 +678,8 @@ struct Lowerer {
             return cst(1 / y.k);
         Range v = rangeOf(y);
         // the profile's histogram of the divisor: the side it is on, and its usual smallest magnitude (0.05 %)
-        if (yn && yn->prof >= 0 && prof.hist.count(yn->prof)) {
+        // --no-div-clamp: the rare small divisors are the point (a ported program's edges: sdk/s1cc/examples/tb03_ported)
+        if (!opt.noDivClamp && yn && yn->prof >= 0 && prof.hist.count(yn->prof)) {
             const auto &h = prof.hist.at(yn->prof);
             unsigned long np = 0, nn = 0;
             for (int k = 0; k < 128; k++) {
@@ -1942,9 +1969,9 @@ struct Lowerer {
             }
             if (debugLevel() >= 2) {
                 const LV &x = val[n];
-                fprintf(stderr, "  n%d %s: %s s %g o %g V [%g, %g]\n", n->id, n->op.c_str(),
+                fprintf(stderr, "  n%d %s: %s s %g o %g V [%g, %g] %s\n", n->id, n->op.c_str(),
                         x.isConst() ? ("const " + std::to_string(x.k)).c_str() : ("%" + std::to_string(x.r->n)).c_str(),
-                        x.s, x.o, x.V.lo, x.V.hi);
+                        x.s, x.o, x.V.lo, x.V.hi, n->v ? where(n->v).c_str() : "");
             }
             // outputs as soon as they exist (fewer live registers): state words, exports, the result
             for (int s : S.states)

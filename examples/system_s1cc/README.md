@@ -81,7 +81,7 @@ Verificación sin el equipo: `sdk/s1cc/examples/edm/km_sim.py`.
 ### 1.2 Opciones en el fuente del kernel (`S1_BUILD`)
 
 Todas las variables de la tabla de arriba salvo `KERNEL`, `OUTDIR` y las voces, y también `LFO_PITCH`, `LFO_LUT`,
-`ENV_CURVE`, `ARM_ENV`, `ARM_LFO`, `ARM_RAMP`, `ARM_FADE`, `ARM_DIAG`, `ARM_TICK`, `CMOD_IDX`, `TRY_FORMS`, `PAIRS` y `SPLIT` (§1.3),
+`ENV_CURVE`, `ARM_ENV`, `ARM_LFO`, `ARM_RAMP`, `ARM_FADE`, `ARM_DIAG`, `ARM_TICK`, `CMOD_IDX`, `TRY_FORMS`, `PAIRS`, `SPLIT` (§1.3), `MONO_LEGATO` y `GATE_ACCENT` (§1.4),
 pueden ir en el C del kernel ([Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.3):
 
 ```c
@@ -158,6 +158,24 @@ Cuánto cuestan en el DSP B: las envolventes 213 instrucciones, el LFO 113 (§3.
   margen queda para kernels más caros (§3.7).
 * **Correcto en el emulador.** `--sim` con `SPLIT=0`, `SPLIT=8` y auto da la misma envolvente, el mismo acorde de 8
   voces y el mismo silencio sin notas que el kernel normal.
+
+### 1.4 Monofónico con legato y acento (`MONO_LEGATO`, `GATE_ACCENT`) [sim, 2026-11-11; sin probar en el equipo]
+
+Dos opciones de `S1_BUILD` para un kernel que hace su propio slide y acento (el TB-03 portado,
+[sdk/s1cc/examples/tb03_ported](../../sdk/s1cc/examples/tb03_ported/README.md)). Las lee `model.c` / `engine.c`
+(`#define` en `s1_programs.h`) y el perfilado de s1cc ([Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §5).
+
+| opción | efecto |
+|---|---|
+| `MONO_LEGATO=1` | una voz, prioridad a la última nota. Una tecla tocada con otra apretada cambia el pitch sin cerrar la puerta y sin nuevo disparo (`s1_trig` no cambia): el kernel ve un pitch nuevo con la puerta abierta = legato. Al soltar la tecla que suena vuelve, en legato, a la más alta que sigue apretada; sin ninguna, cierra (o queda sostenida con HOLD) |
+| `GATE_ACCENT=1` | la palabra de puerta (`s1_gate()`) vale 2.0 con velocity ≥ 100 (como el TB-03), 1.0 debajo, 0.0 cerrada. El kernel separa con `fminf(g, 1)` y `fmaxf(g − 1, 0)` |
+
+Con alguna de las dos, el perfilado de s1cc toca además secuencias de 16 pasos con acentos y notas ligadas: sin ellas,
+los valores de esas notas quedaban fuera de los rangos para los que el port está escalado.
+
+`s1_export`: las 12 ranuras de 8 palabras (una por voz) del banco 5; con menos voces, las palabras libres de cada
+ranura dan más ranuras: ranura i = palabra (i / 12)·NV + v de la ranura i mod 12, hasta 12·(8 / NV) (96 con una voz;
+el TB-03 usa 20).
 
 ## 2. Qué corre en cada DSP
 

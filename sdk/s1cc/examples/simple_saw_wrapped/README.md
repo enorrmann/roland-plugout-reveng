@@ -23,7 +23,7 @@ Tiene la forma habitual de una librería de audio: una estructura de estado, un 
 ```c
 struct saw { float phase; float inc; };
 
-void saw_set_frequency(struct saw *s, float hz, float sample_rate) { s->inc = hz / sample_rate; }
+void saw_set_frequency(struct saw *s, float hz) { s->inc = hz; }      /* hz: cycles per sample (f / fs) */
 
 float saw_process(struct saw *s) {
     s->phase += s->inc;
@@ -59,8 +59,8 @@ S1_INIT {
 
 S1_DSP_A {
     float hz = 440.0f * s1_exp2(s1_pitch() - 4.75f);
-    saw_set_frequency(&osc1, hz, 96000.0f);
-    saw_set_frequency(&osc2, hz * s1_param(detune, 0), 96000.0f);
+    saw_set_frequency(&osc1, hz / 96000.0f);
+    saw_set_frequency(&osc2, hz * s1_param(detune, 0) / 96000.0f);
     float mix = 0.5f * (saw_process(&osc1) + saw_process(&osc2));
     return mix * s1_param(level, 0) * s1_gate();
 }

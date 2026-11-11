@@ -35,7 +35,19 @@ HOST_MIX = 0xA053                      # s1_host_mix() = 0 (fused: no SUB / NOIS
 STATE0, PARAM0, SCRATCH0, TRACE0 = 0x0100, 0x40, 0x0300, 0x0400
 
 
+def place(k):
+    """many exports (a voice split in two, sdk/s1cc/examples/tb03_ported: 20): the inputs for B and B's output move
+    up after them (A1A0 + exports, then the inputs, then the output; a DSP stores to A100..A1FF only)"""
+    global INB0, B_OUT
+    nexp = max(k.exports) + 1 if k.exports else 0
+    INB0 = max(0xA1B0, EXP0 + nexp)
+    B_OUT = max(0xA1C0, INB0 + len(k.inputs_b) + 2)
+    if B_OUT > 0xA1FF:
+        raise SystemExit('s1check: %d exports and %d inputs for B do not fit in A1A0..A1FF' % (nexp, len(k.inputs_b)))
+
+
 def layout(k):
+    place(k)
     addr = {'IN:pitch': PITCH, 'IN:gate': GATE, 'IN:trig': TRIG, 'IN:dt': DT, 'IN:rdt': RDT, 'XIN': A_OUT,
             'IN:color0': COLOR[0], 'IN:color1': COLOR[1],
             'IN:lfo_filter': LFO_FILTER, 'IN:lfo_amp': LFO_AMP, 'IN:host_mix': HOST_MIX}

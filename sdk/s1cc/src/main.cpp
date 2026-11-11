@@ -165,6 +165,9 @@ int main(int argc, char **argv) {
             else if (a == "--tollog") opt.fitTolLog = std::stod(next());
             else if (a == "--no-exact-init") opt.exactInit = false;
             else if (a == "--no-fold-branches") opt.foldBranches = false;
+            else if (a == "--exact-float-eq") opt.exactFloatEq = true;
+            else if (a == "--loose-float-eq") opt.exactFloatEq = false;
+            else if (a == "--no-div-clamp") opt.noDivClamp = true;
             else if (a == "--no-recipseed") opt.recipseed = false;
             else if (a == "--no-fuse-mac") opt.fuseMac = false;
             else if (a == "--no-native") opt.native = false;

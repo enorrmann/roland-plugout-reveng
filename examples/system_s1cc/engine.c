@@ -543,9 +543,21 @@ static void voice_pitch(engine_t *e, int v, int note)
     voice_note_words(e, v);
 }
 
+#if GATE_ACCENT
+#define GATE_ON(vel) ((vel) >= 100 ? 0x40000000u : F_ONE)    /* 2.0: an accented note (TB-03: velocity >= 100) */
+#else
+#define GATE_ON(vel) F_ONE
+#endif
+
 static void voice_gate(engine_t *e, int v, int vel)
 {
     int on = vel > 0;
+#if MONO_LEGATO
+    if (on && e->on[v]) {                              /* a legato note: new velocity, no new trigger */
+        b5(B5_GATE + v, GATE_ON(vel));
+        return;
+    }
+#endif
     if (on) {
         voice_note_words(e, v);                        /* the note may have arrived after the gate */
         e->trig[v] ^= 1;                               /* s1_trig: toggles at every note start */
@@ -556,7 +568,7 @@ static void voice_gate(engine_t *e, int v, int vel)
         section_on();
     }
     e->on[v] = on;
-    b5(B5_GATE + v, on ? F_ONE : F_ZERO);
+    b5(B5_GATE + v, on ? GATE_ON(vel) : F_ZERO);
     arm_gate(v, on);
 }
 

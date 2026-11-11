@@ -49,7 +49,7 @@ static int np;
 static const s1_param_desc *pd[MAXP];
 static float *ptab[MAXP];             /* 256 x count */
 static int knob[MAXP];
-static float g_pitch, g_gate, g_trig, g_export[16];
+static float g_pitch, g_gate, g_trig, g_export[128];   /* s1_export slots (a split voice: 20, sdk/s1cc/examples/tb03_ported) */
 
 /* S1_VOICE_PARAM tables: [note 0..127][step a 0..7][step b 0..7][count], the knob of step k = round(k 255 / 7) */
 typedef struct s1_vparam_desc {
@@ -178,8 +178,8 @@ float s1_param_get(const s1_param_desc *d, int i) {
             return ptab[k][knob[k] * d->count + i];
     return 0;
 }
-void s1_export(int i, float v) { g_export[i & 15] = v; }
-float s1_import(int i) { return g_export[i & 15]; }
+void s1_export(int i, float v) { g_export[i & 127] = v; }
+float s1_import(int i) { return g_export[i & 127]; }
 /* s1_ldb5(i): the wavetable frame in bank 5 (A080..). Here (native reference / profiling / check) a band-limited saw
  * stands in for whatever the host / USB loader wrote; on the device the DSP reads the loaded frame. 127 points +
  * a guard copy of point 0, peak 0.8, as make_s1cc's sl_frames() (docs/vol6_reference_designs_applications/mutable_memory.md §4.1, §4.5). */
@@ -343,6 +343,49 @@ static void run(double note, long n, long off, FILE *out) {
             lines_step();
             if (outm)
                 fwrite(&m, sizeof m, 1, outm);
+        }
+    }
+}
+
+/* SYSTEM-S1CC host options that change what the voice sees (S1_BUILD, examples/system_s1cc make_s1cc.py): with
+   GATE_ACCENT=1 the gate word is 2.0 at velocity >= 100, with MONO_LEGATO=1 a key played while another is down changes
+   the pitch with the gate on. The profile then plays such notes too (run_seq), or their values would be outside the
+   ranges the port is scaled for (sdk/s1cc/examples/tb03_ported, 2026-11-11) */
+extern const char s1_build_opts[] __attribute__((weak));
+static int build_opt(const char *key) {
+    if (!&s1_build_opts) return 0;
+    const char *p = strstr(s1_build_opts, key);
+    return p && (p == s1_build_opts || p[-1] == ' ') && !strncmp(p + strlen(key), "=1", 2);
+}
+
+/* a pattern of 16 steps of n samples: gate 1 or 2 (accent, with GATE_ACCENT), half-step gates, and with MONO_LEGATO
+   steps tied to the one before (new pitch, gate held) */
+static void run_seq(const int *notes, int nn, long n, int accent, int legato, unsigned *r) {
+    g_gate = 0.0f;
+    for (int i = 0; i < 16; i++) {
+        *r = *r * 1664525u + 1013904223u;
+        int tie = legato && i > 0 && ((*r >> 8) % 3 == 0), acc = accent && ((*r >> 12) % 3 == 0);
+        int nx = (int)((*r >> 16) % (unsigned)nn);
+        g_pitch = note_pitch(notes[nx]);
+        g_note = notes[nx];
+        if (!tie)
+            g_trig = 1.0f - g_trig;
+        for (long t = 0; t < n; t++) {
+            g_gate = (t < n / 2 || legato) ? (acc ? 2.0f : 1.0f) : 0.0f;
+            if (!tie && t == 0 && legato) g_gate = acc ? 2.0f : 1.0f;
+            state_track();
+            float a = s1_dsp_a(), b = a;
+            if (s1_dsp_b)
+                b = s1_dsp_b(a);
+            (void)b;
+        }
+        if (legato && (*r >> 20) % 2) {                  /* a release before the next step: not tied */
+            g_gate = 0.0f;
+            for (long t = 0; t < n / 4; t++) {
+                state_track();
+                float a = s1_dsp_a();
+                if (s1_dsp_b) s1_dsp_b(a);
+            }
         }
     }
 }
@@ -520,6 +563,16 @@ int main(int argc, char **argv) {
             for (int k = 0; k < np; k++) knob[k] = rnd(4) == 0 ? (rnd(2) ? 255 : 0) : rnd(256);
             for (int k = 0; k < nvp; k++) { vstep[k][0] = rnd(VSTEPS); vstep[k][1] = rnd(VSTEPS); }
             for (int i = 0; i < nn; i++) { reset(); run(note_in(notes[i]) + (note_in(notes[i]) < (s1_note_range ? s1_note_range[1] : 127) ? rnd(100) / 100.0 : 0), n, n / 2, 0); }
+        }
+        int acc = build_opt("GATE_ACCENT"), leg = build_opt("MONO_LEGATO");
+        if (acc || leg) {                        /* sequences with accents and tied notes, random knob sets */
+            unsigned r = 777;
+            static const int seqnotes[] = {24, 36, 39, 41, 43, 46, 48, 51, 60, 72};
+            for (int s = 0; s < 24; s++) {
+                for (int k = 0; k < np; k++) knob[k] = rnd(4) == 0 ? (rnd(2) ? 255 : 0) : rnd(256);
+                reset();
+                run_seq(seqnotes, (int)(sizeof seqnotes / sizeof seqnotes[0]), n, acc, leg, &r);
+            }
         }
         for (int k = 0; k < np; k++) knob[k] = 255;
         for (int k = 0; k < nvp; k++) vstep[k][0] = vstep[k][1] = VSTEPS - 1;
