@@ -14,10 +14,10 @@
 #include <math.h>
 #include "s1dsp.h"
 
-#define BQ_PANEL
+#define BQ_PANEL_HOST
 #include "dsplift_k.h"
 #include "bq_osc2x.h"
-#include "bq_jp08_host_tables.h"
+#include "bq_jp08_tables.h"
 
 static float out_voice, osc2_pw, osc1_out, osc2_out;
 static bq_osc_t osc1, osc2;

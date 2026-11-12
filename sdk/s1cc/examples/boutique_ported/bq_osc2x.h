@@ -90,4 +90,76 @@ static inline __attribute__((always_inline)) float bq_pulse2x(bq_osc_t *o, float
     return bq_hb(o, y1, y2) * 0.53f;        /* x 0.53: the level of Roland's pulse (measured: 0.507 at C7 .. 0.535 at C2) */
 }
 
+/* Roland's sine (variant 0, JP-08 OSC1 / OSC2 WAVE 0): the phase as the saw's (free running, A08B = 1; a shape
+   phase of exactly 0 is taken as 0.5, as the program does), the shape sin(pi p) with four gains by quarter
+   (0.93 above p 0.56, 1 above 0, 0.71 above -0.47, else 0.73: the analog sine's asymmetry) and s - 0.16 s^3; no
+   biquad (the program has none); the output 0.55 x the decimated value - 0.04 (the program's own offset).
+   BQ_SINE_LEVEL: the 11-tap FIR's level against Roland's 28-tap one (measured, tools: README.md §12) */
+#ifndef BQ_SINE_LEVEL
+#define BQ_SINE_LEVEL 1.0075f       /* measured 2026-11-12: Roland's 4-sub-sample sine / this, the fundamental, notes 36..84 (1.0075..1.0097) */
+#endif
+static inline __attribute__((always_inline)) float bq_sine_shape(float p)
+{
+    float g = SEL(K_GE0(p - 0.55999947f), 0.92999935f,
+                  SEL(K_GE0(p), 1.0f, SEL(K_GE0(p + 0.4699993f), 0.7099991f, 0.72999954f)));
+    float s = K_SIN(p * 3.1415863f) * g;
+    return s - 0.15999985f * (s * (s * s));
+}
+static inline __attribute__((always_inline)) float bq_sine2x(bq_osc_t *o, float inc)
+{
+    float r1 = s1_wrap(o->r + inc), r2 = s1_wrap(r1 + inc);       /* the running phase */
+    float t1 = s1_wrap(o->ph + inc);
+    float p1 = SEL(K_LT0(r1 - o->r), r1, SEL(K_Z(t1), 0.5f, t1));
+    float t2 = s1_wrap(p1 + inc);
+    float p2 = SEL(K_LT0(r2 - r1), r2, SEL(K_Z(t2), 0.5f, t2));
+    o->r = r2;
+    o->ph = p2;
+    return 0.55f * bq_hb(o, bq_sine_shape(p1), bq_sine_shape(p2)) * BQ_SINE_LEVEL - 0.03999996f;
+}
+
+/* Roland's triangle (variant 1, JP-08 OSC1 WAVE 1): the shape phase is the running phase (0 taken as -1), the
+   triangle s1_tri(p) rounded at its peaks by t (1 - max(|t| + c, 0)^2), c = min(0.05 f - 1.14, -0.6) (f = the
+   program's frequency word, rounder at high notes), the biquad 1.4837646 / -0.7622889 / 0.069631085 (x, 2x, x),
+   x 0.5. The program's first sub-sample divides by a decoded 0.1023 (a "fitted" instruction, class 0x02d8) where the
+   other three divide by 1: taken as 1 here (README.md §12). freq = the program's c_1ef (2^(pitch - 4.75) x A088) */
+#ifndef BQ_TRI_LEVEL
+#define BQ_TRI_LEVEL 1.0f
+#endif
+static inline __attribute__((always_inline)) float bq_tri_shape(float p, float c)
+{
+    float t = K_TRI(p);
+    float k = fmaxf(s1_abs(t) + c, 0.0f);
+    return t * (1.0f - k * k);
+}
+static inline __attribute__((always_inline)) float bq_tri2x(bq_osc_t *o, float inc, float freq)
+{
+    inc = fminf(inc, 0.249f);
+    float c = fminf(0.049999952f * freq - 1.1399994f, -0.5999994f);
+    float r1 = s1_wrap(o->r + inc), r2 = s1_wrap(r1 + inc);
+    float p1 = SEL(K_Z(r1), -1.0f, r1), p2 = SEL(K_Z(r2), -1.0f, r2);
+    o->r = r2;
+    float x1 = bq_tri_shape(p1, c), x2 = bq_tri_shape(p2, c);
+    float y1 = 1.4837646f * o->y1 - 0.7622889f * o->y2 + 0.069631085f * (x1 + 2.0f * o->x1 + o->x2);
+    float y2 = 1.4837646f * y1 - 0.7622889f * o->y1 + 0.069631085f * (x2 + 2.0f * x1 + o->x1);
+    o->x2 = x1; o->x1 = x2;
+    o->y2 = y1; o->y1 = y2;
+    return bq_hb(o, y1, y2) * 0.5f * BQ_TRI_LEVEL;
+}
+
+/* OSC1 WAVE 5, noise: NOT Roland's. The JP-08's noise program (variant 4) filters the word A109, which the pre
+   program makes with ph_mod2 on a register the program before leaves (not modelled yet, README.md §12). Until then
+   our own white noise: mutable_ported mp_noise (a Weyl sequence through a squaring hash, -1..1, no integer ops), one
+   value per sample, unfiltered. The state is the oscillator's running phase word r (0..1). BQ_NOISE_LEVEL: not
+   measured against Roland's (1 = mp_noise as it is) [TEST] */
+#ifndef BQ_NOISE_LEVEL
+#define BQ_NOISE_LEVEL 1.0f
+#endif
+static inline __attribute__((always_inline)) float bq_noise(bq_osc_t *o)
+{
+    float x = o->r + 0.6180339887f;
+    x = SEL(K_GE0(x - 1.0f), x - 1.0f, x);
+    o->r = x;
+    return s1_wrap(x * x * 4093.0f) * BQ_NOISE_LEVEL;
+}
+
 #endif

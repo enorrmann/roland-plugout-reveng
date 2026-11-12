@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (examples/system_s1cc_boutique/README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'ARM_CUSTOM', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV', 'MONO_LEGATO', 'GATE_ACCENT', 'PANEL')
+           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV', 'MONO_LEGATO', 'GATE_ACCENT', 'PANEL', 'VOICE_SECT_TEST', 'KV_WORDS')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -94,6 +94,9 @@ def _budget(name, default):
 BUDGET = {'s1m0': _budget('BUDGET_A', 703),     # DSP A: 703 ran, 826 hung
           's1m1': _budget('BUDGET_B', 708)}     # DSP B: 708 ran
 MAIN_BYTES = int(opt('MAIN_BYTES', '6144'))  # 0x0100..0x18FF: 5854 bytes ran, 6534 / 6740 hung
+# VOICE_SECT_TEST=1: every voice in a section, the mains hold only the head (the host): build_multi.sh SECT_SWITCH
+# re-places only the sections when a WAVE knob moves (the stock synth's way, README.md §12). TEST until heard
+VOICE_SECT = opt('VOICE_SECT_TEST', '0') == '1'
 OUTDIR = os.environ.get('OUTDIR', os.path.join(HERE, 'build'))   # everything generated (tests: a temporary folder)
 KTAB = s1kernel.read_tables(os.path.join(KERNEL, 'tables.txt'))
 HAS_B = 'B' in KDEF.dsps
@@ -460,8 +463,19 @@ def kdsp(v):
     return 'A' if v < NA else 'B'
 
 
+# KV_WORDS=n: each fused voice block padded to n words (build_multi.sh SECT_SWITCH: the kernels of the wave pairs
+# need different state; with the same block size every host address after the blocks is the same, so their mains
+# are the same program, README.md §12)
+KV_PAD = int(opt('KV_WORDS', '0') or 0)
+
+
 def kv_words():
-    """FUSED: bank-0 words of the kernel per voice: state, scratch, the first-sample flag"""
+    """FUSED: bank-0 words of the kernel per voice: state, scratch, the first-sample flag (KV_WORDS: at least that)"""
+    st = KDEF.dsps['A']
+    return max(len(KDEF.states) + st.get('scratch', 0) + bool(st.get('initflag')), KV_PAD)
+
+
+def kv_words_own():
     st = KDEF.dsps['A']
     return len(KDEF.states) + st.get('scratch', 0) + bool(st.get('initflag'))
 
@@ -1929,7 +1943,7 @@ def _fill(main, head, units, dsp):
     out, rest = {}, list(units)
     for name, a, b in regions:
         hd = head if name == main else frag('section_head', name=name, dsp=dsp, a=a)
-        k = len(rest)
+        k = 0 if (VOICE_SECT and name == main) else len(rest)
         while k > 0 and size(name, hd + flat(rest[:k])) > b - a:
             k -= 1
         if name == main or k:
@@ -3009,6 +3023,8 @@ def main():
             f'# {name}, own SYSTEM-1 program (make_s1cc.py KERNEL={KERNEL} VOICES={NV})\n'
             + '\n'.join('%04x' % x for x in w) + '\n')
         print(f'{name:6s} {instr_count(lines):4d} instructions, {len(w)} halfwords')
+    if FUSED:
+        print(f'kv_words {kv_words_own()} (block {kv_words()})')
     print(f'kernel per voice: A {len(KDEF.dsps["A"]["lines"])} lines, {words("A")} words'
           + (f'; B {len(KDEF.dsps["B"]["lines"])} lines, {words("B")} words' if HAS_B else '; no DSP B'))
     crossing_report(progs)

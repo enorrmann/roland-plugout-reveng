@@ -1,0 +1,60 @@
+# bq_names_cells.txt: the musical names of the Boutique voice's stages, read from the lift (README.md §2). Hand-written
+# seeds: dsplift_c.auto_names names every other cell from them (the stage a value flows into, the parameters it reads)
+# and from its form (phase, lp, state, fir, prev ...). Included by bq_names.txt and bq_names_host.txt; the cells are
+# the same in every build (make_voice.py --host / --osc2x / --arm), the sections are anchored by name (@NAME).
+
+section @lfo* LFO (pre program): phase from LFO RATE, delay fade from LFO DELAY, shape, LFO x fade^2
+cell 024 lfo_phase
+cell 039 lfo
+
+section @gate* gate: the key with Roland's retrigger gap (a short count before a new note's gate)
+cell 062 gate_count
+cell 064 gate_on
+cell 07e key_on
+
+section @env1* ENV1 (filter envelope, also pitch / PWM source): attack to 1.05 ends above 0.8925, decay to SUSTAIN x 0.87, release
+cell 077 env1_attack
+cell 07b env1
+cell 081 env1_out
+
+section @env2* ENV2 (VCA envelope)
+cell 084 env2_attack
+cell 088 env2
+cell 08e env2_out
+
+section @pwm_src*,@pitch_mod* modulation: PWM source, LFO / ENV1 -> pitch, CROSS MOD (OSC2 output of the sample before -> OSC1 pitch)
+cell 095 pwm_src
+cell 094 pitch_mod
+cell 093 osc1_mod
+cell 410 pwm
+cell 40a osc1_pitch
+cell 40f osc2_pitch
+
+section @osc2_freq*,@osc2_phase* OSC2 (the slot's program, make_voice.py OSC2): four sub-samples, shape, two-pole lowpass, 28-tap decimation FIR
+cell 252 osc2_freq
+cell 41d osc2_out
+
+section @osc1_freq*,@osc1_phase* OSC1 (the slot's program, make_voice.py OSC1): four sub-samples, shape, two-pole lowpass, 28-tap decimation FIR
+cell 1ef osc1_freq
+cell 418 osc1_out
+
+section @mix*,@hpf* mixer (MIX balance), HPF (one-pole lowpass subtracted)
+cell 0a9 mix
+cell 0b0 hpf_lp
+cell 0b1 hpf_out
+
+section @cutoff*,@filter* filter: cutoff (ENV1, KEY FOLLOW, LFO, CUTOFF) -> octaves -> g = tan / (1 + tan); 4 one-pole stages, resonance feedback
+cell 0af cutoff_mod
+cell 0b5 cutoff_oct
+cell 0b2 filter_tan
+cell 0b6 filter_g
+cell 0b7 filter_in
+cell 0b8 filter_p1
+cell 0b9 filter_p2
+cell 0ba filter_p3
+cell 0bb filter_p4
+cell 0bc filter_fb
+
+section @vca* VCA: level ramp, ENV2 curve, output
+cell 0c8 vca_level
+cell 0cf vca_out

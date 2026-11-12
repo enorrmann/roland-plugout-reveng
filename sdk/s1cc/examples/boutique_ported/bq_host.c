@@ -11,8 +11,8 @@
 #include <math.h>
 #include "s1dsp.h"
 
-#define BQ_PANEL
-#include "bq_jp08_host_tables.h"
+#define BQ_PANEL_HOST
+#include "bq_jp08_tables.h"
 
 static float out_voice;
 

@@ -1172,8 +1172,46 @@ struct Builder {
         vmap[B] = n;
     }
 
+    // S1_FIXED_STATES (s1dsp.h): the states of every file-scope variable in declaration order, all their fields
+    bool scalarFields(Type *ty, long off, std::vector<std::pair<long, Type *>> &out) {
+        if (ty->isFloatTy() || ty->isDoubleTy() || ty->isIntegerTy()) {
+            out.push_back({off, ty});
+            return true;
+        }
+        if (auto *st = dyn_cast<StructType>(ty)) {
+            const StructLayout *L = DL.getStructLayout(st);
+            for (unsigned i = 0; i < st->getNumElements(); i++)
+                if (!scalarFields(st->getElementType(i), off + (long)L->getElementOffset(i), out))
+                    return false;
+            return true;
+        }
+        if (auto *at = dyn_cast<ArrayType>(ty)) {
+            long es = (long)DL.getTypeAllocSize(at->getElementType());
+            for (uint64_t i = 0; i < at->getNumElements(); i++)
+                if (!scalarFields(at->getElementType(), off + es * (long)i, out))
+                    return false;
+            return true;
+        }
+        return false;
+    }
+
+    void fixedStates() {
+        for (GlobalVariable &gv : P.M->globals()) {
+            if (gv.isDeclaration() || gv.isConstant() || gv.getName().starts_with("s1_") ||
+                gv.getName().starts_with("__s1") || gv.getName().starts_with("llvm."))
+                continue;
+            std::vector<std::pair<long, Type *>> f;
+            if (!scalarFields(gv.getValueType(), 0, f))
+                continue;
+            for (auto &x : f)
+                stateOf(&gv, x.first, x.second, &gv);
+        }
+    }
+
     void run() {
         Function *F = S.fn;
+        if (S.name == "A" && P.M->getNamedGlobal("s1_fixed_states"))
+            fixedStates();
         if (F->arg_size() == 1)
             vmap[F->getArg(0)] = [&] {
                 Node *n = mk(NK::XIn, "xin", {}, F->getArg(0));

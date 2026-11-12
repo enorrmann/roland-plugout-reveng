@@ -13,7 +13,12 @@ work/bq1/MODEL_patches.json + bq_MODEL_tables.h (tools/bq_arm.py).
    frequency scale, the LFO step limit, the shortest attack. (The VCA level smoothing pole 0.0075531 is a MAC
    coefficient, not converted: it only smooths a constant level.)
 3. dsplift.py --bq2 --kernel --bank1-ring (bank 1 carries the values between the programs) --kout 203a (the voice
-   output, to the post program) --names bq_names.txt --consts (the init words no panel control moves).
+   output, to the post program) --names bq_MODEL*_names.txt --consts (the init words no panel control moves).
+
+    python3 .../make_voice.py MODEL OSC1 OSC2 [--host ...] --names
+
+writes bq_MODEL*_names.txt instead (step 1, README.md §2.1): the seeds (the panel's parameters from the tables,
+bq_names*.txt) and sdk/s1cc/tools/dsplift_names.py's automatic cell names; the lift (step 2) only reads it.
 """
 import json
 import os
@@ -121,7 +126,7 @@ def arm_fix(src):
     fed them leaves the DSP (s1cc removes it)"""
     out, n = [], 0
     for ln in src.split('\n'):
-        m = re.match(r'(\s*float c_0b6 = )c_0b2 \* 2\.0f;(.*)$', ln)
+        m = re.match(r'(\s*float \w+ = )\w+ \* 2\.0f;(\s*/\* 267 \*/.*)$', ln)
         if m:
             ln = '%sKIN(0xa0f5);%s' % (m.group(1), m.group(2).replace('*/', ' arm_fix: g from the ARM */'))
             n += 1
@@ -145,7 +150,7 @@ def micro_fix(src):
         if not m:
             continue
         t = m.group(2)
-        m2 = re.match(r'(\s*float c_\w+ = )(t\d+) \* %s \* K_RECIP\(%s \* \2 \+ 1\.0f\);(.*)$' % (t, t), lines[i + 1])
+        m2 = re.match(r'(\s*float \w+ = )(t\d+) \* %s \* K_RECIP\(%s \* \2 \+ 1\.0f\);(.*)$' % (t, t), lines[i + 1])
         if m2 and src.count(t) == 3:                   # t is used only by the next line
             lines[i] = None
             lines[i + 1] = '%s%s * K_RECIP_POS(%s + (%s));%s' % (m2.group(1), m2.group(2), m2.group(2), m.group(3),
@@ -174,8 +179,11 @@ def attack_fix(src):
         m = re.match(r'(\s*float (t\d+) = )fmaxf\(0\.01f \* \((t\d+) \* (t\d+)\) \+ (t\d+) \+ \3 \* 0\.99f, 0\.0f\);(.*)$', ln)
         if m:
             att, tgt = m.group(3), m.group(5)
-            prev = next(l for l in reversed(lines[:i]) if re.match(r'\s*float %s = ' % att, l))
-            f = re.search(r'SEL\(K_GT0\((c_[0-9a-f]+) \* (c_[0-9a-f]+)\)', prev)
+            # the attack flag: the nearest SEL(K_GT0(flag * key), ...) above (the lift may cut the expression in
+            # named parts: the layout depends on the names' lengths)
+            f = next((re.search(r'SEL\(K_GT0\((\w+) \* (\w+)\)', l) for l in reversed(lines[max(0, i - 12):i])
+                      if re.search(r'SEL\(K_GT0\((\w+) \* (\w+)\)', l)), None)
+            prev = att
             if not f:
                 raise SystemExit('attack_fix: no attack flag in %r' % prev)
             ln = '%sSEL(K_GT0(%s * %s), %s + %s, fmaxf(0.01f * (%s * %s) + %s + %s * 0.99f, 0.0f));%s' % (
@@ -189,10 +197,11 @@ def attack_fix(src):
     # 2026-11-11). The release starts from the envelope's value of the sample before, without the decay pull
     out2, r = [], 0
     for ln in out:
-        m = re.match(r'(\s*float (c_([0-9a-f]+)) = SEL\((\w+|K_LE0\(\w+\)), fmaxf\(LERP\((t\d+), )(t\d+)(, 0\.99f\) \+ 0\.01f '
+        m = re.match(r'(\s*float ((\w+)) = SEL\((\w+|K_LE0\(\w+\)), fmaxf\(LERP\((t\d+), )(t\d+)(, 0\.99f\) \+ 0\.01f '
                      r'\* \(\()(t\d+)( - \5\) \* t\d+\), 0\.0f\), \6\);)(.*)$', ln)
         if m and m.group(6) == m.group(8):
-            d = 'D_%s_1' % m.group(3)
+            c = re.match(r'c_([0-9a-f]{3})$', m.group(3))
+            d = ('D_%s_1' % c.group(1)) if c else m.group(3) + '_z1'      # the cell's static (dsplift_c Names.static)
             ln = '%s%s%s%s%s%s' % (m.group(1), d, m.group(7), d, m.group(9), m.group(10).replace('*/', ' release_fix */'))
             r += 1
         out2.append(ln)
@@ -244,29 +253,53 @@ def main():
     hexf = os.path.join(work, '%s%s_voice.hex' % (model, sfx))
     open(hexf, 'w').write(' '.join('%04x' % x for x in words) + '\n')
     # the init words no panel control moves are constants of the lift
-    tab = open(os.path.join(EX, 'bq_%s%s_tables.h' % (model, '_host' if host else ''))).read()
-    body = tab[tab.index('%s_init[0x70] = {' % model):]
+    # one tables file for every build (tools/bq_arm.py): the exact build reads MODEL_init and the BQ_PANEL block, the
+    # host builds MODEL_host_init and BQ_PANEL_HOST
+    tab = open(os.path.join(EX, 'bq_%s_tables.h' % model)).read()
+    body = tab[tab.index('%s_%sinit[0x70] = {' % (model, 'host_' if host else '')):]
     body = body[body.index('{') + 1:body.index('};')]
     init = [float(x.rstrip('f')) for x in re.findall(r'-?[0-9.]+e[+-]\d+f', body)]
     assert len(init) == 0x70, len(init)
-    moved = {int(a, 16) for a in re.findall(r'0x([0-9a-f]+)', ' '.join(re.findall(r'_addr\[\d+\] = \{([^}]*)\}', tab)))}
+    blk = tab[tab.index('#ifdef %s\n' % ('BQ_PANEL_HOST' if host else 'BQ_PANEL')):]
+    blk = blk[:blk.index('#endif')]
+    panel = [(int(a, 16), nm, int(i)) for a, nm, i in re.findall(r'case 0x([0-9a-f]+): return s1_param\((\w+), (\d+)\)', blk)]
+    moved = {a for a, _, _ in panel}
     consts = os.path.join(work, '%s%s_consts.txt' % (model, sfx))
     with open(consts, 'w') as f:
         for a, v in enumerate(init):
             if a not in moved:
                 f.write('C%03X %r\n' % (a, v))
+    # the panel's parameter names (the tables' names): the first names file, so that dsplift_c.auto_names names the
+    # cells by the controls they come from (README.md §2)
+    params = os.path.join(work, '%s%s_params.txt' % (model, sfx))
+    with open(params, 'w') as f:
+        f.write('# written by tools/make_voice.py from bq_%s_tables.h: the panel words\n' % model)
+        for a, nm, i in panel:
+            f.write('param C%03X %s%s knob\n' % (a, nm, '' if i == 0 else '_%d' % (i + 1)))
     out = os.path.join(EX, 'bq_%s%s_voice.h' % (model, sfx))
     tmp = out + '.tmp'
+    seed = os.path.join(EX, 'bq_names_host.txt' if host else 'bq_names.txt')
     if host and osc2x:
-        lift = ['--cell-in', HOST_CELLS + ',' + OSC2X_CELLS, '--names', os.path.join(EX, 'bq_names_host.txt')]
+        lift = ['--cell-in', HOST_CELLS + ',' + OSC2X_CELLS]
     elif host:
-        lift = ['--cell-in', HOST_CELLS, '--names', os.path.join(EX, 'bq_names_host.txt')]
+        lift = ['--cell-in', HOST_CELLS]
     else:
         lift = ['--split', str(split), '--zero-cells', '41b', '--import-ranges',
-                os.path.join(EX, 'bq_import_ranges.txt'), '--names', os.path.join(EX, 'bq_names.txt')]
-    subprocess.check_call([sys.executable, os.path.join(ROOT, 'sdk', 's1cc', 'tools', 'dsplift.py'), tmp, '--bq2',
-                           '--kernel', '--bank1-ring', '--kout', '203a,200a,200f,200b' if osc2x else '203a'] + lift +
-                          ['--consts', consts, '%s%s_voice=%s@0x%04x' % (model, sfx, hexf, 0x1900 if host else 0x1000)])
+                os.path.join(EX, 'bq_import_ranges.txt')]
+    lift = ['--bq2', '--kernel', '--bank1-ring', '--kout', '203a,200a,200f,200b' if osc2x else '203a'] + lift + \
+        ['--consts', consts, '%s%s_voice=%s@0x%04x' % (model, sfx, hexf, 0x1900 if host else 0x1000)]
+    tools = os.path.join(ROOT, 'sdk', 's1cc', 'tools')
+    # the names: step 1 (--names) writes bq_MODEL*_names.txt from the seeds (the panel's parameters, bq_names*.txt
+    # with bq_names_cells.txt) and dsplift_names.py's automatic cell names; step 2 (the lift) only reads it, so it can
+    # be read and corrected by hand in between (README.md §2.1)
+    gen = os.path.join(EX, 'bq_%s%s_names.txt' % (model, sfx))
+    if '--names' in sys.argv:
+        subprocess.check_call([sys.executable, os.path.join(tools, 'dsplift_names.py'), gen, '--names', params,
+                               '--names', seed] + lift)
+        return
+    if not os.path.exists(gen):
+        raise SystemExit('%s: missing: run make_voice.py with --names first (README.md §2.1)' % gen)
+    subprocess.check_call([sys.executable, os.path.join(tools, 'dsplift.py'), tmp, '--names', gen] + lift)
     head = ('/* bq_%s%s_voice.h: the %s voice (Boutique 1.21 PX-11:Appli, DSP chip 0: %svoice A 0x1900, OSC1 '
             'variant %d, OSC2 variant %d) as C, the model\'s %d immediate patches and %d rate conversions (44.1 -> 96 '
             'kHz) applied%s. Written by tools/make_voice.py with sdk/s1cc/tools/dsplift.py; do not edit: README.md §2. */\n'

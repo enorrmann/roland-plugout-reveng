@@ -8,7 +8,9 @@ Writes
     sdk/.../bq_MODEL_tables.h          MODEL_init[0x70]: every parameter word C000..C06F of chip 0 (shared C000..C037,
                                        voice A C038..C06F) after the model's set-up and the default panel below;
                                        one table per mapped panel control: MODEL_<name>[256][n] = the words that
-                                       control writes for knob value 0..255 (the patch value the firmware gets)
+                                       control writes for knob value 0..255 (the patch value the firmware gets);
+                                       MODEL_host_init and BQ_PANEL_HOST: the same for the host builds (one file for
+                                       every build: the tables are the same, only the fixed words HOST_WORDS differ)
 
 The Boutique (first generation) runs at 44.1 kHz, the SYSTEM-1 at 96 kHz: the words that are per-sample rates are
 converted here (RATE_WORDS, r = 44100 / 96000): one-pole coefficients c -> 1 - (1 - c)^r, the envelope decay /
@@ -47,18 +49,20 @@ RATE_WORDS = {0x0A: lambda c: c * R, 0x0B: lfo_delay, 0x3C: one_pole, 0x40: one_
 
 # SYSTEM-1 control -> (table name, the model's patch parameter id); README.md §4
 PANEL = {   # (table, patch parameter id, SYSTEM-1 control, how the knob reads the table, the words used or None)
+    #   the JP-08's controls are unipolar 0..255: every one reads row = knob (README.md §13.4, user 2026-11-12: a
+    #   SYSTEM-1 knob that is bipolar on the panel behaves as the PLUG-OUT's control, here the JP-08's)
     #   uni: row = knob; bi: 128 = 0, row = 2 |knob - 128| (255 at the ends), the words negated below 128;
     #   rev: row = 255 - knob (the balance's OSC1 side); sq: row = knob^2 / 255 (finer at the low end)
     'jp08': [('lfo_rate', 0x18E, 'S1_LFO_RATE', 'uni', None), ('lfo_delay', 0x18F, 'S1_LFO_FADE', 'uni', None),
-             ('lfo_pitch', 0x196, 'S1_LFO_TO_PITCH', 'bi', None),
-             ('lfo_filter', 0x1AE, 'S1_LFO_TO_FILTER', 'bi', None),
-             ('env_pitch', 0x197, 'S1_PITCH_ENV_AMOUNT', 'bi', None),
+             ('lfo_pitch', 0x196, 'S1_LFO_TO_PITCH', 'uni', None),
+             ('lfo_filter', 0x1AE, 'S1_LFO_TO_FILTER', 'uni', None),
+             ('env_pitch', 0x197, 'S1_PITCH_ENV_AMOUNT', 'uni', None),
              ('xmod', 0x19B, 'S1_OSC1_CROSS_MOD', 'uni', None), ('pwm', 0x199, 'S1_OSC2_COLOR', 'uni', None),
              ('tune2', 0x1A0, 'S1_OSC2_FINE', 'uni', None),
              ('mix1', 0x1A2, 'S1_OSC1_MIX', 'rev', [0x5A]), ('mix2', 0x1A2, 'S1_OSC2_MIX', 'uni', [0x5B]),
              ('cutoff', 0x1A9, 'S1_FILTER_CUTOFF', 'uni', None),
              ('reso', 0x1AA, 'S1_FILTER_RESONANCE', 'uni', None),
-             ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'bi', None),
+             ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'uni', None),
              ('keyfollow', 0x1AF, 'S1_FILTER_KEY_TRACK', 'uni', None),
              ('env1_a', 0x1BC, 'S1_FILTER_ATTACK', 'uni', None), ('env1_d', 0x1BD, 'S1_FILTER_DECAY', 'uni', None),
              ('env1_s', 0x1BE, 'S1_FILTER_SUSTAIN', 'uni', None), ('env1_r', 0x1BF, 'S1_FILTER_RELEASE', 'uni', None),
@@ -67,7 +71,7 @@ PANEL = {   # (table, patch parameter id, SYSTEM-1 control, how the knob reads t
 }
 
 
-# --host (README.md §8): the host's ADSRs, LFO and pitch envelope (SYSTEM-S1CC) take the LFO, ENV and PITCH ENV
+# the host builds (README.md §8; BQ_PANEL_HOST in the same tables file): the host's ADSRs, LFO and pitch envelope (SYSTEM-S1CC) take the LFO, ENV and PITCH ENV
 # controls; the voice keeps these. Words forced (HOST_WORDS): Roland's LFO -> pitch and ENV1 -> pitch off (the host
 # puts both into s1_pitch), FLT LFO MOD = 1 (s1_lfo_filter is already LFO x depth in octaves, the cutoff's unit),
 # PWM depth 1.2 (= Roland's PWM at 255: the knob is s1_color(1), input A090), LFO -> AMP off
@@ -76,9 +80,14 @@ HOST_PANEL = {
              ('mix1', 0x1A2, 'S1_OSC1_MIX', 'rev', [0x5A]), ('mix2', 0x1A2, 'S1_OSC2_MIX', 'uni', [0x5B]),
              ('cutoff', 0x1A9, 'S1_FILTER_CUTOFF', 'uni', None),
              ('reso', 0x1AA, 'S1_FILTER_RESONANCE', 'uni', None),
-             ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'bi', None),
+             ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'uni', None),
              ('keyfollow', 0x1AF, 'S1_FILTER_KEY_TRACK', 'uni', None),
              ('hpf', 0x1A8, 'S1_HPF_CUTOFF', 'uni', None)],     # C05E; S1 HPF knob = 0x180 (light on)
+}
+# tables of the JP-08 parameters without a SYSTEM-1 control (README.md §13.5: PLUGOUT_EXTEND words, set by CC for the
+# tests): written into bq_MODEL_tables.h for tools/make_arm.py, in no S1_PARAM panel block (the ARM applies them)
+EXTRA = {
+    'jp08': [('amp_level', 0x1B5, None, 'uni', None), ('amp_lfo', 0x1B6, None, 'uni', None)],
 }
 HOST_WORDS = {0x4A: 0.0, 0x4B: 0.0, 0x64: 1.0, 0x53: 1.2, 0x54: 1.2, 0x6B: 0.0}
 
@@ -112,13 +121,11 @@ def chip0(p):
 
 
 def main():
-    host = '--host' in sys.argv
     model = [a for a in sys.argv[1:] if not a.startswith('--')][0]
     mode = MODELS[model]
     first = fx.setup(mode)
     patches = [(t, a, v) for (c, t, a), v in sorted(fx.portw().items()) if c == 0]
-    if not host:
-        json.dump(patches, open(os.path.join(ROOT, 'work', 'bq1', '%s_patches.json' % model), 'w'))
+    json.dump(patches, open(os.path.join(ROOT, 'work', 'bq1', '%s_patches.json' % model), 'w'))
     words = chip0(first)
     fx.call(0x60024ff0, fx.O, 60, 100, 0, count=5000000)        # vtable 10: the whole patch (r1 != 0: send it)
     words.update(chip0(fx.params()))
@@ -127,7 +134,10 @@ def main():
     words.update(chip0(fx.setp(0x108 - 0x141, 127)))           # internal id 0x108: velocity -> C069 = (v / 127)^2
     tables = []
     cache = {}
-    for name, pid, s1id, kind, only in (HOST_PANEL if host else PANEL)[model]:
+    # one set of tables for every build: the exact panel's (PANEL) and the host builds' (HOST_PANEL) controls
+    allp = list(PANEL[model]) + [t for t in HOST_PANEL.get(model, []) if t[0] not in {p[0] for p in PANEL[model]}]
+    allp += EXTRA.get(model, [])
+    for name, pid, s1id, kind, only in allp:
         if pid not in cache:
             cache[pid] = [chip0(fx.setp(pid, k)) for k in range(256)]
             fx.setp(pid, DEFAULT[model].get(pid, 0))
@@ -140,9 +150,8 @@ def main():
             row, sign = row_of(kind, k)
             out_rows.append([sign * conv(a, rows[row].get(a, words.get(a, 0.0))) for a in addrs])
         tables.append((name, pid, s1id, addrs, out_rows))
-    if host:
-        words.update(HOST_WORDS)
     init = [conv(a, words.get(a, 0.0)) for a in range(0x70)]
+    hinit = [conv(a, HOST_WORDS.get(a, words.get(a, 0.0))) for a in range(0x70)]
     out = ['/* bq_%s_tables.h: the %s ARM side as data (Boutique 1.21, PX-11:Appli), written by tools/bq_arm.py from'
            ' the firmware run in an emulator; per-sample rates converted 44.1 -> 96 kHz. Do not edit: README.md §3. */'
            % (model, model.upper()), '#ifndef BQ_%s_TABLES_H' % model.upper(), '#define BQ_%s_TABLES_H' % model.upper(), '']
@@ -150,6 +159,12 @@ def main():
     out.append('static const float %s_init[0x70] = {' % model)
     for i in range(0, 0x70, 8):
         out.append('    ' + ', '.join('%.9ef' % x for x in init[i:i + 8]) + ',')
+    out.append('};')
+    out.append('/* the same with the host builds\' fixed words (HOST_WORDS: %s; README.md §8) */'
+               % ', '.join('C%03X = %g' % kv for kv in sorted(HOST_WORDS.items())))
+    out.append('static const float %s_host_init[0x70] = {' % model)
+    for i in range(0, 0x70, 8):
+        out.append('    ' + ', '.join('%.9ef' % x for x in hinit[i:i + 8]) + ',')
     out.append('};')
     for name, pid, s1id, addrs, rows in tables:
         out.append('')
@@ -162,24 +177,33 @@ def main():
             out.append('    {%s},' % (', '.join('%.9ef' % x for x in r) or '0.0f'))
         out.append('};')
     out.append('')
-    out.append('/* the panel (README.md §4): one S1_PARAM per table, and the parameter words they give the voice */')
-    out.append('#ifdef BQ_PANEL')
-    for name, pid, s1id, addrs, rows in tables:
-        out.append('S1_PARAM(%s, %s, %d) { for (int i = 0; i < %d; i++) out[i] = %s_%s[knob][i]; }'
-                   % (name, s1id, max(1, len(addrs)), max(1, len(addrs)), model, name))
-    out.append('static inline float %s_kp(int a)' % model)
-    out.append('{')
-    out.append('    switch (a) {')
-    for name, pid, s1id, addrs, rows in tables:
-        for i, a in enumerate(addrs):
-            out.append('    case 0x%02x: return s1_param(%s, %d);' % (a, name, i))
-    out.append('    default: return %s_init[a & 0x7f];' % model)
-    out.append('    }')
-    out.append('}')
-    out.append('#endif')
+    # the panel: BQ_PANEL = the exact build's controls (bq.c), BQ_PANEL_HOST = the host builds' (bq_host*.c, bq_arm.c)
+    tab = {t[0]: t for t in tables}
+    for macro, panel, ini, what in (('BQ_PANEL', PANEL, 'init', 'the exact build (README.md §4)'),
+                                    ('BQ_PANEL_HOST', HOST_PANEL, 'host_init', 'the host builds (README.md §8)')):
+        if model not in panel:
+            continue
+        out.append('')
+        out.append('/* the panel of %s: one S1_PARAM per table, and the parameter words they give the voice */' % what)
+        out.append('#ifdef %s' % macro)
+        for p in panel[model]:
+            name, pid, s1id, addrs, rows = tab[p[0]]
+            out.append('S1_PARAM(%s, %s, %d) { for (int i = 0; i < %d; i++) out[i] = %s_%s[knob][i]; }'
+                       % (name, s1id, max(1, len(addrs)), max(1, len(addrs)), model, name))
+        out.append('static inline float %s_kp(int a)' % model)
+        out.append('{')
+        out.append('    switch (a) {')
+        for p in panel[model]:
+            name, pid, s1id, addrs, rows = tab[p[0]]
+            for i, a in enumerate(addrs):
+                out.append('    case 0x%02x: return s1_param(%s, %d);' % (a, name, i))
+        out.append('    default: return %s_%s[a & 0x7f];' % (model, ini))
+        out.append('    }')
+        out.append('}')
+        out.append('#endif')
     out.append('')
     out.append('#endif')
-    dst = os.path.join(HERE, '..', 'bq_%s%s_tables.h' % (model, '_host' if host else ''))
+    dst = os.path.join(HERE, '..', 'bq_%s_tables.h' % model)
     open(dst, 'w').write('\n'.join(out) + '\n')
     print('%s: %d patches, %d tables (%s)' % (dst, len(patches), len(tables),
                                             ' '.join('%s:%d' % (t[0], len(t[3])) for t in tables)))

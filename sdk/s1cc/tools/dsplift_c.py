@@ -15,6 +15,8 @@ condition may skip is blended by a 0 / 1 weight). What it computes becomes an ex
 The C keeps the evaluation tree of every operation (no reassociation), so it computes what the per-instruction form
 computed; the names file (--names) and the constants (--consts) only change names and fold known values.
 """
+import fnmatch
+import os
 import re
 import struct
 
@@ -412,46 +414,62 @@ class Names:
          cell 041 flt_env           the value stored in bank-0 cell 041
          value t137 decay_eff       rename a value the C calls t137 (its default name: the instruction that makes it)
          section 99 text...         a heading above the values from instruction 99 on
+         section @env1* text...     a heading above the first value whose name matches (glob; @a,@b: either)
+         include FILE               another names file (relative to this one)
+       Several files: read in order, a later name wins. dsplift_names.py writes a whole names file, with names for the
+       cells the seed files leave unnamed (auto_names).
          const A003 1               a memory word that is this constant in the caller's setup (as --consts)
        --consts FILE: lines `ADDR VALUE` or `ADDR-ADDR VALUE` (hex, C000.. / A000.. / E000..): memory words that are
        constants in the including file's setup (KP / KIN / KE give that value)"""
 
     def __init__(self, path=None, consts=None):
         self.param, self.inp, self.out, self.unused, self.cell, self.value, self.section = {}, {}, {}, set(), {}, {}, []
-        self.consts, self.knob = [], set()
-        if path:
-            for ln in open(path):
-                ln = ln.split('#', 1)[0].strip()
-                if not ln:
-                    continue
-                w = ln.split()
-                kw = w[0]
-                if kw == 'param':
-                    self.param[int(w[1], 16)] = w[2]
-                    if w[3:] == ['knob']:
-                        self.knob.add(int(w[1], 16))
-                elif kw == 'in':
-                    self.inp[int(w[1], 16)] = w[2]
-                elif kw == 'out':
-                    self.out[int(w[1], 16)] = w[2]
-                elif kw == 'unused':
-                    self.unused |= {int(x, 16) for x in w[1:]}
-                elif kw == 'cell':
-                    self.cell[int(w[1], 16)] = w[2]
-                elif kw == 'value':
-                    self.value[w[1]] = w[2]
-                elif kw == 'const':
-                    self.add_const(w[1], w[2])
-                elif kw == 'section':
-                    self.section.append((int(w[1]), ln.split(None, 2)[2]))
-                else:
-                    raise SystemExit('%s: unknown line %r' % (path, ln))
-        self.section.sort()
+        self.consts, self.knob, self.auto = [], set(), set()
+        for p in ([path] if isinstance(path, str) else (path or [])):
+            self.read(p)
+        self.section.sort(key=lambda s: (isinstance(s[0], str), s[0] if isinstance(s[0], int) else 0))
         if consts:
             for ln in open(consts):
                 ln = ln.split('#', 1)[0].strip()
                 if ln:
                     self.add_const(*ln.split())
+
+    def read(self, path):
+        """one names file; a later line wins over an earlier one (the files in the order given)"""
+        for ln in open(path):
+            ln = ln.split('#', 1)[0].strip()
+            if not ln:
+                continue
+            w = ln.split()
+            kw = w[0]
+            if kw == 'include':
+                self.read(os.path.join(os.path.dirname(path), w[1]))
+            elif kw == 'param':
+                self.param[int(w[1], 16)] = w[2]
+                if w[3:] == ['knob']:
+                    self.knob.add(int(w[1], 16))
+            elif kw == 'in':
+                self.inp[int(w[1], 16)] = w[2]
+            elif kw == 'out':
+                self.out[int(w[1], 16)] = w[2]
+            elif kw == 'unused':
+                self.unused |= {int(x, 16) for x in w[1:]}
+            elif kw == 'cell':
+                self.cell[int(w[1], 16)] = w[2]
+            elif kw == 'value':
+                self.value[w[1]] = w[2]
+            elif kw == 'const':
+                self.add_const(w[1], w[2])
+            elif kw == 'section':
+                # section 99 TEXT (instruction 99 on) or section @NAME[,@NAME..] TEXT (from the first value
+                # with one of these names on: the same file serves programs whose instruction numbers differ)
+                at = w[1]
+                self.section.append((int(at) if not at.startswith('@') else at, ln.split(None, 2)[2]))
+            else:
+                raise SystemExit('%s: unknown line %r' % (path, ln))
+    def dump(self):
+        """the cells auto_names named, as names-file lines (dsplift_names.py)"""
+        return ['cell %03x %s' % (x, self.cell[x]) for x in sorted(self.auto)]
 
     def add_const(self, a, v):
         lo, hi = (a.split('-') + [a])[:2]
@@ -687,11 +705,13 @@ class Emitter:
         if op == 'num':
             return flit(G.value(n))
         if op == 'var':
-            return n.val
+            return 'D_000_1' if getattr(self, 'canon', False) and not n.val.startswith('K5_') else n.val
         if op == 'imp':
             return self.imptext(n)
         if op == 'ld':
             kind, a = n.val
+            if getattr(self, 'canon', False):
+                return '%s(0x%04x)' % (kind, a)
             return '%s(%s)' % (kind, self.names.macro(kind, a) or '0x%04x' % a)
         if op == 'call':
             return '%s(%s)' % (n.val, ', '.join(self.ref(a) for a in n.args))
@@ -748,6 +768,9 @@ class Emitter:
             trivial = n.op in ('num', 'var')
             named = bool(n.hints) or n.id in self.cellhint
             n.mat = n.id in forced or (not trivial and (n.uses > 1 or (named and n.op != 'ld')))
+            # where a long expression is cut is measured without names (canon: the names files' names would cut it
+            # elsewhere, and a cut changes the code: s1cc fuses a multiply and an add only inside one statement)
+            self.canon = True
             n.txt = self.text(n)
             while len(n.txt) > self.LIMIT:
                 big = [a for a in n.args if not a.mat and a.op not in ('num', 'var', 'ld')]
@@ -755,6 +778,7 @@ class Emitter:
                     break
                 max(big, key=lambda a: len(a.txt)).mat = True
                 n.txt = self.text(n)
+            self.canon = False
         for n in G.nodes:                                  # names, in program order
             if n.id in live and n.mat:
                 n.name = self.ident(self.basename(n), n.part)
@@ -800,7 +824,7 @@ class Emitter:
     def body(self, ids, kouts=(), lo=0, hi=1 << 30):
         """the named nodes among ids (program order) as `float name = ...;` lines, the outputs (KOUT) where the program
         writes them, the section headings of the instructions lo..hi-1"""
-        out, sec = [], [s for s in self.names.section if lo <= s[0] < hi]
+        out, sec = [], [s for s in self.sections() if lo <= s[0] < hi]
         items = [(nid, 0, self.G.nodes[nid]) for nid in ids if self.G.nodes[nid].mat]
         items += [(pos - 0.5, 1, (a, v)) for pos, a, v in kouts]
         width = 96
@@ -818,11 +842,209 @@ class Emitter:
                 out.append('    KOUT(%s, %s);' % (self.names.macro('KOUT', a) or '0x%04x' % a, self.ref(v)))
         return out
 
+    def sections(self):
+        """the names file's sections as (instruction, text); an @NAME anchor = the first value so named"""
+        out = []
+        for at, text in self.names.section:
+            if isinstance(at, str):
+                want = [x.lstrip('@') for x in at.split(',')]
+                ks = [n.k for n in self.G.nodes if n.id in self.live and n.mat and n.name
+                      and any(fnmatch.fnmatchcase(n.name, w) for w in want)]
+                if not ks:
+                    continue
+                at = min(ks)
+            out.append((at, text))
+        return sorted(out, key=lambda s: s[0])
+
     def text_of_def(self, n):
         mat, n.mat = n.mat, False
         t = self.text(n)
         n.mat = mat
         return t
+
+
+# ---------------------------------------------------------------- automatic cell names
+AUTO_WRAP = ('fmaxf', 'fminf', 'K_CLAMP', 's1_range')
+AUTO_ROLE_CALL = {'K_EXP': 'exp', 's1_exp': 'exp', 'K_RECIP': 'recip', 'K_RECIP_POS': 'recip', 'K_SIN': 'sin',
+                  'K_TRI': 'tri', 's1_sign': 'sign', 's1_abs': 'abs'}
+
+
+def auto_group(kind, nm):
+    """the group a named parameter / input gives the values computed from it: a parameter's first word (env1_a ->
+    env1, lfo_rate -> lfo), an input's whole name (pitch, gate, env_filter)"""
+    return nm.split('_')[0] if kind == 'KP' else nm
+
+
+def auto_names(G, live, statics, cellhint, names):
+    """names for the cells the names files leave unnamed, from what the program computes (dsplift.md §6.4):
+         group = (1) the named cell (names file) the value flows into first, if only one group is that near; (2) the
+                 named parameters it reads (the most frequent group); (3) the groups of the cells it reads (the most
+                 frequent; ties: the earlier cell); (4) the named inputs it reads;
+         role  = what it is: phase (wraps and reads itself), lp (LERP from its own value of the sample before), state
+                 (reads itself otherwise), fir (eight or more delayed cells), prev (holds the value of a lower cell,
+                 one sample on), in (a copy of a delayed or handed-over value), flag (0 / 1), sq / exp / recip / sin / tri / sign / abs (the outer operation);
+         name  = group_role (role alone without a group), numbered in cell order when it repeats.
+       A cell that only copies a parameter or an input gets none (the value's own name serves).
+       Returns {cell: name} added to names.cell (names.auto)."""
+    stored = {}                                       # cell -> the node of its last store (part, node)
+    for nid in sorted(live):
+        for x in cellhint.get(nid, []):
+            stored[x] = G.nodes[nid]
+    owner_of = {}                                     # node id -> the cells storing it (any store), lowest first
+    for nid in live:
+        for x in cellhint.get(nid, []):
+            owner_of.setdefault(nid, []).append(x)
+    for v in owner_of.values():
+        v.sort()
+
+    def deps(x):
+        v = stored[x]
+        out = {'grp': {}, 'cells': [], 'self': False, 'others': set(), 'wrapself': False}
+        seen = set()
+
+        def walk(n, inwrap):
+            if (n.id, inwrap) in seen:
+                return
+            seen.add((n.id, inwrap))
+            if n is not v and n.id in owner_of and x not in owner_of[n.id]:
+                out['cells'].append(owner_of[n.id][0])
+                return
+            if n.op == 'var' and n.val in statics:
+                y = statics[n.val][0]
+                if y == x:
+                    out['self'] = True
+                    out['wrapself'] |= inwrap
+                else:
+                    out['others'].add(y)
+                    out['cells'].append(y)
+                return
+            if n.op == 'ld':
+                kind, a = n.val
+                nm = {'KP': names.param, 'KIN': names.inp}.get(kind, {}).get(a)
+                if nm:
+                    g = auto_group(kind, nm) if kind == 'KP' else 'in:' + nm
+                    out['grp'][g] = out['grp'].get(g, 0) + 1
+                return
+            if n.op == 'imp':
+                if n.src is not None:
+                    walk(n.src, inwrap)
+                return
+            w = inwrap or (n.op == 'call' and n.val in ('s1_wrap', 'pymod'))
+            for a in n.args:
+                walk(a, w)
+        walk(v, False)
+        return out
+
+    def strip(n):
+        while n.op == 'call' and n.val in AUTO_WRAP:
+            nn = [a for a in n.args if a.op != 'num']
+            if not nn:
+                break
+            n = nn[0]
+        return n
+
+    cells = sorted(x for x in stored if x not in names.cell)
+    info = {x: deps(x) for x in stored}
+    group = {x: names.cell[x].split('_')[0] for x in stored if x in names.cell}     # the names files' cells: seeds
+    # 1. the nearest named cell the value flows into (one group at the least distance): what it is computed for
+    users = {}
+    for x in stored:
+        for y in set(info[x]['cells']):
+            users.setdefault(y, set()).add(x)
+    for x in cells:
+        front, seen, hit = {x}, {x}, set()
+        while front and not hit:
+            nxt = set()
+            for y in front:
+                for u in users.get(y, ()):
+                    if u not in seen:
+                        seen.add(u)
+                        nxt.add(u)
+            hit = {names.cell[u].split('_')[0] for u in nxt if u in names.cell}
+            front = nxt
+        if len(hit) == 1:
+            group[x] = hit.pop()
+    # 2. the parameters it reads (the most frequent group)
+    for x in cells:
+        g = {k: v for k, v in info[x]['grp'].items() if not k.startswith('in:')}
+        if x not in group and g:
+            group[x] = max(sorted(g), key=lambda k: g[k])
+    for _ in range(16):                               # groups through the cells read, to a fixed point
+        changed = False
+        for x in sorted(stored):
+            if x in group:
+                continue
+            cnt = {}
+            for y in info[x]['cells']:
+                if y in group:
+                    cnt[group[y]] = cnt.get(group[y], 0) + 1
+            if cnt:
+                group[x] = max(cnt, key=lambda k: (cnt[k], -min(y for y in info[x]['cells'] if group.get(y) == k)))
+                changed = True
+        if not changed:
+            break
+    for x in cells:                                   # 4. the inputs it reads
+        g = info[x]['grp']
+        if x not in group and g:
+            group[x] = max(sorted(g), key=lambda k: g[k])[3:]
+
+    def role(x):
+        v, d = stored[x], info[x]
+        own = owner_of[v.id]
+        if own[0] != x:
+            return 'prev', own[0]
+        t = strip(v)
+        if t.op in ('ld', 'num') and not d['self']:
+            return None, None
+        if t.op in ('imp', 'var') and not d['self']:
+            return 'in', None                         # a copy of a value of before / of the other part
+        if d['wrapself']:
+            return 'phase', None
+        if t.op == 'lerp' and t.args[0].op == 'var' and statics.get(t.args[0].val, (None,))[0] == x:
+            return 'lp', None
+        if d['self']:
+            return 'state', None
+        if len(d['others']) >= 8:
+            return 'fir', None
+        if v.bool:
+            return 'flag', None
+        if t.op == '*' and t.args[0] is t.args[1]:
+            return 'sq', None
+        if t.op == 'call' and t.val in AUTO_ROLE_CALL:
+            return AUTO_ROLE_CALL[t.val], None
+        return '', None
+
+    taken = set(names.cell.values()) | set(names.param.values()) | set(names.inp.values()) | \
+        set(names.out.values()) | set(names.value.values())
+    added = {}
+    base = {}
+    for x in cells:
+        r, src = role(x)
+        if r is None:
+            continue
+        if r == 'prev':
+            continue                                  # named below, once its source has a name
+        g = group.get(x)
+        base[x] = '_'.join(p for p in (g, r) if p) or 'cell'
+    for x in sorted(base):
+        nm, i = base[x], 2
+        while nm in taken:
+            nm, i = '%s_%d' % (base[x], i), i + 1
+        taken.add(nm)
+        added[x] = nm
+    for x in cells:
+        r, src = role(x)
+        if r == 'prev':
+            sn = names.cell.get(src) or added.get(src)
+            if sn:
+                nm, i = sn + '_prev', 2
+                while nm in taken:
+                    nm, i = '%s_prev%d' % (sn, i), i + 1
+                taken.add(nm)
+                added[x] = nm
+    names.cell.update(added)
+    names.auto |= set(added)
+    return added
 
 
 # ---------------------------------------------------------------- the kernel
@@ -974,6 +1196,10 @@ def emit_kernel(ctx):
     if zero != known:
         ctx['known'] = zero
         return emit_kernel(ctx)
+    if ctx.get('names_only'):                         # dsplift_names.py: the names, no C
+        if ctx.get('auto_names'):
+            auto_names(G, live, statics, run.cellhint, names)
+        return []
     imps.sort(key=lambda n: n.id)
     slot = {n.val: ctx['export_base'] + i for i, n in enumerate(imps)}
 

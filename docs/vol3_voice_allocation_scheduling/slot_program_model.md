@@ -119,10 +119,43 @@ On the **master** these are also used: DSP A `0x0082` (output program that the O
 | everything in the main program, sections off | SH-101 (575 instructions), **C-S1V4** (137) | [measured] C-S1V4 |
 | main + voice sections (one program per voice) | stock synth (4 per DSP), SH-2 (2 on DSP A) | [code] |
 | switching voices on/off without reloading | `FC44(i, on)`: it also saves cycles | [code] |
-| changing the program of a voice | `FC40` on a section | [code] |
+| changing the program of a voice | `FC40` on a section, **while the sound runs** (from the parameter handler, flag 0 only, no `FC44`): see below | [measured 2026-11-12, JP-08-WTEST4] |
 | a main program longer than 6 KiB (running over `0x1900`…) | **hangs the device** [measured 2026-10-28, SYSTEM-S1CC: 6534 bytes with 702 instructions and 6740 bytes with 578 instructions hung; 5854 bytes with 703 instructions ran]. Still to know whether it is the size of the region or the bytes executed per sample (both coincide at ≈ 6 KiB); a program split between the main program and section 2 would tell them apart | [measured] / [open] |
 | code that does not run every sample | conditional jumps: alternative programs in the same memory, chosen by a flag; what is skipped costs nothing | [measured on the SYSTEM-8; same ISA] |
 | using a section as a "second main program" | place the program with `FC40` (not with `FC30`) and switch it on with `FC44(index, 1)`: it runs after the main program on the same DSP. SYSTEM-S1CC does it only when the main program does not fit its 6 KiB (`examples/system_s1cc/make_s1cc.py SECTIONS`) | [measured 2026-10-28] |
+
+**Changing a section's program while the PLUG-OUT plays** [code: SYSTEM-1 OS slave 1.30; measured 2026-11-12].
+The stock synth does it when OSC1 / OSC2 WAVE moves: its parameter handler (`0x6004f14a`) sends `0x167` to
+`0x6004ed62` and `0x16C` to `0x6004ecb4`. With a flag ≠ 0 they only keep the value; with flag 0:
+
+```
+this->vt[+0x34]()                         ; OSC2: +0x40   (own methods, purpose open)
+for i in 0..3:                            ; OSC2: 4..7
+    FC40(i, prog_set[sel], data_set[sel], empty, empty)
+this->vt[+0x3c]()                         ; OSC2: +0x48
+```
+
+No `FC44`. `FC40` (`0x60003F22` → `0x60004a52`) is synchronous: it stops the section, copies program and data,
+waits for the DSP (`0x600050a0`) and starts it again. Our version (SYSTEM-S1CC-BOUTIQUE `engine.c`
+`k<i>_engine_sections`, `multi.c`, `examples/system_s1cc_boutique/README.md` §12):
+
+```c
+void k0_engine_sections(void)                    /* one per kernel: its sections, nothing else */
+{
+    for (int i = 0; i < NSECT; i++)
+        ((place_fn)SVC(0x40))(sect_index[i], sect_set[i], set_none, set_none, set_none);
+}
+/* multi.c, parameter handler: only with flag 0, as the stock synth */
+if ((id == 0x167 || id == 0x16C) && flag == 0)
+    k_sections[kmap2[wave1][wave2]]();
+```
+
+| sequence | result on the device |
+|---|---|
+| `FC30` / `FC34` of the main programs while playing | copied, not run: the sound does not change |
+| `FC44(i, 0)`, `FC40`, `FC44(i, 1)`, every flag | **hangs the device** [inferred: `FC40` waits for a section already off] |
+| `FC40` only, flag 0 only | **works**: the program changes, the note goes on, a slight click |
+
 
 ## 4. Choosing
 

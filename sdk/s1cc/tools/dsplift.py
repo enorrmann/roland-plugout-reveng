@@ -537,7 +537,7 @@ def cell_of(a, ring1):
 
 
 def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, zero_cells=(), export_base=0,
-           ranges=None, names=None, ring1=False, kout_extra=(), cell_in=None):
+           ranges=None, names=None, ring1=False, kout_extra=(), cell_in=None, auto_names=False, names_only=False):
     """one straight-line program (no jumps) as s1cc-ready C: `static inline void NAME(void)`, no loops and no arrays.
     Registers are named values; condition bits only for the groups a condition reads; bank-0 words are the ring
     resolved into delays (a word stored at X is read at X + 1 in the next sample): c_x = the cell this sample,
@@ -639,10 +639,11 @@ def kernel(name, words, warn, bq2=None, base=0, overflow_wrap=(), split=None, ze
         live_r=live_r, live_f=live_f, bq2=bq2, bq2_flagless=bq2_flagless, overflow_wrap=set(overflow_wrap),
         split=split, zero_cells=set(zero_cells), export_base=export_base, ranges=ranges, names=names or dsplift_c.Names(),
         K=dict(A=K_A, B=K_B, M=K_M, XMEM=K_XMEM, XFLAG=K_XFLAG), warn=warn, cell_of=lambda a: cell_of(a, ring1),
-        kout_extra=kout_extra, cell_in={cell_of(a, True) if a >= 0x2000 else a: v for a, v in (cell_in or {}).items()}))
+        kout_extra=kout_extra, auto_names=auto_names, names_only=names_only, cell_in={cell_of(a, True) if a >= 0x2000 else a: v for a, v in (cell_in or {}).items()}))
 
 
-def main():
+def main(names_mode=False):
+    """names_mode: dsplift_names.py (OUT = the names file to write, auto_names on, no C)"""
     ap = argparse.ArgumentParser(description='DSP microcode -> plain C (study tool)')
     ap.add_argument('out', help='the C file to write')
     ap.add_argument('progs', nargs='+', help='NAME=PROGRAM.hex[@ADDRESS]: C function name, the program words, and '
@@ -662,8 +663,9 @@ def main():
     ap.add_argument('--overflow-wrap', default='', metavar='K,K,...',
                     help='--kernel: instructions whose A-unit result reaches +-512 and must wrap as on the DSP (the '
                          'others are plain arithmetic); find them with the lift (§6)')
-    ap.add_argument('--names', default=None, metavar='FILE',
-                    help='--kernel: names of parameters, inputs, outputs, cells, values and sections (dsplift_c.Names)')
+    ap.add_argument('--names', action='append', default=None, metavar='FILE',
+                    help='--kernel: names of parameters, inputs, outputs, cells, values and sections (dsplift_c.Names); '
+                         'repeatable, a later file wins')
     ap.add_argument('--consts', default=None, metavar='FILE',
                     help='--kernel: memory words that are constants in the caller\'s setup, "ADDR[-ADDR] VALUE" (hex)')
     ap.add_argument('--bank1-ring', action='store_true',
@@ -693,19 +695,26 @@ def main():
     if a.kernel:
         out = ['/* written by sdk/s1cc/tools/dsplift.py --kernel%s: %s */' % (' --bq2' if a.bq2 else '', ' '.join(a.progs)),
                '#include "dsplift_k.h"', '']
+        made = []
         for spec in a.progs:
             name, path = spec.split('=', 1)
             path = path.rsplit('@', 1)[0]
+            nm = dsplift_c.Names(a.names, a.consts)
+            made.append((name, nm))
             out += kernel(name, read_words(path, a.skip_lead), warn, 0 if a.bq2 else None,
                           overflow_wrap={int(x) for x in a.overflow_wrap.split(',') if x}, split=a.split,
                           zero_cells={int(x, 16) for x in a.zero_cells.split(',') if x},
                           export_base=a.export_base,
                           ranges={l.split()[0]: (float(l.split()[1]), float(l.split()[2]))
                                   for l in open(a.import_ranges) if l.strip()} if a.import_ranges else None,
-                          names=dsplift_c.Names(a.names, a.consts), ring1=a.bank1_ring,
+                          names=nm, ring1=a.bank1_ring, auto_names=names_mode, names_only=names_mode,
                           kout_extra={int(x, 16) for x in a.kout.split(',') if x},
                           cell_in={int(x.split('=')[0], 16): int(x.split('=')[1], 16)
                                    for x in a.cell_in.split(',') if x}) + ['']
+        if names_mode:
+            import dsplift_names
+            dsplift_names.write(a.out, a.names or [], made)
+            return
         open(a.out, 'w').write('\n'.join(out) + '\n')
         for w in warn:
             print('warning: ' + w, file=sys.stderr)

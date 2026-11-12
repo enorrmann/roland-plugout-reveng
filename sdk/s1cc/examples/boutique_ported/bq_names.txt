@@ -41,5 +41,7 @@ const A105 0
 const A107 0
 const A10A 0
 
+include bq_names_cells.txt
+
 out 203A voice
 unused A101 A108 A109

@@ -405,6 +405,18 @@ them).
 COLOR, TUNE, COLOR MOD; PITCH ENV AMOUNT, ATTACK, DECAY; LPF CUTOFF, RESONANCE, FILTER ENV AMOUNT, KEY TRACK.
 A light that is off changes only the light: its control still reaches the kernel [measured 2026-11-11].
 
+### 3.7 Fixed state layout (`S1_FIXED_STATES`) [sim 2026-11-12; on the device: JP-08-S1W]
+
+A state word's index is normally the order of its first use in `S1_DSP_A` (`Builder::stateOf`). Two voices built
+from the same source with other code paths (the JP-08 wave pairs, `sdk/s1cc/examples/boutique_ported` §12: one
+program per pair, swapped with `FC40` while the note plays) then keep the same variable at different words, and the
+new program reads the old program's values in other roles: a click at every change. With `S1_FIXED_STATES;` in the
+voice, `Builder::fixedStates` first gives every non-constant file-scope variable its words, in module (declaration)
+order, every scalar field of structs and arrays included, also the ones this build does not use. LLVM's global
+optimisation still splits an internal struct and drops its unused fields: mark such a struct
+`__attribute__((used))`. Cost: bank-0 words only (JP-08: 44 state words in all 15 pairs, the same s1cc units as
+before).
+
 ## 4. From the IR to the graph (`graph.cpp`)
 
 ### 4.1 Functions, blocks and memory

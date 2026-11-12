@@ -3645,8 +3645,11 @@ Documentation: docs/vol5_toolchain_compiler_sdk/dsplift.md.
 | `--export-base` | --split: first s1_export slot (0) | `0` |
 | `--import-ranges` | --split: "NAME LO HI" per handed value, measured: constants stay in B, the rest get the range |  |
 | `--overflow-wrap` | --kernel: instructions whose A-unit result reaches +-512 and must wrap as on the DSP (the others are plain arithmetic); find them with the lift (§6) | `` |
-| `--names` | --kernel: names of parameters, inputs, outputs, cells, values and sections (dsplift_c.Names) |  |
+| `--names` | --kernel: names of parameters, inputs, outputs, cells, values and sections (dsplift_c.Names); repeatable, a later file wins |  |
 | `--consts` | --kernel: memory words that are constants in the caller's setup, "ADDR[-ADDR] VALUE" (hex) |  |
+| `--bank1-ring` | bank 1 (2000-23FF) is a ring as bank 0 (store at X, read X + 1 in the next sample: the programs of one DSP hand values over in bank 1, §5.4); the emulator's ring1 |  |
+| `--kout` | --kernel: memory words (hex) whose stores are also outputs KOUT(X, v) (bank 0 / bank 1 values another program reads: a voice's output handed to the next program) | `` |
+| `--cell-in` | --kernel: memory words X (hex: bank 0 or, with --bank1-ring, bank 1) that are inputs of the caller: every load of X reads KIN(ADDR), the program's stores to X are dropped (what only fed them is removed): an envelope or LFO the host computes instead (sdk/s1cc/examples/boutique_ported) | `` |
 | `--samples` | samples per program in --check (64) | `64` |
 | `--seed` | random seed of --check (1) | `1` |
 
@@ -3669,6 +3672,20 @@ condition may skip is blended by a 0 / 1 weight). What it computes becomes an ex
 
 The C keeps the evaluation tree of every operation (no reassociation), so it computes what the per-instruction form
 computed; the names file (--names) and the constants (--consts) only change names and fold known values.
+```
+
+### `sdk/s1cc/tools/dsplift_names.py`
+
+```
+dsplift_names.py: step 1 before `dsplift.py --kernel`: writes a whole names file for a program (dsplift.md §6.4).
+
+    dsplift_names.py OUT.txt [the same arguments as dsplift.py --kernel, --names SEEDS.txt ...]
+
+OUT.txt = the seed names files (--names, includes expanded, in order) and then a `cell X NAME` line for every bank-0
+cell they leave unnamed, named by dsplift_c.auto_names from the program (the stage the value flows into, the
+parameters it reads, its form). The lifter then reads OUT.txt like any names file (`dsplift.py --kernel --names
+OUT.txt`) and does no naming of its own: OUT.txt can be read, and corrected by hand, between the two steps. Running
+this tool again overwrites OUT.txt: a correction that should stay goes into a seed file.
 ```
 
 ### `sdk/s1cc/tools/s1check.py`

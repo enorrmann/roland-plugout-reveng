@@ -52,6 +52,8 @@ const A105 0
 const A107 0
 const A10A 0
 
+include bq_names_cells.txt
+
 out 203A voice
 out 200A osc1_pitch
 out 200F osc2_pitch

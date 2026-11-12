@@ -258,12 +258,16 @@ static int32_t env_lvl[2][NV];                         /* the level the running 
 #if !ARM_ENV || !ARM_LFO
 #error "ARM_CUSTOM needs ARM_ENV and ARM_LFO"
 #endif
-static uint8_t cust_k[16] = { 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128 };
 static uint8_t cust_note[NV];
 static int32_t cust_lf[NV];
 static int32_t cust_fx[NV];                            /* ARM_CUSTOM_LFO: the delay's state (Q24, 0..1) */
 static volatile uint8_t cust_fx_restart[NV];
 #include ARM_CUSTOM
+#ifdef ARM_CUSTOM_INIT
+static uint8_t cust_k[ARM_CUSTOM_NK] = ARM_CUSTOM_INIT;  /* the kernel's knob values before the first ones arrive */
+#else
+static uint8_t cust_k[16] = { 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128 };
+#endif
 static void cust_set(int id, int value)
 {
     for (int i = 0; i < ARM_CUSTOM_NK; i++)
@@ -612,6 +616,13 @@ typedef struct engine {
 
 static void voice_note_words(engine_t *e, int v)      /* pitch, s1_dt, s1_rdt of the voice's note */
 {
+#ifdef ARM_CUSTOM_PITCH
+    /* the kernel's ARM side makes the note words (with its range and pitch modulation, README.md §11); at once here,
+       so that a new note does not play the raw words until the next tick */
+    cust_note[v] = e->note[v];
+    arm_custom_pitch(v, env_lvl[1][v], cust_lf[v], e->note[v], cust_k);
+    return;
+#endif
     b5(B5_PITCH + v, pitch_bits[e->note[v]]);
     b5(B5_DT + v, dt_bits[e->note[v]]);
     b5(B5_RDT + v, rdt_bits[e->note[v]]);
@@ -980,6 +991,20 @@ static engine_t engine = { .vt = engine_vt };
 /* build_multi.sh: this engine is one WAVE position of a multi-kernel PLUG-OUT (multi.c); no SYNINFO of its own, only
    its engine object under the name S1_SUB (k0_engine, k1_engine, ...) */
 void *S1_SUB(void) { return &engine; }
+/* build_multi.sh SECT_SWITCH (README.md §12): this kernel's voice sections placed again with FC40 only, as the
+   stock synth changes its oscillator programs at a WAVE change (slave 0x6004ecb4 / 0x6004ed62: FC40 for the four
+   sections, no FC44; FC40 0x60003F22 -> 0x60004a52 stops, copies, waits for the DSP and restarts the section by
+   itself). WTEST2 (FC44 off, FC40, FC44 on) hung the device 2026-11-12. The active engine (k0) keeps the mains, the
+   ARM side, the notes */
+#define SECT_FN_(x) x##_sections
+#define SECT_FN(x) SECT_FN_(x)
+void SECT_FN(S1_SUB)(void)
+{
+#if NSECT
+    for (int i = 0; i < NSECT; i++)
+        ((place_fn)SVC(0x40))(sect_index[i], sect_set[i], set_none, set_none, set_none);
+#endif
+}
 #else
 static void create(void) {}
 static void destroy(void) {}

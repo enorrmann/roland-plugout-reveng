@@ -21,6 +21,7 @@
 | `S1_NOTE_RANGE(lo, hi)` | `const int s1_note_range[2]` | MIDI notes the voice is played at (default 0..127); the profiling only runs those |
 | `S1_BUILD(opts)` | `const char s1_build_opts[]` | host build options written to the kernel as `.option KEY VALUE` |
 | `S1_COMPILE(opts)` | `const char s1_compile_opts[]` | `s1cc lower` options, applied before the command line's |
+| `S1_FIXED_STATES` | `const int s1_fixed_states` | every file-scope variable's state words in declaration order with all fields (otherwise: first use); voices built from one source with other code paths keep their state at the same words ([Vol. V ch. 1](s1cc_compiler_internals.md) §3.7) |
 
 The descriptor type:
 

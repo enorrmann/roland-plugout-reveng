@@ -1,109 +1,60 @@
-mov r7, #0.0 | ld r0, [a151] | ld r2, [0681] | ld r4, [0183]
+mov r7, #0.0 | ld r0, [a151] | ld r2, [0669] | ld r4, [0183]
 addxy r7, r7, r0 | mul r2, r2, #7.31275 | ld r1, [a152] | ld r0, [0405]
 addxy r7, r7, r1 | ld r1, [0407] | ld r3, [c090]
-addxy r7, r7, r0 | mov r0, #0.0 | st r3, [a120] | st r3, [0510]
+addxy r7, r7, r0 | mov r0, #0.0 | st r3, [a120]
 addxy r7, r7, r1 | st r0, [6008] | ld r1, [060d]
 mul r7, r7, #0.3333333333333333 | st r0, [6009]
 st r0, [600a]
 st r0, [600b]
 st r0, [600c]
-st r0, [600d] | ld r0, [0683]
+st r0, [600d] | ld r0, [066b]
 add r0, #0.6184303127229214:32 | ld r6, [c000]
 ph_wrap r0, r3, r0
-addxy r2, r2, r0 | mul r7, r7, r6 | st r0, [0682] | ld r0, [a168]
+addxy r2, r2, r0 | mul r7, r7, r6 | st r0, [066a] | ld r0, [a168]
 subxy r1, r1, r0 | st r0, [060c] | ld r0, [c098] | ld r6, [0185]
 mul r1, r1, r1 | st r7, [6006]
-ph_wrap r2, r3, r2 | st r1, [061a] | ld r1, [c050]
-mul r1, r3, r1 | st r2, [0680] | ld r2, [c051]
-mad r1, r0, -r2 | ld r2, [061f] | ld r0, [0521]
-add r1, #1.0 | st r7, [6007] | ld r7, [a142]
+ph_wrap r2, r3, r2 | ld r1, [c050] | st r6, [01da]
+mul r1, r3, r1 | st r2, [0668] | ld r2, [c051]
+mad r1, r0, -r2 | ld r0, [c080]
+add r1, #1.0 | st r0, [0600] | st r0, [a170]
 st r1, [0616] | ld r1, [c04f]
-mul r1, r3, r1 | ld r3, [c053] | st r7, [01d8]
-st r1, [0618] | ld r1, [061a] | st r6, [01da]
-mad r2, r2, -r1 | addxy r1, r0, #-0.999
-mul r1, r1, #256.0
-ph_clamp r1, r3, -r1
-mul r1, r1, #256.0
-ph_clamp r1, r3, -r1
-max r2, r2, r1 | ld r1, [c052]
-subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [061e]
-mul r2, r2, #256.0
-ph_clamp r2, r3, -r2
-mad r1, r2, r3 | mul r2, r2, #1.25 | ld r3, [c091]
-subxy r2, r0, r2 | st r3, [a121] | st r3, [0512]
-mad r0, r2, r1 | ld r1, [a130] | ld r2, [0616]
-min r0, r0, #1.0 | st r1, [0550] | st r2, [a1c8]
-st r0, [0520] | st r0, [a128]
-ld r0, [c080]
-st r0, [0540] | ld r0, [c088]
-st r0, [0530] | ld r0, [0540] | ld r2, [c051]
-ld r1, [0530] | st r0, [a1b0]
-st r1, [a1b8] | ld r1, [062d]
-ld r0, [a169]
-subxy r1, r1, r0 | st r0, [062c] | ld r0, [c099]
-mul r1, r1, r1
-st r1, [063a] | ld r1, [c050]
+mul r1, r3, r1 | ld r0, [c088]
+st r0, [0606] | st r1, [0618]
+st r0, [a178] | ld r0, [0600] | ld r3, [c091]
+ld r1, [0606] | st r0, [a1b0] | ld r2, [c051]
+st r1, [a1b8] | ld r1, [0627]
+ld r0, [a169] | st r7, [6007]
+subxy r1, r1, r0 | st r0, [0626] | ld r0, [c099] | ld r7, [a1a2]
+mul r1, r1, r1 | st r3, [a121] | st r7, [01d8]
+ld r1, [c050]
 mul r1, r3, r1
-mad r1, r0, -r2 | ld r2, [063f] | ld r0, [0523]
-add r1, #1.0
-st r1, [0636] | ld r1, [c04f]
-mul r1, r3, r1 | ld r3, [c053]
-st r1, [0638] | ld r1, [063a]
-mad r2, r2, -r1 | addxy r1, r0, #-0.999
-mul r1, r1, #256.0
-ph_clamp r1, r3, -r1
-mul r1, r1, #256.0
-ph_clamp r1, r3, -r1
-max r2, r2, r1 | ld r1, [c052]
-subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [063e]
-mul r2, r2, #256.0
-ph_clamp r2, r3, -r2
-mad r1, r2, r3 | mul r2, r2, #1.25 | ld r3, [c092]
-subxy r2, r0, r2 | st r3, [a122] | st r3, [0514]
-mad r0, r2, r1 | ld r1, [a131] | ld r2, [0636]
-min r0, r0, #1.0 | st r1, [0552] | st r2, [a1c9]
-st r0, [0522] | st r0, [a129]
-ld r0, [c081]
-st r0, [0542] | ld r0, [c089]
-st r0, [0532] | ld r0, [0542] | ld r2, [c051]
-ld r1, [0532] | st r0, [a1b1]
-st r1, [a1b9] | ld r1, [064d]
+mad r1, r0, -r2 | ld r0, [c081]
+add r1, #1.0 | st r0, [061a] | st r0, [a171]
+st r1, [0630] | ld r1, [c04f]
+mul r1, r3, r1 | ld r0, [c089]
+st r0, [0620] | st r1, [0632]
+st r0, [a179] | ld r0, [061a] | ld r3, [c092]
+ld r1, [0620] | st r0, [a1b1] | ld r2, [c051]
+st r1, [a1b9] | ld r1, [0641]
 ld r0, [a16a]
-subxy r1, r1, r0 | st r0, [064c] | ld r0, [c09a]
-mul r1, r1, r1
-st r1, [065a] | ld r1, [c050]
+subxy r1, r1, r0 | st r0, [0640] | ld r0, [c09a]
+mul r1, r1, r1 | st r3, [a122]
+ld r1, [c050]
 mul r1, r3, r1
-mad r1, r0, -r2 | ld r2, [065f] | ld r0, [0525]
-add r1, #1.0
-st r1, [0656] | ld r1, [c04f]
-mul r1, r3, r1 | ld r3, [c053]
-st r1, [0658] | ld r1, [065a]
-mad r2, r2, -r1 | addxy r1, r0, #-0.999
-mul r1, r1, #256.0
-ph_clamp r1, r3, -r1
-mul r1, r1, #256.0
-ph_clamp r1, r3, -r1
-max r2, r2, r1 | ld r1, [c052]
-subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [065e]
-mul r2, r2, #256.0
-ph_clamp r2, r3, -r2
-mad r1, r2, r3 | mul r2, r2, #1.25
-subxy r2, r0, r2
-mad r0, r2, r1 | ld r1, [a132]
-min r0, r0, #1.0 | st r1, [0554] | ld r1, [0181]
-st r0, [0524] | st r0, [a12a]
-ld r0, [c082]
-st r0, [0544] | ld r0, [c08a]
-st r0, [0534] | ld r3, [0544]
-subxy r5, r4, r3 | ld r0, [0534] | ld r3, [c062]
+mad r1, r0, -r2 | ld r0, [c082]
+add r1, #1.0 | st r0, [0634] | st r0, [a172]
+st r1, [064a] | ld r1, [c04f]
+mul r1, r3, r1 | ld r0, [c08a] | ld r3, [0634]
+st r0, [063a] | st r1, [064c] | ld r1, [0181]
+subxy r5, r4, r3 | st r0, [a17a] | ld r0, [063a] | ld r3, [c062]
 subxy r2, r1, r0 | mad r4, r5, #0.010400000028312206 | ld r0, [c061]
-mad r1, r2, #0.010400000028312206 | ld r2, [0187] | st r4, [0182]
-mac_p1w r5, r3, r6, r2, r0 | ld r0, [0189] | ld r3, [c068] | st r4, [01dc]
+mad r1, r2, #0.010400000028312206 | ld r2, [01a5] | st r4, [0182]
+mac_p1w r5, r3, r6, r2, r0 | ld r0, [01c5] | ld r3, [c063] | st r4, [01dc]
 mov r2, r0 | st r3, [01de]
 mad r2, r5, #-0.5 | ld r5, [c060] | st r1, [0180]
 mul r5, r5, r2
 mad r0, r5, #-0.25 | mul r5, r1, r1
-mul r0, r5, r5 | st r0, [0188]
+mul r0, r5, r5 | st r0, [01c4]
 mul r5, r0, r3
 addxy r0, r5, #0.18518526367693175
 mul r5, r0, #2.6999988555908203
@@ -111,279 +62,293 @@ recipseed r6, r5
 newton r6, r5
 newton r6, r5
 newton r6, r5
-mul r0, r2, r6 | mul r7, r6, r3 | ld r5, [018b] | ld r2, [018d]
-mad r5, r2, #0.10000000149011612 | st r5, [019a]
+mul r0, r2, r6 | mul r7, r6, r3 | ld r5, [01c7] | ld r2, [01c9]
+mad r5, r2, #0.10000000149011612 | st r5, [01d6]
 mul r6, r5, #0.075000002980232239
 ph_clamp r2, r3, -r6
 mac_p1wc3 r5, r7, r2, #0.044444442972724194, r0
 mul r6, r5, #-2.6999988555908203
-ph_clamp r7, r3, -r6 | ld r6, [018f]
+ph_clamp r7, r3, -r6
 mul r2, r7, r7
 mul r0, r2, r7
-mad r7, r0, #-0.33333301544189453
-mul r5, r7, #2.0 | mov r2, r7
-mad r2, r6, #0.5 | addxy r6, r1, #-0.5 | st r5, [018e] | ld r5, [0191]
-mul r0, r2, r1 | mul r2, r5, r6
-subxy r2, r2, r0
-mul r0, r2, #2.0
-mov r0, r2 | st r0, [0190]
-mad r0, r5, #0.5 | ld r5, [0193]
-mul r4, r5, r6
-mac_p1wc3 r0, r0, r1, #-0.5, r4
-mul r4, r0, #4.0
-mov r4, r0 | st r4, [0192]
-mad r4, r5, #0.25 | ld r5, [0195]
-mul r3, r5, r6
+max r5, r0, #-0.023437522351763107 | ld r0, [01cb]
+min r6, r5, #0.011718761175881554
+mad r7, r6, #-0.33333301544189453
+mul r2, r7, #2.0 | mov r5, r7
+mad r5, r0, #0.5 | addxy r0, r1, #-0.5 | st r2, [01ca] | ld r2, [01cd]
+mul r6, r5, r1 | mul r5, r2, r0
+subxy r5, r5, r6
+mul r6, r5, #2.0
+mov r6, r5 | st r6, [01cc]
+mad r6, r2, #0.5 | ld r2, [01cf]
+mul r4, r2, r0
+mac_p1wc3 r6, r6, r1, #-0.5, r4
+mul r4, r6, #4.0
+mov r4, r6 | st r4, [01ce]
+mad r4, r2, #0.25 | ld r2, [01d1]
+mul r3, r2, r0
 mac_p1wc3 r4, r4, r1, #-0.5, r3
 mul r3, r4, #4.0
-mul r3, r7, r1 | st r3, [0194]
-addxy r7, r2, r3
-mac_p1wc3 r3, r2, r6, #-0.5, r7
-mac_p1wc3 r2, r3, r1, #-0.5, r0
-mul r7, r0, r6
-addxy r3, r2, r7 | mul r2, r4, r6
-mac_p1wc3 r0, r3, r1, #-0.5, r4 | ld r3, [0197]
-addxy r7, r0, r2 | mad r4, r5, #0.25
-mul r0, r3, r6
-mac_p1wc3 r2, r4, r1, #-0.5, r0 | ld r0, [0199]
-mul r5, r2, #4.0
-mac_p1w r3, r2, r6, r7, r1 | st r5, [0196] | ld r7, [01de]
-mul r4, r3, #-16.0 | mul r3, r7, r2 | ld r7, [019b]
-max r5, r0, #-0.0076105840931104994 | st r4, [018a] | ld r4, [01dc]
-mul r6, r5, #0.9924468994140625 | mad r2, r3, #0.5 | st r7, [018c] | ld r3, [a1aa]
-addxy r1, r6, #0.0075531005859375 | mul r0, r2, r4 | ld r4, [c06b] | st r3, [01de]
-addxy r6, r5, #0.0076105840931104994 | st r1, [0198] | ld r5, [01da]
-mul r1, r6, r0 | mul r6, r5, r4 | ld r2, [a1d2]
-mov r7, #0.041666666666666664 | mul r0, r6, #0.34657359027997264 | st r1, [01da] | ld r1, [019f]
-mov r5, r7 | st r2, [01dc]
-ymacd r5, r0, #0.16666666666666666
-ymacd r5, r0, #0.5
-ymacd r5, r0, #1.0
-ymacd r5, r0, #1.0
-mul r4, r5, r5
-mul r0, r4, r4
-mul r5, r0, r0
-mul r4, r5, r5
-mul r0, r4, #0.03125 | mul r4, r6, #-0.34657359027997264
-ymacd r7, r4, #0.16666666666666666 | mul r5, r3, r0
-ymacd r7, r4, #0.5
-ymacd r7, r4, #1.0
-ymacd r7, r4, #1.0
-mul r0, r7, r7
-mul r6, r0, r0
+mul r3, r7, r1 | st r3, [01d0]
+addxy r7, r5, r3
+mac_p1wc3 r3, r5, r0, #-0.5, r7
+mac_p1wc3 r5, r3, r1, #-0.5, r6
+mul r7, r6, r0
+addxy r3, r5, r7 | mul r5, r4, r0
+mac_p1wc3 r6, r3, r1, #-0.5, r4 | ld r3, [01d3]
+addxy r7, r6, r5 | mad r4, r2, #0.25
+mul r6, r3, r0
+mac_p1wc3 r5, r4, r1, #-0.5, r6 | ld r6, [01d5]
+mac_p1w r3, r5, r0, r7, r1 | ld r7, [01de]
+mul r2, r5, #4.0 | mul r4, r3, #-16.0
+mul r3, r7, r5 | st r2, [01d2] | ld r7, [a1aa]
+max r2, r6, #-0.0076105840931104994 | st r4, [01c6] | ld r4, [01dc]
+mad r5, r3, #0.5 | mul r0, r2, #0.9924468994140625 | ld r3, [a1d2]
+mul r6, r5, r4 | addxy r1, r0, #0.0075531005859375 | ld r5, [c066] | ld r4, [01da]
+addxy r0, r2, #0.0076105840931104994 | mul r2, r4, r5 | st r6, [01da]
+mov r5, #0.041666666666666664 | mul r4, r2, #0.34657359027997264 | st r1, [01d4] | ld r1, [01d7]
+mov r6, r5 | st r1, [01c8] | ld r1, [a1ca]
+ymacd r6, r4, #0.16666666666666666 | st r0, [01dc]
+ymacd r6, r4, #0.5
+ymacd r6, r4, #1.0
+ymacd r6, r4, #1.0
+mul r4, r6, r6 | mov r0, r5
+mul r6, r4, r4
 mul r4, r6, r6
-mul r7, r4, r4
-mul r0, r7, #0.03125 | ld r7, [019d]
-min r4, r5, #0.0077812499366700649
-mul r6, r2, r0 | mov r0, r4
-mov r2, r4
-mad r0, r7, #0.03125 | mad r2, r1, #0.03125
-mul r5, r0, #32.0 | mul r1, r2, #32.0
-ph_wrap r0, r3, r5
-ph_wrap r2, r3, r1
-subxy r1, r7, r0
-sign r7, r1
-mov r5, r4
-min r1, r7, #0.0
-subxy r7, r2, r0 | mad r5, r0, #0.03125
-mul r0, r1, r7 | mul r5, r5, #32.0
-subxy r1, r2, r0
-mad r4, r1, #-0.03125
-mul r7, r4, #32.0
-ph_wrap r2, r3, r7
-ph_wrap r5, r3, r5
-sign r0, r2 | st r5, [019c]
-min r4, r0, #0.0
-subxy r7, r2, r5
-mul r0, r4, r7 | mul r7, r1, #-1.0
-subxy r5, r2, r0
-ph_wrap r2, r3, r7
-mul r7, r1, #-0.5 | subxy r0, r1, r2
-addxy r2, r7, #0.5 | mul r4, r5, #-1.0
-ph_tri r1, r3, -r2 | st r4, [019e]
-mul r7, r6, r1
-shl r2, r7, 15
-shl r1, r2, 2
-ph_clamp r7, r3, -r1
-mul r2, r7, r7
-mul r1, r7, r2
-mul r3, r2, r1 | mul r2, r2, r2
-mac_p1wc3 r2, r7, r7, #-0.034104689076754152, r2
-addxy r2, r2, #-17.026106186230564
-mul r3, r3, r2
-mul r2, r3, #0.03125
-mad r7, r2, #-0.095352512591594205
-mad r7, r1, #-0.41123178361504448
-mul r3, r0, r7
-mul r2, r3, #0.78539800643920898
-ph_wrap r1, r3, r4 | st r2, [01a6]
-mul r4, r5, #-0.5 | subxy r2, r1, r5
-addxy r1, r4, #0.5
-ph_tri r5, r3, -r1
-mul r4, r6, r5
-shl r1, r4, 15
-shl r6, r1, 2
-ph_clamp r5, r3, -r6
-mul r4, r5, r5
-mul r1, r5, r4
-mul r6, r4, r1 | mul r4, r4, r4
-mac_p1wc3 r4, r5, r5, #-0.034104689076754152, r4
-addxy r4, r4, #-17.026106186230564
-mul r6, r6, r4
+mul r6, r4, r4
 mul r4, r6, #0.03125
-mad r5, r4, #-0.095352512591594205
-mad r5, r1, #-0.41123178361504448 | ld r1, [01a1]
-mul r6, r2, r5 | mov r5, r1 | ld r2, [01a3]
-mul r4, r6, #-0.78539800643920898 | mad r5, r2, #-0.50126103797649757
-st r4, [01a4] | ld r4, [01a5]
-mov r2, r4
-mad r2, r3, #0.39269900321960449 | ld r3, [01a7]
-mad r2, r3, #0.5
-mad r5, r2, #0.034666201629152259
-mul r3, r5, #1.5688642263412476 | mov r2, r5
-st r3, [01a2] | st r3, [01b0]
-mac_p1wc3 r3, r0, r7, #-0.5, r6 | ld r0, [01a9] | ld r7, [01ab]
-mad r2, r1, #-0.31950568415055886 | mad r3, r4, #0.63661989959316345 | ld r6, [01ad] | ld r4, [01af]
-mad r2, r3, #0.017354443547897992 | mad r5, r7, #0.63740378753622462 | st r6, [01b4]
-mul r1, r2, #2.4613349606933212 | mad r2, r0, #0.40628358836552458 | ld r0, [01b3] | st r4, [01a8]
-st r1, [01a0] | st r1, [01ac] | ld r1, [01b1]
-mad r5, r2, #0.75290865113054539 | addxy r3, r6, r4 | ld r2, [01b5] | ld r6, [01b7]
-mad r5, r3, #-0.10523075837658179 | addxy r7, r1, r0 | ld r3, [01b9] | st r1, [01b8]
-mad r5, r7, #-0.59394325412832727 | addxy r4, r2, r6 | st r3, [01b2] | ld r7, [c063]
-mad r4, r5, #0.69499853757836605 | st r6, [01ae] | ld r6, [c067]
-mad r3, r4, #0.45157973770018534 | st r0, [01aa] | ld r5, [c064]
-mul r1, r3, #0.48420281195382131 | mul r4, r6, r5 | ld r0, [c066] | st r2, [01b6] | ld r5, [01dc]
-mul r2, r0, r7 | st r1, [0186] | ld r3, [c069] | ld r1, [01de]
-mul r0, r1, r3 | ld r6, [c06a]
-mul r1, r5, r6 | mul r7, r2, r0 | ld r5, [01d8]
-mul r6, r5, #0.5400000071525568 | mul r3, r4, r1
-min r2, r7, #0.00048632812104187906 | st r3, [01dc]
-addxy r4, r6, #0.51499999966472387 | addxy r7, r5, #-0.89814813687263062
-shl r0, r2, 11
-recipseed r1, r4
-newton r1, r4
-newton r1, r4
-newton r1, r4
-mul r4, r5, #-1.0 | mul r6, r7, #-1.0800000143051136 | st r1, [01e0]
-addxy r7, r4, #0.89814813687263062
-sign r2, r6
-max r6, r7, -r7 | st r2, [01e2]
-max r4, r6, #0.0018084490501203063
-mul r7, r4, #34.560000457763635
-recipseed r3, r7
-newton r3, r7
-newton r3, r7
-newton r3, r7
-mul r6, r2, r3 | ld r4, [01bb]
-mad r4, r0, #0.25 | st r6, [01de] | ld r6, [01bd]
-mad r6, r0, #0.25
-ph_wrap r6, r3, r6
-ph_wrap r7, r3, r4
-sign r1, r6
-min r1, r1, #0.0
-subxy r2, r6, r7
-mul r1, r1, r2 | mov r4, r7
-subxy r2, r6, r1 | mad r4, r0, #0.25
-mov r6, r2
-mad r6, r0, #-0.25
-mul r1, r6, #-1.0
-ph_wrap r4, r3, r4
-ph_wrap r0, r3, r1 | st r4, [01ba]
-sign r6, r0
-absadd r1, r6, #-1.0
-mul r6, r1, r0
-addxy r1, r6, r0 | subxy r6, r7, r4
-sign r0, r6
-min r7, r0, #0.0
-subxy r6, r1, r4
-mul r0, r7, r6 | mov r6, r5
-mad r6, r2, #0.92592591366159682 | subxy r4, r1, r0
-addxy r1, r6, #0.027777776788966198 | mul r7, r4, #-1.0 | ld r6, [01e0]
-mad r5, r4, #0.92592591366159682 | mul r0, r1, #-1.0800000143051136 | st r7, [01bc] | ld r4, [01e2]
-sign r7, r0
-mac_p1wc3 r0, r4, r3, #0.015625, r6 | ld r3, [01de]
-min r2, r7, #0.0
+mul r6, r7, r4 | mul r4, r2, #-0.34657359027997264
+mov r2, r5
+ymacd r2, r4, #0.16666666666666666
+ymacd r2, r4, #0.5
+ymacd r2, r4, #1.0
+ymacd r2, r4, #1.0
+mul r4, r2, r2
+mul r2, r4, r4
+mul r4, r2, r2
+mul r2, r4, r4
+mul r4, r2, #0.03125
+mul r2, r3, r4
+max r4, r2, #3.6765432014362887e-06
+min r2, r4, #0.0625 | ld r4, [c064]
+mul r7, r7, r4 | addxy r4, r1, #-4.75
+mul r4, r4, #0.04332169878499658
+ymacd r0, r4, #0.16666666666666666
+ymacd r0, r4, #0.5
+ymacd r0, r4, #1.0
+ymacd r0, r4, #1.0
+mul r4, r0, r0
+mul r0, r4, r4
+mul r4, r0, r0
+mul r0, r4, r4
 mul r4, r0, #0.03125
+mul r0, r7, r4 | ld r7, [c065]
+mul r4, r3, r7 | mul r3, r1, #-1.0 | st r0, [01e0]
+addxy r7, r3, #4.75
+mul r1, r7, #0.04332169878499658
+ymacd r5, r1, #0.16666666666666666
+ymacd r5, r1, #0.5
+ymacd r5, r1, #1.0
+ymacd r5, r1, #1.0
+mul r3, r5, r5
+mul r7, r3, r3
+mul r1, r7, r7
+mul r5, r1, r1
+mul r3, r5, #0.015625
+mul r7, r4, r3 | ld r3, [0187]
+min r4, r6, #0.0077812499366700649 | st r7, [01de]
+max r1, r2, #3.6765432014362887e-06
+mov r2, r4 | mov r7, r4
+mad r2, r3, #0.03125
+min r5, r1, #0.0625
+mul r1, r2, #32.0 | mov r2, r4
+ph_wrap r6, r3, r1
+mad r2, r6, #0.03125
+mul r1, r2, #32.0
+ph_wrap r2, r3, r1 | ld r1, [0189]
+mad r7, r1, #0.03125 | st r2, [0186]
+mul r1, r7, #32.0
+ph_wrap r7, r3, r1
+subxy r1, r3, r6
+sign r3, r1
+min r1, r3, #0.0
+subxy r3, r7, r6
+mul r6, r1, r3
+subxy r1, r7, r6
+mad r4, r1, #-0.03125
+mul r3, r4, #32.0
+ph_wrap r7, r3, r3
+sign r6, r7
+min r4, r6, #0.0
+subxy r3, r7, r2
+mul r6, r4, r3 | mul r3, r1, #-1.0
+subxy r2, r7, r6
+ph_wrap r7, r3, r3
+mul r3, r1, #-0.5 | subxy r6, r1, r7
+addxy r7, r3, #0.5 | mul r4, r2, #-1.0
+ph_tri r1, r3, -r7 | st r4, [0188]
+mul r3, r5, r1
+shl r7, r3, 15
+shl r1, r7, 2
+ph_clamp r3, r3, -r1
+mul r7, r3, r3
+mul r1, r3, r7
+mul r0, r7, r1 | mul r7, r7, r7
+mac_p1wc3 r7, r3, r3, #-0.034104689076754152, r7
+addxy r7, r7, #-17.026106186230564
+mul r0, r0, r7
+mul r7, r0, #0.03125
+mad r3, r7, #-0.095352512591594205
+mad r3, r1, #-0.41123178361504448
+mul r0, r6, r3
+mul r7, r0, #0.78539800643920898
+ph_wrap r1, r3, r4 | st r7, [018c]
+mul r4, r2, #-0.5 | subxy r7, r1, r2
+addxy r1, r4, #0.5
+ph_tri r2, r3, -r1
+mul r4, r5, r2
+shl r1, r4, 15
+shl r5, r1, 2
+ph_clamp r2, r3, -r5
+mul r4, r2, r2
+mul r1, r2, r4
+mul r5, r4, r1 | mul r4, r4, r4
+mac_p1wc3 r4, r2, r2, #-0.034104689076754152, r4
+addxy r4, r4, #-17.026106186230564
+mul r5, r5, r4
+mul r4, r5, #0.03125
+mad r2, r4, #-0.095352512591594205
+mad r2, r1, #-0.41123178361504448 | ld r1, [018f]
+mul r5, r7, r2 | mov r2, r1 | ld r7, [0191]
+mul r4, r5, #-0.78539800643920898 | mad r2, r7, #-0.50126103797649757
+st r4, [018a] | ld r4, [018b]
+mov r7, r4
+mad r7, r0, #0.39269900321960449 | ld r0, [018d]
+mad r7, r0, #0.5
+mad r2, r7, #0.034666201629152259
+mul r0, r2, #1.5688642263412476 | mov r7, r2
+st r0, [0190] | st r0, [019c]
+mac_p1wc3 r0, r6, r3, #-0.5, r5 | ld r6, [019b] | ld r3, [01a3]
+mad r7, r1, #-0.31950568415055886 | mad r0, r4, #0.63661989959316345 | ld r5, [0193] | ld r4, [0199]
+mad r7, r0, #0.017354443547897992 | mad r2, r3, #0.63740378753622462 | st r5, [0194]
+mul r1, r7, #2.4613349606933212 | mad r7, r6, #0.40628358836552458 | ld r6, [01a1] | st r4, [019a]
+st r1, [018e] | st r1, [0192] | ld r1, [019d]
+mad r2, r7, #0.75290865113054539 | addxy r0, r5, r4 | ld r7, [0195] | ld r5, [0197]
+mad r2, r0, #-0.10523075837658179 | addxy r3, r1, r6 | ld r0, [019f] | st r5, [0198]
+mad r2, r3, #-0.59394325412832727 | addxy r4, r7, r5 | st r0, [01a0] | ld r5, [01d8]
+mad r4, r2, #0.69499853757836605 | mul r2, r5, #0.5400000071525568 | st r1, [019e]
+mad r0, r4, #0.45157973770018534 | addxy r4, r2, #0.51499999966472387 | st r6, [01a2] | ld r6, [01e0]
+mul r1, r0, #0.48420281195382131 | st r7, [0196]
+recipseed r0, r4 | st r1, [01a4]
+newton r0, r4
+newton r0, r4
+newton r0, r4
+min r3, r6, #0.0038906249683350325 | st r0, [01e2]
+mul r1, r5, #-1.0 | addxy r6, r5, #-0.89814813687263062
+mul r7, r3, #256.0 | addxy r4, r1, #0.89814813687263062
+mul r3, r6, #-1.0800000143051136
+max r6, r4, -r4
+sign r2, r3
+max r3, r6, #0.0018084490501203063 | st r2, [01e4]
+mul r1, r3, #34.560000457763635
+recipseed r3, r1
+newton r3, r1
+newton r3, r1
+newton r3, r1
+mul r6, r2, r3 | ld r4, [01a7]
+mad r4, r7, #0.25 | st r6, [01e0] | ld r6, [01a9]
+mad r6, r7, #0.25
+ph_wrap r6, r3, r6
+ph_wrap r1, r3, r4
+sign r0, r6
+min r0, r0, #0.0
+subxy r2, r6, r1
+mul r0, r0, r2 | mov r4, r1
+subxy r2, r6, r0 | mad r4, r7, #0.25
+mov r6, r2
+mad r6, r7, #-0.25
+mul r0, r6, #-1.0
+ph_wrap r4, r3, r4
+ph_wrap r7, r3, r0 | st r4, [01a6]
+sign r6, r7
+absadd r0, r6, #-1.0
+mul r6, r0, r7
+addxy r0, r6, r7 | subxy r6, r1, r4
+sign r7, r6
+min r1, r7, #0.0
+subxy r6, r0, r4
+mul r7, r1, r6 | mov r6, r5
+mad r6, r2, #0.92592591366159682 | subxy r4, r0, r7
+addxy r0, r6, #0.027777776788966198 | mul r1, r4, #-1.0 | ld r6, [01e2]
+mad r5, r4, #0.92592591366159682 | mul r7, r0, #-1.0800000143051136 | st r1, [01a8] | ld r4, [01e4]
+sign r1, r7
+mac_p1wc3 r7, r4, r3, #0.015625, r6 | ld r3, [01e0]
+min r2, r1, #0.0
+mul r4, r7, #0.03125
 mac_p1wc3 r6, r2, r4, #0.03125, r3
-mul r0, r1, r6
-shl r2, r0, 10 | ld r0, [01dc]
-mul r1, r2, #-1.0800000143051136
-ph_tri r6, r3, -r1
-mul r2, r0, r6
-shl r1, r2, 15
-shl r6, r1, 5
-mul r2, r6, #1.6000000238418579 | addxy r6, r5, #0.027777776788966198
-ph_clamp r1, r3, -r2
-mul r2, r6, #-1.0800000143051136
-sign r5, r2
-min r2, r5, #0.0
-mac_p1wc3 r2, r2, r4, #0.03125, r3
-mul r4, r6, r2
+max r7, r6, #-0.00094811886083334684
+min r2, r7, #0.0625
+mul r6, r0, r2
+shl r7, r6, 10 | ld r6, [01de]
+mul r0, r7, #-1.0800000143051136
+ph_tri r2, r3, -r0
+mul r7, r6, r2
+shl r0, r7, 15
+shl r2, r0, 3
+mul r7, r2, #1.6000000238418579 | addxy r2, r5, #0.027777776788966198
+ph_clamp r0, r3, -r7
+mul r7, r2, #-1.0800000143051136
+sign r5, r7
+min r7, r5, #0.0
+mac_p1wc3 r7, r7, r4, #0.03125, r3
+mul r4, r2, r7
 shl r3, r4, 10
-mul r6, r3, #-1.0800000143051136
-ph_tri r2, r3, -r6
-mul r4, r0, r2
+mul r2, r3, #-1.0800000143051136
+ph_tri r7, r3, -r2
+mul r4, r6, r7
 shl r3, r4, 15
-shl r6, r3, 5
-mul r0, r6, #1.6000000238418579 | mul r4, r1, r7
-ph_clamp r2, r3, -r0
-mul r3, r4, #-1.0 | mul r6, r2, r5 | ld r2, [01c1]
-mul r0, r6, #-1.0 | st r3, [01c4] | ld r3, [01bf]
-mov r5, r3 | st r0, [01c2] | ld r0, [01c3]
-mad r5, r2, #-0.4735108174809789
-mov r2, r0
-mad r2, r4, #-0.5 | ld r4, [01c5]
-mad r2, r4, #0.5
-mad r5, r2, #0.02471467541816923
-mul r4, r5, #1.5991098880767822 | mov r2, r5
-st r4, [01c0] | st r4, [01ce]
-mac_p1wc3 r4, r1, r7, #0.5, r6 | ld r1, [01c7] | ld r7, [01c9]
-mad r2, r3, #-0.29610899226597925 | mad r4, r0, #-0.5 | ld r6, [01cb] | ld r0, [01cd]
-mad r2, r4, #-0.015455270211538169 | mad r5, r7, #0.62534789351010778 | st r6, [01d2]
-mul r3, r2, #2.557152434144939 | mad r2, r1, #0.39105998791752911 | ld r1, [01d1] | st r0, [01c6]
-st r3, [01be] | st r3, [01ca] | ld r3, [01cf]
-mad r5, r2, #0.76742375065127288 | addxy r4, r6, r0 | ld r2, [01d3] | ld r6, [01d5]
-mad r5, r4, #-0.10324041740892025 | addxy r7, r3, r1 | st r1, [01c8] | ld r4, [01d7]
-mad r5, r7, #-0.58270937527584066 | addxy r0, r2, r6 | st r2, [01d4] | ld r1, [0656]
-mad r0, r5, #0.70839720543078366 | ld r7, [a1c2] | ld r2, [01da]
-st r6, [01cc] | st r4, [01d0]
-mad r4, r0, #0.45157973770018534 | ld r0, [a16b] | st r3, [01d6]
-mac_p1wc3 r6, r2, r1, #0.069972968350592024, r7 | ld r1, [066d] | st r0, [066c]
-subxy r1, r1, r0 | mul r3, r4, #0.50948474756359019 | ld r0, [c09b] | ld r4, [01e7]
-mul r1, r1, r1 | mul r5, r6, #14.291233080031816 | st r3, [0184] | ld r3, [c093] | ld r6, [01e9]
-st r1, [067a] | ld r1, [c050] | ld r7, [a143]
-mul r1, r3, r1 | ld r2, [c051] | st r3, [a123]
-mad r1, r0, -r2 | ld r2, [067f] | ld r0, [0527]
-add r1, #1.0 | st r3, [0516]
-st r1, [0676] | ld r1, [c04f]
-mul r1, r3, r1 | ld r3, [c053] | st r5, [0404]
-st r1, [0678] | ld r1, [067a] | st r7, [023c]
-mad r2, r2, -r1 | addxy r1, r0, #-0.999 | st r6, [023e]
-mul r1, r1, #256.0
-ph_clamp r1, r3, -r1
-mul r1, r1, #256.0
-ph_clamp r1, r3, -r1
-max r2, r2, r1 | ld r1, [c052]
-subxy r2, r2, #1.0 | subxy r3, r1, r3 | st r2, [067e]
-mul r2, r2, #256.0
-ph_clamp r2, r3, -r2
-mad r1, r2, r3 | mul r2, r2, #1.25
-subxy r2, r0, r2
-mad r0, r2, r1 | ld r1, [a133]
-min r0, r0, #1.0 | st r1, [0556] | ld r1, [01e5]
-st r0, [0526] | st r0, [a12b]
-ld r0, [c083]
-st r0, [0546] | ld r0, [c08b]
-st r0, [0536] | ld r3, [0546]
-subxy r5, r4, r3 | ld r0, [0536] | ld r3, [c062]
-subxy r2, r1, r0 | mad r4, r5, #0.010400000028312206 | ld r0, [c061]
-mad r1, r2, #0.010400000028312206 | ld r2, [01eb] | st r4, [01e6]
-mac_p1w r5, r3, r6, r2, r0 | ld r0, [01ed] | ld r3, [c068] | st r4, [0240]
-mov r2, r0 | st r3, [0242]
-mad r2, r5, #-0.5 | ld r5, [c060] | st r1, [01e4]
+shl r2, r3, 3
+mul r6, r2, #1.6000000238418579 | mul r4, r0, r1
+ph_clamp r7, r3, -r6
+mul r3, r4, #-1.0 | mul r2, r7, r5 | ld r7, [01b1]
+mul r6, r2, #-1.0 | st r3, [01ac] | ld r3, [01af]
+mov r5, r3 | st r6, [01aa] | ld r6, [01ab]
+mad r5, r7, #-0.4735108174809789
+mov r7, r6
+mad r7, r4, #-0.5 | ld r4, [01ad]
+mad r7, r4, #0.5
+mad r5, r7, #0.02471467541816923
+mul r4, r5, #1.5991098880767822 | mov r7, r5
+st r4, [01b0] | st r4, [01bc]
+mac_p1wc3 r4, r0, r1, #0.5, r2 | ld r0, [01bb] | ld r1, [01c3]
+mad r7, r3, #-0.29610899226597925 | mad r4, r6, #-0.5 | ld r2, [01b3] | ld r6, [01b9]
+mad r7, r4, #-0.015455270211538169 | mad r5, r1, #0.62534789351010778 | st r2, [01b4]
+mul r3, r7, #2.557152434144939 | mad r7, r0, #0.39105998791752911 | ld r0, [01c1] | st r6, [01ba]
+st r3, [01ae] | st r3, [01b2] | ld r3, [01bd]
+mad r5, r7, #0.76742375065127288 | addxy r4, r2, r6 | ld r7, [01b5] | ld r2, [01b7]
+mad r5, r4, #-0.10324041740892025 | addxy r1, r3, r0 | st r0, [01c2] | ld r0, [a1c2]
+mad r5, r1, #-0.58270937527584066 | addxy r6, r7, r2 | st r7, [01b6] | ld r1, [01dc]
+mad r6, r5, #0.70839720543078366 | ld r7, [01da] | st r2, [01b8]
+mac_p1wc3 r2, r1, r7, #0.069972968350592024, r0 | ld r4, [01bf] | ld r0, [a16b]
+mad r4, r6, #0.45157973770018534 | mul r5, r2, #14.291233080031816 | st r4, [01c0] | ld r1, [065b] | ld r2, [c051]
+subxy r1, r1, r0 | mul r3, r4, #0.50948474756359019 | st r3, [01be] | ld r4, [01e9]
+mul r1, r1, r1 | st r3, [0184] | ld r3, [c093] | ld r6, [01eb]
+ld r1, [c050] | st r0, [065a] | ld r7, [a1a3]
+mul r1, r3, r1 | ld r0, [c09b] | st r3, [a123]
+mad r1, r0, -r2 | ld r0, [c083] | st r5, [0404]
+add r1, #1.0 | st r0, [064e] | st r0, [a173]
+st r1, [0664] | ld r1, [c04f]
+mul r1, r3, r1 | ld r0, [c08b] | ld r3, [064e] | st r7, [023e]
+st r0, [0654] | st r1, [0666] | ld r1, [01e7]
+subxy r5, r4, r3 | st r0, [a17b] | ld r0, [0654] | ld r3, [c062]
+subxy r2, r1, r0 | mad r4, r5, #0.010400000028312206 | ld r0, [c061] | st r6, [0240]
+mad r1, r2, #0.010400000028312206 | ld r2, [020b] | st r4, [01e8]
+mac_p1w r5, r3, r6, r2, r0 | ld r0, [022b] | ld r3, [c063] | st r4, [0242]
+mov r2, r0 | st r3, [0244]
+mad r2, r5, #-0.5 | ld r5, [c060] | st r1, [01e6]
 mul r5, r5, r2
 mad r0, r5, #-0.25 | mul r5, r1, r1
-mul r0, r5, r5 | st r0, [01ec]
+mul r0, r5, r5 | st r0, [022a]
 mul r5, r0, r3
 addxy r0, r5, #0.18518526367693175
 mul r5, r0, #2.6999988555908203
@@ -391,250 +356,275 @@ recipseed r6, r5
 newton r6, r5
 newton r6, r5
 newton r6, r5
-mul r0, r2, r6 | mul r7, r6, r3 | ld r5, [01ef] | ld r2, [01f1]
-mad r5, r2, #0.10000000149011612 | st r5, [01fe]
+mul r0, r2, r6 | mul r7, r6, r3 | ld r5, [022d] | ld r2, [022f]
+mad r5, r2, #0.10000000149011612 | st r5, [023c]
 mul r6, r5, #0.075000002980232239
 ph_clamp r2, r3, -r6
 mac_p1wc3 r5, r7, r2, #0.044444442972724194, r0
 mul r6, r5, #-2.6999988555908203
-ph_clamp r7, r3, -r6 | ld r6, [01f3]
+ph_clamp r7, r3, -r6
 mul r2, r7, r7
 mul r0, r2, r7
-mad r7, r0, #-0.33333301544189453
-mul r5, r7, #2.0 | mov r2, r7
-mad r2, r6, #0.5 | addxy r6, r1, #-0.5 | st r5, [01f2] | ld r5, [01f5]
-mul r0, r2, r1 | mul r2, r5, r6
-subxy r2, r2, r0
-mul r0, r2, #2.0
-mov r0, r2 | st r0, [01f4]
-mad r0, r5, #0.5 | ld r5, [01f7]
-mul r4, r5, r6
-mac_p1wc3 r0, r0, r1, #-0.5, r4
-mul r4, r0, #4.0
-mov r4, r0 | st r4, [01f6]
-mad r4, r5, #0.25 | ld r5, [01f9]
-mul r3, r5, r6
+max r5, r0, #-0.023437522351763107 | ld r0, [0231]
+min r6, r5, #0.011718761175881554
+mad r7, r6, #-0.33333301544189453
+mul r2, r7, #2.0 | mov r5, r7
+mad r5, r0, #0.5 | addxy r0, r1, #-0.5 | st r2, [0230] | ld r2, [0233]
+mul r6, r5, r1 | mul r5, r2, r0
+subxy r5, r5, r6
+mul r6, r5, #2.0
+mov r6, r5 | st r6, [0232]
+mad r6, r2, #0.5 | ld r2, [0235]
+mul r4, r2, r0
+mac_p1wc3 r6, r6, r1, #-0.5, r4
+mul r4, r6, #4.0
+mov r4, r6 | st r4, [0234]
+mad r4, r2, #0.25 | ld r2, [0237]
+mul r3, r2, r0
 mac_p1wc3 r4, r4, r1, #-0.5, r3
 mul r3, r4, #4.0
-mul r3, r7, r1 | st r3, [01f8]
-addxy r7, r2, r3
-mac_p1wc3 r3, r2, r6, #-0.5, r7
-mac_p1wc3 r2, r3, r1, #-0.5, r0
-mul r7, r0, r6
-addxy r3, r2, r7 | mul r2, r4, r6
-mac_p1wc3 r0, r3, r1, #-0.5, r4 | ld r3, [01fb]
-addxy r7, r0, r2 | mad r4, r5, #0.25
-mul r0, r3, r6
-mac_p1wc3 r2, r4, r1, #-0.5, r0 | ld r0, [01fd]
-mul r5, r2, #4.0
-mac_p1w r3, r2, r6, r7, r1 | st r5, [01fa] | ld r7, [0242]
-mul r4, r3, #-16.0 | mul r3, r7, r2 | ld r7, [01ff]
-max r5, r0, #-0.0076105840931104994 | st r4, [01ee] | ld r4, [0240]
-mul r6, r5, #0.9924468994140625 | mad r2, r3, #0.5 | st r7, [01f0] | ld r3, [a1ab]
-addxy r1, r6, #0.0075531005859375 | mul r0, r2, r4 | ld r4, [c06b] | st r3, [0242]
-addxy r6, r5, #0.0076105840931104994 | st r1, [01fc] | ld r5, [023e]
-mul r1, r6, r0 | mul r6, r5, r4 | ld r2, [a1d3]
-mov r7, #0.041666666666666664 | mul r0, r6, #0.34657359027997264 | st r1, [023e] | ld r1, [0203]
-mov r5, r7 | st r2, [0240]
-ymacd r5, r0, #0.16666666666666666
-ymacd r5, r0, #0.5
-ymacd r5, r0, #1.0
-ymacd r5, r0, #1.0
-mul r4, r5, r5
-mul r0, r4, r4
-mul r5, r0, r0
-mul r4, r5, r5
-mul r0, r4, #0.03125 | mul r4, r6, #-0.34657359027997264
-ymacd r7, r4, #0.16666666666666666 | mul r5, r3, r0
-ymacd r7, r4, #0.5
-ymacd r7, r4, #1.0
-ymacd r7, r4, #1.0
-mul r0, r7, r7
-mul r6, r0, r0
+mul r3, r7, r1 | st r3, [0236]
+addxy r7, r5, r3
+mac_p1wc3 r3, r5, r0, #-0.5, r7
+mac_p1wc3 r5, r3, r1, #-0.5, r6
+mul r7, r6, r0
+addxy r3, r5, r7 | mul r5, r4, r0
+mac_p1wc3 r6, r3, r1, #-0.5, r4 | ld r3, [0239]
+addxy r7, r6, r5 | mad r4, r2, #0.25
+mul r6, r3, r0
+mac_p1wc3 r5, r4, r1, #-0.5, r6 | ld r6, [023b]
+mac_p1w r3, r5, r0, r7, r1 | ld r7, [0244]
+mul r2, r5, #4.0 | mul r4, r3, #-16.0
+mul r3, r7, r5 | st r2, [0238] | ld r7, [a1ab]
+max r2, r6, #-0.0076105840931104994 | st r4, [022c] | ld r4, [0242]
+mad r5, r3, #0.5 | mul r0, r2, #0.9924468994140625 | ld r3, [a1d3]
+mul r6, r5, r4 | addxy r1, r0, #0.0075531005859375 | ld r5, [c066] | ld r4, [0240]
+addxy r0, r2, #0.0076105840931104994 | mul r2, r4, r5 | st r6, [0240]
+mov r5, #0.041666666666666664 | mul r4, r2, #0.34657359027997264 | st r1, [023a] | ld r1, [023d]
+mov r6, r5 | st r1, [022e] | ld r1, [a1cb]
+ymacd r6, r4, #0.16666666666666666 | st r0, [0242]
+ymacd r6, r4, #0.5
+ymacd r6, r4, #1.0
+ymacd r6, r4, #1.0
+mul r4, r6, r6 | mov r0, r5
+mul r6, r4, r4
 mul r4, r6, r6
-mul r7, r4, r4
-mul r0, r7, #0.03125 | ld r7, [0201]
-min r4, r5, #0.0077812499366700649
-mul r6, r2, r0 | mov r0, r4
-mov r2, r4
-mad r0, r7, #0.03125 | mad r2, r1, #0.03125
-mul r5, r0, #32.0 | mul r1, r2, #32.0
-ph_wrap r0, r3, r5
-ph_wrap r2, r3, r1
-subxy r1, r7, r0
-sign r7, r1
-mov r5, r4
-min r1, r7, #0.0
-subxy r7, r2, r0 | mad r5, r0, #0.03125
-mul r0, r1, r7 | mul r5, r5, #32.0
-subxy r1, r2, r0
-mad r4, r1, #-0.03125
-mul r7, r4, #32.0
-ph_wrap r2, r3, r7
-ph_wrap r5, r3, r5
-sign r0, r2 | st r5, [0200]
-min r4, r0, #0.0
-subxy r7, r2, r5
-mul r0, r4, r7 | mul r7, r1, #-1.0
-subxy r5, r2, r0
-ph_wrap r2, r3, r7
-mul r7, r1, #-0.5 | subxy r0, r1, r2
-addxy r2, r7, #0.5 | mul r4, r5, #-1.0
-ph_tri r1, r3, -r2 | st r4, [0202]
-mul r7, r6, r1
-shl r2, r7, 15
-shl r1, r2, 2
-ph_clamp r7, r3, -r1
-mul r2, r7, r7
-mul r1, r7, r2
-mul r3, r2, r1 | mul r2, r2, r2
-mac_p1wc3 r2, r7, r7, #-0.034104689076754152, r2
-addxy r2, r2, #-17.026106186230564
-mul r3, r3, r2
-mul r2, r3, #0.03125
-mad r7, r2, #-0.095352512591594205
-mad r7, r1, #-0.41123178361504448
-mul r3, r0, r7
-mul r2, r3, #0.78539800643920898
-ph_wrap r1, r3, r4 | st r2, [020a]
-mul r4, r5, #-0.5 | subxy r2, r1, r5
-addxy r1, r4, #0.5
-ph_tri r5, r3, -r1
-mul r4, r6, r5
-shl r1, r4, 15
-shl r6, r1, 2
-ph_clamp r5, r3, -r6
-mul r4, r5, r5
-mul r1, r5, r4
-mul r6, r4, r1 | mul r4, r4, r4
-mac_p1wc3 r4, r5, r5, #-0.034104689076754152, r4
-addxy r4, r4, #-17.026106186230564
-mul r6, r6, r4
+mul r6, r4, r4
 mul r4, r6, #0.03125
-mad r5, r4, #-0.095352512591594205
-mad r5, r1, #-0.41123178361504448 | ld r1, [0205]
-mul r6, r2, r5 | mov r5, r1 | ld r2, [0207]
-mul r4, r6, #-0.78539800643920898 | mad r5, r2, #-0.50126103797649757
-st r4, [0208] | ld r4, [0209]
-mov r2, r4
-mad r2, r3, #0.39269900321960449 | ld r3, [020b]
-mad r2, r3, #0.5
-mad r5, r2, #0.034666201629152259
-mul r3, r5, #1.5688642263412476 | mov r2, r5
-st r3, [0206] | st r3, [0214]
-mac_p1wc3 r3, r0, r7, #-0.5, r6 | ld r0, [020d] | ld r7, [020f]
-mad r2, r1, #-0.31950568415055886 | mad r3, r4, #0.63661989959316345 | ld r6, [0211] | ld r4, [0213]
-mad r2, r3, #0.017354443547897992 | mad r5, r7, #0.63740378753622462 | st r6, [0218]
-mul r1, r2, #2.4613349606933212 | mad r2, r0, #0.40628358836552458 | ld r0, [0217] | st r4, [020c]
-st r1, [0204] | st r1, [0210] | ld r1, [0215]
-mad r5, r2, #0.75290865113054539 | addxy r3, r6, r4 | ld r2, [0219] | ld r6, [021b]
-mad r5, r3, #-0.10523075837658179 | addxy r7, r1, r0 | ld r3, [021d] | st r1, [021c]
-mad r5, r7, #-0.59394325412832727 | addxy r4, r2, r6 | st r3, [0216] | ld r7, [c063]
-mad r4, r5, #0.69499853757836605 | st r6, [0212] | ld r6, [c067]
-mad r3, r4, #0.45157973770018534 | st r0, [020e] | ld r5, [c064]
-mul r1, r3, #0.48420281195382131 | mul r4, r6, r5 | ld r0, [c066] | st r2, [021a] | ld r5, [0240]
-mul r2, r0, r7 | st r1, [01ea] | ld r3, [c069] | ld r1, [0242]
-mul r0, r1, r3 | ld r6, [c06a]
-mul r1, r5, r6 | mul r7, r2, r0 | ld r5, [023c]
-mul r6, r5, #0.5400000071525568 | mul r3, r4, r1
-min r2, r7, #0.00048632812104187906 | st r3, [0240]
-addxy r4, r6, #0.51499999966472387 | addxy r7, r5, #-0.89814813687263062
-shl r0, r2, 11
-recipseed r1, r4
-newton r1, r4
-newton r1, r4
-newton r1, r4
-mul r4, r5, #-1.0 | mul r6, r7, #-1.0800000143051136 | st r1, [0244]
-addxy r7, r4, #0.89814813687263062
-sign r2, r6
-max r6, r7, -r7 | st r2, [0246]
-max r4, r6, #0.0018084490501203063
-mul r7, r4, #34.560000457763635
-recipseed r3, r7
-newton r3, r7
-newton r3, r7
-newton r3, r7
-mul r6, r2, r3 | ld r4, [021f]
-mad r4, r0, #0.25 | st r6, [0242] | ld r6, [0221]
-mad r6, r0, #0.25
-ph_wrap r6, r3, r6
-ph_wrap r7, r3, r4
-sign r1, r6
-min r1, r1, #0.0
-subxy r2, r6, r7
-mul r1, r1, r2 | mov r4, r7
-subxy r2, r6, r1 | mad r4, r0, #0.25
-mov r6, r2
-mad r6, r0, #-0.25
-mul r1, r6, #-1.0
-ph_wrap r4, r3, r4
-ph_wrap r0, r3, r1 | st r4, [021e]
-sign r6, r0
-absadd r1, r6, #-1.0
-mul r6, r1, r0
-addxy r1, r6, r0 | subxy r6, r7, r4
-sign r0, r6
-min r7, r0, #0.0
-subxy r6, r1, r4
-mul r0, r7, r6 | mov r6, r5
-mad r6, r2, #0.92592591366159682 | subxy r4, r1, r0
-addxy r1, r6, #0.027777776788966198 | mul r7, r4, #-1.0 | ld r6, [0244]
-mad r5, r4, #0.92592591366159682 | mul r0, r1, #-1.0800000143051136 | st r7, [0220] | ld r4, [0246]
-sign r7, r0
-mac_p1wc3 r0, r4, r3, #0.015625, r6 | ld r3, [0242]
-min r2, r7, #0.0
+mul r6, r7, r4 | mul r4, r2, #-0.34657359027997264
+mov r2, r5
+ymacd r2, r4, #0.16666666666666666
+ymacd r2, r4, #0.5
+ymacd r2, r4, #1.0
+ymacd r2, r4, #1.0
+mul r4, r2, r2
+mul r2, r4, r4
+mul r4, r2, r2
+mul r2, r4, r4
+mul r4, r2, #0.03125
+mul r2, r3, r4
+max r4, r2, #3.6765432014362887e-06
+min r2, r4, #0.0625 | ld r4, [c064]
+mul r7, r7, r4 | addxy r4, r1, #-4.75
+mul r4, r4, #0.04332169878499658
+ymacd r0, r4, #0.16666666666666666
+ymacd r0, r4, #0.5
+ymacd r0, r4, #1.0
+ymacd r0, r4, #1.0
+mul r4, r0, r0
+mul r0, r4, r4
+mul r4, r0, r0
+mul r0, r4, r4
 mul r4, r0, #0.03125
+mul r0, r7, r4 | ld r7, [c065]
+mul r4, r3, r7 | mul r3, r1, #-1.0 | st r0, [0246]
+addxy r7, r3, #4.75
+mul r1, r7, #0.04332169878499658
+ymacd r5, r1, #0.16666666666666666
+ymacd r5, r1, #0.5
+ymacd r5, r1, #1.0
+ymacd r5, r1, #1.0
+mul r3, r5, r5
+mul r7, r3, r3
+mul r1, r7, r7
+mul r5, r1, r1
+mul r3, r5, #0.015625
+mul r7, r4, r3 | ld r3, [01ed]
+min r4, r6, #0.0077812499366700649 | st r7, [0244]
+max r1, r2, #3.6765432014362887e-06
+mov r2, r4 | mov r7, r4
+mad r2, r3, #0.03125
+min r5, r1, #0.0625
+mul r1, r2, #32.0 | mov r2, r4
+ph_wrap r6, r3, r1
+mad r2, r6, #0.03125
+mul r1, r2, #32.0
+ph_wrap r2, r3, r1 | ld r1, [01ef]
+mad r7, r1, #0.03125 | st r2, [01ec]
+mul r1, r7, #32.0
+ph_wrap r7, r3, r1
+subxy r1, r3, r6
+sign r3, r1
+min r1, r3, #0.0
+subxy r3, r7, r6
+mul r6, r1, r3
+subxy r1, r7, r6
+mad r4, r1, #-0.03125
+mul r3, r4, #32.0
+ph_wrap r7, r3, r3
+sign r6, r7
+min r4, r6, #0.0
+subxy r3, r7, r2
+mul r6, r4, r3 | mul r3, r1, #-1.0
+subxy r2, r7, r6
+ph_wrap r7, r3, r3
+mul r3, r1, #-0.5 | subxy r6, r1, r7
+addxy r7, r3, #0.5 | mul r4, r2, #-1.0
+ph_tri r1, r3, -r7 | st r4, [01ee]
+mul r3, r5, r1
+shl r7, r3, 15
+shl r1, r7, 2
+ph_clamp r3, r3, -r1
+mul r7, r3, r3
+mul r1, r3, r7
+mul r0, r7, r1 | mul r7, r7, r7
+mac_p1wc3 r7, r3, r3, #-0.034104689076754152, r7
+addxy r7, r7, #-17.026106186230564
+mul r0, r0, r7
+mul r7, r0, #0.03125
+mad r3, r7, #-0.095352512591594205
+mad r3, r1, #-0.41123178361504448
+mul r0, r6, r3
+mul r7, r0, #0.78539800643920898
+ph_wrap r1, r3, r4 | st r7, [01f2]
+mul r4, r2, #-0.5 | subxy r7, r1, r2
+addxy r1, r4, #0.5
+ph_tri r2, r3, -r1
+mul r4, r5, r2
+shl r1, r4, 15
+shl r5, r1, 2
+ph_clamp r2, r3, -r5
+mul r4, r2, r2
+mul r1, r2, r4
+mul r5, r4, r1 | mul r4, r4, r4
+mac_p1wc3 r4, r2, r2, #-0.034104689076754152, r4
+addxy r4, r4, #-17.026106186230564
+mul r5, r5, r4
+mul r4, r5, #0.03125
+mad r2, r4, #-0.095352512591594205
+mad r2, r1, #-0.41123178361504448 | ld r1, [01f5]
+mul r5, r7, r2 | mov r2, r1 | ld r7, [01f7]
+mul r4, r5, #-0.78539800643920898 | mad r2, r7, #-0.50126103797649757
+st r4, [01f0] | ld r4, [01f1]
+mov r7, r4
+mad r7, r0, #0.39269900321960449 | ld r0, [01f3]
+mad r7, r0, #0.5
+mad r2, r7, #0.034666201629152259
+mul r0, r2, #1.5688642263412476 | mov r7, r2
+st r0, [01f6] | st r0, [0202]
+mac_p1wc3 r0, r6, r3, #-0.5, r5 | ld r6, [0201] | ld r3, [0209]
+mad r7, r1, #-0.31950568415055886 | mad r0, r4, #0.63661989959316345 | ld r5, [01f9] | ld r4, [01ff]
+mad r7, r0, #0.017354443547897992 | mad r2, r3, #0.63740378753622462 | st r5, [01fa]
+mul r1, r7, #2.4613349606933212 | mad r7, r6, #0.40628358836552458 | ld r6, [0207] | st r4, [0200]
+st r1, [01f4] | st r1, [01f8] | ld r1, [0203]
+mad r2, r7, #0.75290865113054539 | addxy r0, r5, r4 | ld r7, [01fb] | ld r5, [01fd]
+mad r2, r0, #-0.10523075837658179 | addxy r3, r1, r6 | ld r0, [0205] | st r5, [01fe]
+mad r2, r3, #-0.59394325412832727 | addxy r4, r7, r5 | st r0, [0206] | ld r5, [023e]
+mad r4, r2, #0.69499853757836605 | mul r2, r5, #0.5400000071525568 | st r1, [0204]
+mad r0, r4, #0.45157973770018534 | addxy r4, r2, #0.51499999966472387 | st r6, [0208] | ld r6, [0246]
+mul r1, r0, #0.48420281195382131 | st r7, [01fc]
+recipseed r0, r4 | st r1, [020a]
+newton r0, r4
+newton r0, r4
+newton r0, r4
+min r3, r6, #0.0038906249683350325 | st r0, [0248]
+mul r1, r5, #-1.0 | addxy r6, r5, #-0.89814813687263062
+mul r7, r3, #256.0 | addxy r4, r1, #0.89814813687263062
+mul r3, r6, #-1.0800000143051136
+max r6, r4, -r4
+sign r2, r3
+max r3, r6, #0.0018084490501203063 | st r2, [024a]
+mul r1, r3, #34.560000457763635
+recipseed r3, r1
+newton r3, r1
+newton r3, r1
+newton r3, r1
+mul r6, r2, r3 | ld r4, [020d]
+mad r4, r7, #0.25 | st r6, [0246] | ld r6, [020f]
+mad r6, r7, #0.25
+ph_wrap r6, r3, r6
+ph_wrap r1, r3, r4
+sign r0, r6
+min r0, r0, #0.0
+subxy r2, r6, r1
+mul r0, r0, r2 | mov r4, r1
+subxy r2, r6, r0 | mad r4, r7, #0.25
+mov r6, r2
+mad r6, r7, #-0.25
+mul r0, r6, #-1.0
+ph_wrap r4, r3, r4
+ph_wrap r7, r3, r0 | st r4, [020c]
+sign r6, r7
+absadd r0, r6, #-1.0
+mul r6, r0, r7
+addxy r0, r6, r7 | subxy r6, r1, r4
+sign r7, r6
+min r1, r7, #0.0
+subxy r6, r0, r4
+mul r7, r1, r6 | mov r6, r5
+mad r6, r2, #0.92592591366159682 | subxy r4, r0, r7
+addxy r0, r6, #0.027777776788966198 | mul r1, r4, #-1.0 | ld r6, [0248]
+mad r5, r4, #0.92592591366159682 | mul r7, r0, #-1.0800000143051136 | st r1, [020e] | ld r4, [024a]
+sign r1, r7
+mac_p1wc3 r7, r4, r3, #0.015625, r6 | ld r3, [0246]
+min r2, r1, #0.0
+mul r4, r7, #0.03125
 mac_p1wc3 r6, r2, r4, #0.03125, r3
-mul r0, r1, r6
-shl r2, r0, 10 | ld r0, [0240]
-mul r1, r2, #-1.0800000143051136
-ph_tri r6, r3, -r1
-mul r2, r0, r6
-shl r1, r2, 15
-shl r6, r1, 5
-mul r2, r6, #1.6000000238418579 | addxy r6, r5, #0.027777776788966198
-ph_clamp r1, r3, -r2
-mul r2, r6, #-1.0800000143051136
-sign r5, r2
-min r2, r5, #0.0
-mac_p1wc3 r2, r2, r4, #0.03125, r3
-mul r4, r6, r2
+max r7, r6, #-0.00094811886083334684
+min r2, r7, #0.0625
+mul r6, r0, r2
+shl r7, r6, 10 | ld r6, [0244]
+mul r0, r7, #-1.0800000143051136
+ph_tri r2, r3, -r0
+mul r7, r6, r2
+shl r0, r7, 15
+shl r2, r0, 3
+mul r7, r2, #1.6000000238418579 | addxy r2, r5, #0.027777776788966198
+ph_clamp r0, r3, -r7
+mul r7, r2, #-1.0800000143051136
+sign r5, r7
+min r7, r5, #0.0
+mac_p1wc3 r7, r7, r4, #0.03125, r3
+mul r4, r2, r7
 shl r3, r4, 10
-mul r6, r3, #-1.0800000143051136
-ph_tri r2, r3, -r6
-mul r4, r0, r2
+mul r2, r3, #-1.0800000143051136
+ph_tri r7, r3, -r2
+mul r4, r6, r7
 shl r3, r4, 15
-shl r6, r3, 5
-mul r0, r6, #1.6000000238418579 | mul r4, r1, r7
-ph_clamp r2, r3, -r0
-mul r3, r4, #-1.0 | mul r6, r2, r5 | ld r2, [0225]
-mul r0, r6, #-1.0 | st r3, [0228] | ld r3, [0223]
-mov r5, r3 | st r0, [0226] | ld r0, [0227]
-mad r5, r2, #-0.4735108174809789
-mov r2, r0
-mad r2, r4, #-0.5 | ld r4, [0229]
-mad r2, r4, #0.5
-mad r5, r2, #0.02471467541816923
-mul r4, r5, #1.5991098880767822 | mov r2, r5
-st r4, [0224] | st r4, [0232]
-mac_p1wc3 r4, r1, r7, #0.5, r6 | ld r1, [022b] | ld r7, [022d]
-mad r2, r3, #-0.29610899226597925 | mad r4, r0, #-0.5 | ld r6, [022f] | ld r0, [0231]
-mad r2, r4, #-0.015455270211538169 | mad r5, r7, #0.62534789351010778 | st r6, [0236]
-mul r3, r2, #2.557152434144939 | mad r2, r1, #0.39105998791752911 | ld r1, [0235] | st r0, [022a]
-st r3, [0222] | st r3, [022e] | ld r3, [0233]
-mad r5, r2, #0.76742375065127288 | addxy r4, r6, r0 | ld r2, [0237] | ld r6, [0239]
-mad r5, r4, #-0.10324041740892025 | addxy r7, r3, r1 | st r1, [022c] | ld r4, [023b]
-mad r5, r7, #-0.58270937527584066 | addxy r0, r2, r6 | st r2, [0238] | ld r1, [0676]
-mad r0, r5, #0.70839720543078366 | ld r7, [a1c3] | ld r2, [023e]
-st r6, [0230] | st r4, [0234]
-mad r4, r0, #0.45157973770018534 | ld r0, [c05c] | st r3, [023a]
-mac_p1wc3 r6, r2, r1, #0.069972968350592024, r7 | ld r1, [c05a]
-mul r5, r6, #14.291233080031816 | mul r3, r4, #0.50948474756359019 | ld r2, [c05b]
-hset h6, r0
-st r5, [0406] | st r3, [01e8]
-ldidx r3, 0
-ymacd r3, r2, r1 | ldidx r4, 2
-ymacd r4, r2, r1 | ldidx r5, 4 | st r3, [a140]
-ymacd r5, r2, r1 | ldidx r6, 6 | st r4, [a141]
-ymacd r6, r2, r1 | st r5, [a142]
-st r6, [a143]
+shl r2, r3, 3
+mul r6, r2, #1.6000000238418579 | mul r4, r0, r1
+ph_clamp r7, r3, -r6
+mul r3, r4, #-1.0 | mul r2, r7, r5 | ld r7, [0217]
+mul r6, r2, #-1.0 | st r3, [0212] | ld r3, [0215]
+mov r5, r3 | st r6, [0210] | ld r6, [0211]
+mad r5, r7, #-0.4735108174809789
+mov r7, r6
+mad r7, r4, #-0.5 | ld r4, [0213]
+mad r7, r4, #0.5
+mad r5, r7, #0.02471467541816923
+mul r4, r5, #1.5991098880767822 | mov r7, r5
+st r4, [0216] | st r4, [0222]
+mac_p1wc3 r4, r0, r1, #0.5, r2 | ld r0, [0221] | ld r1, [0229]
+mad r7, r3, #-0.29610899226597925 | mad r4, r6, #-0.5 | ld r2, [0219] | ld r6, [021f]
+mad r7, r4, #-0.015455270211538169 | mad r5, r1, #0.62534789351010778 | st r2, [021a]
+mul r3, r7, #2.557152434144939 | mad r7, r0, #0.39105998791752911 | ld r0, [0227] | st r6, [0220]
+st r3, [0214] | st r3, [0218] | ld r3, [0223]
+mad r5, r7, #0.76742375065127288 | addxy r4, r2, r6 | ld r7, [021b] | ld r2, [021d]
+mad r5, r4, #-0.10324041740892025 | addxy r1, r3, r0 | st r0, [0228] | ld r4, [0225]
+mad r5, r1, #-0.58270937527584066 | addxy r6, r7, r2 | st r7, [021c] | ld r0, [a1c3]
+mad r6, r5, #0.70839720543078366 | ld r1, [0242] | ld r7, [0240]
+st r2, [021e] | st r4, [0226]
+mad r4, r6, #0.45157973770018534 | st r3, [0224]
+mac_p1wc3 r2, r1, r7, #0.069972968350592024, r0
+mul r3, r4, #0.50948474756359019 | mul r5, r2, #14.291233080031816
+st r3, [01ea] | st r5, [0406]

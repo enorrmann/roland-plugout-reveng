@@ -871,3 +871,37 @@ Medido 2026-11-11 (JP-08-S1A, 4 voces): notas, envolventes, LFO → FILTER, CROS
 Envolventes y LFO del JP-08 (`ARM_CUSTOM_ENV`, `ARM_CUSTOM_LFO`), 2026-11-11: verificados en nativo contra la
 recurrencia por muestra de Roland (envolvente: error ≤ 1e-5; LFO: frecuencia y formas exactas, delay ±1 %); instalado,
 sin oír todavía.
+
+## 12. Cambiar de onda recargando programas: pares OSC1 × OSC2 (`build_multi.sh SECT_SWITCH=1`) [medido en el equipo 2026-11-12: JP-08-WTEST4]
+
+Como el sinte de serie: un programa por par de ondas, nada sumado al programa de la voz (no cuesta instrucciones).
+
+```sh
+SECT_SWITCH=1 KERNELS="DIR0 A,B:DIR1 ..." NAME=... sh examples/system_s1cc_boutique/build_multi.sh
+```
+
+* `A,B:DIR`: el kernel para OSC1 WAVE = A, OSC2 WAVE = B (`kmap2[6][6]` en `multi_map.h`); un par sin kernel toca el
+  primero. `P:DIR` (una sola perilla, §9) sigue igual.
+* `SECT_SWITCH=1` compila cada kernel con `VOICE_SECT_TEST=1` (`make_s1cc.py`): las voces en secciones, los principales
+  solo con la cabecera (el anfitrión); `build_multi.sh` comprueba que `s1m0`, `s1m1`, `s1c0`, `s1c1` y la lista de
+  secciones sean iguales en todos los kernels. El engine `k0` queda activo siempre (principales, lado ARM, notas);
+  al mover WAVE, `multi.c` llama a `k<i>_engine_sections()` (`engine.c`): **solo `FC40`** por sección.
+* Cada engine se compila con el `ARM_CUSTOM` de su kernel (el `S1_BUILD`, como `build.sh`). Sin eso (multi del
+  2026-11-12 por la mañana) corría el ADSR genérico y escribía sus niveles crudos en las palabras que el kernel lee
+  como sus valores del ARM (JP-08: el `g` del filtro, la ganancia del VCA): envolventes rotas.
+
+Lo que hace el sinte de serie [código, OS esclavo 1.30 `app_slave.bin`]: el manejador de parámetros `0x6004f14a`
+manda `0x167` (OSC1 WAVE) a `0x6004ed62` y `0x16C` (OSC2 WAVE) a `0x6004ecb4`. Con flag ≠ 0 solo guardan el valor;
+con flag 0: método propio (vtable `+0x34` / `+0x40`), `FC40(i, set, datos, vacío, vacío)` para sus cuatro secciones
+(OSC1: índices 0–3, OSC2: 4–7), método propio (`+0x3c` / `+0x48`). Nunca `FC44`. `FC40` (`0x60003F22` →
+`0x60004a52`) es síncrono: detiene la sección, copia programa y datos, espera al DSP (`0x600050a0`) y la arranca.
+
+| intento | resultado en el equipo (2026-11-12) |
+|---|---|
+| un engine entero por kernel, `FC30` / `FC34` de los principales al mover WAVE (`JP-08-WTEST`, §9) | la onda no cambia; click y nota cortada (el engine se reinicia) |
+| secciones + `FC44(i,0)`, `FC40`, `FC44(i,1)`, con cualquier flag (`JP-08-WTEST2`) | **se cuelga el equipo** [inferido: `FC40` espera al DSP una sección ya apagada] |
+| secciones + **solo `FC40`, solo con flag 0** (`JP-08-WTEST4`) | **funciona**: la onda cambia, la nota sigue, un click leve |
+
+Abierto: el click (el sinte de serie llama antes y después a métodos propios; el JX-3P del SYSTEM-8 baja el nivel
+del oscilador a 0 antes de cambiar y lo sube después, `docs/vol4_firmware_container_protocol/plugout_virtual_machine.md`);
+el tamaño (unos 60 de 1024 bloques de la región 1 por kernel, por las tablas de cada engine).

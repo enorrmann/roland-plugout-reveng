@@ -16,6 +16,10 @@
 #include <stdint.h>
 #include "syninfo.h"
 #include "s1_programs.h"
+#ifdef ARM_CUSTOM
+#define ARM_CUSTOM_CC_TABLE                    /* only the kernel's CC table (arm_custom_cc), not its ARM code */
+#include ARM_CUSTOM
+#endif
 #if defined(EDM_LINES) && defined(STR_NV) && STR_NV < NV
 #undef NV
 #define NV STR_NV                                             /* EDM_STR_NV: the assigner plays only the strings */
@@ -1386,6 +1390,20 @@ static int cc_to_panel(int cc, int v)
 #endif
         return 1;
     }
+#ifdef ARM_CUSTOM_CC_TABLE
+    /* the kernel's parameters without a SYSTEM-1 control (ARM_CUSTOM header, boutique_ported README.md §13.5): CC ->
+       the patch word PLUGOUT_EXTENDnn, as (value - default) & 0xFF; the OS hands it to the engine like a knob [TEST:
+       that EXTEND words reach the engine is not measured yet] */
+    for (unsigned i = 0; i < sizeof arm_custom_cc / sizeof arm_custom_cc[0]; i++)
+        if (arm_custom_cc[i].cc == cc) {
+            int x = arm_custom_cc[i].steps ? (v * arm_custom_cc[i].steps) >> 7 : v >= 127 ? 255 : v * 2;
+            if (x > arm_custom_cc[i].max)
+                x = arm_custom_cc[i].max;
+            p_set(G_PANEL, arm_custom_cc[i].id, (x - arm_custom_cc[i].def) & 0xFF);
+            p_flush(G_PANEL);
+            return 1;
+        }
+#endif
     for (unsigned i = 0; i < sizeof cc_panel / sizeof cc_panel[0]; i++)
         if (cc_panel[i].cc == cc) {
             int x = cc_panel[i].steps ? (v * cc_panel[i].steps) >> 7 : v >= 127 ? 255 : v * 2;

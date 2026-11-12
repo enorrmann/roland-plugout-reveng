@@ -7,12 +7,12 @@ LFO_FADE           on   # host LFO
 LFO_TO_FILTER      on   # ARM_CUSTOM: arm_lfod
 LFO_RATE           on   # host LFO
 LFO_TO_AMP         on   # s1_lfo_amp
-OSC1_WAVE          off
+OSC1_WAVE          on   # the wave pair: one program per pair, README.md §12 (SYSTEM-S1CC-BOUTIQUE §12)
 OSC1_RANGE         on   # S1_PARAM range1f
 OSC1_COLOR         off
 OSC1_COLOR_MOD     off
 OSC1_CROSS_MOD     on   # S1_PARAM xmod
-OSC2_WAVE          off
+OSC2_WAVE          on   # the wave pair (positions 3..5 = 0..2: LOW open)
 OSC2_RANGE         on   # S1_PARAM range2f
 OSC2_COLOR         on   # s1_color(1)
 OSC2_FINE          on   # S1_PARAM tune2

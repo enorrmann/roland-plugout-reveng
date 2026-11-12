@@ -266,6 +266,39 @@ comments):
 | `cell 041 flt_env` | the value stored in bank-0 cell 041 (and its chain: `flt_env_z1`) |
 | `value t331 saw_inc` | renames the value the C calls `t331` (a name that no longer exists is a warning) |
 | `section 312 saw oscillator` | a heading above the values from instruction 312 on |
+| `section @osc1_freq*,@osc1_phase* OSC1` | a heading above the first value whose name matches one of the globs: the same file serves programs whose instruction numbers differ |
+| `include FILE` | another names file (path relative to this one) |
+
+`--names` may be given several times: the files are read in order, a later line wins.
+
+**Automatic cell names: `dsplift_names.py`, step 1** (2026-11-12). The lifter names nothing by itself; a separate
+step writes the names file it reads, so the file can be read and corrected by hand in between:
+
+```sh
+python3 sdk/s1cc/tools/dsplift_names.py OUT_names.txt --names SEEDS.txt [the --kernel arguments]   # step 1
+python3 sdk/s1cc/tools/dsplift.py OUT.h --kernel --names OUT_names.txt [the same arguments]         # step 2
+```
+
+`OUT_names.txt` = the seed files (includes inlined, in order) and then a `cell X NAME` line for every bank-0 cell
+they leave unnamed (`dsplift_c.auto_names`), named `GROUP_ROLE`:
+
+| part | rule, first that applies |
+|---|---|
+| GROUP | 1. the named cell (names file) the value flows into first, when exactly one group is at that distance; 2. the group of the named parameters it reads, the most frequent (`env1_a` → `env1`: a parameter name's first word); 3. the groups of the cells it reads (to a fixed point); 4. the named inputs it reads |
+| ROLE | `phase` (wraps and reads its own value of the sample before), `lp` (`LERP` from its own value of before), `state` (reads itself otherwise), `fir` (eight or more delayed cells), `prev` (holds the value of a lower cell: one sample later; named after that cell), `in` (a copy of a delayed or handed-over value), `flag` (0 / 1), `sq` / `exp` / `recip` / `sin` / `tri` / `sign` / `abs` (the outer operation); none: the group alone, numbered |
+
+A cell that only copies a parameter or an input gets no name (the value's own name serves). Running step 1 again
+overwrites `OUT_names.txt`: a correction that should stay goes into a seed file. So the seeds are only the parameters
+(generated from the panel tables in `boutique_ported/tools/make_voice.py`) and the musical role of a few cells per
+stage (`boutique_ported/bq_names_cells.txt`: 36 seeds, 54 more cells named automatically in the JP-08
+voice).
+
+**Names do not change the code** [measured 2026-11-12]. A value longer than 100 characters inlined gets a name of its
+own (§6.1), and s1cc fuses a multiply and an add only inside one statement, so a cut costs instructions. The cut is
+therefore measured on the text without names (`Emitter.canon`: parameters as `KP(0xC05F)`, delay cells as
+`D_000_1`): the names files change only identifiers. s1cc units of the four JP-08 builds with the names files and with
+none: `bq.c` 553 / 449, `bq_host.c` 797, `bq_host2x.c` 468, `bq_arm.c` 388, the same. (Before the canonical measure,
+long names cut more often.)
 
 `--consts FILE`: lines `ADDR[-ADDR] VALUE` (hex), the same as `const`; for the parameters the caller's init sets and
 no knob moves. With constants the parts of a program its setup switches off fold away (§6.1: `x · 0`, delay chains
@@ -296,7 +329,8 @@ the lift within 76–80 dB on sustained notes, 34–48 dB on sequences with acce
 | file | what it is |
 |---|---|
 | `sdk/s1cc/tools/dsplift.py` | the translator and `--check` |
-| `sdk/s1cc/tools/dsplift_c.py` | the `--kernel` C: symbolic run, expression graph, idioms, names (§6) |
+| `sdk/s1cc/tools/dsplift_c.py` | the `--kernel` C: symbolic run, expression graph, idioms, names, automatic names (§6) |
+| `sdk/s1cc/tools/dsplift_names.py` | step 1 before `--kernel`: a whole names file, seeds + automatic cell names (§6.4) |
 | `sdk/s1cc/tools/dsplift_rt.h` | the runtime of the lifted C: memory, SFU, flags, the macros of the units |
 | `sdk/s1cc/tools/dsplift_k.h` | the runtime of `--kernel` C: the idiom macros (`SEL`, `LERP`, `XFADE`, condition bits, `K_RECIP`, `K_SIN`, `K_EXP`, …), `KOVERFLOW` (`-DDSPLIFT_K_NATIVE`: libm instead of `s1dsp.h`) |
 | `sdk/s1cc/tests/test_dsplift.py` | the test (§3) |

@@ -3,7 +3,7 @@ examples/system_s1cc_boutique/README.md §11; README.md §11 here).
 
     python3 sdk/s1cc/examples/boutique_ported/tools/make_arm.py MODEL      (MODEL: jp08)
 
-Reads bq_MODEL_host_tables.h (the knob tables of the kernel, already per SYSTEM-1 knob) and writes bq_MODEL_arm.h for
+Reads bq_MODEL_tables.h (the knob tables of the kernel, already per SYSTEM-1 knob) and writes bq_MODEL_arm.h for
 examples/system_s1cc_boutique/engine.c: Q24 tables (1 = 1 << 24; the SYSTEM-1's ARM has no FPU) and arm_custom(v),
 which the 1 ms tick calls per voice after the host's envelopes and LFO:
 
@@ -27,6 +27,7 @@ over one step of 1 ms (96 samples at 96 kHz):
     delay    y <- 1 - (1 - y) (0.9 + 0.1 DELAY), from 0 at each note start; the LFO is x max(5 y - 4, 0)^4
 """
 import math
+import struct
 import os
 import re
 import sys
@@ -71,9 +72,36 @@ def g_of(u):
     return 2.0 * s / (s + c)
 
 
-def amp_of(e):
-    x = e * e * 0.99995 # c_08e = env^2 x -0.09999484 x -10
+def amp_of(x):
+    """Roland's VCA curve (lifted instruction 667) of x = env2^2 x 0.99995 - (0.5 - 0.5 lfo) x AMP LFO MOD"""
     return max(0.444274 * x * x * x - 0.005 + 0.7 * (x * 0.265983), 0.0)
+
+
+def note_dt(n):
+    """f / 96000 of MIDI note n, as SYSTEM-S1CC's per-note word (make_s1cc.py note_dt; float32 pitch word)"""
+    p = struct.unpack('<f', struct.pack('<f', (n - 12) / 12.0))[0]
+    return 440.0 * 2.0 ** (p - 4.75) / 96000.0
+
+
+# the JP-08 parameters without a SYSTEM-1 control: SYSTEM-1 patch words PLUGOUT_EXTEND01.. (ids 0x1B8..), set by CC for
+# the tests (examples/system_s1cc_boutique model.c, ARM_CUSTOM_CC_TABLE) and by tools/jp08_prm.py from a JP-08 file.
+# Stored value = (JP-08 value - JP-08 default) & 0xFF, so an empty word (0) is the JP-08's default (README.md §13.5).
+# (name, patch parameter id, CC, positions (0 = 0..255 from CC x 2), JP-08 max, default, applied here)
+EXTEND = [('OSC FREQ MOD DST', 0x198, 102, 3, 2, 0, True),
+          ('FLT LPF SLOPE', 0x1AB, 103, 2, 1, 1, False),
+          ('FLT ENV MOD SRC', 0x1AD, 104, 2, 1, 0, False),
+          ('AMP LEVEL', 0x1B5, 105, 0, 255, 255, True),
+          ('ENV1 POLARITY', 0x1C0, 106, 2, 1, 0, False),
+          ('ENV2 KEY FOLLOW', 0x1CA, 107, 4, 3, 0, False),
+          ('ASSIGN MODE', 0x245, 108, 5, 4, 0, False),
+          ('PORTA SW', 0x242, 109, 2, 1, 0, False),
+          ('PORTA TIME', 0x243, 85, 0, 255, 100, False),
+          ('BEND RANGE', 0x246, 86, 25, 24, 2, False),
+          ('DELAY LEVEL', 0x239, 87, 16, 15, 0, False),
+          ('DELAY TIME', 0x23A, 88, 16, 15, 0, False),
+          ('DELAY FEEDBACK', 0x23B, 89, 16, 15, 0, False),
+          ('OSC2 RANGE', 0x19F, 90, 0, 255, 0, False)]
+EXT0 = 0x1B8                           # PLUGOUT_EXTEND01 (SYSTEM-1 OS 1.30 parameter table, README.md §13.5)
 
 
 def q(x):
@@ -119,14 +147,20 @@ def arr(name, vals, per=8, ty='int32_t'):
 
 def main():
     model = sys.argv[1]
-    src = open(os.path.join(EX, 'bq_%s_host_tables.h' % model)).read()
+    src = open(os.path.join(EX, 'bq_%s_tables.h' % model)).read()
     cut, reso, envmod, kf = (table(src, model, n) for n in ('cutoff', 'reso', 'envmod', 'keyfollow'))
     base = [q(10.625 * c + 0.16659999) for c in cut]
     rterm = [q(min((1.0 - r) * 0.5, 0.075)) for r in reso]
     gt = [q(g_of(U0 + (U1 - U0) * i / NU)) for i in range(NU + 1)]
-    at = [q(amp_of(i / NA)) for i in range(NA + 1)]
+    at = [q(amp_of(i / NA)) for i in range(NA + 1)]       # over x in [0, 1] (x <= 0: 0)
     pitch = [q((n - 12) / 12.0 - 4.0) for n in range(128)]
     ex = open(os.path.join(EX, 'bq_%s_tables.h' % model)).read()
+    lfop = [q(x[0]) for x in rows(ex, model, 'lfo_pitch')]      # OSC LFO MOD (C04A): octaves at LFO = 1
+    envp = [q(x[0]) for x in rows(ex, model, 'env_pitch')]      # OSC ENV MOD (C04B): octaves at ENV1 = 1
+    alev = [q(x[0]) for x in rows(ex, model, 'amp_level')]      # AMP LEVEL (C06F)
+    alfo = [q(x[0]) for x in rows(ex, model, 'amp_lfo')][:4]     # AMP LFO MOD (C06B), 0..3
+    notelog = [q(math.log2(note_dt(n))) for n in range(128)]
+    mant = [int(round((2.0 ** (i / 1024.0) - 1.0) * (1 << 23))) for i in range(1025)]
     lfod = [q(x[0]) for x in rows(ex, model, 'lfo_filter')]     # FLT LFO MOD (C064): octaves at LFO = 1
     rate = rows(ex, model, 'lfo_rate')
     inc16 = [int(round(min(math.floor(rate[k][0] * 65536.0) * 2.0 ** -32, 0.0071359314) * 2.0 ** 31 * SIXTEENTH))
@@ -135,10 +169,26 @@ def main():
     envt = {0: env_tables(ex, model, 2), 1: env_tables(ex, model, 1)}   # engine i 0 = AMP = ENV2, 1 = FILTER = ENV1
     o = ['/* bq_%s_arm.h: the %s voice\'s filter coefficient and VCA gain on the ARM (SYSTEM-S1CC-BOUTIQUE ARM_CUSTOM).'
          % (model, model.upper()),
-         '   Written by sdk/s1cc/examples/boutique_ported/tools/make_arm.py from bq_%s_host_tables.h; do not edit. */' % model,
-         '#define ARM_CUSTOM_NK 4',
-         '/* the knobs it reads: FILTER CUTOFF, RESONANCE, ENV AMOUNT, KEY TRACK */',
-         'static const uint16_t arm_custom_id[ARM_CUSTOM_NK] = { 0x17D, 0x17F, 0x181, 0x186 };',
+         '   Written by sdk/s1cc/examples/boutique_ported/tools/make_arm.py from bq_%s_tables.h; do not edit. */' % model,
+         '',
+         '#ifdef ARM_CUSTOM_CC_TABLE',
+         '/* model.c (region 0): MIDI CC -> PLUGOUT_EXTEND word (README.md §13.5): CC 0..127 -> the JP-08 value (n positions:',
+         '   value x n >> 7; 0: x 2, 127 -> 255), stored as (value - default) & 0xFF; steps 0 means 0..255 */',
+         'static const struct { uint8_t cc; uint16_t id; uint8_t steps, max, def; } arm_custom_cc[] = {']
+    for i, (nm, pid, cc, st, mx, df, ap) in enumerate(EXTEND):
+        o.append('    { %d, 0x%03X, %d, %d, %d },   /* EXTEND%02d: %s (JP-08 0x%03X)%s */'
+                 % (cc, EXT0 + i, st, mx, df, i + 1, nm, pid, '' if ap else ' stored only, not applied yet'))
+    o += ['};',
+          '#else',
+          '#define ARM_CUSTOM_NK 11',
+          '/* the knobs it reads: FILTER CUTOFF, RESONANCE, ENV AMOUNT, KEY TRACK; LFO TO PITCH = OSC LFO MOD, PITCH ENV',
+          '   AMOUNT = OSC ENV MOD (JP-08: ENV1 -> pitch), OSC1 / OSC2 RANGE; EXTEND01 OSC FREQ MOD DST, EXTEND04 AMP LEVEL;',
+          '   LFO TO AMP = AMP LFO MOD (4 positions: knob >> 6) (README.md §13.5) */',
+          'static const uint16_t arm_custom_id[ARM_CUSTOM_NK] = { 0x17D, 0x17F, 0x181, 0x186, 0x163, 0x17A, 0x16A, 0x16F,',
+          '                                                        0x%03X, 0x%03X, 0x165 };' % (EXT0, EXT0 + 3),
+          '/* their values before the first knob / patch arrives (the JP-08 defaults; EXTEND 0 = the JP-08 default) */',
+          '#define ARM_CUSTOM_INIT { 128, 128, 128, 128, 0, 0, 2, 2, 0, 0, 0 }',
+          '#define ARM_EXT(k, def) ((uint8_t)((k) + (def)))      /* EXTEND word -> the JP-08 value */',
          '#define ARM_U0 (%d)            /* the g table: u from U0, step (U1 - U0) / NU, Q24 */' % q(U0),
          '#define ARM_USTEP_SH %d' % (24 - int(math.log2(NU / (U1 - U0)))),
          '#define ARM_NU %d' % NU]
@@ -146,6 +196,10 @@ def main():
     o += arr('arm_base', base) + arr('arm_rterm', rterm) + arr('arm_envmod', [q(x) for x in envmod])
     o += arr('arm_kf', [q(x) for x in kf]) + arr('arm_pitch', pitch) + arr('arm_lfod', lfod)
     o += arr('arm_g', gt) + arr('arm_amp', at)
+    o += ['/* pitch (README.md §13): OSC LFO MOD / OSC ENV MOD in octaves, AMP LEVEL, AMP LFO MOD; log2 of each note\'s',
+          '   f / 96000; the mantissa bits of 2^(i / 1024) */']
+    o += arr('arm_lfop', lfop) + arr('arm_envp', envp) + arr('arm_alev', alev) + arr('arm_alfo', alfo)
+    o += arr('arm_notelog', notelog) + arr('arm_mant', mant)
     o += ['', '/* ARM_CUSTOM_ENV: the model\'s envelopes, [i][knob], i 0 = AMP (ENV2), 1 = FILTER (ENV1); per step of 1 ms */',
           '#define ARM_CUSTOM_ENV 1']
     for j, nm in enumerate(('att', 'dec', 'sus_s', 'sus_d', 'rel', 'rtg', 'att1', 'dec1')):
@@ -253,18 +307,52 @@ static int32_t arm_lerp(const int32_t *t, int n, int32_t x, int sh)    /* x: ind
     return t[i] + (int32_t)(((int64_t)(t[i + 1] - t[i]) * f) >> sh);
 }
 
+/* 2^x (x Q24 octaves) as IEEE float bits: the exponent from floor(x), the mantissa from arm_mant (linear) */
+static uint32_t arm_exp2_bits(int32_t x)
+{
+    int32_t e = x >> 24;
+    uint32_t f = (uint32_t)x & 0xFFFFFFu, i = f >> 14, r = f & 0x3FFFu;
+    uint32_t m = (uint32_t)arm_mant[i] + (uint32_t)(((uint64_t)(uint32_t)(arm_mant[i + 1] - arm_mant[i]) * r) >> 14);
+    if (e < -126)
+        return 0;
+    return ((uint32_t)(e + 127) << 23) | (m & 0x7FFFFFu);
+}
+
+/* the JP-08's pitch modulation (lifted instructions 211..231): LFO x OSC LFO MOD + ENV1 out x OSC ENV MOD, octaves, to
+   OSC1 and / or OSC2 by OSC FREQ MOD DST (C04F..C052: 0 = VCO-2 (0, 1, 0, 1), 1 = both, 2 = VCO-1 (1, 0, 1, 0));
+   no SYSTEM-1 LFO -> PITCH or pitch envelope (the build has LFO_PITCH=0). Writes the voice's note words: s1_dt /
+   s1_rdt = OSC1 (note, OSC1 RANGE, its modulation), s1_pitch = 4.75 + o2 - o1 (octaves; the kernel takes 2^(p - 4.75)) */
+static void arm_custom_pitch(int v, int32_t e1, int32_t lf, int note, const uint8_t *k)
+{
+    int32_t e1o = qmul(qmul(e1, e1), 16776407);          /* ENV1 out = env1^2 x 0.99995 */
+    int32_t pm = qmul(lf, arm_lfop[k[4]]) + qmul(e1o, arm_envp[k[5]]);
+    int dst = ARM_EXT(k[8], 0);
+    int r1 = k[6] > 5 ? 5 : k[6], r2 = k[7] > 5 ? 5 : k[7];   /* OSC RANGE 64' .. 2' = -1 .. +4 octaves (SYSTEM-S1CC) */
+    int32_t o1 = arm_notelog[note & 127] + ((int32_t)(r1 - 1) << 24) + (dst == 0 ? 0 : pm);
+    int32_t d = ((int32_t)(r2 - r1) << 24) + (dst == 0 ? pm : dst == 2 ? -pm : 0);
+    b5(B5_DT + v, arm_exp2_bits(o1));
+    b5(B5_RDT + v, arm_exp2_bits(-o1 - (14 << 24)));      /* 1 / dt / 16384 */
+    b5(B5_PITCH + v, q24_bits(d + 79691776));            /* + 4.75 */
+}
+#define ARM_CUSTOM_PITCH 1
+
 /* per voice, every step (engine.c tick, after the envelopes and the LFO): e0 / e1 the AMP / FILTER envelope, lf the
    LFO x fade (Q24), note the voice's note, k[] the knobs of arm_custom_id, lfo_k LFO TO FILTER */
 static void arm_custom_voice(int v, int32_t e0, int32_t e1, int32_t lf, int note, const uint8_t *k, int lfo_k)
 {
+    arm_custom_pitch(v, e1, lf, note, k);
     int32_t e1s = qmul(e1, e1);
     int32_t u = arm_base[k[0]] + arm_rterm[k[1]] + qmul(arm_envmod[k[2]], qmul(e1s, 16776407))   /* x 0.99995 */
               + qmul(arm_kf[k[3]], arm_pitch[note & 127]) + qmul(lf, arm_lfod[lfo_k]);
     int32_t g = arm_lerp(arm_g, ARM_NU, u - ARM_U0, ARM_USTEP_SH);
-    int32_t amp = arm_lerp(arm_amp, %d, e0 < 0 ? 0 : e0, 24 - %d);
+    /* the VCA (lifted instructions 657..667): x = env2^2 x 0.99995 - (0.5 - 0.5 lfo) x AMP LFO MOD, Roland's curve, x AMP
+       LEVEL */
+    int32_t x = qmul(qmul(e0, e0), 16776407) - qmul(Q1 / 2 - lf / 2, arm_alfo[k[10] >> 6]);
+    int32_t amp = qmul(arm_lerp(arm_amp, %d, x < 0 ? 0 : x, 24 - %d), arm_alev[ARM_EXT(k[9], 255)]);
     ramp(P_ENV0 + v, amp);
     ramp(P_ENV0 + 8 + v, g);
 }''' % (NA, int(math.log2(NA)))]
+    o.append('#endif /* ARM_CUSTOM_CC_TABLE */')
     dst = os.path.join(EX, 'bq_%s_arm.h' % model)
     open(dst, 'w').write('\n'.join(o) + '\n')
     print('%s: g over u %g..%g (%d points): g(-3) %.5f g(5) %.5f g(11) %.5f; amp(1) %.4f' % (

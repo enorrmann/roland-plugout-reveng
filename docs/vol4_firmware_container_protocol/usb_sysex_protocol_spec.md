@@ -204,3 +204,9 @@ For `usr2X`/`usr3X` (struct `k` = 1/2): `(p << 18) + T[slot + (k-1)*4]`, with
 
 The plugin sends the bank loaded in its library; the tool defaults to the first
 file in `Patch/` (`--bank` to choose another).
+
+SYSTEM-1 PLUG-OUTs (SH-101, SH-2, PROMARS, SYSTEM-100, and the SYSTEM-1's own bank) share one `patch` layout of
+640 bytes: 64 `int2x4` panel values, the 16-character name, 48 `int8x4` values (`INPUT_JACK_SW … CTRL_HOLD`,
+`PLUGOUT_EXTEND01…40`) — the same 112 values, in the same order, as the SYSTEM-1's `.PRM` files; PROMARS' banks are
+`KoaBankFile00001` (same size; not read by `tools/patches.py` yet). Details and the measured match against a device
+backup: `sdk/s1cc/examples/boutique_ported/README.md` §13.5.

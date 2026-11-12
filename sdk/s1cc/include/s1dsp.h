@@ -189,6 +189,12 @@ S1_EXTERN S1_IN float s1_vparam_get(const s1_vparam_desc *param, int i);
 #define S1_COMPILE(opts) \
     S1_EXTERN __attribute__((used)) const char s1_compile_opts[] = opts
 
+/* S1_FIXED_STATES: every file-scope variable of the voice gets its state words in declaration order, with all its
+ * fields, also the ones this build does not use (otherwise: in order of first use). Voices built from one source with
+ * other code paths (SYSTEM-S1CC-BOUTIQUE wave pairs, one program each, swapped while the note plays) keep every state
+ * at the same word. Costs bank-0 words, no instructions. S1_DSP_A only (a fused voice) */
+#define S1_FIXED_STATES S1_EXTERN __attribute__((used)) const int s1_fixed_states = 1
+
 #define S1_DSP_A S1_EXTERN float s1_dsp_a(void)
 #define S1_INIT S1_EXTERN void s1_init(void)
 #define S1_DSP_B S1_EXTERN float s1_dsp_b(float x)
