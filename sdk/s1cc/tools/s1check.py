@@ -32,6 +32,7 @@ DT, RDT = 0xA040, 0xA048     # s1_dt() = f / 96000, s1_rdt() = 1 / dt / 16384 (t
 COLOR = (0xA050, 0xA058)     # s1_color(i): the knob color0= / color1= (s1rt.c), as the host gives it with MOD = MANUAL
 LFO_FILTER, LFO_AMP = 0xA051, 0xA052   # s1_lfo_filter() = 0, s1_lfo_amp() = 1 (no LFO, as the reference)
 HOST_MIX = 0xA053                      # s1_host_mix() = 0 (fused: no SUB / NOISE, as the reference)
+ARM = (0xA054, 0xA055, 0xA056, 0xA057)  # s1_arm(i): 0, or the kernel's s1_ref_arm (S1_REF_INPUTS, s1rt.c `inputs`)
 STATE0, PARAM0, SCRATCH0, TRACE0 = 0x0100, 0x40, 0x0300, 0x0400
 
 
@@ -93,10 +94,12 @@ def run_kernel(outdir, note, n, knobs, proven=True):
         addr['I'] = SCRATCH0 - 2
         if k.fused:                                         # the whole voice on DSP A: its envelopes too
             addr['IN:env0'] = addr['IN:env1'] = GATE
+            addr.update({f'IN:arm{i}': ARM[i] for i in range(4)})   # s1_arm (s1rt.c)
         if st == 'B':
             for j, name in enumerate(k.inputs_b):
                 addr[f'IN:{name}'] = INB0 + j
             addr['IN:env0'] = addr['IN:env1'] = GATE        # the host's envelopes: the gate stands in (s1rt.c s1_env)
+            addr.update({f'IN:arm{i}': ARM[i] for i in range(4)})   # s1_arm (s1rt.c)
         for j, (rid, _, _) in enumerate(k.dsps[st].get('trace', [])):
             addr[f'D:{rid}'] = TRACE0 + j
         words, code = program(k.place(st, addr), proven)
@@ -113,6 +116,11 @@ def run_kernel(outdir, note, n, knobs, proven=True):
             i += p['count']
     b5 = sl.d[0].bank5
     b5[PITCH & 0x3FF] = f32((note - 12) / 12.0)
+    ref_in = ref_inputs(outdir, note)                      # S1_REF_INPUTS: the kernel's s1_pitch / s1_arm
+    if ref_in:
+        b5[PITCH & 0x3FF] = f32(ref_in[0])
+        for i, a in enumerate(ARM):
+            b5[a & 0x3FF] = f32(ref_in[1 + i])
     dt = f32(440.0 * 2.0 ** (f32((note - 12) / 12.0) - 4.75) / 96000.0)
     b5[DT & 0x3FF] = dt
     b5[RDT & 0x3FF] = f32(f32(1.0 / dt) / 16384.0)
@@ -142,6 +150,18 @@ def run_kernel(outdir, note, n, knobs, proven=True):
         return np.array(out[(0, A_OUT)]), (np.array(out[(1, B_OUT)]) if 1 in progs else None), info
     rec = sl.run(n, words)
     return np.array(rec[(0, A_OUT)]), (np.array(rec[(1, B_OUT)]) if 1 in progs else None), info
+
+
+def ref_inputs(outdir, note):
+    """s1_pitch() and s1_arm(0..3) of the native reference for the note (s1rt.c `inputs`; None: an older ref)"""
+    exe = os.path.join(outdir, 'refdsp')
+    exe = exe if os.path.exists(exe) else os.path.join(outdir, 'ref')
+    r = subprocess.run([exe, 'inputs', str(note)], capture_output=True, text=True)
+    try:
+        v = [float(x) for x in r.stdout.split()]
+    except ValueError:
+        return None
+    return v if r.returncode == 0 and len(v) == 5 else None
 
 
 def run_ref(outdir, note, n, knobs):

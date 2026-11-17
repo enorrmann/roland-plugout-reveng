@@ -47,6 +47,16 @@
  *   s1_env(i)             S1_DSP_B only: envelope i of the host, 0..1 (SYSTEM-S1CC builds them in assembly on DSP B
  *                         when a kernel uses them: 0 = AMP ATTACK / DECAY / SUSTAIN / RELEASE, 1 = FILTER A / D / S / R;
  *                         examples/system_s1cc/README.md §3). The native reference and `check` give the gate
+ *   s1_arm(i)             S1_DSP_B only (or a fused kernel): word i (0..3) of the voice that the PLUG-OUT's ARM side
+ *                         writes (SYSTEM-S1CC-BOUTIQUE ARM_CUSTOM: ramp(P_ARM0 + 8 i + v, q), every 1 ms tick; the
+ *                         host copies DSP B parameter C(P_ARM0 + 8 i + v) to the voice each sample, as for s1_env).
+ *                         For per-voice values a kernel's ARM computation makes (e.g. a modulation source). The
+ *                         native reference and `check` give 0
+ *   S1_REF_INPUTS         optional, in the kernel: float s1_ref_pitch(float pitch) and / or
+ *                         float s1_ref_arm(int i, float pitch): what s1_pitch() / s1_arm(i) hold on the device for a
+ *                         note of pitch `pitch` (octaves), when the PLUG-OUT's ARM side writes them with another
+ *                         meaning (sdk/s1cc/examples/jx3p_ported: DCO2's step, a BLEP width). The native reference,
+ *                         the profile (s1cc's ranges come from it) and `check` use them; the DSP code never calls them
  *   s1_color(i)           S1_DSP_A only: OSC1 (i = 0) / OSC2 (1) COLOR, 0..1, with its COLOR MOD source: MANUAL = the
  *                         knob; LFO, PITCH ENV, FILTER ENV, AMP ENV, SUB OSC = knob x source (0..1). SYSTEM-S1CC makes
  *                         the sources in assembly when a kernel uses s1_color (examples/system_s1cc/README.md §3.2).
@@ -146,6 +156,7 @@ S1_EXTERN S1_FN float s1_mac2(float a, float b, float c, float d, float e);
 S1_EXTERN S1_FN float s1_sqrt(float x);
 S1_EXTERN S1_FN float s1_rsqrt(float x);
 S1_EXTERN S1_IN float s1_env(int i);
+S1_EXTERN S1_IN float s1_arm(int i);
 S1_EXTERN S1_IN float s1_color(int i);
 S1_EXTERN S1_IN float s1_lfo_filter(void);
 S1_EXTERN S1_IN float s1_lfo_amp(void);

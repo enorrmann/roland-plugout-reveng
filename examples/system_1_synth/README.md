@@ -475,7 +475,13 @@ Ids capturados con PARAMLOG (2026-10-23; `python3 examples/system_1/paramlog.py 
 | `0x187`–`0x18A` | ADSR del VCA | 0–255 | paso 4 |
 | `0x180` | HPF cutoff | 0…255, CC 79; solo con su luz encendida (2026-10-23, luz apagada: no llegó nada; 2026-11-11, JP-08-S1A con la luz encendida: llega) | — |
 | `0x18D` / `0x18E` / `0x18F` | REVERB amount (CC 91) / DELAY amount (CC 94) / DELAY time (CC 13), 2026-10-23 | 0–255 | — ([Vol. I ch. 3](../../docs/vol1_system_architecture/bus_interconnect.md) §16) |
-| `0x18B` | sin identificar: 128–145, con CC 69 (64–72) detrás; llegó dos veces durante la captura del LFO, entre otros controles [abierto] | — |
+| `0x18B` | AMP TONE (CC 69, valor = 2 × CC: 0…255, 128 = centro) [medido 2026-11-17 con C-S1LOG, ver abajo] | — |
+
+**AMP TONE `0x18B` [medido 2026-11-17, C-S1LOG, `paramlog.py -t 10 --raw`, logs en `work/jx3p/paramlog_amptone_*.txt`].**
+Quieto al mínimo, 10 s: ningún mensaje. Quieto en el centro, 10 s: ningún mensaje. Barrido de mínimo a máximo en
+10 s: 259 llamadas, 1…255, cada una con su CC 69 (= valor / 2); monótono salvo entre ~90 y ~140, donde el valor va y
+vuelve hasta 10–15 pasos varias veces mientras se gira (el paso por el centro). La perilla no deriva sola. Las
+capturas largas de antes (JX-3P-S1, 90 y 120 s) con `0x18B` llegando todo el tiempo eran movimiento real, no deriva.
 
 Los ids del LFO se capturaron con C-S1SYRL (`RESCOMP=1 PARAMLOG=1`, 2026-10-23). Orden de la captura: rate, → filtro,
 → amplitud, fade time, → pitch, shape. Cada control se recorrió de 0 a 255 (shape de 0 a 5). Log:

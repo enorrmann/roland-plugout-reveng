@@ -50,7 +50,8 @@ RATE_WORDS = {0x0A: lambda c: c * R, 0x0B: lfo_delay, 0x3C: one_pole, 0x40: one_
 # SYSTEM-1 control -> (table name, the model's patch parameter id); README.md §4
 PANEL = {   # (table, patch parameter id, SYSTEM-1 control, how the knob reads the table, the words used or None)
     #   the JP-08's controls are unipolar 0..255: every one reads row = knob (README.md §13.4, user 2026-11-12: a
-    #   SYSTEM-1 knob that is bipolar on the panel behaves as the PLUG-OUT's control, here the JP-08's)
+    #   SYSTEM-1 knob that is bipolar on the panel behaves as the PLUG-OUT's control, here the JP-08's); except FILTER
+    #   ENV AMOUNT: 'bi', its sign is ENV1 POLARITY (README.md §13.7; user 2026-11-12: one bit less of FLT ENV MOD)
     #   uni: row = knob; bi: 128 = 0, row = 2 |knob - 128| (255 at the ends), the words negated below 128;
     #   rev: row = 255 - knob (the balance's OSC1 side); sq: row = knob^2 / 255 (finer at the low end)
     'jp08': [('lfo_rate', 0x18E, 'S1_LFO_RATE', 'uni', None), ('lfo_delay', 0x18F, 'S1_LFO_FADE', 'uni', None),
@@ -62,7 +63,7 @@ PANEL = {   # (table, patch parameter id, SYSTEM-1 control, how the knob reads t
              ('mix1', 0x1A2, 'S1_OSC1_MIX', 'rev', [0x5A]), ('mix2', 0x1A2, 'S1_OSC2_MIX', 'uni', [0x5B]),
              ('cutoff', 0x1A9, 'S1_FILTER_CUTOFF', 'uni', None),
              ('reso', 0x1AA, 'S1_FILTER_RESONANCE', 'uni', None),
-             ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'uni', None),
+             ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'bi', None),
              ('keyfollow', 0x1AF, 'S1_FILTER_KEY_TRACK', 'uni', None),
              ('env1_a', 0x1BC, 'S1_FILTER_ATTACK', 'uni', None), ('env1_d', 0x1BD, 'S1_FILTER_DECAY', 'uni', None),
              ('env1_s', 0x1BE, 'S1_FILTER_SUSTAIN', 'uni', None), ('env1_r', 0x1BF, 'S1_FILTER_RELEASE', 'uni', None),
@@ -80,14 +81,17 @@ HOST_PANEL = {
              ('mix1', 0x1A2, 'S1_OSC1_MIX', 'rev', [0x5A]), ('mix2', 0x1A2, 'S1_OSC2_MIX', 'uni', [0x5B]),
              ('cutoff', 0x1A9, 'S1_FILTER_CUTOFF', 'uni', None),
              ('reso', 0x1AA, 'S1_FILTER_RESONANCE', 'uni', None),
-             ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'uni', None),
+             ('envmod', 0x1AC, 'S1_FILTER_ENV_AMOUNT', 'bi', None),
              ('keyfollow', 0x1AF, 'S1_FILTER_KEY_TRACK', 'uni', None),
-             ('hpf', 0x1A8, 'S1_HPF_CUTOFF', 'uni', None)],     # C05E; S1 HPF knob = 0x180 (light on)
+             ('hpf', 0x1A8, 'S1_HPF_CUTOFF', 'uni', None),      # C05E; S1 HPF knob = 0x180 (light on)
+             ('slope', 0x1AB, 'S1_LPF_TYPE_WORD', 'uni', None)],   # C061 FLT LPF SLOPE: the LPF TYPE button's
+                                                                    # word 0x17E, 0 / 1 (README.md §13.7)
 }
 # tables of the JP-08 parameters without a SYSTEM-1 control (README.md §13.5: PLUGOUT_EXTEND words, set by CC for the
 # tests): written into bq_MODEL_tables.h for tools/make_arm.py, in no S1_PARAM panel block (the ARM applies them)
 EXTRA = {
-    'jp08': [('amp_level', 0x1B5, None, 'uni', None), ('amp_lfo', 0x1B6, None, 'uni', None)],
+    'jp08': [('amp_level', 0x1B5, None, 'uni', None), ('amp_lfo', 0x1B6, None, 'uni', None),
+             ('porta', 0x243, None, 'uni', None)],          # PORTA TIME -> C03A (44.1 kHz: not a RATE_WORD)
 }
 HOST_WORDS = {0x4A: 0.0, 0x4B: 0.0, 0x64: 1.0, 0x53: 1.2, 0x54: 1.2, 0x6B: 0.0}
 

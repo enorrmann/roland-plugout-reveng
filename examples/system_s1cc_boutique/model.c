@@ -124,7 +124,7 @@ static void release_all(struct assign *a)
         gate_off(a, v);
 }
 
-#if MONO_LEGATO
+#if MONO_LEGATO || defined(ARM_CUSTOM_ASSIGN)
 /* the highest key still down, or -1 */
 static int top_key(const struct assign *a)
 {
@@ -132,26 +132,50 @@ static int top_key(const struct assign *a)
         if (a->keys[(n >> 5) & 3] >> (n & 31) & 1) return n;
     return -1;
 }
+
+/* voices 0..n-1 as one (MONO_LEGATO / SOLO: n = 1; UNISON: n = NV): last note priority; a key while another is down
+   keeps the gate (legato: the TB-03's slide); the release of the sounding key goes back to the highest key still
+   down, legato */
+static void mono_key(struct assign *a, int note, int vel, int n)
+{
+    if (!vel) {
+        if (a->v[0].vel && a->v[0].note == note) {
+            int k = top_key(a);
+            for (int v = 0; v < n; v++) {
+                if (k >= 0) play(a, v, k, a->v[v].vel);
+                else if (a->hold) a->v[v].held = 1;
+                else gate_off(a, v);
+            }
+        }
+        return;
+    }
+    for (int v = 0; v < n; v++) {
+        if (a->v[v].held) gate_off(a, v);           /* a key after a held release starts a new gate */
+        play(a, v, note, vel);
+    }
+}
+#endif
+
+#ifdef ARM_CUSTOM_ASSIGN
+/* the kernel's ASSIGN MODE (boutique_ported README.md §13.7: the JP-08's, on the MONO button, word 0x192, OS range
+   0..3): 0 POLY1, 1 POLY2 (the same as POLY1 for now: the difference is not read yet), 2 SOLO, 3 UNISON */
+enum { CC_MONO = 119, ID_MONO = 0x192 };
+static int assign_mode;
+static struct assign assigner;                               /* defined with its vtable below */
 #endif
 
 /* same note again > oldest free voice > oldest voice released under hold > oldest voice */
 static void key(struct assign *a, int note, int vel)
 {
 #if MONO_LEGATO
-    /* one voice, last note priority; a key while another is down keeps the gate (legato: the TB-03's slide); the
-       release of the sounding key goes back to the highest key still down, legato */
-    if (!vel) {
-        if (a->v[0].vel && a->v[0].note == note) {
-            int k = top_key(a);
-            if (k >= 0) play(a, 0, k, a->v[0].vel);
-            else if (a->hold) a->v[0].held = 1;
-            else gate_off(a, 0);
-        }
+    mono_key(a, note, vel, 1);                       /* one voice (the TB-03's slide) */
+    return;
+#endif
+#ifdef ARM_CUSTOM_ASSIGN
+    if (assign_mode >= 2) {                          /* SOLO: one voice; UNISON: every voice on the note */
+        mono_key(a, note, vel, assign_mode == 3 ? NV : 1);
         return;
     }
-    if (a->v[0].held) gate_off(a, 0);                /* a key after a held release starts a new gate */
-    play(a, 0, note, vel);
-    return;
 #endif
     if (!vel) {
         for (int v = 0; v < NV; v++)
@@ -1340,6 +1364,27 @@ static const struct { uint8_t cc; uint16_t id; uint8_t steps; } cc_panel[] = {
     { 55, 0x16D, 0 },   /* OSC2 COLOR */
     { 60, 0x169, 6 },   /* OSC1 COLOR MOD: selector 0..5 (CC 0, 25, 51, 76, 102, 127) */
     { 63, 0x16E, 6 },   /* OSC2 COLOR MOD */
+    /* 2026-11-17 (JX-3P-S1 tests): CCs that reach a_cc (measured 2026-11-12 with PARAMLOG: 20, 21, 25, 31, 85..90,
+       103..110; 103..106 are the JP-08's EXTEND CCs, checked before this table) for controls with no CC of the OS */
+    { 20, 0x174, 0 },   /* OSC1 MIX */
+    { 21, 0x175, 0 },   /* OSC2 MIX */
+    { 25, 0x16A, 6 },   /* OSC1 RANGE: selector 0..5 */
+    { 31, 0x16F, 6 },   /* OSC2 RANGE: selector 0..5 */
+    { 85, 0x167, 6 },   /* OSC1 WAVE: selector 0..5 */
+    { 86, 0x16C, 6 },   /* OSC2 WAVE: selector 0..5 */
+    { 87, 0x170, 0 },   /* OSC2 FINE */
+    { 88, 0x187, 0 },   /* AMP ATTACK */
+    { 89, 0x188, 0 },   /* AMP DECAY */
+    { 90, 0x189, 0 },   /* AMP SUSTAIN */
+    { 107, 0x18A, 0 },  /* AMP RELEASE */
+    { 108, 0x17A, 0 },  /* PITCH ENV AMOUNT (the OS's CC 22 did not reach it, 2026-11-17) */
+    { 109, 0x182, 0 },  /* FILTER ATTACK */
+    { 110, 0x184, 0 },  /* FILTER SUSTAIN */
+    /* 103, 104, 106: free in kernels without EXTEND CCs (the JP-08's arm_custom_cc, checked first, keeps them). Not
+       105: the panel sends CC 105 = 0 itself with OSC1 WAVE moves (PARAMLOG 2026-11-17) */
+    { 103, 0x163, 0 },  /* LFO TO PITCH (the OS's CC 26 did not reach it, 2026-11-17) */
+    { 104, 0x164, 0 },  /* LFO TO FILTER (CC 28 likewise) */
+    { 106, 0x162, 0 },  /* LFO RATE */
 };
 
 /* LFO KEY TRIG (panel button, measured 2026-11-11 with PARAMLOG: each press = CC 117 value 42, the button's state is
@@ -1349,6 +1394,44 @@ static const struct { uint8_t cc; uint16_t id; uint8_t steps; } cc_panel[] = {
    (README.md §1.6) */
 enum { CC_LFO_KT = 117, ID_LFO_KT = 0x166 };
 static int lfo_kt = 1;
+
+#ifdef ARM_CUSTOM_XMOD
+/* OSC2 SYNC / OSC2 RING (panel buttons, CC 112 / 111, their LED words 0x172 / 0x171, README.md §1.6) as one three-way
+   selector (the JX-3P's DCO2 CROSS MOD: off, SYNC, METAL; sdk/s1cc/examples/jx3p_ported README.md §4.3): a press
+   selects its mode, or turns it off when it is the one on; the words reach the engine like knobs */
+enum { CC_SYNC = 112, CC_RING = 111, ID_SYNC = 0x172, ID_RING = 0x171 };
+static int xmod;                                       /* 0 off, 1 SYNC, 2 RING (METAL) */
+static void send_xmod(void)
+{
+    p_set(G_PANEL, ID_SYNC, xmod == 1);
+    p_set(G_PANEL, ID_RING, xmod == 2);
+    p_flush(G_PANEL);
+}
+#endif
+#ifdef ARM_CUSTOM_LPF_TYPE
+/* LPF TYPE (panel button, CC 115, its LED word 0x17E = S1_LPF_TYPE_WORD, README.md §1.6): as LFO KEY TRIG, the model
+   keeps the state and toggles it per press; the word reaches the engine like a knob and is the patch's FLT_TYPE.
+   The kernel reads it as a table (boutique_ported: the JP-08's FLT LPF SLOPE, README.md §13.7) */
+enum { CC_LPF_TYPE = 115, ID_LPF_TYPE = 0x17E };
+static int lpf_type = 1;
+static void send_lpf_type(void)
+{
+    p_set(G_PANEL, ID_LPF_TYPE, lpf_type);
+    p_flush(G_PANEL);
+}
+#endif
+#ifdef ARM_CUSTOM_LEGATO
+/* LEGATO (panel button, CC 116, README.md §1.6; its LED word is not known): the model keeps the state in the patch
+   word LEGATO 0x191 and toggles it per press; the engine gets the word like a knob (boutique_ported: the JP-08's
+   PORTA SW, README.md §13.7) */
+enum { CC_LEGATO = 116, ID_LEGATO = 0x191 };
+static int legato_sw;
+static void send_legato(void)
+{
+    p_set(G_PANEL, ID_LEGATO, legato_sw);
+    p_flush(G_PANEL);
+}
+#endif
 
 static void send_lfo_kt(void)
 {
@@ -1390,6 +1473,41 @@ static int cc_to_panel(int cc, int v)
 #endif
         return 1;
     }
+#ifdef ARM_CUSTOM_ASSIGN
+    if (cc == CC_MONO) {                                      /* the MONO button: the next ASSIGN MODE */
+        (void)v;
+        assign_mode = (assign_mode + 1) & 3;
+        p_set(G_PANEL, ID_MONO, assign_mode);
+        p_flush(G_PANEL);
+        all_notes_off(&assigner);                             /* no voice left in the old mode */
+        return 1;
+    }
+#endif
+#ifdef ARM_CUSTOM_LEGATO
+    if (cc == CC_LEGATO) {
+        (void)v;
+        legato_sw ^= 1;
+        send_legato();
+        return 1;
+    }
+#endif
+#ifdef ARM_CUSTOM_XMOD
+    if (cc == CC_SYNC || cc == CC_RING) {
+        int m = cc == CC_SYNC ? 1 : 2;
+        (void)v;
+        xmod = xmod == m ? 0 : m;
+        send_xmod();
+        return 1;
+    }
+#endif
+#ifdef ARM_CUSTOM_LPF_TYPE
+    if (cc == CC_LPF_TYPE) {
+        (void)v;
+        lpf_type ^= 1;
+        send_lpf_type();
+        return 1;
+    }
+#endif
 #ifdef ARM_CUSTOM_CC_TABLE
     /* the kernel's parameters without a SYSTEM-1 control (ARM_CUSTOM header, boutique_ported README.md §13.5): CC ->
        the patch word PLUGOUT_EXTENDnn, as (value - default) & 0xFF; the OS hands it to the engine like a knob [TEST:
@@ -1625,6 +1743,35 @@ static void resend_panel(void)
     p_flush(G_PANEL);
 }
 
+/* the states this model keeps (their buttons' LEDs are patch words): read back from the patch */
+static void patch_states(void)
+{
+    int kt = p_get(G_PANEL, ID_LFO_KT);                       /* the state the button had (its LED) */
+    if (kt == 0 || kt == 1)
+        lfo_kt = kt;
+    send_lfo_kt();
+#ifdef ARM_CUSTOM_XMOD
+    xmod = p_get(G_PANEL, ID_SYNC) == 1 ? 1 : p_get(G_PANEL, ID_RING) == 1 ? 2 : 0;   /* the patch's (its LEDs) */
+    send_xmod();
+#endif
+#ifdef ARM_CUSTOM_LPF_TYPE
+    int lt = p_get(G_PANEL, ID_LPF_TYPE);                     /* the patch's LPF TYPE (its LED) */
+    if (lt == 0 || lt == 1)
+        lpf_type = lt;
+    send_lpf_type();
+#endif
+#ifdef ARM_CUSTOM_ASSIGN
+    int am = p_get(G_PANEL, ID_MONO);                         /* the patch's ASSIGN MODE */
+    assign_mode = am >= 0 && am <= 3 ? am : 0;
+#endif
+#ifdef ARM_CUSTOM_LEGATO
+    int lg = p_get(G_PANEL, ID_LEGATO);                      /* the patch's LEGATO (PORTA SW) */
+    if (lg == 0 || lg == 1)
+        legato_sw = lg;
+    send_legato();
+#endif
+}
+
 static void m_load(struct model *m)                           /* vt+0x08 */
 {
     (void)m;
@@ -1662,17 +1809,71 @@ static void m_load(struct model *m)                           /* vt+0x08 */
         volume = v;
     set_volume(volume);
     vol_again = VOL_AGAIN;
-    int kt = p_get(G_PANEL, ID_LFO_KT);                       /* the state the button had (its LED) */
-    if (kt == 0 || kt == 1)
-        lfo_kt = kt;
-    send_lfo_kt();
+    patch_states();
     resend_panel();
+}
+
+/* vt+0x2C / vt+0x24 as Roland's SH-101 model (region 0 vtable 0x6082dfa4: refresh 0x60809dbc reads back with get
+   every id its param handles; all != 0: param(id, 1, value), all == 0: vt+0x2C(id, value), the value kept only). The
+   master OS calls them (OS 1.30 0x6001f30a refresh(1), 0x6001f41e refresh(0) + vt+0x28(0)); this model had nops
+   there, so a patch change left the states below as the previous patch's (known since 2026-11-17, README §7).
+   Ours: VOLUME (group 2) and the states this model keeps for its buttons (group 3) */
+static void m_param(struct model *m, int id, int flag, int value);
+static void m_store(struct model *m, int id, int value)       /* vt+0x2C: kept only */
+{
+    (void)m;
+    if (id == ID_VOLUME && value >= 0 && value <= 255)
+        volume = value;
+    if (id == ID_LFO_KT && (value == 0 || value == 1))
+        lfo_kt = value;
+#ifdef ARM_CUSTOM_XMOD
+    if (id == ID_SYNC)
+        xmod = value == 1 ? 1 : xmod == 1 ? 0 : xmod;
+    if (id == ID_RING)
+        xmod = value == 1 ? 2 : xmod == 2 ? 0 : xmod;
+#endif
+#ifdef ARM_CUSTOM_LPF_TYPE
+    if (id == ID_LPF_TYPE && (value == 0 || value == 1))
+        lpf_type = value;
+#endif
+#ifdef ARM_CUSTOM_ASSIGN
+    if (id == ID_MONO)
+        assign_mode = value >= 0 && value <= 3 ? value : 0;
+#endif
+#ifdef ARM_CUSTOM_LEGATO
+    if (id == ID_LEGATO && (value == 0 || value == 1))
+        legato_sw = value;
+#endif
+}
+
+static void m_refresh(struct model *m, int all)               /* vt+0x24 */
+{
+    static const uint16_t ids[] = { ID_LFO_KT,
+#ifdef ARM_CUSTOM_XMOD
+                                    ID_SYNC, ID_RING,
+#endif
+#ifdef ARM_CUSTOM_LPF_TYPE
+                                    ID_LPF_TYPE,
+#endif
+#ifdef ARM_CUSTOM_LEGATO
+                                    ID_LEGATO,
+#endif
+#ifdef ARM_CUSTOM_ASSIGN
+                                    ID_MONO,
+#endif
+                                  };
+    int v = p_get(G_VOICE, ID_VOLUME);
+    m_store(m, ID_VOLUME, v);
+    if (all)
+        m_param(m, ID_VOLUME, 1, v);                          /* applied: set_volume */
+    for (unsigned i = 0; i < sizeof ids / sizeof ids[0]; i++)
+        m_store(m, ids[i], p_get(G_PANEL, ids[i]));
 }
 
 static const void *const model_vt[13] = {
     (const void *)m_nop, (const void *)m_nop, (const void *)m_load, (const void *)m_nop, (const void *)m_nop,
-    (const void *)m_nop, (const void *)m_nop, (const void *)m_nop, (const void *)m_nop, (const void *)m_nop,
-    (const void *)m_nop, (const void *)m_nop, (const void *)m_param,
+    (const void *)m_nop, (const void *)m_nop, (const void *)m_nop, (const void *)m_nop, (const void *)m_refresh,
+    (const void *)m_nop, (const void *)m_store, (const void *)m_param,
 };
 
 static struct model model = { model_vt };

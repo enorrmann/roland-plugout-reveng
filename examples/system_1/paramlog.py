@@ -74,12 +74,21 @@ def main():
         if not ps:
             sys.exit(f'no {a.device} MIDI port (amidi -l)')
         tmp = tempfile.mkdtemp(prefix='paramlog')
+        # the udev rule's aconnect to Midi Through holds the input (docs/vol5_toolchain_compiler_sdk/
+        # linux_usb_midi_host.md): amidi would get EBUSY and log nothing; dropped here, restored after (as midi_io.py)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'tools'))
+        import midi_io
+        dropped = [d for p in ps[:1] for d in midi_io._drop_seq_subscriptions(p)]
         procs = [subprocess.Popen(['timeout', str(a.time), 'amidi', '-p', p, '-d'],
                                   stdout=open(os.path.join(tmp, f'{i}.txt'), 'w'), stderr=subprocess.DEVNULL)
                  for i, p in enumerate(ps)]
         print(f'listening {a.time} s on {", ".join(ps)}: move the controls now', flush=True)
-        for p in procs:
-            p.wait()
+        try:
+            for p in procs:
+                p.wait()
+        finally:
+            for src, dst in dropped:
+                subprocess.run(['aconnect', src, dst], capture_output=True)
         lines = [l for i in range(len(ps)) for l in open(os.path.join(tmp, f'{i}.txt'))]
         print(f'logs kept in {tmp}')
     ev = decode(lines)

@@ -28,4 +28,5 @@ for a in 0 1 2 3 4 5; do for b in 0 1 2 3 4 5; do
     K="$K $a,$b:sdk/s1cc/build/bq_jp08w$a$((b % 3))"
 done; done
 # MOD_DSP=B: every pair puts the pitch envelope and COLOR MOD on DSP B (auto chose per kernel: other host addresses)
-MOD_DSP=B PANEL=sdk/s1cc/examples/boutique_ported/bq_arm.panel KV_WORDS=${KV_WORDS:-} SECT_SWITCH=1 KERNELS="$K" NAME=$NAME sh examples/system_s1cc_boutique/build_multi.sh
+# ARM_WORDS=1: s1_arm(0) (the PWM source, README.md §13.7) in every pair's host, also the sine pairs' that do not read it
+ARM_WORDS=1 MOD_DSP=B PANEL=sdk/s1cc/examples/boutique_ported/bq_arm.panel KV_WORDS=${KV_WORDS:-} SECT_SWITCH=1 KERNELS="$K" NAME=$NAME sh examples/system_s1cc_boutique/build_multi.sh

@@ -2147,8 +2147,9 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
     L.chooseStateReps();
     if (P.B.fn)
         for (auto &np : P.B.nodes)
-            if (np->live && (np->kind == NK::Input || np->kind == NK::Increment) && np->name.rfind("env", 0) != 0)
-                L.inputsB.insert(np->kind == NK::Increment ? "pitch" : np->name);   // s1_env: made on DSP B
+            if (np->live && (np->kind == NK::Input || np->kind == NK::Increment) && np->name.rfind("env", 0) != 0
+                && np->name.rfind("arm", 0) != 0)
+                L.inputsB.insert(np->kind == NK::Increment ? "pitch" : np->name);   // s1_env, s1_arm: made on DSP B
     std::string a = L.run(P.A, report);
     std::string b = P.B.fn ? L.run(P.B, report) : "";
     std::string m = P.MB.fn ? L.run(P.MB, report) : "";

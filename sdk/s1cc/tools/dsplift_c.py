@@ -562,6 +562,7 @@ class Run:
                     w = x if w is None else G.bin('*', w, x)
             return w
         newp = {}
+        ures, xflags = {}, []
         nam = nb = 0
         for i, (uk, o) in enumerate(units):
             if uk == 'ctl':
@@ -624,11 +625,15 @@ class Run:
                 if grp in self.used_g:
                     v, z = res if res else (n[dest], n[dest])
                     newp[grp] = (v, z, w)
+                ures[o['unit']] = (res if res else (n[dest], n[dest])) + (w,)
                 if w is not None:
                     for rr in wrote:
                         n[rr] = G.sel(w, n[rr], old[rr])
             elif kind == self.KF:
-                raise SystemExit('%s %d: X9bY not in --kernel' % (self.name, k))
+                # X9bY (SETFLAGS group a <- unit b's result): as dsplift_rt.h SETFLAGS, only when that unit ran in
+                # this instruction (a unit a condition skips leaves the pending bits as the unit's weight says)
+                if o['a'] and o['b'] < 64:
+                    xflags.append((o['a'], o['b']))
             elif kind == self.KX:
                 a = o['b']
                 if o['a'] < 8:
@@ -659,6 +664,9 @@ class Run:
                             self.kouts.append((len(G.nodes), a, nv, G.part))
                     else:
                         self.kouts.append((len(G.nodes), a, nv, G.part))
+        for g, u in xflags:
+            if g in self.used_g and u in ures:
+                newp[g] = ures[u]
         one = G.num(1.0)
         for g in self.used_g:                          # the pending bits of the instruction before -> condition bits
             pm = S['pm%d' % g]

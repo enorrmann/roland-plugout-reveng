@@ -193,6 +193,17 @@ centro de una perilla bipolar). Para medir en el equipo: `python3 tools/s1_captu
 | 50 / 55 | OSC1 / OSC2 COLOR (`0x168` / `0x16D`) |
 | 60 / 63 | OSC1 / OSC2 COLOR MOD (`0x169` / `0x16E`), selector: CC 0…127 → 0…5 (MANUAL 0, LFO 25, PITCH ENV 51, FILTER ENV 76, AMP ENV 102, SUB 127) |
 
+SYSTEM-S1CC-BOUTIQUE (`examples/system_s1cc_boutique/model.c`, 2026-11-17, medido en el equipo con JX-3P-S1) agrega
+CC de prueba en los números que llegan a `a_cc` (medido 2026-11-12: 20, 21, 25, 31, 85…90, 103…110): 20 / 21 OSC1 /
+OSC2 MIX, 25 / 31 OSC1 / OSC2 RANGE (6 pasos), 85 / 86 OSC1 / OSC2 WAVE (6 pasos), 87 OSC2 FINE, 88 / 89 / 90 / 107
+AMP A / D / S / R, 108 PITCH ENV AMOUNT, 109 / 110 FILTER ATTACK / SUSTAIN, 103 LFO TO PITCH, 104 LFO TO FILTER,
+106 LFO RATE (103, 104, 106 solo en kernels sin CC EXTEND propios: los del JP-08 tienen prioridad). **No el 105: el
+panel manda CC 105 = 0 cuando se mueve OSC1 WAVE** [PARAMLOG 2026-11-17].
+**Los CC que el panel del SYSTEM-1 emite para sus perillas (22 PITCH ENV AMOUNT, 26 LFO → PITCH, 28 LFO → FILTER)
+no mueven esas palabras en nuestro PLUG-OUT cuando llegan por MIDI** [medido 2026-11-17: CC 26 = 127, 28 = 127,
+22 = 0 / 127 sin efecto; los mismos controles por CC 103 / 104 / 105 sí]. La tabla de `examples/system_1_synth`
+§8 da los CC que el panel envía, no CC que el PLUG-OUT reciba.
+
 ### 1.6 Botones del panel y LFO KEY TRIG [medido 2026-11-11]
 
 Con PARAMLOG (`model.c` registra también `a_cc`, id `0x1000 + CC`, flag 9): **cada pulsación de un botón llega al

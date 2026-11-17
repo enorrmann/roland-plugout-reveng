@@ -1,32 +1,42 @@
-kernel options (S1_BUILD): NAME=JP-08-S1A MIX=0 LFO_PITCH=0 ARM_CUSTOM=sdk/s1cc/examples/boutique_ported/bq_jp08_arm.h PANEL=sdk/s1cc/examples/boutique_ported/bq_arm.panel (environment: sdk/s1cc/examples/boutique_ported/bq_arm.panel)
-VOICES=auto: 4 voices by the estimate (budget A 703, B 708)
-MOD_DSP=auto: pitch envelope and COLOR MOD on DSP A
-fused kernel: voices 0..1 on DSP A, 2..3 on DSP B
-s1m0    686 instructions, 3003 halfwords
-s1m1    630 instructions, 2738 halfwords
+kernel options (S1_BUILD): NAME=JX-3P-S1 MIX=0 LFO_PITCH=0 ARM_CUSTOM=sdk/s1cc/examples/jx3p_ported/jx3p_arm.h PANEL=sdk/s1cc/examples/jx3p_ported/jx3p.panel (environment: sdk/s1cc/examples/jx3p_ported/jx3p.panel)
+VOICES=auto: 8 voices by the estimate (budget A 703, B 708)
+fused kernel: voices 0..3 on DSP A, 4..7 on DSP B
+s1m0    520 instructions, 2343 halfwords
+s1m1    567 instructions, 2673 halfwords
 s1mm1     7 instructions, 44 halfwords
 s1c0      2 instructions, 7 halfwords
 s1c1      2 instructions, 7 halfwords
 s1ma0     0 instructions, 7 halfwords
-kv_words 51 (block 51)
-kernel per voice: A 507 lines, 6 words; no DSP B
-A -> B x: one sample late (voices 0,1); - (voices 2,3)
-warning: s1m0: a048..a04b never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m0: a1a2..a1a3 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m0: a1aa..a1ab never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m0: a1b8..a1b9 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m0: a1c2..a1c3 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m0: a1ca..a1cb never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m0: a1d2..a1d3 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: 0627 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: 0630 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: 063a never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+kv_words 27 (block 27)
+kernel per voice: A 228 lines, 1 words; no DSP B
+A -> B x: one sample late (voices 0,1,2,3); - (voices 4,5,6,7)
+warning: s1m0: a048..a04f never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1a0..a1a3 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1ac..a1af never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1b8..a1bb never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1c4..a1c7 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1cc..a1cf never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m0: a1d4..a1d7 never ran on the device (sA, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 060e..060f never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 062a..062b never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 0636 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 0638 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 0647 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
 warning: s1m1: 0654 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: 065a..065b never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: a1a2..a1a3 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: a1aa..a1ab never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: a1b8..a1b9 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: a1c2..a1c3 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: a1ca..a1cb never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-warning: s1m1: a1d2..a1d3 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
-panel: sdk/s1cc/examples/boutique_ported/bq_arm.panel: 32 of 39 on
+warning: s1m1: 065a never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 0660 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 0663 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 067c never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 069b never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 06a8 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 06b7 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 06d0 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 06d2..06d3 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: 06e1 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1a0..a1a3 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1ac..a1af never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1b8..a1bb never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1c4..a1c7 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1cc..a1cf never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+warning: s1m1: a1d4..a1d7 never ran on the device (sB, asm/proven_addresses.txt): a proven range, or say it is new before installing
+panel: sdk/s1cc/examples/jx3p_ported/jx3p.panel: 26 of 39 on

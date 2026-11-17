@@ -66,7 +66,7 @@
 #define S1_AMP_SUSTAIN        0x189
 #define S1_AMP_RELEASE        0x18A
 
-#define S1_AMP_TONE           0x18B   /* (examples/system_1_synth/README.md §8: CC 69) */
+#define S1_AMP_TONE           0x18B   /* AMP TONE knob, CC 69, bipolar 128 = centre (examples/system_1_synth/README.md §8, measured 2026-11-17) */
 
 /* effects */
 #define S1_REVERB_AMOUNT      0x18D

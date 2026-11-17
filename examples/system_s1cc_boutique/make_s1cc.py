@@ -57,8 +57,8 @@ if not KERNEL or not os.path.exists(os.path.join(KERNEL, 'voice.s1k')):
 KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # the options a kernel may set with S1_BUILD("KEY=VALUE ...") (its .option lines): the defaults of these variables;
 # an environment variable wins (examples/system_s1cc_boutique/README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
-OPTIONS = ('NAME', 'MODEL_ID', 'PARAMLOG', 'ARM_CUSTOM', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
-           'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
+OPTIONS = ('NAME', 'MODEL_ID', 'SECT_N', 'PARAMLOG', 'ARM_CUSTOM', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
+           'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_WORDS', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
            'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV', 'MONO_LEGATO', 'GATE_ACCENT', 'PANEL', 'VOICE_SECT_TEST', 'KV_WORDS')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
@@ -97,6 +97,10 @@ MAIN_BYTES = int(opt('MAIN_BYTES', '6144'))  # 0x0100..0x18FF: 5854 bytes ran, 6
 # VOICE_SECT_TEST=1: every voice in a section, the mains hold only the head (the host): build_multi.sh SECT_SWITCH
 # re-places only the sections when a WAVE knob moves (the stock synth's way, README.md §12). TEST until heard
 VOICE_SECT = opt('VOICE_SECT_TEST', '0') == '1'
+# SECT_N=n (with VOICE_SECT_TEST, 2026-11-17): the voices in equal parts over the first n sections of each DSP, so
+# that kernels of different sizes have the same sections (build_multi.sh SECT_SWITCH needs it: the JX-3P's dearest
+# wave pair filled s1b2 and spilled into s1b3, the others did not)
+SECT_N = int(opt('SECT_N', '0'))
 OUTDIR = os.environ.get('OUTDIR', os.path.join(HERE, 'build'))   # everything generated (tests: a temporary folder)
 KTAB = s1kernel.read_tables(os.path.join(KERNEL, 'tables.txt'))
 HAS_B = 'B' in KDEF.dsps
@@ -107,6 +111,13 @@ FUSED = KDEF.fused
 K_DSP = 'A' if FUSED else 'B'                  # the kernel code that reads s1_env / s1_lfo_*
 # the host's envelopes (s1_env(0) / s1_env(1) in S1_DSP_B): two ADSRs in assembly per voice on DSP B, C-S1SY's
 HOST_ENV_KERNEL = [i for i in (0, 1) if K_DSP in KDEF.dsps and f'IN:env{i}' in KDEF.placeholders(K_DSP)]
+# s1_arm(i) (i = 0..3): words the PLUG-OUT's ARM side writes per voice (ARM_CUSTOM: ramp(P_ARM0 + 8 i + v)); the host
+# copies DSP B parameter C(P_ARM0 + 8 i + v) into a bank-0 word of the voice on DSP B each sample, as the ARM's
+# envelopes (host_env, ARM_ENV); FUSED: the voices on DSP A read it through bank 5 as s1_env's
+# ARM_WORDS=n: words 0..n-1 also when the kernel does not read them (build_multi.sh SECT_SWITCH: every kernel's main
+# program must be the same, and a word changes the voices' bank-0 layout; the JP-08's sine pairs have no pulse width)
+ARM_USED = sorted({i for i in range(4) if K_DSP in KDEF.dsps and f'IN:arm{i}' in KDEF.placeholders(K_DSP)}
+                  | set(range(int(os.environ.get('ARM_WORDS', KDEF.options.get('ARM_WORDS', '0'))))))
 # s1_color(i) in S1_DSP_A: OSC1 / OSC2 COLOR with its COLOR MOD source, made on DSP A (hlfo_voice):
 # MANUAL = the knob, else knob x source (0..1): an LFO, a pitch envelope (AD) and a sub oscillator per voice on
 # DSP A, the AMP and FILTER envelopes (the host's ADSRs on DSP B, then both are built) copied to bank 5 by DSP B
@@ -119,7 +130,8 @@ CMOD = bool(COLOR_USED)
 LFO_PITCH = opt('LFO_PITCH', '1') == '1'
 PITCH_MOD = [n for n in ('pitch', 'dt', 'rdt') if LFO_PITCH and f'IN:{n}' in A_READS]
 LFO_F, LFO_A = 'IN:lfo_filter' in A_READS, 'IN:lfo_amp' in A_READS
-HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A)
+# ARM_CUSTOM: the kernel's ARM side reads the LFO (cust_lf) for its own modulation, also when the kernel reads no LFO
+HOST_LFO = bool(CMOD or PITCH_MOD or LFO_F or LFO_A or opt('ARM_CUSTOM', ''))
 # the LFO and the pitch envelope (COLOR MOD source and PITCH ENV AMOUNT -> pitch) run on DSP B (room there; DSP A is
 # for the oscillators): lf and pe go to DSP A through bank 5 (LFB, PEB), one sample later
 PENV = bool(PITCH_MOD or CMOD)
@@ -207,7 +219,7 @@ KV0, KV_TOP = 0x0180, {'A': 0x0300, 'B': 0x0400}    # FUSED: the kernel's voice 
 NA = 0                                          # FUSED: voices 0..NA-1 run the kernel on DSP A (set_split)
 A_IN = ('IN:pitch', 'IN:gate', 'IN:trig', 'IN:dt', 'IN:rdt', 'IN:color0', 'IN:color1',   # made / written for DSP A
         'IN:host_mix')
-B_IN = ('IN:env0', 'IN:env1', 'IN:lfo_amp', 'IN:lfo_filter')                            # made on DSP B
+B_IN = ('IN:env0', 'IN:env1', 'IN:arm0', 'IN:arm1', 'IN:arm2', 'IN:arm3', 'IN:lfo_amp', 'IN:lfo_filter')                            # made on DSP B
 
 
 def export_addr(i, v):
@@ -350,12 +362,22 @@ ARM_RAMPTEST = opt('ARM_RAMPTEST', '0') == '1'
 # DSP B parameters: envelope i of voice v at P_ENV0 + 8 i + v; lf, fade at P_LFO0 / P_FADE0 + v. With ramps they must
 # be below 0x80: C060..C07F, and the kernel's DSP B tables move to C080.. (written with FCEC, on a knob move only)
 P_ENV0, P_LFO0, P_FADE0 = [int(x, 0) for x in opt('ARM_P0', '0x60,0x70,0x78' if ARM_RAMP else '0x80,0x90,0x98').split(',')]
-if (ARM_ENV or ARM_LFO) and P_ENV0 <= K_B_PARAM0 < P_FADE0 + NV_MAX:
-    K_B_PARAM0 = P_FADE0 + NV_MAX                   # the kernel's DSP B tables after the ARM's parameters
+P_ARM0 = P_FADE0 + NV_MAX                      # s1_arm(i) of voice v: C(P_ARM0 + 8 i + v), after lf / fade
+P_ARM_END = P_ARM0 + 8 * (max(ARM_USED) + 1) if ARM_USED else P_FADE0 + NV_MAX
+if ARM_USED and not (ARM_ENV and ARM_LFO):
+    raise SystemExit('make_s1cc.py: s1_arm needs the ARM side (ARM_ENV and ARM_LFO, the tick that writes it)')
+if (ARM_ENV or ARM_LFO) and P_ENV0 <= K_B_PARAM0 < P_ARM_END:
+    K_B_PARAM0 = P_ARM_END                         # the kernel's DSP B tables after the ARM's parameters
 
 
 H_ENV_STRIDE = 8 if CURVE else 6                # addresses of one host envelope: level, latch, last trigger (, curved)
-H_ENV_WORDS = H_ENV_STRIDE if HOST_ENVS else 0  # per voice on DSP B: (level, latch, last trigger (, C(level))) x 2
+H_ENV_WORDS = (H_ENV_STRIDE if HOST_ENVS else 0) + len(ARM_USED)   # per voice on DSP B: (level, latch, last
+#                                                 trigger (, C(level))) x 2, then one slot per s1_arm word
+
+
+def arm_out(i, v):
+    """the bank-0 word of voice v where the host leaves s1_arm(i) (DSP B, after the envelopes)"""
+    return block('B', v) + 2 * ((H_ENV_STRIDE if HOST_ENVS else 0) + ARM_USED.index(i))
 # pitch envelope and COLOR MOD (CMOD) on DSP B (DSP A's time is for the oscillators): DSP B parameters C052 / C053
 # pitch envelope decay / attack rates, C054 + 6 i: color i's weights (manual, LFO, pitch env, filter env, amp env,
 # sub; LFO and sub are -1..1: with them selected manual = that weight = knob / 2). Bank 5, free words: the pitch
@@ -528,9 +550,9 @@ def check_arm_ids():
     top = max([b for _, b in used] + [0])
     if top > 0x100:
         raise SystemExit(f'make_s1cc.py: the kernel\'s DSP B parameters reach C{top:03x}, past C0FF')
-    if (ARM_ENV or ARM_LFO) and any(a < P_FADE0 + NV_MAX and b > P_ENV0 for a, b in used):
+    if (ARM_ENV or ARM_LFO) and any(a < P_ARM_END and b > P_ENV0 for a, b in used):
         raise SystemExit(f'make_s1cc.py: the kernel\'s DSP B parameters overlap the ARM\'s C{P_ENV0:03x}..'
-                         f'C{P_FADE0 + NV_MAX - 1:03x}')
+                         f'C{P_ARM_END - 1:03x}')
 
 
 def words(dsp):
@@ -568,6 +590,9 @@ def addresses(dsp, v):
     if dsp == 'B' and HOST_ENVS:                  # the host's envelopes first: level, latch, last trigger each
         addr['IN:env0'], addr['IN:env1'] = (env_out(0, v) + int(CURVE), env_out(1, v) + int(CURVE))
         # (CURVE: luts_all writes C(level) after the voices, the kernel reads it one sample later: ring word + 1)
+        k = H_ENV_WORDS
+    if dsp == 'B':                                # the ARM's words (s1_arm), after the envelopes
+        addr.update({f'IN:arm{i}': arm_out(i, v) for i in ARM_USED})
         k = H_ENV_WORDS
     if dsp == 'B' and HOST_LFO:                   # then the host LFO's; -> amp / -> filter for the kernel
         hb = {n: base + 2 * (H_ENV_WORDS + j) for j, n in enumerate(host_b_words())}
@@ -628,6 +653,8 @@ def host_view(v):
     if HOST_ENVS:
         for i in (0, 1):
             out[f'IN:env{i}'] = ('B', env_out(i, v) + int(CURVE))
+    for i in ARM_USED:
+        out[f'IN:arm{i}'] = ('B', arm_out(i, v))
     if HOST_LFO:
         hb = host_b_block(v)
         out.update({'IN:lfo_amp': ('B', hb['lfa']), 'IN:lfo_filter': ('B', hb['lff'])})
@@ -1001,6 +1028,8 @@ def voice_b(v):
             e = b + H_ENV_STRIDE * i
             lvl = e if CURVE else env_out(i, v)     # the ADSR's level (CURVE: luts_all makes C(level) from it)
             L += frag('host_env', v=v, i=i, e=e, lvl=lvl)
+    for i in ARM_USED:                              # s1_arm(i): the ARM's word, as host_env's ARM_ENV copy
+        L += [f'; voice {v}: ARM word {i} (s1_arm)', f'ld r0, [c{P_ARM0 + 8 * i + v:03x}]', f'st r0, [{arm_out(i, v):04x}]']
     if CMOD and MOD_B and not cmod_idx():
         L += colors_b(v)
     if cmod_idx():                                  # the sub square into the COLOR MOD table
@@ -1941,9 +1970,10 @@ def _fill(main, head, units, dsp):
     size = lambda n, lines: 2 * len(section(n, lines, record=False)[0])  # noqa: E731
     regions = [(main, 0x0100, 0x0100 + MAIN_BYTES)] + [(n, a, b) for n, _, a, b in SECTIONS[dsp]]
     out, rest = {}, list(units)
+    per = -(-len(units) // SECT_N) if (VOICE_SECT and SECT_N) else 0
     for name, a, b in regions:
         hd = head if name == main else frag('section_head', name=name, dsp=dsp, a=a)
-        k = 0 if (VOICE_SECT and name == main) else len(rest)
+        k = 0 if (VOICE_SECT and name == main) else (min(per, len(rest)) if per else len(rest))
         while k > 0 and size(name, hd + flat(rest[:k])) > b - a:
             k -= 1
         if name == main or k:
@@ -2333,7 +2363,8 @@ def header(progs):
         tabs = arm_tables()
         out.append(f'/* ARM_ENV / ARM_LFO: DSP B parameters (envelope i of voice v: P_ENV0 + 8 i + v; lf, fade: P_LFO0 /\n'
                    f'   P_FADE0 + v); per step of {ARM_SEG} samples ({ARM_SEG // 96} ms), Q24 (1 = 1 << 24) */\n'
-                   f'#define P_ENV0 0x{P_ENV0:03x}\n#define P_LFO0 0x{P_LFO0:03x}\n#define P_FADE0 0x{P_FADE0:03x}')
+                   f'#define P_ENV0 0x{P_ENV0:03x}\n#define P_LFO0 0x{P_LFO0:03x}\n#define P_FADE0 0x{P_FADE0:03x}\n'
+                   f'#define P_ARM0 0x{P_ARM0:03x}  /* s1_arm(i) of voice v: P_ARM0 + 8 i + v (words used: {ARM_USED}) */')
         itab = lambda name, vals, t='uint32_t': (f'static const {t} {name}[{len(vals)}] = {{\n    ' +  # noqa: E731
                                                   ',\n    '.join(', '.join(f'{x}u' for x in vals[i:i + 8])
                                                                  for i in range(0, len(vals), 8)) + '\n};')

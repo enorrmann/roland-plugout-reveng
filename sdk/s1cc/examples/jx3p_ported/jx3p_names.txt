@@ -1,0 +1,29 @@
+# jx3p_names.txt: hand-written seeds for the lifted JX-3P voice (dsplift.py --names, README.md §2). tools/make_voice.py
+# step 1 adds the panel's parameter names (work/jx3p/params.txt, from tools/jx_arm.py) and dsplift_names.py's automatic
+# cell names -> jx3p_*_names.txt; step 2 (the lift) only reads those.
+#
+# MAIN0's words for voice A (MXM 8405..8416 -> A0A5..A0B6; examples/from_scratch/re: dsprun of MAIN0, README.md §3)
+in A0A5 lfo
+in A0A6 lfo_half
+in A0A7 note_pitch
+in A0A8 pitch_offset
+in A0A9 gate_word
+in A0AA env1
+in A0AB env2
+in A0B3 iomd_60e0
+in A0B4 iomd_60e2
+# the core voice's inputs (make_voice.py CORE_CELLS): our oscillators and the ARM's values
+in A0C0 dco1_out
+in A0C1 dco1_sync
+in A0C2 dco2_out
+in A0C3 dco2_sync
+in A0C4 filter_g
+in A0C5 vca_in
+# a DCO program alone (make_voice.py DCO_IN)
+in A0D0 dco_pitch
+in A0D1 dco_word1
+in A0D2 dco_word2
+in A0D3 dco_word3
+in A0D4 dco_wave
+unused A1D7 A1D8 A1D9 A1E0 A1E1 A1E2 A1E3 A1E4 A1E5 A1E6 A1E7 A1E8 A1E9 A1EA A1EB A1EC A1ED A1EE A1EF A1F4 A1F5 A1F6 A1F7
+const A0F8-A0FB 0

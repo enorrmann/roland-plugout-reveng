@@ -836,6 +836,12 @@ KERNELS="sdk/s1cc/build/mp_saw sdk/s1cc/build/mp_square 2:sdk/s1cc/build/mp_phas
 `ARM_CUSTOM=archivo.h` (variable de entorno o `S1_BUILD("ARM_CUSTOM=...")` en el kernel; ruta relativa a la raíz del
 repositorio). `engine.c` incluye ese header y, en cada paso del tick de 1 ms (§3.7), llama por voz a su función después
 de las envolventes y del LFO del anfitrión. Requiere `ARM_ENV` y `ARM_LFO` (el kernel lee `s1_env` y el LFO).
+Hooks opcionales nuevos (2026-11-17, JX-3P): `ARM_CUSTOM_TICK` → `arm_custom_tick(muestras)`, una vez por tick antes
+de las voces (estado global propio del kernel, p. ej. el LFO único del JX-3P, muestra a muestra); `ARM_CUSTOM_GATE` →
+`arm_custom_gate(v, on)` en cada note on / off (`sdk/s1cc/examples/jx3p_ported/README.md` §3.5).
+Desde 2026-11-17 `ARM_CUSTOM` por sí solo activa el LFO del anfitrión (`make_s1cc.py` `HOST_LFO`): el header lee
+`cust_lf` aunque el kernel no llame a ninguna función de LFO (JX-3P, `sdk/s1cc/examples/jx3p_ported`, con
+`LFO_PITCH=0`).
 
 Lo que tiene que definir el header:
 

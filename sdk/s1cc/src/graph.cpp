@@ -270,7 +270,7 @@ const std::map<std::string, std::string> kIntrinsicOps = {
     {"umax", "umax"}, {"abs", "abs"}, {"floor", "floor"}};
 
 const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_increment", "s1_dt", "s1_rdt", "s1_param_get",
-                                        "s1_export", "s1_import", "s1_ldb5", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env",
+                                        "s1_export", "s1_import", "s1_ldb5", "s1_wrap", "s1_clamp", "s1_tri", "s1_exp2", "s1_env", "s1_arm",
                                         "s1_color", "s1_lfo_filter", "s1_lfo_amp", "s1_host_mix",
                                         "s1_range", "s1_floor", "s1_ceil", "s1_sign", "s1_abs", "s1_recip", "s1_exp",
                                         "s1_log2", "s1_ldexp", "s1_sum3", "s1_mac2", "s1_sqrt", "s1_rsqrt",
@@ -882,6 +882,23 @@ struct Builder {
             if (!n) {
                 n = mk(fn == "s1_increment" ? NK::Increment : NK::Input, fn, {}, CI);
                 n->name = fn.substr(3);
+            }
+            vmap[CI] = n;
+            return;
+        }
+        if (fn == "s1_arm") {                             // a word the PLUG-OUT's ARM side writes per voice (DSP B)
+            if (S.name == "M")
+                fail("E122", "s1_arm in S1_MASTER " + where(CI) + ": the ARM's words go to the slave");
+            if (S.name != "B" && !P.fused)
+                fail("E117", "s1_arm in S1_DSP_A " + where(CI) + ": the ARM's words are DSP B parameters");
+            long i = constArg(0);
+            if (i < 0 || i > 3)
+                fail("E118", "s1_arm(" + std::to_string(i) + "): the ARM has words 0..3 " + where(CI));
+            std::string name = "arm" + std::to_string(i);
+            Node *&n = inputs[name];
+            if (!n) {
+                n = mk(NK::Input, name, {}, CI);
+                n->name = name;
             }
             vmap[CI] = n;
             return;

@@ -313,7 +313,13 @@ INL int a_op(int w, double immY, Dsp *dsp, const double *regs, double *out, Res 
     }
     if (op == 0) {
         if (x == 1) out[d] = Y;
-        else if (x == 2) {
+        else if (x == 2 && mode) {
+            /* newton rD, #imm (immediate form): rD <- (rY / 2)^2, nothing else written. [inferred 2026-11-13: Roland's
+               e^y (expsplit, then Horner in y^2 / 4: coefficients 2, 2/3, 2/15, ...) needs exactly this; the
+               register form here played the JX-3P an octave and a half sharp (996 Hz for C4); the Boutique BQ2
+               lift (dsplift.py) had it already] */
+            out[d] = 0.25 * regs[y & 7] * regs[y & 7];
+        } else if (x == 2) {
             if (d == 7) return -1;                 /* newton with r7: no r8 */
             out[d] = D * regs[d + 1];
             out[d + 1] = 2 - regs[d + 1] * regs[y & 7];

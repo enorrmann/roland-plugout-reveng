@@ -35,6 +35,10 @@ extern const s1_param_desc __stop_s1_params[] __attribute__((weak));
 float s1_dsp_a(void);
 float s1_dsp_b(float x) __attribute__((weak));
 float s1_master(float x) __attribute__((weak));
+/* S1_REF_INPUTS (s1dsp.h): what s1_pitch() / s1_arm(i) hold on the device when the PLUG-OUT's ARM side writes them
+   with another meaning; the reference, the profile and `check` read these instead of the defaults */
+float s1_ref_pitch(float pitch) __attribute__((weak));
+float s1_ref_arm(int i, float pitch) __attribute__((weak));
 void __s1p_reset(void) __attribute__((weak));
 void __s1p_dspstart(void) __attribute__((weak));
 void s1_init(void) __attribute__((weak));
@@ -150,13 +154,15 @@ static void params_init(void) {
 }
 
 static float wrapf(float x) { float y = fmodf(x + 1.0f, 2.0f); if (y < 0) y += 2.0f; return y - 1.0f; }
-float s1_pitch(void) { return g_pitch; }
+float s1_pitch(void) { return s1_ref_pitch ? s1_ref_pitch(g_pitch) : g_pitch; }
 float s1_increment(void) { return 2.0f * 440.0f * exp2f(g_pitch - 4.75f) / 96000.0f; }
 float s1_dt(void) { return 440.0f * exp2f(g_pitch - 4.75f) / 96000.0f; }
 float s1_rdt(void) { return 1.0f / s1_dt(); }
 float s1_gate(void) { return g_gate; }
 float s1_trig(void) { return g_trig; }
 float s1_env(int i) { (void)i; return g_gate; }     /* the host's envelopes: the gate stands in (check too) */
+float s1_arm(int i) { return s1_ref_arm ? s1_ref_arm(i, g_pitch) : 0.0f; }   /* the ARM side's words: 0 (check
+                                                                                    too), or the kernel's s1_ref_arm */
 static float g_color[2] = {128 / 255.0f, 128 / 255.0f};
 static int host_sweep;          /* profiling: the colors and the LFO terms ramp over their range in each run */
 static int color_arg(const char *name, int v) {     /* color0=K / color1=K: the knob s1_color gives */
@@ -429,6 +435,11 @@ int main(int argc, char **argv) {
             }
         }
         fclose(f);
+        return 0;
+    }
+    if (!strcmp(argv[1], "inputs")) {      /* inputs NOTE: s1_pitch() and s1_arm(0..3) of that note (s1check's bench) */
+        g_pitch = note_pitch(atof(argv[2]));
+        printf("%.9g %.9g %.9g %.9g %.9g\n", s1_pitch(), s1_arm(0), s1_arm(1), s1_arm(2), s1_arm(3));
         return 0;
     }
     if (!strcmp(argv[1], "ref")) {

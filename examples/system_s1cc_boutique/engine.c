@@ -11,7 +11,7 @@
  *                     HOST_LFO (the kernel reads the pitch, s1_lfo_filter / s1_lfo_amp or s1_color): LFO SHAPE /
  *                     RATE / DELAY TIME / TO PITCH / TO FILTER / TO AMP, PITCH ENV A / D, OSC1 / OSC2 COLOR and COLOR
  *                     MOD -> DSP A parameters C040.. (make_s1cc.py hlfo_voice)
- *   refresh (vt+0x24) voices from the current values, knob tables from the last values received
+ *   refresh (vt+0x24) after Roland's SH-101: the panel ids read back (get) into param; then the voices
  *   LUT_N             LFO_LUT / ENV_CURVE: the bank-5 tables (A000 + LUT0_IDX ..) at load and refresh
  *   ARM_ENV / ARM_LFO the host's ADSRs / LFO on this ARM: ramped DSP B parameters, stepped by a hook in the
  *                     slave OS's 1 ms cyclic handler (tick); deinit (vt+0x04) takes it out
@@ -164,6 +164,13 @@ static void hlfo_apply(int c)
         break;
     }
     case C_LFO_DELAY: b6(1, B6_LDELAY, lfo_delay_bits[k]); break;
+#ifdef ARM_CUSTOM
+    /* SYSTEM-S1CC-BOUTIQUE: the kernel's ARM side writes the note words with its own pitch modulation and ranges
+       (boutique_ported README.md §13.7): the host's LFO -> PITCH, PITCH ENV AMOUNT and OSC1 RANGE add 0. The host's
+       pitch path stays in the program (LFO_PITCH=1), so every wave pair's main program is the same (SECT_SWITCH) */
+    case C_LFO_PITCH: case C_PENV_AMT: case C_RANGE1: b6(0, c == C_LFO_PITCH ? A6_LPITCH : c == C_PENV_AMT ? A6_PAMT
+                                                              : A6_RANGE1, F_ZERO); break;
+#else
     case C_LFO_PITCH: b6(0, A6_LPITCH, lfo_pitch_bits[k]); break;
     case C_LFO_FILTER: b6(1, B6_LFILT, lfo_filt_bits[k]); break;
     case C_LFO_AMP:
@@ -172,6 +179,7 @@ static void hlfo_apply(int c)
         break;
     case C_PENV_AMT: b6(0, A6_PAMT, penv_amt_bits[k]); break;   /* PITCH ENV AMOUNT -> pitch (octaves) */
     case C_RANGE1: b6(0, A6_RANGE1, range_bits[k > 5 ? 5 : k]); break;   /* OSC1 RANGE 64'..2' -> -1..+4 octaves (make_s1cc.py RANGE_64FT) */
+#endif
     case C_PENV_A: b6(M6_SEL, M6_PENV + 1, attack_bits[k]); break;
     case C_PENV_D: b6(M6_SEL, M6_PENV, decay_bits[k]); break;
     case C_COLOR0: case C_MOD0: hlfo_color(0); break;
@@ -259,6 +267,8 @@ static int32_t env_lvl[2][NV];                         /* the level the running 
 #error "ARM_CUSTOM needs ARM_ENV and ARM_LFO"
 #endif
 static uint8_t cust_note[NV];
+static int cust_bend;                                  /* PITCH BEND -8192..8191 (id 0x130): the ARM side reads it */
+static int cust_mod;                                   /* MODULATION 0..127 (id 0x131, model.c CC 1): the ARM side reads it */
 static int32_t cust_lf[NV];
 static int32_t cust_fx[NV];                            /* ARM_CUSTOM_LFO: the delay's state (Q24, 0..1) */
 static volatile uint8_t cust_fx_restart[NV];
@@ -271,8 +281,8 @@ static uint8_t cust_k[16] = { 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 
 static void cust_set(int id, int value)
 {
     for (int i = 0; i < ARM_CUSTOM_NK; i++)
-        if (arm_custom_id[i] == id)
-            cust_k[i] = (uint8_t)(value < 0 ? 0 : value > 255 ? 255 : value);
+        if (arm_custom_id[i] == id)            /* a signed value (OSC2 COARSE) keeps its low byte: (int8_t) reads it */
+            cust_k[i] = (uint8_t)(value < -128 ? -128 : value > 255 ? 255 : value);
 }
 #else
 static void cust_set(int id, int value) { (void)id; (void)value; }
@@ -290,7 +300,7 @@ static void env_step(int i, int v, int m)              /* m steps at once (ARM_S
     if (st == ST_IDLE)
         return;
     int32_t cl = env_lvl[i][v];
-    int ns = arm_custom_env(i, st, &cl, k, m);         /* m whole steps of ARM_SEG_MS */
+    int ns = arm_custom_env(i, v, st, &cl, k, m);      /* m whole steps of ARM_SEG_MS (v: the voice's note) */
     env_lvl[i][v] = cl;
     if (ns != st)                                      /* only a change: a note on may have just set ST_ATT */
         env_st[i][v] = (uint8_t)ns;
@@ -507,6 +517,10 @@ static void tick(int i)                                /* the cyclic handler, ev
     step_n++;
     b6(1, P_ENV0 + 8 + NV - 1, q24_bits((int32_t)(step_n & 63) << 18));   /* telemetry: the envelope steps */
 #endif
+#ifdef ARM_CUSTOM_TICK
+    arm_custom_tick(6 * m);                            /* the kernel's own global state (JX-3P LFO): m sixteenths of
+                                                          1 ms = 6 m samples */
+#endif
     for (int v = 0; v < NV; v++) {
 #if ARM_LFO
         lfo_step(v, m);
@@ -521,9 +535,9 @@ static void tick(int i)                                /* the cyclic handler, ev
     }
 }
 
-static void arm_start(void)                            /* load: clear, hook the cyclic handler */
+static void arm_start(int reset)                       /* load: clear (reset), hook the cyclic handler */
 {
-    for (int v = 0; v < NV; v++) {
+    for (int v = 0; reset && v < NV; v++) {
 #if ARM_ENV
         for (int i = 0; i < 2; i++) {
             env_st[i][v] = ST_IDLE;
@@ -573,13 +587,16 @@ static void arm_gate(int v, int on)
 #endif
     lfo_on[v] = (uint8_t)on;
 #endif
+#ifdef ARM_CUSTOM_GATE
+    arm_custom_gate(v, on);                            /* the kernel's ARM side: a note on / off of voice v */
+#endif
 #if ARM_ENV
     for (int i = 0; i < 2; i++)                        /* the next tick takes the voice on from its level */
         env_st[i][v] = on ? ST_ATT : env_st[i][v] == ST_IDLE ? ST_IDLE : ST_REL;
 #endif
 }
 #else
-static void arm_start(void) {}
+static void arm_start(int reset) { (void)reset; }
 static void arm_stop(void) {}
 static void arm_gate(int v, int on) { (void)v; (void)on; }
 #endif
@@ -867,16 +884,29 @@ static void idxp_table(void)
 }
 #endif
 
+/* RELOAD_KEEP_SECT_TEST (2026-11-17, not proven on the device): a patch button makes the slave's OS reload the programs
+   (OS 1.30 slave 0x6004cfa2 group 3 -> 0x60003e3a: queues FC30..FC3C emptied, sections off, then this load), and
+   JX-3P-S1 clicked at every patch button while the stock PLUG-OUTs do not. Roland's SH-101 load (region 1 0x602016f8)
+   is FC44(i, 0) for i = 0..7, FC30, FC34 only: no FC40. With the flag a load after the first (until deinit) does not
+   place the sections again (FC40), only turns them on (section_on) */
+#ifndef RELOAD_KEEP_SECT_TEST
+#define RELOAD_KEEP_SECT_TEST 1
+#endif
+static int load_again;                                           /* loaded since the last deinit */
+
 static void e_load(engine_t *e)                                  /* vt+0x08 */
 {
+    int again = load_again;
     for (int i = 0; i < 8; i++)
         ((slot_fn)SVC(0x44))(i, 0);
     ((s1_queue_fn)SVC(0x30))(set_a);
     ((s1_queue_fn)SVC(0x34))(set_b);
 #if NSECT
-    for (int i = 0; i < NSECT; i++)            /* the sections of both DSPs, after the mains */
-        ((place_fn)SVC(0x40))(sect_index[i], sect_set[i], set_none, set_none, set_none);
+    if (!(RELOAD_KEEP_SECT_TEST && load_again))
+        for (int i = 0; i < NSECT; i++)        /* the sections of both DSPs, after the mains */
+            ((place_fn)SVC(0x40))(sect_index[i], sect_set[i], set_none, set_none, set_none);
 #endif
+    load_again = 1;
     section_on();
     lut_all();
     for (int v = 0; v < NV; v++)
@@ -902,25 +932,38 @@ static void e_load(engine_t *e)                                  /* vt+0x08 */
     else
         sl_default();                                  /* a ramp saw so the first note is not silent */
 #endif
-    arm_start();
+    arm_start(!(RELOAD_KEEP_SECT_TEST && again));    /* a reload (patch button): the notes' envelopes / LFOs go on
+                                                        (Roland's load touches no voice state) */
 }
 
 static int e_deinit(engine_t *e)                                 /* vt+0x04: our end-of-ramp functions out */
 {
     (void)e;
+    load_again = 0;
     arm_stop();
     return 0;
 }
 
+static void e_param(engine_t *e, int id, int flag, int value);
+
+/* refresh (vt+0x24) after Roland's SH-101 engine (region 1 0x602011ae): every id the engine handles read back with
+   get into param(id, 1, value). Roland with all == 0 only keeps the values (vt+0x2C, 0x602014fa) because the OS
+   writes its knobs to the DSP itself; ours are written by this engine alone, so applied in both cases (2026-11-17:
+   kept only, a patch's OSC2 MIX did not come back: the load just before, OS 0x60003e3a, had applied the old ones).
+   Ours handles panel ids of group 3 only: 0x160..0x19F and the patch's second block 0x1B0..0x1DF (PLUGOUT_EXTEND01..
+   = 0x1B8..: VCA MODE / LEVEL, bend / mod sensitivities of JX-3P-S1); ids no table names are ignored */
 static void e_refresh(engine_t *e, int all)                      /* vt+0x24 */
 {
-    (void)all;
+    for (int id = 0x160; id <= 0x1DF; id++)
+        if (id < 0x1A0 || id >= 0x1B0)
+            e_param(e, id, 1, os_get(3, id));
     for (int v = 0; v < NV; v++) {
         voice_pitch(e, v, os_get(2, 0x110 + v));
         int vel = os_get(2, 0x120 + v);
         if ((vel > 0) != e->on[v])
             voice_gate(e, v, vel);
     }
+    (void)all;
     kparam_all();
     henv_all();
     hlfo_all();
@@ -950,6 +993,16 @@ static void e_param(engine_t *e, int id, int flag, int value)    /* vt+0x30 */
         voice_pitch(e, id - 0x110, value);
         return;
     }
+#ifdef ARM_CUSTOM
+    if (id == 0x130) {                         /* PITCH BEND (model.c a_bend): the kernel's ARM side bends */
+        cust_bend = value;
+        return;
+    }
+    if (id == 0x131) {                         /* MODULATION (model.c CC 1, ID_MOD): the kernel's ARM side */
+        cust_mod = value;
+        return;
+    }
+#endif
     if (id >= 0x120 && id < 0x120 + NV) {
         voice_gate(e, id - 0x120, value);
         return;

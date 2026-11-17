@@ -24,6 +24,7 @@
 #define P_HPF 0xc05e
 #define P_CUTOFF 0xc05f
 #define P_RESO 0xc060
+#define P_SLOPE 0xc061
 #define P_ENVMOD 0xc065
 #define P_KEYFOLLOW 0xc066
 static float hpf_lp_z1;
@@ -90,11 +91,12 @@ static inline __attribute__((always_inline)) void jp08_arm_voice(void)
     float t289 = filter_g * (filter_g * (filter_g * filter_in + filter_p1 + t279 * filter_p1) + filter_p2 + t279 * filter_p2) + filter_p3 + t279 * filter_p3; /* 289 */
     float filter_p4 = filter_g * (filter_p3 + filter_p3_z1) + t279 * filter_p4_z1;               /* 290 */
     float filter_fb = filter_g * t289 + t279 * filter_p4;                                        /* 291 */
+    float filter_p4_prev = XFADE(filter_p4, filter_p2, KP(P_SLOPE));                             /* 292 */
 
     /* ---- VCA: level ramp, ENV2 curve, output ---- */
     float vca_level = fmaxf(0.0075531006f + vca_level_z1 - 0.0075531006f * vca_level_z1, 0.0f);  /* 303 */
     float t321 = KIN(0xa0f6); /* 321  arm_fix: the VCA gain from the ARM */
-    float vca_out = fminf((filter_p4 + reso * 0.5f * filter_p4) * t321, 5.5f) * 1.1999998f;      /* 326 */
+    float vca_out = fminf((filter_p4_prev + reso * 0.5f * filter_p4_prev) * t321, 5.5f) * 1.1999998f; /* 326 */
     float vca = vca_out * vca_level;                                                             /* 332 */
     KOUT(OUT_VOICE, vca);
 

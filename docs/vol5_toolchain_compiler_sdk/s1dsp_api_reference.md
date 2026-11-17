@@ -61,6 +61,7 @@ after it); `S1_FN` = `const, nothrow` (a function of its arguments only).
 | `float s1_mac2(float a, float b, float c, float d, float e)` | `S1_FN` | a b + c d + e: one MAC op; a constant factor becomes the MAC's immediate coefficient | A, B |
 | `float s1_sqrt(float)`, `s1_rsqrt` | `S1_FN` | √x, 1/√x, x > 0: `sqrtsplit` + 2 Newton steps, 11 / 13 ops, 2e-7 | A, B |
 | `float s1_env(int i)` | `S1_IN` | `S1_DSP_B` only: host envelope i, 0..1 (0 = AMP, 1 = FILTER); the native reference and `check` give the gate | B |
+| `float s1_arm(int i)` | `S1_IN` | `S1_DSP_B` only (or a fused kernel): word i (0..3) of the voice that the PLUG-OUT's ARM side writes (SYSTEM-S1CC-BOUTIQUE `ARM_CUSTOM`: `ramp(P_ARM0 + 8 i + v, q)` every 1 ms; the host copies DSP B parameter `C(P_ARM0 + 8 i + v)` to the voice each sample, as for `s1_env`); for per-voice values an ARM computation makes (e.g. a modulation source); reference and `check`: 0. Added 2026-11-12, not run on the device yet | B |
 | `float s1_color(int i)` | `S1_IN` | `S1_DSP_A` only: OSC1 (0) / OSC2 (1) COLOR, 0..1, with its COLOR MOD source; reference and `check`: the knob (`color0=K` / `color1=K`, default 128) | A |
 | `float s1_lfo_filter(void)`, `float s1_lfo_amp(void)` | `S1_IN` | host LFO → FILTER (octaves −4..+4) and → AMP (gain 0..1); on A and B; reference and `check`: 0 and 1 | A, B |
 | `float s1_line_tap(int line, float d, int k)` | `S1_IN` | `S1_MASTER` only: `w[n − d − 1 − k]` of the voice's line `line`, `k` 0 / 1, `d` whole samples (one `d` per line; it acts one sample late) | M |

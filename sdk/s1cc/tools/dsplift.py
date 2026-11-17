@@ -74,7 +74,7 @@ def unit_a(o):
     if op == 0:
         if x == 1:
             return ['n[%d] = %s;' % (d, Y)]
-        if x == 2 and mode and BQ2:                               # BQ2: rD = (rY / 2)^2 (§5.4)
+        if x == 2 and mode:                                       # immediate form: rD = (rY / 2)^2 (dspcore.h a_op)
             return ['n[%d] = 0.25 * r[%d] * r[%d];' % (d, y & 7, y & 7)]
         if x == 2:                                                # newton
             if d == 7:

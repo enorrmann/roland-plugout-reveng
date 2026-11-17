@@ -189,7 +189,7 @@ step `× r`, LFO delay factor `(0.9 + 0.1 c)^r`, HPF `1 − (1 − c)^r`.
 | OSC1 MIX / OSC2 MIX | MIX BALANCE's two sides | `C05A` / `C05B` |
 | FILTER CUTOFF / RESONANCE | CUTOFF / RESONANCE | `C05F` / `C060` |
 | HPF CUTOFF (`0x180`, measured: sent only with its light on) | HPF (patch id `0x1A8`) | `C05E` (§8–§10 builds) |
-| FILTER ENV AMOUNT (bipolar) | FLT ENV MOD | `C065` |
+| FILTER ENV AMOUNT (unipolar since §13.7) | FLT ENV MOD | `C065` |
 | FILTER KEY TRACK | FLT KEY FOLLOW | `C066` |
 | FILTER A D S R | ENV1 | `C03C…C03F` |
 | AMP A D S R | ENV2 (VCA) | `C040…C043` |
@@ -430,16 +430,16 @@ dispatcher writes on chip 0, voice A (`tools/bq_fw.py`, value swept min…max; t
 | `0x18E` | LFO RATE | 0–255 | 0 | `C00A`, `C013` | LFO RATE, exact table (§10) |
 | `0x18F` | LFO DELAY TIME | 0–255 | 0 | `C00B` | LFO FADE, exact |
 | `0x190` | LFO WAVE | 0–5 | 0 | `C00C…C012` | LFO SHAPE: 0–3 exact (§10); 4, 5 the host's S&G / S&H |
-| `0x196` | OSC LFO MOD | 0–255 | 0 | `C04A` | LFO → PITCH (bipolar knob, §13.4); the host's curve, not `C04A` |
-| `0x197` | OSC ENV MOD | 0–255 | 0 | `C04B` | PITCH ENV AMOUNT (bipolar); the host's pitch envelope |
-| `0x198` | OSC FREQ MOD DST | 0–2 | 0 | `C04F…C052`: 0 = (0,1,0,1), 1 = all 1, 2 = (1,0,1,0) | **fixed 1** |
+| `0x196` | OSC LFO MOD | 0–255 | 0 | `C04A` | LFO → PITCH, `C04A` on the ARM (§13.7) |
+| `0x197` | OSC ENV MOD | 0–255 | 0 | `C04B` | PITCH ENV AMOUNT, `C04B` × ENV1 on the ARM (§13.7) |
+| `0x198` | OSC FREQ MOD DST | 0–2 | 0 | `C04F…C052`: 0 = (0,1,0,1), 1 = all 1, 2 = (1,0,1,0) | EXTEND01 (CC 103), on the ARM (§13.7) |
 | `0x199` | PWM | 0–255 | 0 | `C053`, `C054` | OSC2 COLOR, exact |
 | `0x19A` | PWM SOURCE | 0–2 | 0 | — (inputs `A090…A092`) | OSC2 COLOR MOD |
 | `0x19B` | OSC1 CROSS MOD | 0–255 | 0 | `C04D` | OSC1 CROSS MOD, exact |
-| `0x19C` | OSC1 RANGE | 0–5 | 0 | `C059` = 0.2 × value | the host's OSC1 RANGE: shifts **both** oscillators (§9) |
+| `0x19C` | OSC1 RANGE | 0–5 | 0 | `C059` = 0.2 × value | OSC1 RANGE, OSC1 only (§13.7) |
 | `0x19D` | OSC1 WAVE | 0–5 | 0 | program (§12), `C053`, `C054` | OSC1 WAVE (§12; noise ours, triangle unvalidated) |
 | `0x19E` | OSC2 SYNC | 0–1 | 0 | — (`A08A` / `A08C`) | **pending** (§12) |
-| `0x19F` | OSC2 RANGE | 0–255 | 0 | `C055` = 0 for every value (with OSC2 WAVE 0) | the per-note factor `A089`; the meaning of 0–255 is **open** |
+| `0x19F` | OSC2 RANGE | 0–255 | 0 | `C055` = 0 for every value (with OSC2 WAVE 0) | semitones −36…+24 (table `0x4a`): OSC2 RANGE + COARSE (§13.5) |
 | `0x1A0` | OSC2 TUNE | 0–255 | 128 | `C046` | OSC2 FINE, exact |
 | `0x1A1` | OSC2 WAVE | 0–5 | 0 | program, `C04E`, `C055` | positions 0–2; LOW 3–5 **pending** |
 | `0x1A2` | MIX BALANCE | 0–255 | 0 | `C05A`, `C05B` | OSC1 MIX = 255 − v, OSC2 MIX = v: exact |
@@ -447,12 +447,12 @@ dispatcher writes on chip 0, voice A (`tools/bq_fw.py`, value swept min…max; t
 | `0x1A9` | CUTOFF | 0–255 | 255 | `C05F` | FILTER CUTOFF, exact (S1A: through the ARM's `g(u)`) |
 | `0x1AA` | RESONANCE | 0–255 | 0 | `C060` | RESONANCE, exact |
 | `0x1AB` | FLT LPF SLOPE | 0–1 | 1 | `C061` = value | **fixed** (init word) |
-| `0x1AC` | FLT ENV MOD | 0–255 | 0 | `C065` | FILTER ENV AMOUNT (bipolar) |
+| `0x1AC` | FLT ENV MOD | 0–255 | 0 | `C065` | FILTER ENV AMOUNT (unipolar since §13.7) |
 | `0x1AD` | FLT ENV MOD SRC | 0–1 | 0 | — | **not done** |
-| `0x1AE` | FLT LFO MOD | 0–255 | 0 | `C064` | LFO → FILTER (bipolar), exact table |
+| `0x1AE` | FLT LFO MOD | 0–255 | 0 | `C064` | LFO → FILTER (unipolar since §13.7), exact table |
 | `0x1AF` | FLT KEY FOLLOW | 0–255 | 0 | `C066` | FILTER KEY TRACK, exact |
-| `0x1B5` | AMP LEVEL | 0–255 | 255 | `C06F` | **fixed 255** |
-| `0x1B6` | AMP LFO MOD | 0–3 | 0 | `C06B` = 0, 0.11, 0.21, 0.79 | **fixed 0** (§7) |
+| `0x1B5` | AMP LEVEL | 0–255 | 255 | `C06F` | EXTEND03 (CC 105), on the ARM (§13.7) |
+| `0x1B6` | AMP LFO MOD | 0–3 | 0 | `C06B` = 0, 0.11, 0.21, 0.79 | LFO TO AMP knob >> 6, on the ARM (§13.7) |
 | `0x1BC…0x1BF` | ENV1 A D S R | 0–255 | 0 0 255 0 | `C03C…C03F` | FILTER A D S R, exact (§10) |
 | `0x1C0` | ENV1 POLARITY | 0–1 | 0 | — | **not done** |
 | `0x1C6…0x1C9` | ENV2 A D S R | 0–255 | 0 0 255 0 | `C040…C043` | AMP A D S R, exact |
@@ -461,7 +461,7 @@ dispatcher writes on chip 0, voice A (`tools/bq_fw.py`, value swept min…max; t
 | `0x242` | PORTA SW | 0–1 | 0 | — | **not done** |
 | `0x243` | PORTA TIME | 0–255 | 100 | `C03A` | **not done** |
 | `0x245` | ASSIGN MODE | 0–4 | 0 | — | **not done** (the S1's MONO / LEGATO are other values) |
-| `0x246` | BEND RANGE | 0–24 | 2 | — | **not done** |
+| `0x246` | BEND RANGE | 0–24 | 2 | — | EXTEND04 (CC 106), on the ARM (§13.7) |
 
 ### 13.4 What "faithful" asks of our PLUG-OUT
 
@@ -503,26 +503,30 @@ SYSTEM-1's own; the PLUG-OUT code holds no patch format (no `.PRM` names in thei
 The SYSTEM-8 PLUG-OUTs (JUNO-60, JX-3P, JUPITER-8…) use `KoaBankFile00003` with `patch` + `patch2` + `patch3`
 (20 223 bytes per record): another layout, not the one for this port.
 
-So a JP-08 patch on our SYSTEM-1 PLUG-OUT is a SYSTEM-1 patch: the JP-08 values that have a SYSTEM-1 control go into
-its panel value (inverse of `PANEL` in `tools/bq_arm.py`: `uni` = v, `rev` = 255 − v, `bi` = 128 ± v / 2), the rest
-into `PLUGOUT_EXTEND` slots. Proposed slots (unproven: that the PLUG-OUT receives EXTEND values is **not measured**):
+So a JP-08 patch on our SYSTEM-1 PLUG-OUT is a SYSTEM-1 patch (implemented 2026-11-12, §13.7): every JP-08 value with
+a SYSTEM-1 control goes into that control's value; only the ones the SYSTEM-1 has no control for go into
+`PLUGOUT_EXTEND` words (user rule 2026-11-12: EXTEND only for what the panel lacks).
 
-| EXTEND | JP-08 | why |
+| JP-08 | SYSTEM-1 value | how |
 |---|---|---|
-| 01–04 | OSC LFO MOD, OSC ENV MOD, FLT ENV MOD, FLT LFO MOD (exact 0–255) | §13.4 point 1 |
-| 05 | OSC FREQ MOD DST | no control |
-| 06 | FLT LPF SLOPE | |
-| 07 | FLT ENV MOD SRC | |
-| 08 | AMP LEVEL | |
-| 09 | AMP LFO MOD | |
-| 10 | ENV1 POLARITY | |
-| 11 | ENV2 KEY FOLLOW | |
-| 12 | OSC2 RANGE (0–255) | the S1's OSC2_RANGE has fewer positions |
-| 13 | ASSIGN MODE | |
-
-LFO WAVE, OSC1 / OSC2 WAVE, OSC1 RANGE, OSC2 SYNC, PORTA, BEND RANGE, DELAY have SYSTEM-1 values (`LFO_WAVE`,
-`OSC1_WAVE`, `OSC2_WAVE`, `OSC1_RANGE`, `OSC2_SYNC`, `PORTAMENTO`, `BEND_RANGE`, `DELAY` / `DELAY_TM`); their value
-mapping follows the panel of the build (§4, §12), DELAY's 0–15 against the S1's 0–255 is open.
+| LFO RATE, LFO DELAY TIME, LFO WAVE | `LFO_RATE`, `LFO_FADE`, `LFO_WAVE` | v |
+| OSC LFO MOD, OSC ENV MOD | `LFO_PITCH`, `PIT_ENV` | v (the knob reads row = v: unipolar as on the JP-08) |
+| PWM, PWM SOURCE | `OSC2_COLOR` (and `OSC1_COLOR`), `OSC2_MOD` | v; MANUAL / LFO / ENV → 0 / 1 / 3 (FILTER ENV = ENV1) |
+| OSC1 CROSS MOD, OSC1 WAVE, OSC2 WAVE, OSC2 SYNC, OSC2 TUNE | `OSC1_CRS_MOD`, `OSC1_WAVE`, `OSC2_WAVE`, `OSC2_SYNC`, `OSC2_TUNE` | v |
+| OSC1 RANGE (0–5) | `OSC1_RANGE` | v: the same six footages 64′…2′ [code: factor 2^(v − 3), `0x60054dfc` table `0x48`] |
+| OSC2 RANGE (0–255) | `OSC2_RANGE` + `OSC2_COARSE` | semitones −36…+24 [code: table `0x4a`, 61 steps, wider detents at the octaves; `jp08_prm.py OSC2_SEMI`, equal to the emulator for all 256 values]: the octave on RANGE (8′ = 3), the rest (−6…+6) on COARSE |
+| MIX BALANCE | `MIX_OSC1` = 255 − v, `MIX_OSC2` = v | |
+| HPF, CUTOFF, RESONANCE, FLT LFO MOD, FLT KEY FOLLOW | `FLT_HPF`, `FLT_LPF`, `FLT_RESO`, `LFO_FLT`, `FLT_KEY` | v |
+| FLT ENV MOD + ENV1 POLARITY | `FLT_ENV` (bipolar) | 128 ± (v + 1) / 2, below 128 = POLARITY 1; the knob reads row 2 \|k − 128\| (one bit less, user 2026-11-12) |
+| FLT LPF SLOPE | `FLT_TYPE` (LPF TYPE) | v: 0 = −24 dB, 1 = −12 dB (§13.7) |
+| ENV1 / ENV2 A D S R | `FLT_ATK…FLT_REL` / `AMP_ATK…AMP_REL` | v |
+| AMP LFO MOD (0–3) | `LFO_AMP` | 64 v + 32; the PLUG-OUT reads knob >> 6 |
+| PORTA SW, PORTA TIME | `LEGATO`, `PORTAMENTO` | v (the LEGATO button is PORTA SW, §13.7) |
+| ASSIGN MODE (0–3) | `MONO` | v: 0 POLY1, 1 POLY2, 2 SOLO, 3 UNISON (the MONO button steps it, §13.7); 4 (no name in the firmware) → 0 |
+| DELAY LEVEL, DELAY TIME | `DELAY`, `DELAY_TM` | 17 v: the SYSTEM-1's own delay, not the JP-08's |
+| ENV2 KEY FOLLOW (0–3) | `AMP_TONE` | 64 v + 32; the PLUG-OUT reads knob >> 6 (user 2026-11-12) |
+| OSC FREQ MOD DST, FLT ENV MOD SRC, AMP LEVEL, BEND RANGE | `PLUGOUT_EXTEND01…04` | (v − default) & 0xFF: an empty word is the default (the JP-08's; FLT ENV MOD SRC: 1 = ENV1, user 2026-11-12); CC 103…106 for tests (§13.7) |
+| DELAY FEEDBACK | — | not taken (user 2026-11-12) |
 
 ### 13.6 Where the JP-08's factory patches are, and next steps
 
@@ -533,12 +537,127 @@ modules are the updater and the sub-CPU. The factory sounds live in the device's
 written at the factory): they come out only by a BACKUP on a JP-08 (`BACKUP/JP08_PATCH1…64.PRM`, or
 `JP08_USERAREA.BIN`) or from Roland's published backup data. None is in this repository or the user's files yet.
 
-Next (not done):
-1. A converter `tools/jp08_prm.py`: `JP08_PATCHn.PRM` (§13.2 parser rules, defaults for missing records) → our
-   SYSTEM-1 patch: a `PLUGOUT_PATCHn.PRM` for the SYSTEM-1's RESTORE and a `KoaBankFile00002` bank
-   (`plugins/JP-08-S1W/Patch/`) for `plugout_tool.py install` without `--no-patches`.
-2. Measure whether the PLUG-OUT receives `PLUGOUT_EXTEND` values (a patch with EXTEND01 ≠ 0, PARAMLOG), then apply
-   them in `bq_arm.c` / the engine.
-3. The bold rows of §13.3.
-4. Factory patches: a BACKUP from a JP-08 (the user's or Roland's), then a capture of the JP-08 against ours per
-   patch.
+Next (not done): the rows marked "not applied yet" (§13.7), a JP-08 BACKUP to convert and compare by ear / capture.
+
+### 13.7 Implementation (2026-11-12; DST, AMP LEVEL, LFO → PITCH measured on the device)
+
+Measured on the device 2026-11-12 (JP-08-S1W, slot 1; `tools/s1_capture.py`, note 57, LFO → PITCH at ¾, one
+oscillator mixed at a time, CC 103 = 0 / 64 / 127): OSC1 alone: steady 439.9 Hz / vibrato / vibrato; OSC2 alone
+(one octave up): vibrato / vibrato / steady 880.3 Hz — OSC FREQ MOD DST 0 = VCO-2, 1 = both, 2 = VCO-1, as the
+JP-08. AMP LEVEL by CC 105 (then 104): 0 silent, 64 half, 127 full. User: LFO → AMP acts on both oscillators (the VCA:
+as on the JP-08); with DST 0 LFO → PITCH moves only OSC2. Not measured yet: PITCH ENV AMOUNT, OSC2 COARSE, the 1 ms
+pitch steps, the converter's patches on the device.
+
+
+- **Knobs**: `tools/bq_arm.py` `PANEL` reads every JP-08 control as `uni` (row = knob, the JP-08's 0–255): LFO TO
+  PITCH, PITCH ENV AMOUNT, FILTER ENV AMOUNT and LFO TO FILTER are no longer bipolar.
+- **Pitch as the JP-08** (no SYSTEM-1 LFO → pitch, pitch envelope or LFO → AMP: `engine.c` writes the host's
+  LFO → PITCH, PITCH ENV AMOUNT and OSC1 RANGE words 0; the host's pitch path stays so that every wave pair's main
+  program is the same, `LFO_PITCH=0` broke `SECT_SWITCH`): the
+  ARM (`bq_jp08_arm.h` `arm_custom_pitch`, every 1 ms tick and at once at each note) computes LFO × `C04A` (LFO TO
+  PITCH) + ENV1² × 0.99995 × `C04B` (PITCH ENV AMOUNT) in octaves and gives it to OSC1 / OSC2 by OSC FREQ MOD DST
+  (`C04F…C052`, lifted instructions 211–231: 0 = VCO-2, 1 = both, 2 = VCO-1). It writes `s1_dt` / `s1_rdt` = OSC2's
+  step (note, OSC2 RANGE + COARSE, its modulation) and `s1_pitch` = 4.75 + OSC1 over OSC2 in octaves; OSC1 adds that
+  to its CROSS MOD exponent, so the DSP has no exponential beyond CROSS MOD's (kernel 377 units against 388, 4 voices).
+  2^x on the ARM: floor → exponent, 1024-point mantissa table, linear. The pitch moves in 1 ms steps (Roland: per
+  sample) [TEST: zipper at deep, fast modulation].
+- **VCA**: x = env2² × 0.99995 − (0.5 − 0.5 LFO) × AMP LFO MOD (`C06B` = 0, 0.11, 0.21, 0.79; LFO TO AMP knob >> 6),
+  Roland's curve of x, × AMP LEVEL (`C06F`) (lifted instructions 657–667).
+- **CC → EXTEND** (`model.c`; the table `arm_custom_cc` that `make_arm.py` writes into the ARM_CUSTOM header under
+  `ARM_CUSTOM_CC_TABLE`): CC 103 OSC FREQ MOD DST (3 positions), 104 FLT ENV MOD SRC, 105 AMP LEVEL (× 2), 106
+  BEND RANGE (25 positions). The model writes the group-3 word `0x1B7 + n`
+  as (value − default) & 0xFF. Applied by the voice now: DST, AMP LEVEL, FLT ENV MOD SRC. EXTEND words reach the engine [measured
+  2026-11-12: AMP LEVEL by CC 0 / 64 / 127 = silent / half / full; PARAMLOG: `0x1BA` = 129]
+- **FLT ENV MOD SRC** (EXTEND02, CC 104 0–63 ENV2 / 64–127 ENV1; default 1 = ENV1 by the user's choice, the
+  JP-08's own default is 0 = ENV2) [code: the JP-08's ARM writes the voice inputs `A094` / `A095` (window
+  `0x40101000`, 4 bytes per word: `0x40101250` = `A094`) = 1 / 0 for value 1, 0 / 1 for value 0 (`tools/bq_fw.py`);
+  lifted instruction 552: cutoff += (A095 × ENV2 out + A094 × ENV1 out) × FLT ENV MOD]: the ARM's `u` takes env1² or
+  env2². Not compiled yet.
+- **ENV1 POLARITY** = the sign of FILTER ENV AMOUNT (knob < 128: inverted; FLT ENV MOD = 2 |knob − 128|) [code: the
+  JP-08's ARM writes `A084` = 1.0 / 0.0 for polarity 0 / 1; lifted instruction 157: ENV1 out = env1² × −0.1 ×
+  (1 − 2 A084), so POLARITY inverts ENV1 for every destination]: the ARM negates ENV1 for the cutoff and for the pitch
+  (OSC ENV MOD); with FLT ENV MOD SRC = ENV2 the knob's sign does not invert the filter (ENV2 has no polarity). Not
+  applied: the PWM's ENV source (the host's COLOR MOD envelope). Open: our `A084` constant 5.5 (2026-11-11, by ear:
+  ×10 against Roland's 1.0) is this polarity input; whether the JP-08's ARM writes `A084` again per note (a scale) is
+  not read yet. Not compiled yet.
+- **PWM SOURCE** (2026-11-12): the JP-08's own, on the ARM, no longer the host's COLOR MOD (whose "filter env" source
+  read the word that carries the filter coefficient `g` in these builds: the pulse width followed CUTOFF / KEY TRACK,
+  not ENV1). [code: the JP-08's ARM writes A092 / A090 / A091 = 1 for PWM SOURCE 0 / 1 / 2: **0 = ENV1, 1 = MANUAL,
+  2 = LFO** (`tools/bq_fw.py setp 0x19A`); lifted instruction 218: pwm = (A090 + A091 (0.5 + 0.5 LFO) + A092 ENV1 out) ×
+  C054]. The ARM computes source × PWM (C054 of OSC2 COLOR) / 1.2 every 1 ms into `s1_arm(0)` (new SDK input,
+  below); the voice's × 1.2 gives Roland's value. OSC2 COLOR MOD chooses the source: 0 MANUAL, 1 LFO, 2–4 (the
+  envelope positions) ENV1 with its polarity, 5 MANUAL. `jp08_prm.py` maps 0 / 1 / 2 → COLOR MOD 3 / 0 / 1 (it had
+  MANUAL / LFO / ENV = 0 / 1 / 2: wrong, fixed). Not compiled yet.
+- **ENV2 KEY FOLLOW** = the AMP TONE knob >> 6 (user 2026-11-12) [code: the JP-08's ARM writes `A085` = bit 0,
+  `A087` = bit 1 of the value (`tools/bq_fw.py setp 0x1CA`); lifted instructions 116–172: f = 1 + 0.1 (clamp(pitch,
+  2, 7) − 7), pitch in octaves (f = 0.5 up to C2, 1 from C7), and ENV1's A, D, R words × f with `A085` = 1, ENV2's with
+  `A087` = 1: the parameter is two switches, 0 off, 1 ENV1, 2 ENV2, 3 both]. The ARM (`arm_env_coef`) computes the
+  envelope's coefficients for the voice's note from the 44.1 kHz words × f (Roland's formulas and floors there) as
+  x44^R per 96 kHz sample, x44^(96 R) per 1 ms step, ln / exp in 64-bit fixed point, again only when the note or a
+  knob changes. Native check (gcc, the header as is, every knob × every 6th note): within 2.7e-6 of double; with f = 1
+  within 41 lsb (Q24) of the tables. The tables themselves now take Roland's floors on the 44.1 kHz words too (before:
+  on the 96 kHz words, up to 4e-4 apart at the slowest settings). Not compiled yet.
+- **FLT LPF SLOPE** = the LPF TYPE button (user 2026-11-12) [code: the JP-08's ARM writes `C061` = the value; lifted
+  instruction 637: filter out = XFADE(4th pole, 2nd pole, `C061`): **0 = −24 dB, 1 = −12 dB** (the JP-08's default
+  1)]. `bq_arm.py` `HOST_PANEL` `slope` (C061 on `S1_LPF_TYPE_WORD` 0x17E), `C061` a parameter of the arm voice
+  (`bq_jp08_arm_names.txt` + `param C061 slope knob`, `make_voice.py jp08 2 3 --host --osc2x --arm`: the lift changes
+  only there, + one XFADE). `model.c` (with `ARM_CUSTOM_LPF_TYPE`, which the ARM_CUSTOM header defines): CC 115 (the
+  button) toggles word 0x17E as LFO KEY TRIG; the load reads it back from the patch (`FLT_TYPE`), 1 when there is none.
+  The builds before were always −24 dB (`C061` = 0). Not compiled yet.
+- **PORTA** = the PORTAMENTO knob (TIME) and the LEGATO button (SW) (user 2026-11-12) [code: the JP-08's ARM writes
+  `C03A` = 0.0687 (TIME 0) … 1.5e-5 (255) per 44.1 kHz sample and `A082` = SW; lifted instructions 81–98: per voice
+  d += `C03A` (pitch − d) when `A082` = 1, at every note (not only legato); KEY TRACK and the envelopes' key follow keep
+  the raw note]. The ARM (`arm_custom_glide`) moves the voice's pitch (log2 of the step) toward the note every 1 ms by
+  (1 − `C03A`)^(96 R): time constant 0.3 ms (TIME 0), 60 ms (64), 206 ms (128), 1.55 s (255); both oscillators
+  follow (`s1_dt` and the OSC1 / OSC2 word). `model.c` (`ARM_CUSTOM_LEGATO`): CC 116 (the button) toggles the patch
+  word LEGATO 0x191; its LED word is not known. Roland's compensation of the DSP's rounding (instruction 91) is not
+  needed on the ARM (integer Q24). Not compiled yet.
+- **BEND RANGE** = EXTEND04 (CC 106 and the patch only, user 2026-11-12; 0–24 semitones, default 2). `engine.c`
+  keeps PITCH BEND (id 0x130, −8192…8191, `cust_bend`); the ARM adds bend × range / 12 octaves to the voice's pitch
+  (both oscillators) every 1 ms. Whether the JP-08's bend also moves its KEY TRACK / key follow (its pitch input) is
+  not read; here it does not. Not compiled yet.
+- **ASSIGN MODE** = the MONO button (user 2026-11-12) [code: the value is kept for the ARM's assigner (`obj + 0x4f4`),
+  no DSP word; names in the image: `POLY1`, `POLY2`, `SOLO`, `UNISON` (0x600c2ca8); the range goes to 4, the fifth has
+  no name]. The SYSTEM-1 keeps MONO in word 0x192, OS range 0–3 (default 1). `model.c` (`ARM_CUSTOM_ASSIGN`): CC 119
+  steps POLY1 → POLY2 → SOLO → UNISON (all notes off at each step), the load reads it from the patch. SOLO: one voice,
+  last note priority, legato (`mono_key`, the MONO_LEGATO code); UNISON: every voice on the note the same way; POLY1
+  and POLY2: the poly assigner (their difference is in the JP-08's assigner, not read: the same here). The MONO LED
+  word is not known. Not compiled yet.
+- **`s1_arm(i)`** (SDK, 2026-11-12): word i (0..3) per voice that the PLUG-OUT's ARM side writes, read by the kernel
+  (DSP B or fused) as an input: s1cc `graph.cpp` / `lower.cpp`, `s1dsp.h`, `s1rt.c` and `s1check.py` (0 in the native
+  reference and the check), SYSTEM-S1CC-BOUTIQUE `make_s1cc.py` (`ARM_USED`: DSP B parameters `P_ARM0 + 8 i + v` =
+  `C0A0..`, after lf / fade; the host copies each used one to a bank-0 word of the voice every sample, as the ARM's
+  envelopes; fused voices on DSP A through bank 5; `P_ARM0` in `s1_programs.h`); the ARM_CUSTOM header writes it with
+  `ramp(P_ARM0 + 8 i + v, q)`. [TEST: SECT_SWITCH needs every wave pair to read the same words; the sine / triangle
+  pairs have no pulse and may not read `s1_arm(0)`]
+- **OSC2 COARSE** (`0x173`) is read by the ARM as signed semitones [TEST: the value the engine gets is assumed to be
+  the signed one the `.PRM` shows].
+- **Converter** `tools/jp08_prm.py`: `JP08_PATCHn.PRM` (the JP-08's reader rules, §13.2) → `PLUGOUT_PATCHn.PRM` for
+  the SYSTEM-1's RESTORE and / or a `KoaBankFile00002` bank for `plugout_tool.py install --bank` (the plugin folder
+  needs a SYSTEM-1 `Script.xml`, e.g. SH-101's: same layout). Checked: a file in the JP-08's format loads, unpadded
+  names give the defaults, a value out of range gives the default; bank and `.PRM` agree in all 112 values
+  (`tools/patches.py`).
+
+```sh
+python3 sdk/s1cc/examples/boutique_ported/tools/jp08_prm.py BACKUP/ --prm RESTORE/ --bank plugins/JP-08-S1W/Patch/1\ JP-08.bin --show
+```
+
+### 13.8 JUPITER-8 banks → our JP-08 (`tools/jupiter8_bank.py`) [2026-11-12]
+
+A **translation**, not a faithful copy: Roland's JUPITER-8 PLUG-OUT (`plugins/JUPITER-8/Patch/*.bin`, the SYSTEM-8's
+engine) has its own scales and curves; the JP-08 models the same instrument, so its controls correspond. The tool reads
+the bank (same 114-value `patch` struct, `tools/patches.py`), maps each value to the JP-08's (the table in the tool's
+docstring: selector meanings from the plugin's `Script.xml` string / number tables — waves SAW, PWM, TRI, SIN, SQR,
+NOISE; ranges 64′…2′; PWM source MAN, LFO, ENV-1 ±, ENV-2 ±; slope −24 / −18 / −12; ASSIGN buttons POLY-1 0, MONO 1,
+UNI 2, POLY-2 3 — and `ScriptEdit.xml` offsets: LFO MOD / ENV MOD −128, SUB RANGE −36, BEND RANGE +1), then writes
+the bank / `.PRM` files through `jp08_prm.py`'s path. Inferred, not read: VCF ENV MOD SOURCE 0 = ENV1 (from the
+presets). Not taken: VCA LEVEL / TONE, effects, LFO KEY TRIG, legato-only portamento, bend / mod sensitivities.
+
+```sh
+python3 sdk/s1cc/examples/boutique_ported/tools/jupiter8_bank.py "1 Preset.bin:1-8" --bank "plugins/JP-08-S1W/Patch/2 JUPITER-8 1-8.bin" --show
+python3 tools/plugout_tool.py install plugins/JP-08-S1W --slot 1 --patches-only --bank "2 JUPITER-8 1-8.bin:1-8" --force -y
+```
+
+2026-11-12: patches 1–8 of `1 Preset.bin` sent to the device (1-1…1-8, over the four test patches), not heard yet.
+The patch transfer itself (`--patches-only`, SYSTEM-1, slot 1 = the PLUG-OUT's patches at `0x8000000`) ran without
+error; whether the SYSTEM-1 keeps them: the user's test.

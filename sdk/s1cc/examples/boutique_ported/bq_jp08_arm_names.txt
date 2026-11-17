@@ -13,6 +13,7 @@ param C060 reso knob
 param C065 envmod knob
 param C066 keyfollow knob
 param C05E hpf knob
+param C061 slope knob
 
 # ---- from sdk/s1cc/examples/boutique_ported/bq_names_host.txt
 # bq_names_host.txt: names for the lifted Boutique voice with the host's envelopes and LFO (make_voice.py --host,

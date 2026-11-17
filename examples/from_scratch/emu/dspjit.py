@@ -213,6 +213,11 @@ def translate(name, prog, decoded, trace=False):
     return '\n'.join(L)
 
 
+def _obj_path(prog, hdr, trace=False):
+    src = translate('PROG', prog, dspcomp.decode_program(prog), trace)
+    return os.path.join(JIT_DIR, 'p_' + hashlib.sha1((hdr + src + ' '.join([CC] + CFLAGS)).encode()).hexdigest()[:16] + '.o')
+
+
 def _object(prog, hdr, trace=False):
     """compile one program to build/jit/p_<hash>.o (cached); returns (function name, path, Popen or None)"""
     src = translate('PROG', prog, dspcomp.decode_program(prog), trace)
@@ -245,6 +250,9 @@ def build(progs, trace=False):
 
     for p in progs:                                      # at most one cc per core
         reap(os.cpu_count() or 4)
+        if any(o == obj for _, o in built for obj in [_obj_path(p, hdr, trace)]):
+            built.append(next(b for b in built if b[1] == _obj_path(p, hdr, trace)))
+            continue                                     # the same program twice (two DSPs): one object
         name, obj, pr = _object(p, hdr, trace)
         built.append((name, obj))
         if pr is not None:

@@ -13,9 +13,10 @@
  *   AMP A D S R    -> s1_env(0) in the cell of Roland's ENV2 (the VCA)
  *   FILTER A D S R -> s1_env(1) in the cell of ENV1 (filter envelope; FILTER ENV AMOUNT is Roland's FLT ENV MOD)
  *   LFO RATE, SHAPE, FADE, TO FILTER: the host's (s1_lfo_filter() is added to the cutoff in octaves).
- *                  bq_arm.c (README.md §13): no host LFO -> PITCH, pitch envelope or LFO -> AMP (LFO_PITCH=0); LFO TO
+ *                  bq_arm.c (README.md §13): no host LFO -> PITCH, pitch envelope (engine.c writes them 0) or LFO -> AMP; LFO TO
  *                  PITCH, PITCH ENV AMOUNT and LFO TO AMP are the JP-08's OSC LFO MOD, OSC ENV MOD, AMP LFO MOD on the ARM
- *   OSC2 COLOR + COLOR MOD -> the pulse width (Roland's PWM x its source): s1_color(1)
+ *   OSC2 COLOR + COLOR MOD -> the pulse width: bq_arm.c (README.md §13.7) s1_arm(0), the JP-08's PWM x its source
+ *                  (MANUAL / LFO / ENV1) made by the ARM; the host builds before it: s1_color(1)
  * The whole voice is one function: SYSTEM-S1CC's fused build places whole voices on DSP A and DSP B. */
 #include <math.h>
 #include "s1dsp.h"
@@ -40,10 +41,10 @@ S1_FIXED_STATES;
    multiply the host's step, computed when the knob moves) */
 S1_PARAM(tune2f, S1_OSC2_FINE, 2) { out[0] = exp2f(jp08_tune2[knob][0]); out[1] = 1.0f / out[0]; }
 /* OSC1 / OSC2 RANGE and the pitch modulation (README.md §13): the ARM (bq_jp08_arm.h arm_custom_pitch) writes the
-   note words: s1_dt / s1_rdt = OSC1's step (note, OSC1 RANGE, LFO x OSC LFO MOD + ENV1 x OSC ENV MOD when OSC FREQ MOD
-   DST includes VCO-1) and s1_pitch = 4.75 + OSC2 over OSC1 in octaves (OSC2 RANGE and its own modulation; 4.75 so
-   that s1cc's profile, which gives the note's pitch, sees A 440 = the same step), as the JP-08 (lifted
-   instructions 211..231). The build has LFO_PITCH=0: no SYSTEM-1 LFO -> PITCH, no pitch envelope */
+   note words: s1_dt / s1_rdt = OSC2's step (note, OSC2 RANGE + COARSE, LFO x OSC LFO MOD + ENV1 x OSC ENV MOD when OSC
+   FREQ MOD DST includes VCO-2) and s1_pitch = 4.75 + OSC1 over OSC2 in octaves (OSC1 RANGE, its own modulation), which
+   OSC1 adds to its CROSS MOD exponent: no exp beyond CROSS MOD's (as the JP-08, lifted instructions 211..231). The
+   host's LFO -> PITCH, pitch envelope and OSC1 RANGE add 0 (engine.c ARM_CUSTOM) */
 
 static inline float bq_in(int a)
 {
@@ -54,7 +55,8 @@ static inline float bq_in(int a)
     case 0xa0f5: return sm_g;                            /* the filter's g (ARM: knobs, FILTER envelope, note, LFO) */
     case 0xa0f6: return sm_amp;                          /* the VCA gain (ARM: Roland's curve of the AMP envelope) */
     case 0xa0f2: return s1_lfo_filter();                  /* in A0F2 lfo_filter: octaves */
-    case 0xa090: return s1_color(1);                      /* in A090 pwm */
+    case 0xa090: return s1_range(s1_arm(0), -1.0f, 1.0f); /* (the reference gives 0: the range declared) in A090 pwm: the ARM's PWM source x PWM / 1.2 (README.md
+                                                            §13.7: MANUAL / LFO / ENV1 as the JP-08, not COLOR MOD) */
     case 0xa0f3: return osc1_out;                         /* in A0F3: OSC1 of the sample before */
     case 0xa0f4: return osc2_out;                         /* in A0F4: OSC2 of the sample before */
     default: return 0.0f;
@@ -96,9 +98,9 @@ S1_DSP_A {
     sm_amp += ARM_SMOOTH * (s1_env(0) - sm_amp);
     jp08_arm_voice();
     float dt = s1_dt(), rdt = s1_rdt(), x = KP(0x4d) * osc2_out;
-    float d2 = s1_pitch() - 4.75f;                        /* the ARM: OSC2 over OSC1 in octaves (range, modulation) */
+    x += s1_pitch() - 4.75f;                              /* the ARM: OSC1 over OSC2 in octaves (range, modulation) */
     float inc1 = dt * s1_exp2(x), rdt1 = rdt * s1_exp2(-x);
-    float inc2 = dt * s1_param(tune2f, 0) * s1_exp2(d2), rdt2 = rdt * s1_param(tune2f, 1) * s1_exp2(-d2);
+    float inc2 = dt * s1_param(tune2f, 0), rdt2 = rdt * s1_param(tune2f, 1);
     /* the waveform pair of this program: BQ_OSC1 / BQ_OSC2 = the JP-08's OSC1 / OSC2 WAVE position (Roland's program
        of that position, README.md §12); one program per pair (waves/*.c), the PLUG-OUT changes the program when a
        WAVE knob moves (SYSTEM-S1CC-BOUTIQUE build_multi.sh SECT_SWITCH). Default: OSC1 saw (2), OSC2 pulse (2) */
@@ -131,5 +133,5 @@ S1_DSP_A {
 
 S1_DSP_B { return x; }
 
-S1_BUILD("NAME=JP-08-S1A MIX=0 LFO_PITCH=0 ARM_CUSTOM=sdk/s1cc/examples/boutique_ported/bq_jp08_arm.h PANEL=sdk/s1cc/examples/boutique_ported/bq_arm.panel");
+S1_BUILD("NAME=JP-08-S1A MIX=0 ARM_CUSTOM=sdk/s1cc/examples/boutique_ported/bq_jp08_arm.h PANEL=sdk/s1cc/examples/boutique_ported/bq_arm.panel");
 S1_COMPILE("--regs 0,1,2,3,4,5,6,7");

@@ -1,0 +1,214 @@
+# jx3p_voice_names.txt: names for jx3p_voice, written by sdk/s1cc/tools/dsplift_names.py (step 1; dsplift.py --kernel --names jx3p_voice_names.txt is
+# step 2). The seed files below, then the cells named automatically. Running dsplift_names.py again
+# overwrites this file: corrections that should stay go into the seed files.
+
+# ---- from work/jx3p/params.txt
+# written by tools/make_voice.py from work/jx3p/jx_arm.json
+param C026 dco_lfo_mod knob
+param C03C dco_lfo_mod_1 knob
+param C126 vcf_lfo_mod knob
+param C138 vcf_lfo_mod_1 knob
+in A02A dco1_waveform
+in A038 dco1_waveform_1
+param C028 dco1_freq_mod knob
+param C02A dco1_freq_mod_1 knob
+param C03E dco1_freq_mod_2 knob
+param C040 dco1_freq_mod_3 knob
+in A026 dco1_range
+in A034 dco1_range_1
+in A02B dco2_waveform
+in A039 dco2_waveform_1
+param C029 dco2_freq_mod knob
+param C02B dco2_freq_mod_1 knob
+param C03F dco2_freq_mod_2 knob
+param C041 dco2_freq_mod_3 knob
+in A027 dco2_range
+in A035 dco2_range_1
+param C021 dco2_fine_tune knob
+param C037 dco2_fine_tune_1 knob
+in A022 dco2_cross_mod
+in A028 dco2_cross_mod_1
+in A029 dco2_cross_mod_2
+in A030 dco2_cross_mod_3
+in A036 dco2_cross_mod_4
+in A037 dco2_cross_mod_5
+param C020 dco2_tune knob
+param C036 dco2_tune_1 knob
+param C034 dco1_level knob
+param C04A dco1_level_1 knob
+param C035 dco2_level knob
+param C04B dco2_level_1 knob
+in A02D dco_env1_mod
+in A03B dco_env1_mod_1
+param C027 dco_env1_mod_2 knob
+param C03D dco_env1_mod_3 knob
+param C120 vcf_cutoff_freq knob
+param C132 vcf_cutoff_freq_1 knob
+param C121 vcf_resonance knob
+param C133 vcf_resonance_1 knob
+param C148 hpf_cutoff knob
+in A066 vcf_env1_mod
+in A075 vcf_env1_mod_1
+param C127 vcf_env1_mod_2 knob
+param C139 vcf_env1_mod_3 knob
+param C128 vcf_pitch_follow knob
+param C13A vcf_pitch_follow_1 knob
+param C12D brilliance knob
+param C13F brilliance_1 knob
+param C149 effect_level knob
+param C2F0 effect_level_1 knob
+in A032 assign_mode
+in A033 assign_mode_1
+param C14B vca_level knob
+
+# ---- from sdk/s1cc/examples/jx3p_ported/jx3p_names.txt
+# jx3p_names.txt: hand-written seeds for the lifted JX-3P voice (dsplift.py --names, README.md §2). tools/make_voice.py
+# step 1 adds the panel's parameter names (work/jx3p/params.txt, from tools/jx_arm.py) and dsplift_names.py's automatic
+# cell names -> jx3p_*_names.txt; step 2 (the lift) only reads those.
+#
+# MAIN0's words for voice A (MXM 8405..8416 -> A0A5..A0B6; examples/from_scratch/re: dsprun of MAIN0, README.md §3)
+in A0A5 lfo
+in A0A6 lfo_half
+in A0A7 note_pitch
+in A0A8 pitch_offset
+in A0A9 gate_word
+in A0AA env1
+in A0AB env2
+in A0B3 iomd_60e0
+in A0B4 iomd_60e2
+# the core voice's inputs (make_voice.py CORE_CELLS): our oscillators and the ARM's values
+in A0C0 dco1_out
+in A0C1 dco1_sync
+in A0C2 dco2_out
+in A0C3 dco2_sync
+in A0C4 filter_g
+in A0C5 vca_in
+# a DCO program alone (make_voice.py DCO_IN)
+in A0D0 dco_pitch
+in A0D1 dco_word1
+in A0D2 dco_word2
+in A0D3 dco_word3
+in A0D4 dco_wave
+unused A1D7 A1D8 A1D9 A1E0 A1E1 A1E2 A1E3 A1E4 A1E5 A1E6 A1E7 A1E8 A1E9 A1EA A1EB A1EC A1ED A1EE A1EF A1F4 A1F5 A1F6 A1F7
+const A0F8-A0FB 0
+
+# ---- jx3p_voice: 119 cells named by dsplift_c.auto_names (GROUP_ROLE, dsplift.md §6.4)
+cell 03c dco1
+cell 095 dco
+cell 096 dco_2
+cell 098 cell
+cell 09c cell_2
+cell 09d cell_prev
+cell 09f dco_3
+cell 0a0 dco_4
+cell 0a1 cell_3
+cell 0a9 dco_5
+cell 0aa dco2
+cell 0b4 dco_6
+cell 0b5 dco2_2
+cell 0b6 dco1_prev
+cell 101 dco_exp
+cell 103 dco_recip
+cell 106 dco_7
+cell 108 dco_8
+cell 10a dco_8_prev
+cell 10b dco_8_prev_prev
+cell 10c dco_9
+cell 10d dco_10
+cell 10f dco_11
+cell 110 dco_12
+cell 111 dco_13
+cell 112 dco_14
+cell 113 dco_14_prev
+cell 114 dco_13_prev
+cell 115 dco_14_prev2
+cell 116 dco_14_prev3
+cell 11d dco_15
+cell 11e dco_state
+cell 120 dco_16
+cell 128 dco_17
+cell 130 dco_18
+cell 138 dco_19
+cell 140 dco_20
+cell 1a1 dco2_exp
+cell 1a3 dco2_recip
+cell 1a5 dco_2_prev
+cell 1a6 dco2_3
+cell 1a8 dco2_4
+cell 1aa dco2_4_prev
+cell 1ab dco2_4_prev_prev
+cell 1ac dco2_5
+cell 1ad dco2_6
+cell 1af dco2_7
+cell 1b0 dco2_8
+cell 1b1 dco2_9
+cell 1b2 dco2_10
+cell 1b3 dco2_10_prev
+cell 1b4 dco2_9_prev
+cell 1b5 dco2_10_prev2
+cell 1b6 dco2_10_prev3
+cell 1bd dco2_11
+cell 1be dco2_state
+cell 1c0 dco2_12
+cell 1c8 dco2_13
+cell 1d0 dco2_14
+cell 1d8 dco2_15
+cell 1e0 dco2_16
+cell 247 in
+cell 249 in_2
+cell 24f vcf
+cell 252 lp
+cell 254 cell_4
+cell 257 cell_5
+cell 258 lp_prev
+cell 259 in_2_prev
+cell 25b vcf_2
+cell 25c vcf_state
+cell 25e vcf_state_prev
+cell 25f brilliance_2
+cell 260 vcf_3
+cell 267 brilliance_2_prev
+cell 268 brilliance_3
+cell 269 brilliance_state
+cell 26a brilliance_state_2
+cell 26b brilliance_state_3
+cell 26c brilliance_state_4
+cell 26d brilliance_4
+cell 271 brilliance_state_4_prev
+cell 278 brilliance_5
+cell 27f cell_6
+cell 281 cell_6_prev
+cell 282 state
+cell 283 state_2
+cell 286 state_3
+cell 288 brilliance_in
+cell 28e brilliance_6
+cell 290 brilliance_state_5
+cell 293 brilliance_5_prev
+cell 294 brilliance_state_6
+cell 296 brilliance_7
+cell 297 brilliance_7_prev
+cell 298 brilliance_state_7
+cell 299 brilliance_state_8
+cell 29b brilliance_8
+cell 29c brilliance_9
+cell 29d brilliance_10
+cell 29e in_prev
+cell 2a0 in_2_prev2
+cell 2b0 in_2_prev3
+cell 601 dco_5_prev
+cell 607 dco2_prev
+cell 60b dco_2_prev2
+cell 61b dco_7_prev
+cell 61d dco2_3_prev
+cell 61f dco_20_prev
+cell 621 dco2_16_prev
+cell 70e in_3
+cell 70f in_4
+cell 710 in_5
+cell 711 in_6
+cell 712 in_7
+cell 713 in_8
+cell 714 in_9
+cell 71c dco1_in
+cell 71e brilliance_10_prev

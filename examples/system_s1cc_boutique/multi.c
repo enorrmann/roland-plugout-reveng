@@ -15,6 +15,9 @@
  * states); kernels whose state can grow without bound would need a reset there (open, §9). */
 #include <stdint.h>
 #include "syninfo.h"
+#ifndef RELOAD_KEEP_SECT_TEST
+#define RELOAD_KEEP_SECT_TEST 1                         /* engine.c */
+#endif
 #include "multi_map.h"     /* build_multi.sh: NK, the k<i>_engine declarations, kmap[6] = engine index per position */
 
 #define WAVE_ID 0x167                                   /* OSC1 WAVE, selector 0..5 (s1panel.h S1_OSC1_WAVE) */
@@ -36,10 +39,12 @@ static int active, loaded, wave1, wave2;
 static int placed;                                      /* SECT_SWITCH: the kernel whose sections are on the DSPs */
 static int wanted;                                      /* SECT_SWITCH: the pair the WAVE knobs ask for */
 static int pending;                                     /* SECT_SWITCH: a WAVE value came with flag != 0 */
+static int just_loaded;                                 /* SECT_SWITCH: the refresh right after a load */
 static int16_t last_val[0x100];                         /* control ids 0x100..0x1FF: last value, -1 = none yet */
 static int8_t last_flag[0x100];
 
 static sub_t *cur(void) { return subs[active]; }
+static void select_kernel(int k);
 
 static void m_init(multi_t *m)                                   /* vt+0x00 */
 {
@@ -77,13 +82,30 @@ static int m_deinit(multi_t *m)                                  /* vt+0x04 */
 static void m_load(multi_t *m)                                   /* vt+0x08 */
 {
     (void)m;
+    int again = loaded;                                 /* a reload (a patch button) since the last deinit */
+#ifdef SECT_SWITCH
+    just_loaded = 1;
+#endif
     ((v_fn)cur()->vt[2])(cur());
     loaded = 1;
 #ifdef SECT_SWITCH
-    placed = 0;          /* load placed k0's sections. Never FC40 here: FC40 waits for the DSP, which is not running
-                            yet during load (JP-08-S1W, 2026-11-12: FC40 from load hung the device at every select);
+    if (!(RELOAD_KEEP_SECT_TEST && again))              /* engine.c RELOAD_KEEP_SECT_TEST: the placed pair stays */
+        placed = 0;
+    else {
+        /* a reload (a patch button: OS 0x60003e3a, no param follows): the patch's pair, read back as Roland's refresh
+           reads its ids, placed now if it is not the one on the DSPs. FC40 in a reload ran on the device (every
+           build of 2026-11-17 placed k0's sections there, no hang); at the PLUG-OUT's selection it hung
+           (JP-08-S1W), so a first load keeps the deferred path (m_fwd9) */
+        int w1 = ((int (*)(int, int))SVC(0x00))(3, WAVE_ID), w2 = ((int (*)(int, int))SVC(0x00))(3, WAVE2_ID);
+        wave1 = w1 < 0 ? 0 : w1 > 5 ? 5 : w1;
+        wave2 = w2 < 0 ? 0 : w2 > 5 ? 5 : w2;
+        select_kernel(kmap2[wave1][wave2]);
+        pending = 0;
+    }
+                         /* a first load placed k0's sections. No other FC40 then: FC40 waits for the DSP, which is not
+                            running yet during that load (JP-08-S1W, 2026-11-12: FC40 from load hung the device at every select);
                             the wanted pair is placed at the next WAVE value with flag 0 (the path measured on
-                            JP-08-WTEST4): until a WAVE knob moves, k0's pair sounds */
+                            JP-08-WTEST4) or at the first held note (m_fwd9's read-back, pending) */
 #endif
 }
 
@@ -164,6 +186,18 @@ static int m_fwd9(multi_t *m, int a, int b, int c)              /* vt+0x24 refre
 {
     (void)m;
     int r = ((fwd_fn)cur()->vt[9])(cur(), a, b, c);
+    /* the WAVE selectors read back as Roland's refresh reads its ids (README §7 of jx3p_ported, 2026-11-17): a patch
+       change hands no param, only load + refresh(0): a reload places the pair in m_load; after the PLUG-OUT's
+       selection it goes the pending path below (at a held note, never in the refresh right after a load) */
+    int w1 = ((get_fn)SVC(0x00))(3, WAVE_ID), w2 = ((get_fn)SVC(0x00))(3, WAVE2_ID);
+    wave1 = w1 < 0 ? 0 : w1 > 5 ? 5 : w1;
+    wave2 = w2 < 0 ? 0 : w2 > 5 ? 5 : w2;
+    if (kmap2[wave1][wave2] != placed)
+        pending = 1;
+    if (just_loaded) {
+        just_loaded = 0;
+        return r;
+    }
     if (pending && loaded) {                            /* a WAVE value with flag != 0: placed at a note on, when the
                                                            DSPs surely run (never in load: FC40 waits for the DSP) */
         for (int v = 0; v < 8; v++)
