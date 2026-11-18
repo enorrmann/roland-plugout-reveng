@@ -11,18 +11,15 @@ Sources (no hand-picked value):
                           constants of the words no panel parameter moves: C130 = 0.93, A025 = 8.3e-5, ...)
   jx3p_voice.h            the formulas (lifted MAIN2 instructions 38..74, MAIN4 881..969), cited where used
 
-The panel (README.md §3.2): SYSTEM-1 control -> JX-3P parameter (row of jx_arm.json):
-  FILTER CUTOFF 0x17D -> VCF CUTOFF FREQ (C120)    RESONANCE 0x17F -> VCF RESONANCE (C121)
-  FILTER ENV AMOUNT 0x181 (bipolar) -> VCF ENV1 MOD (C127, A066 polarity), the same row
-  LFO TO FILTER 0x164 -> VCF LFO MOD (C126), LFO TO PITCH 0x163 -> DCO LFO MOD (C026): bipolar, the rows as they are
-      (the SYSTEM-1's LFO depths are bipolar, 128 = 0: examples/system_1_synth/README.md §11)
-  KEY TRACK 0x186 -> VCF PITCH FOLLOW (C128): the S1 knob is unipolar, Roland's row bipolar: knob k -> row 128 + k / 2
-  BRILLIANCE (C12D): no control (the default patch's 0); AMP TONE is not the filter
-  PITCH ENV AMOUNT 0x17A (bipolar) -> DCO ENV1 MOD (C027, A02D)
-  OSC1 / OSC2 RANGE 0x16A / 0x16F -> DCO1 / DCO2 RANGE (rows 0..5: -3..+2 octaves, 64' .. 2')
-  OSC2 FINE 0x170 -> DCO2 FINE TUNE (C021)         OSC2 COARSE 0x173 (semitones) -> DCO2 TUNE (C020, 0..1 octave)
-  OSC1 / OSC2 COLOR MOD 0x169 / 0x16E -> DCO1 / DCO2 FREQ MOD (README.md §3.2: the positions' order)
-  OSC1 / OSC2 MIX 0x174 / 0x175 -> DCO1 / DCO2 LEVEL (C034 / C035, kernel tables)
+The patch words (README.md §3.2): Roland's one patch layout of every PLUG-OUT on both synths (word 0x160 + k is the
+same panel control on the SYSTEM-1 and the SYSTEM-8), read with the JX-3P's values as Roland's engine reads them,
+so Roland's banks need no conversion (2026-11-17). Rows of jx_arm.json:
+  0x17D VCF CUTOFF FREQ (C120), 0x17F VCF RESONANCE (C121), 0x181 VCF ENV1 MOD (C127, A066), 0x186 VCF PITCH FOLLOW
+  (C128), 0x164 VCF LFO MOD (C126), 0x18B BRILLIANCE (C12D), 0x163 DCO LFO MOD (C026), 0x17A DCO ENV1 MOD (C027,
+  A02D), 0x16A / 0x16F DCO1 / DCO2 RANGE (A026 / A027), 0x170 DCO2 FINE TUNE (C021), 0x173 DCO2 TUNE (C020),
+  0x169 / 0x16E DCO1 / DCO2 FREQ MOD (C028 / C02A: 0 off, 1 LFO, 2 ENV, >= 3 both), 0x174 / 0x175 DCO1 / DCO2 LEVEL
+  (kernel tables), 0x19C VCA LEVEL, 0x193 BEND RANGE; the extended block: 0x1C9 VCA MODE, 0x1CB BEND GAIN,
+  0x1CC / 0x1CD BEND SENS DCO / VCF, 0x1CE / 0x1CF MOD SENS DCO / VCF
 """
 import json
 import math
@@ -41,7 +38,7 @@ U0, ULO, UHI = -3.0, -3.0, 11.5    # u limited to -3 .. 11.5 (instructions 935..
 LOG2_STEP = math.log2(440.0 / 96000.0) - 4.75      # dt = 2^(pitch + LOG2_STEP): 4.75 = A 440, phase 0..1
 # OSC1 / OSC2 COLOR MOD position -> FREQ MOD (bit 0 LFO, bit 1 ENV): MANUAL both (the knobs LFO TO PITCH and PITCH ENV
 # AMOUNT work at once), LFO, PITCH ENV / FILTER ENV / AMP ENV = ENV, SUB OSC = off (README.md §3.2)
-FMOD = [3, 1, 2, 2, 2, 0]
+FMOD = [0, 1, 2, 3, 3, 3]   # DCO1 / DCO2 FREQ MOD 0 off, 1 LFO, 2 ENV, >= 3 both (Roland's rows 0x6d6: C028, C02A)
 
 
 def q(x):
@@ -55,11 +52,6 @@ def rows(J, pid, key):
         last = last if v is None else v
         out.append(last)
     return out
-
-
-def uni(r):
-    """a unipolar knob k on a bipolar row (centre 128): row 128 + k / 2"""
-    return [r[min(128 + (k + 1) // 2, 255)] for k in range(256)]
 
 
 def arr(name, vals, per=8, ty='int32_t'):
@@ -141,7 +133,7 @@ def main():
     bril = [q(x) for x in rows(J, '0x6f8', '4:C:02d')]                              # 934: + BRILLIANCE (C12D)
     envm = [q(x) for x in rows(J, '0x6ee', '4:C:027')]                              # 916
     envp = [int(x) for x in rows(J, '0x6ee', '4:A:026')]
-    kf = [q(x) for x in uni(rows(J, '0x6f3', '4:C:028'))]                           # 918
+    kf = [q(x) for x in rows(J, '0x6f3', '4:C:028')]                                # 918 (bipolar, Roland's word)
     lfof = [q(x) for x in rows(J, '0x6d1', '4:C:026')]                              # 918 (bipolar, as the S1 knob)
     lfop = [q(x) for x in rows(J, '0x6d0', '2:C:026')]                              # 50 (bipolar, as the S1 knob)
     denv = [q(x) for x in rows(J, '0x6e7', '2:C:027')]                              # 50
@@ -151,36 +143,41 @@ def main():
     rng2 = [q(x) for x in rows(J, '0x6dc', '2:A:027')[:6]]                          # 65
     tune = rows(J, '0x6e0', '2:C:020')                                              # 0..1 octave: k / 127
     assert abs(tune[127] - 1.0) < 1e-6 and abs(tune[64] - 64 / 127) < 1e-5
+    tuneq = [q(x) for x in tune]                                                    # DCO2 TUNE (0x173) row, octaves
     g = [q(g_of(U0 + i / 64.0)) for i in range(NU + 1)]
     mant = [int(round((2.0 ** (i / 1024.0) - 1.0) * (1 << 23))) for i in range(1025)]
     d = J['params']
     dflt = lambda pid: d[pid]['default']
-    init = [dflt('0x6ea'), dflt('0x6ec'), dflt('0x6ee'), 0, dflt('0x6d1'), dflt('0x6f8'), dflt('0x6d0'), dflt('0x6e7'), dflt('0x6d7'),
-            dflt('0x6dc'), dflt('0x6dd'), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]                  # EXTEND: 0 = the default
+    init = [dflt('0x6ea'), dflt('0x6ec'), dflt('0x6ee'), dflt('0x6f3'), dflt('0x6d1'), dflt('0x6f8'), dflt('0x6d0'), dflt('0x6e7'), dflt('0x6d7'),
+            dflt('0x6dc'), dflt('0x6dd'), (dflt('0x6e0') - 11) & 255, 0, 0, 1, dflt('0x709'), dflt('0x700'), 0, 255, 255, 128, 128]
+    # 11 DCO2 TUNE: the patch holds word 0x173 (the SYSTEM-1's OSC2 COARSE) as the bank's value - 11 (Roland's SH-101
+    # image, the .PRM; PARAMLOG 2026-11-18: 117 for String 1's 128), the ARM adds 11 back; the OS's range of that word is
+    # widened to -11..244 while the PLUG-OUT is selected (model.c / engine.c coarse_wide); the engine reads it from
+    # EXTEND30 0x1D5, where model.c coarse_copy puts it (the slave still cut 0x173), 12 / 13 FREQ MOD, 14 VCA MODE (Script.xml default 1), 15 VCA LEVEL, 16 BEND RANGE, 17 BEND GAIN,
+    # 18 / 19 BEND SENS DCO / VCF, 20 / 21 MOD SENS DCO / VCF (Script.xml defaults)
 
     a = ['/* jx3p_arm.h: the JX-3P voice\'s per-voice values on the ARM (SYSTEM-S1CC-BOUTIQUE ARM_CUSTOM, README.md §3).',
          '   Written by sdk/s1cc/examples/jx3p_ported/tools/make_arm.py; do not edit. */', '',
          '#ifdef ARM_CUSTOM_CC_TABLE',
          '#define ARM_CUSTOM_XMOD 1     /* model.c: OSC2 SYNC / RING buttons = DCO2 CROSS MOD off / SYNC / METAL (§4.3) */',
-         '/* model.c (region 0): MIDI CC -> PLUGOUT_EXTEND word, stored as (value - default) & 0xFF (README.md §3.6): the',
-         '   JX-3P parameters with no SYSTEM-1 control. These CCs take precedence over the test map (model.c cc_panel) */',
+         '#define ARM_CUSTOM_XMOD_WORD 1 /* ... in one word, 0x172 = 0 / 1 / 2, as Roland\'s patch (§4.3) */',
+         '/* model.c (region 0): MIDI CC -> the patch word of a JX-3P parameter with no SYSTEM-1 control, Roland\'s value',
+         '   (def 0: model.c stores (value - def) & 0xFF). These CCs take precedence over the test map (model.c cc_panel) */',
          'static const struct { uint8_t cc; uint16_t id; uint8_t steps, max, def; } arm_custom_cc[] = {',
-         '    { 109, 0x1B8, 3, 2, 1 },     /* EXTEND01: VCA MODE 0 ENV-1, 1 ENV-2, 2 GATE (default 1) */',
-         '    { 110, 0x1B9, 0, 255, 128 }, /* EXTEND02: VCA LEVEL (default 128) */',
+         '    { 109, 0x1C9, 3, 2, 0 },     /* EXTEND18: VCA MODE 0 ENV-1, 1 ENV-2, 2 GATE */',
+         '    { 110, 0x19C, 0, 255, 0 },   /* VCA LEVEL (the patch word of PAT_LEV) */',
          '};',
          '#else',
          '#define ARM_CUSTOM_NK 22',
-         '#define ARM_EXT(k, def) ((uint8_t)((k) + (def)))      /* EXTEND word -> the JX-3P value */',
-         '/* 0 FILTER CUTOFF, 1 RESONANCE, 2 FILTER ENV AMOUNT, 3 KEY TRACK, 4 LFO TO FILTER, 5 BRILLIANCE on AMP TONE',
-         '   (bipolar 0..255, 128 = 0, as BRILLIANCE; user choice 2026-11-17),',
-         '   6 LFO TO PITCH, 7 PITCH ENV AMOUNT, 8 OSC1 RANGE, 9 OSC2 RANGE, 10 OSC2 FINE, 11 OSC2 COARSE,',
-         '   12 OSC1 COLOR MOD, 13 OSC2 COLOR MOD (DCO1 / DCO2 FREQ MOD), 14 EXTEND01 VCA MODE, 15 EXTEND02 VCA LEVEL,',
-         '   16 EXTEND03 BEND RANGE, 17 EXTEND04 BEND GAIN, 18 EXTEND05 BEND SENS DCO, 19 EXTEND06 BEND SENS VCF,',
-         '   20 EXTEND07 MOD SENS DCO, 21 EXTEND08 MOD SENS VCF (README.md §3.7) */',
+         '/* the patch words of Roland\'s JX-3P patch (the one layout of every PLUG-OUT on both synths, README.md §3.2),',
+         '   Roland\'s values: 0 VCF CUTOFF FREQ, 1 RESONANCE, 2 VCF ENV1 MOD, 3 VCF PITCH FOLLOW, 4 VCF LFO MOD, 5 BRILLIANCE,',
+         '   6 DCO LFO MOD, 7 DCO ENV1 MOD, 8 DCO1 RANGE, 9 DCO2 RANGE, 10 DCO2 FINE TUNE, 11 DCO2 TUNE, 12 DCO1 FREQ MOD,',
+         '   13 DCO2 FREQ MOD, 14 VCA MODE (EXTEND18), 15 VCA LEVEL, 16 BEND RANGE, 17 BEND GAIN (EXTEND20), 18 / 19 BEND',
+         '   SENS DCO / VCF (EXTEND21 / 22), 20 / 21 MOD SENS DCO / VCF (EXTEND23 / 24) (README.md §3.7) */',
          'static const uint16_t arm_custom_id[ARM_CUSTOM_NK] = { 0x17D, 0x17F, 0x181, 0x186, 0x164, 0x18B, 0x163,',
-         '                                                        0x17A, 0x16A, 0x16F, 0x170, 0x173, 0x169, 0x16E,',
-         '                                                        0x1B8, 0x1B9, 0x1BA, 0x1BB, 0x1BC, 0x1BD, 0x1BE,',
-         '                                                        0x1BF };',
+         '                                                        0x17A, 0x16A, 0x16F, 0x170, 0x1D5, 0x169, 0x16E,',
+         '                                                        0x1C9, 0x19C, 0x193, 0x1CB, 0x1CC, 0x1CD, 0x1CE,',
+         '                                                        0x1CF };',
          '/* the JX-3P defaults (jx_arm.json), as SYSTEM-1 knob values */',
          '#define ARM_CUSTOM_INIT { %s }' % ', '.join(str(x) for x in init),
          '#define ARM_U0 %d                 /* the g table: u from U0 (Q24), steps of 2^-%d (1/64 octave) */' % (q(U0), 24 - USH),
@@ -200,7 +197,7 @@ def main():
     a.append(arr('arm_vlev', [q(x / vl[128]) for x in vl]))
     a.append(arr('arm_base', base) + arr('arm_rterm', rterm) + arr('arm_bril', bril) + arr('arm_envm', envm)
              + arr('arm_envp', envp, 32, 'uint8_t') + arr('arm_kf', kf) + arr('arm_lfof', lfof) + arr('arm_lfop', lfop)
-             + arr('arm_denv', denv) + arr('arm_dpol', dpol, 32, 'uint8_t') + arr('arm_fine', fine)
+             + arr('arm_denv', denv) + arr('arm_dpol', dpol, 32, 'uint8_t') + arr('arm_fine', fine) + arr('arm_tune', tuneq)
              + arr('arm_rng1', rng1) + arr('arm_rng2', rng2)
              + arr('arm_fmod', FMOD, 6, 'uint8_t') + arr('arm_g', g) + arr('arm_mant', mant))
     # the envelopes (MAIN0 instructions 155..253, README.md §3.4): ENV1 and ENV2 have the same rows (checked)
@@ -243,7 +240,7 @@ def vectors(J, P, B):
     R = lambda pid, key: rows(J, pid, key)
     cut, reso, bril = R('0x6ea', '4:C:020'), R('0x6ec', '4:C:021'), R('0x6f8', '4:C:02d')
     envm, envp = R('0x6ee', '4:C:027'), R('0x6ee', '4:A:026')
-    kf, lfof, lfop = uni(R('0x6f3', '4:C:028')), R('0x6d1', '4:C:026'), R('0x6d0', '2:C:026')
+    kf, lfof, lfop = R('0x6f3', '4:C:028'), R('0x6d1', '4:C:026'), R('0x6d0', '2:C:026')
     denv, dpol, fine = R('0x6e7', '2:C:027'), R('0x6e7', '2:A:02d'), R('0x6dd', '2:C:021')
     rng1, rng2 = R('0x6d7', '2:A:026'), R('0x6dc', '2:A:027')
     out = []
@@ -252,7 +249,7 @@ def vectors(J, P, B):
     cases = [[255, 0, 128, 0, 0, 128, 0, 128, 3, 3, 128, 0, 0, 0, 60, 0.0, 0.0, 0, 0, 2, 0, 255, 255, 128, 128]]
     for i in range(60):
         k = [rnd.randrange(256) for _ in range(8)] + [rnd.randrange(6), rnd.randrange(6), rnd.randrange(256),
-                                                      rnd.randrange(13), rnd.randrange(6), rnd.randrange(6)]
+                                                      rnd.randrange(256), rnd.randrange(6), rnd.randrange(6)]
         bm = ([0, 0, 2, 0, 255, 255, 128, 128] if i < 20 else
               [rnd.randrange(-8192, 8193), rnd.randrange(128), rnd.randrange(24), rnd.randrange(4)]
               + [rnd.randrange(256) for _ in range(4)])
@@ -267,14 +264,16 @@ def vectors(J, P, B):
         f1, f2 = FMOD[k[12]], FMOD[k[13]]
         w.update({0xC120: cut[k[0]], 0xC121: reso[k[1]], 0xC127: envm[k[2]], 0xA066: envp[k[2]], 0xC128: kf[k[3]],
                   0xC126: lfof[k[4]], 0xC12D: bril[k[5]], 0xC026: lfop[k[6]], 0xC027: denv[k[7]], 0xA02D: dpol[k[7]],
-                  0xA026: rng1[k[8]], 0xA027: rng2[k[9]], 0xC021: fine[k[10]], 0xC020: k[11] / 12.0,
+                  0xA026: rng1[k[8]], 0xA027: rng2[k[9]], 0xC021: fine[k[10]], 0xC020: R('0x6e0', '2:C:020')[k[11]],
                   0xC028: f1 & 1, 0xC02A: f1 >> 1, 0xC029: f2 & 1, 0xC02B: f2 >> 1,
                   0xA0A5: lf, 0xA0A7: (note - 12) / 12.0, 0xA0AA: e1})
         bw, mw, bs = bend / 8192.0, mod / 127.0, (brange + 1) / 12.0 * (bgain + 1)     # the engine's words (§3.7)
         w.update({0xC022: bw, 0xC023: sd / 255.0 * bs, 0xC024: mw, 0xC025: md / 255.0, 0xA0A6: lf,
                   0xC122: bw, 0xC123: sv / 255.0 * bs, 0xC124: mw, 0xC125: mv / 255.0 * 10})
-        ext = [(brange - 2) & 255, bgain, (sd - 255) & 255, (sv - 255) & 255, (md - 128) & 255, (mv - 128) & 255]
-        out.append('K ' + ' '.join(str(x) for x in k) + ' %d %d %d %d %d ' % (note, q(e1), q(lf), bend, mod)
+        ext = [brange, bgain, sd, sv, md, mv]                                          # Roland's values (raw)
+        kk = list(k)
+        kk[11] = (k[11] - 11) & 255                                                      # word 0x173 as the S1 holds it
+        out.append('K ' + ' '.join(str(x) for x in kk) + ' %d %d %d %d %d ' % (note, q(e1), q(lf), bend, mod)
                    + ' '.join(str(x) for x in ext))
         out += ['W %04x %.9g' % (a, v) for a, v in sorted(w.items()) if v]
         out.append('E')
@@ -285,7 +284,7 @@ def vectors(J, P, B):
 
 # SYSTEM-1 LFO SHAPE (0 sine, 1 triangle, 2 saw, 3 square, 4 sample & glide, 5 sample & hold) -> the JX-3P's LFO
 # WAVEFORM (0 SINE, 1 SQUARE, 2 RANDOM): a panel choice (README.md §3.5)
-JL_WAVE = [0, 0, 0, 1, 2, 2]
+JL_WAVE = [0, 1, 2, 2, 2, 2]   # LFO WAVEFORM 0 SINE, 1 SQUARE, >= 2 RANDOM (Roland's rows 0x6cd: C02C..C02E)
 
 ARM_LFO_C = r'''
 /* the JX-3P's LFO (MAIN0 instructions 66..147, README.md §3.5): one for all voices. Phase -1..1 (uint32, 2^32 = span 2)
@@ -449,7 +448,7 @@ static int32_t arm_stretch(int32_t t)
     return t > (10 << 24) ? (10 << 24) : t < -(4 << 24) ? -(4 << 24) : t;
 }
 /* the DCO pitches (instructions 38..74): note (n - 12) / 12 (+ ARM_S1_OCT), + A024 / A025, + RANGE, DCO2 + TUNE + FINE TUNE, + the
-   modulation by FREQ MOD (OSC2 COARSE semitones s -> TUNE s / 12 octave, on the line of Roland's rows k / 127): LFO x DCO LFO MOD, ENV1 term x DCO ENV1 MOD (env x m (1 - 2 pol) + m pol); bend and
+   modulation by FREQ MOD: LFO x DCO LFO MOD, ENV1 term x DCO ENV1 MOD (env x m (1 - 2 pol) + m pol); bend and
    modulation (jx_bend / jx_mod, below). Writes s1_dt / s1_rdt = DCO1's step and its inverse
    (/ 16384), s1_pitch = DCO2's step (a float word: exact at any distance from DCO1) and s1_arm(0) = dt1 / dt2 / 256
    (Q24, DCO2 within 8 octaves of DCO1: only the width of DCO2's BLEP, rd2 = rd1 x 256 s1_arm(0)). The kernel gives
@@ -464,7 +463,7 @@ static int32_t arm_stretch(int32_t t)
 static int32_t jx_bend(const uint8_t *k, int sens)     /* the lever word x the sensitivity word, Q24 */
 {
     int b = cust_bend < -8192 ? -8192 : cust_bend > 8192 ? 8192 : cust_bend;
-    int32_t w = sens * (ARM_EXT(k[16], 2) + 1) * ((ARM_EXT(k[17], 0) & 3) + 1);   /* <= 255 x 24 x 4 */
+    int32_t w = sens * (k[16] + 1) * ((k[17] & 3) + 1);   /* <= 255 x 24 x 4 */
     return (int32_t)(((int64_t)(b * w) * 11228673) >> 24);  /* x Q1 / (8192 x 255 x 12) = x 2048 / 3060 */
 }
 static int32_t jx_mod(int32_t raw, int sens, int x)    /* A0A6 x mod / 127 x sens / 255 x x, Q24 */
@@ -476,16 +475,14 @@ static int32_t jx_mod(int32_t raw, int sens, int x)    /* A0A6 x mod / 127 x sen
 static void arm_custom_pitch(int v, int32_t e1, int32_t lf, int note, const uint8_t *k)
 {
     lf = jl_lfo(v);                                    /* the JX-3P's LFO (§3.5), not the host's */
-    int32_t n = (int32_t)(((note & 127) - 12) * 1398101) + ARM_S1_OCT + jx_bend(k, ARM_EXT(k[18], 255))
-                + jx_mod(jl_raw(), ARM_EXT(k[20], 128), 1);
+    int32_t n = (int32_t)(((note & 127) - 12) * 1398101) + ARM_S1_OCT + jx_bend(k, k[18])
+                + jx_mod(jl_raw(), k[20], 1);
     int32_t pl = qmul(lf, arm_lfop[k[6]]);
     int32_t m = arm_denv[k[7]], pe = arm_dpol[k[7]] ? m - qmul(e1, m) : qmul(e1, m);
     int f1 = arm_fmod[k[12] > 5 ? 5 : k[12]], f2 = arm_fmod[k[13] > 5 ? 5 : k[13]];
     int r1 = k[8] > 5 ? 5 : k[8], r2 = k[9] > 5 ? 5 : k[9];
-    int c2 = (int8_t)k[11];
-    c2 = c2 < 0 ? 0 : c2 > 12 ? 12 : c2;
     int32_t o1 = n + ARM_A024 + arm_rng1[r1] + ((f1 & 1) ? pl : 0) + ((f1 & 2) ? pe : 0);
-    int32_t o2 = n + ARM_A025 + arm_rng2[r2] + c2 * 1398101 + arm_fine[k[10]] + ((f2 & 1) ? pl : 0)
+    int32_t o2 = n + ARM_A025 + arm_rng2[r2] + arm_tune[(uint8_t)(k[11] + 11)] + arm_fine[k[10]] + ((f2 & 1) ? pl : 0)
                  + ((f2 & 2) ? pe : 0);
     o1 = arm_stretch(o1);
     o2 = arm_stretch(o2);
@@ -509,13 +506,13 @@ static void arm_custom_voice(int v, int32_t e0, int32_t e1, int32_t lf, int note
     int32_t m = arm_envm[k[2]], et = arm_envp[k[2]] ? m - qmul(e1, m) : qmul(e1, m);
     int32_t u = arm_base[k[0]] + arm_rterm[k[1]] + arm_bril[k[5]] + qmul(lf, arm_lfof[k[4]]) + et
               + qmul(arm_kf[k[3]], (int32_t)(((note & 127) - 60) * 1398101))
-              + jx_bend(k, ARM_EXT(k[19], 255)) + jx_mod(jl_raw(), ARM_EXT(k[21], 128), 10);
+              + jx_bend(k, k[19]) + jx_mod(jl_raw(), k[21], 10);
     ramp(P_ENV0 + 8 + v, arm_lerp(arm_g, ARM_NU, u - ARM_U0, ARM_USH));
     /* VCA MODE (examples/from_scratch/engine/model_spec.py 0x736: 0 -> A02B ENV-1, 1 -> A02C ENV-2, 2 -> A02D gate;
        3 as 0): the VCA's source, x VCA LEVEL (C14B, Roland's row over its 128) */
-    int mode = ARM_EXT(k[14], 1);
+    int mode = k[14];
     int32_t src = mode == 1 ? e0 : mode == 2 ? (jx_gate[v] ? Q1 : 0) : e1;
-    ramp(P_ENV0 + v, qmul(qmul(src, ARM_VCA), arm_vlev[ARM_EXT(k[15], 128)]));
+    ramp(P_ENV0 + v, qmul(qmul(src, ARM_VCA), arm_vlev[k[15]]));
 }
 '''
 

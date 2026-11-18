@@ -6,8 +6,9 @@
 #   sh sdk/s1cc/examples/jx3p_ported/tools/make_waves.sh [NAME]        (default NAME=JX-3P-S1)
 #   REUSE=1 sh ...: the 12 kernels as built last time (sdk/s1cc/build/jx3p_wAB), only regions 0 / 1 and the
 #   container again: enough after a change to examples/system_s1cc_boutique model.c / engine.c / multi.c alone
-# DCO1: 0 SAW, 1 SQUARE, 2 PULSE (the JX-3P's three); OSC1 WAVE positions 3..5 = 0..2.
-# DCO2: 0 SAW, 1 SQUARE, 2 PULSE, 3 NOISE (ours); OSC2 WAVE positions 4, 5 = 0, 1.
+# DCO1: 0 SAW, 1 SQUARE, 2 PULSE (the JX-3P's three); DCO2: 0 SAW, 1 SQUARE, 2 PULSE, 3 NOISE. The patch words
+# 0x167 / 0x16C hold Roland's values (README.md §3.2): DCO1 WAVEFORM >= 2 is PULSE, DCO2 WAVEFORM >= 3 NOISE (Roland's
+# rows 0x6d4 / 0x6d9), so positions 3..5 play 2 / 3.
 set -e
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 ROOT=$(cd "$HERE/../../../.." && pwd)
@@ -26,8 +27,11 @@ done; done
 done
 K="sdk/s1cc/build/jx3p_w00"
 for a in 0 1 2 3 4 5; do for b in 0 1 2 3 4 5; do
-    K="$K $a,$b:sdk/s1cc/build/jx3p_w$((a % 3))$((b % 4))"
+    K="$K $a,$b:sdk/s1cc/build/jx3p_w$((a < 2 ? a : 2))$((b < 3 ? b : 3))"
 done; done
 # ARM_WORDS=1: s1_arm(0) (DCO2's BLEP width) in every pair's host, also the NOISE pairs' that do not read it
 # SECT_N=2: every pair's voices in two sections per DSP (the dearest pair needs two; SECT_SWITCH needs the same in all)
+# PATCH_BANK: Roland's JX-3P presets (1 Preset.bin, as they are: README.md §3.2) in region 0's patch memory, so a
+# firmware-only install leaves them instead of empty patches
+PATCH_BANK="${PATCH_BANK:-$ROOT/plugins/JX-3P/Patch/1 Preset.bin}" \
 SECT_N=2 ARM_WORDS=1 PANEL=sdk/s1cc/examples/jx3p_ported/jx3p_waves.panel KV_WORDS=${KV_WORDS:-} SECT_SWITCH=1 KERNELS="$K" NAME=$NAME sh examples/system_s1cc_boutique/build_multi.sh

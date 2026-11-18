@@ -228,6 +228,29 @@ el DSP: `C047` = `B6_LKT` multiplica el reinicio en `microcode/lfo.s`). Al carga
 `0x166`. Con DELAY TIME 0 el fade del LFO queda en 1 también con la puerta cerrada: el LFO está completo desde la
 primera muestra de la nota (antes salía de 0 y tardaba 1–2 ms, lo que leía el accent del TB-03 al empezar la nota).
 
+### 1.6b Patches como los de Roland: refresh, cambio de patch y la palabra `0x173` [medido 2026-11-18: JX-3P-S1]
+
+Todos los PLUG-OUT, en el SYSTEM-1 y el SYSTEM-8, usan el mismo formato de patch (palabra `0x160 + k` = el mismo
+control del panel; `0x1B0…0x1DF` el bloque EXTEND): los bancos de Roland se instalan tal cual. Lo que hace este
+PLUG-OUT para que suenen como en Roland (`sdk/s1cc/examples/jx3p_ported/README.md` §3.2, §7):
+
+* **Cambio de patch** (OS 1.30 esclavo `0x6004cfa2` → `0x60003e3a`): el OS recarga los programas (load) y llama a
+  `refresh(0)`; no hay `param`. El load, después del primero, no recoloca las secciones (`FC40`) ni pone a cero las
+  envolventes (si no: un click en cada botón de patch); el refresh relee `0x160…0x19F` y `0x1B0…0x1DF` y los aplica;
+  `multi.c` coloca el par de ondas del patch. El modelo tiene `refresh` / `+0x2C` como el del SH-101 (VOLUME, los
+  estados de los botones).
+* **Patches embebidos**: `PATCH_BANK=archivo` pone los presets de un banco en la memoria de patches de la región 0
+  (`tools/s1_bank.py --patch-memory`, formato de Roland verificado contra el SH-101): una instalación sin patches los
+  deja en lugar de patches vacíos.
+* **La palabra `0x173`** (OSC2 COARSE del SYSTEM-1) llega recortada a −11…11 por la tabla de rangos del OS (16 bytes por
+  palabra: tipo, mín, máx, default; maestro `0x60058ba8 + 16 w`, palabra 19 en `0x60058cd8`; copia del esclavo en
+  `0x60059628`). Un PLUG-OUT que guarda ahí más (el DCO2 TUNE del JX-3P, 0…255 guardado − 11) recibía 0. Siempre,
+  para todos los PLUG-OUT: `coarse_wide` sube el máximo a 244 al seleccionar y lo devuelve a 11 al salir (maestro
+  `model.c`, esclavo `engine.c`; solo si la entrada es la del OS 1.30); con eso el maestro entrega el valor entero,
+  el esclavo todavía lo recorta. Por eso `coarse_copy` (`model.c`, en el load y en cada refresh) copia el valor del
+  maestro a **EXTEND30 `0x1D5`** (los EXTEND no tienen rango: tipo `0x1a0301`), reservada para esto: un kernel lee
+  la palabra `0x173` entera ahí (byte bajo; el valor del banco − 11). Se guarda con el patch.
+
 ### 1.7 Luces del panel: el mapa del panel (`PANEL`) [medido 2026-11-11: TB-03-S1]
 
 Especificación (en inglés): el mecanismo del OS y la tabla de luces en [Vol. IV ch. 6](../../docs/vol4_firmware_container_protocol/base_firmware.md) §9.5; el mapa y las herramientas en [Vol. V ch. 1](../../docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md) §3.6.

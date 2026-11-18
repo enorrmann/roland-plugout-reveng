@@ -28,7 +28,10 @@ import ref                    # noqa: E402
 import s1jx                   # noqa: E402
 import jxpatch                # noqa: E402
 import make_voice as MV       # noqa: E402
-from jx3p_bank import JX, j8_values   # noqa: E402
+sys.path.insert(0, os.path.join(ROOT, 'sdk', 's1cc', 'examples', 'boutique_ported', 'tools'))
+from jupiter8_bank import j8_values   # noqa: E402  (the patch struct of every PLUG-OUT: 64 int2x4, name, 48 int8x4)
+
+JX = os.path.join(ROOT, 'plugins', 'JX-3P')
 
 VCA_MODE_ID = 0x736           # examples/from_scratch/engine/model_spec.py
 

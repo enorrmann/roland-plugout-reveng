@@ -894,9 +894,19 @@ static void idxp_table(void)
 #endif
 static int load_again;                                           /* loaded since the last deinit */
 
+/* the slave's copy of the OS's range entry of word 0x173 (OS 1.30 slave 0x60059628; model.c coarse_wide, the master's) */
+#define COARSE_ENTRY ((volatile int32_t *)0x60059628u)
+static void coarse_wide(int on)
+{
+    volatile int32_t *c = COARSE_ENTRY;
+    if (c[0] == 0x120300 && c[1] == -11 && c[3] == 0 && (c[2] == 11 || c[2] == 244))
+        c[2] = on ? 244 : 11;
+}
+
 static void e_load(engine_t *e)                                  /* vt+0x08 */
 {
     int again = load_again;
+    coarse_wide(1);
     for (int i = 0; i < 8; i++)
         ((slot_fn)SVC(0x44))(i, 0);
     ((s1_queue_fn)SVC(0x30))(set_a);
@@ -940,6 +950,7 @@ static int e_deinit(engine_t *e)                                 /* vt+0x04: our
 {
     (void)e;
     load_again = 0;
+    coarse_wide(0);
     arm_stop();
     return 0;
 }

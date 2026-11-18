@@ -166,11 +166,15 @@ static inline __attribute__((always_inline)) jx_px_t jx_phase_x(jx_osc_t *o, flo
 /* the same, lean (README.md §4.3): one phase a and an offset o, p = frac(a - o): a mark sets o so that p starts at 0
    (SYNC: a from 0.5, o = 0.5; METAL: a on), a's wrap clears o (p takes a). CROSS MOD off: p runs free. No BLEP for
    the jumps a mark or a snap makes (the wrap's BLEP on p) */
-static inline __attribute__((always_inline)) float jx_phase_xl(jx_osc_t *o, float dt, float k, float xm, float mt)
+/* cl: a's wrap clears the offset (p takes a) when 1: the saw's SYNC and METAL (cl = xm), the square's METAL only
+   (cl = mt: in SYNC its p starts again at the mark and runs free, jx_square_xl). The two wraps below are compares that
+   s1cc's profiling (CROSS MOD off) never sees take: the kernel is built with --no-fold-branches (jx3p.c) */
+static inline __attribute__((always_inline)) float jx_phase_xl(jx_osc_t *o, float dt, float k, float xm, float mt,
+                                                              float cl)
 {
     float a1 = 0.5f + xm * (o->a - 0.5f) + dt;
     float aw = a1 >= 1.0f ? a1 - 1.0f : a1;
-    float of = o->off - o->off * (a1 - aw);            /* a wrapped: the offset goes */
+    float of = o->off - cl * o->off * (a1 - aw);       /* a wrapped: the offset goes */
     float r = (5.0f - k) * (0.25f * dt);
     float ev = fminf(k, 1.0f);
     float ae = 0.5f + r + mt * (aw - 0.5f - r);
@@ -188,18 +192,21 @@ static inline __attribute__((always_inline)) float jx_phase_xl(jx_osc_t *o, floa
 }
 static inline __attribute__((always_inline)) float jx_saw_xl(jx_osc_t *o, float dt, float rd, float k, float xm, float mt)
 {
-    float p = jx_phase_xl(o, dt, k, xm, mt);
+    float p = jx_phase_xl(o, dt, k, xm, mt, xm);
     return jx_tilt(o, (2.0f * p - 1.0f - jx_blep(p, rd)) * JX_SAW_GAIN);
 }
+/* SQUARE: Roland's square program differs from the saw's in SYNC (jx3p_dco2_sqr.h 27..34 against jx3p_dco2_saw.h 27..32,
+   traced 2026-11-17): its second phase is a x A029 (METAL only; the saw's a x A028, restarted at the mark), so in SYNC
+   p only starts again at the mark, then runs free: a's wrap does not clear the offset (cl = mt) */
 static inline __attribute__((always_inline)) float jx_square_xl(jx_osc_t *o, float dt, float rd, float k, float xm,
                                                                float mt)
 {
-    return jx_square_p(o, jx_phase_xl(o, dt, k, xm, mt), dt, rd);
+    return jx_square_p(o, jx_phase_xl(o, dt, k, xm, mt, mt), dt, rd);
 }
 static inline __attribute__((always_inline)) float jx_pulse_xl(jx_osc_t *o, float dt, float rd, float k, float xm,
                                                               float mt)
 {
-    return jx_pulse_p(o, jx_phase_xl(o, dt, k, xm, mt), rd);
+    return jx_pulse_p(o, jx_phase_xl(o, dt, k, xm, mt, xm), rd);
 }
 
 /* DCO2 SAW with CROSS MOD */

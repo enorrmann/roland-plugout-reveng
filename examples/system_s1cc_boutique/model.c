@@ -1307,8 +1307,18 @@ static void wt_note_on(int note, int vel)                     /* the voice of a 
 }
 #endif
 #endif
+#ifdef PARAMLOG
+static int probe_note;
+static void patch_probe(int when);
+#endif
 static void a_note_on(struct assign *a, int note, int vel)
 {
+#ifdef PARAMLOG
+    if (probe_note && vel) {
+        probe_note = 0;
+        patch_probe(1);
+    }
+#endif
 #if defined(EDM_WT) && !WT_SLAVE
     wt_note_on(note, vel);
 #endif
@@ -1403,9 +1413,24 @@ enum { CC_SYNC = 112, CC_RING = 111, ID_SYNC = 0x172, ID_RING = 0x171 };
 static int xmod;                                       /* 0 off, 1 SYNC, 2 RING (METAL) */
 static void send_xmod(void)
 {
+#ifdef ARM_CUSTOM_XMOD_WORD
+    /* Roland's patch layout (JX-3P: DCO2 CROSS MOD = the word 0x172, 0 / 1 / 2; 0x171 unused): the mode in 0x172; 0x171
+       only lights RING for METAL */
+    p_set(G_PANEL, ID_SYNC, xmod);
+#else
     p_set(G_PANEL, ID_SYNC, xmod == 1);
+#endif
     p_set(G_PANEL, ID_RING, xmod == 2);
     p_flush(G_PANEL);
+}
+static int xmod_of(int sync, int ring)                 /* the mode a patch holds */
+{
+#ifdef ARM_CUSTOM_XMOD_WORD
+    (void)ring;
+    return sync >= 0 && sync <= 2 ? sync : 0;
+#else
+    return sync == 1 ? 1 : ring == 1 ? 2 : 0;
+#endif
 }
 #endif
 #ifdef ARM_CUSTOM_LPF_TYPE
@@ -1647,6 +1672,32 @@ static void param_log(int id, int flag, int value)
                         (uint8_t)((v >> 7) & 0x7F), (uint8_t)(v & 0x7F), 0xF7 };
     ((void (*)(void *, const void *, int, int, int))0x600065B1u)((void *)0x605F20D4u, buf, 12, 3, 1);
 }
+
+/* PATCH_PROBE (PARAMLOG, 2026-11-18, JX-3P-S1 README §3.2: the engine got 0 for word 0x173 = DCO2 TUNE): at a patch
+   change (0x081) and again at the next note, id 0x3700 + when (0 at 0x081, 1 at the note), flag k:
+   0 get(3, 0x173), 1 get(3, 0x170) (FINE, known to arrive), 2 get(4, 0x173), 3 region 0's patch memory word 19 of
+   patch 0x081 - 64 (patches[]), 4 get(3, 0x1C9) (VCA MODE), 5 the patch index, 6 0x081's value, 7..10 the master's
+   range entry of word 0x173 (coarse_wide: 0x120300, -11, 244, 0 when widened); at the note also
+   id 0x3800 + (word - 0x160): get(3, word) for every patch word 0x160..0x19F, 0x1B0..0x1DF */
+extern const uint32_t patches[NPATCH][128];
+static int probe_patch = -1;
+static void patch_probe(int when)
+{
+    int n = probe_patch - 64;
+    param_log(0x3700 + when, 0, p_get(G_PANEL, 0x173));
+    param_log(0x3700 + when, 1, p_get(G_PANEL, 0x170));
+    param_log(0x3700 + when, 2, p_get(G_PATCH, 0x173));
+    param_log(0x3700 + when, 3, n >= 0 && n < NPATCH ? (int)patches[n][19] : -999);
+    param_log(0x3700 + when, 4, p_get(G_PANEL, 0x1C9));
+    param_log(0x3700 + when, 5, n);
+    param_log(0x3700 + when, 6, probe_patch);
+    for (int i = 0; i < 4; i++)                               /* 7..10: the master's range entry of word 0x173 */
+        param_log(0x3700 + when, 7 + i, (int)((volatile int32_t *)0x60058cd8u)[i]);
+    if (when == 1)                                            /* every patch word as the OS hands it: 0x3800 + id */
+        for (int id = 0x160; id <= 0x1DF; id++)
+            if (id < 0x1A0 || id >= 0x1B0)
+                param_log(0x3800 + (id - 0x160), 0, p_get(G_PANEL, id));
+}
 #endif
 
 #if defined(PARAMLOG) && defined(EDM_KS)
@@ -1708,6 +1759,11 @@ static void m_param(struct model *m, int id, int flag, int value)       /* vt+0x
     }
 #ifdef PARAMLOG
     param_log(id, flag, value);
+    if (id == 0x081) {
+        probe_patch = value;
+        patch_probe(0);
+        probe_note = 1;
+    }
     /* every control except the notes / velocities, the synth's own panel and the LFO ids */
     int known = (id >= 0x110 && id < 0x130) || (id >= 0x160 && id <= 0x18A);
     if (!known && id != ID_VOLUME && ((value & 63) == 0 || value == 255))
@@ -1751,7 +1807,7 @@ static void patch_states(void)
         lfo_kt = kt;
     send_lfo_kt();
 #ifdef ARM_CUSTOM_XMOD
-    xmod = p_get(G_PANEL, ID_SYNC) == 1 ? 1 : p_get(G_PANEL, ID_RING) == 1 ? 2 : 0;   /* the patch's (its LEDs) */
+    xmod = xmod_of(p_get(G_PANEL, ID_SYNC), p_get(G_PANEL, ID_RING));                  /* the patch's */
     send_xmod();
 #endif
 #ifdef ARM_CUSTOM_LPF_TYPE
@@ -1772,9 +1828,46 @@ static void patch_states(void)
 #endif
 }
 
+/* Word 0x173 (OSC2 COARSE) of every patch: the OS's range table cuts it to -11..11 (OS 1.30 master, 16-byte entries
+   type, min, max, default; word w at 0x60058ba8 + 16 w; word 19 at 0x60058cd8; the slave's copy: engine.c). A PLUG-OUT
+   word there that holds more (the JX-3P's DCO2 TUNE 0..255, stored - 11) reached the engine as 0 (measured
+   2026-11-18, jx3p_ported README.md §7). The PLUG-OUT widens max to 244 while selected and puts 11 back when left;
+   written only if the entry holds what OS 1.30 has (another OS: untouched) */
+#define COARSE_ENTRY ((volatile int32_t *)0x60058cd8u)
+static void coarse_wide(int on)
+{
+    volatile int32_t *e = COARSE_ENTRY;
+    if (e[0] == 0x120300 && e[1] == -11 && e[3] == 0 && (e[2] == 11 || e[2] == 244))
+        e[2] = on ? 244 : 11;
+}
+
+/* Every PLUG-OUT, always: the slave's OS still cuts word 0x173 to -11..11 with its range entry widened (engine.c
+   coarse_wide; measured 2026-11-18: master get(3, 0x173) = 117, the engine played TUNE 0), so the model, whose OS
+   hands the whole value once widened, copies it (low byte) into EXTEND30 0x1D5 (an EXTEND word: no range, OS range
+   table type 0x1a0301; reserved for this, no port uses it), where the engine reads it whole. At the load and at every
+   refresh (a patch change); p_set + p_flush as at the load (send_xmod, resend_panel). It saves with the patch.
+   Measured: String 1 (DCO2 TUNE 128) plays DCO2 an octave + 14 cents up, Roland's an octave + 13 */
+#define COARSE_TO 0x1D5
+static void coarse_copy(void)
+{
+    int v = p_get(G_PANEL, 0x173) & 0xFF;
+    if (p_get(G_PANEL, COARSE_TO) != v) {
+        p_set(G_PANEL, COARSE_TO, v);
+        p_flush(G_PANEL);
+    }
+}
+
+static int m_deinit(struct model *m)                          /* vt+0x04: the PLUG-OUT is left */
+{
+    (void)m;
+    coarse_wide(0);
+    return 0;
+}
+
 static void m_load(struct model *m)                           /* vt+0x08 */
 {
     (void)m;
+    coarse_wide(1);
 #ifdef EDM_GLIDE
     edm_glide();
 #endif
@@ -1810,6 +1903,7 @@ static void m_load(struct model *m)                           /* vt+0x08 */
     set_volume(volume);
     vol_again = VOL_AGAIN;
     patch_states();
+    coarse_copy();
     resend_panel();
 }
 
@@ -1827,10 +1921,15 @@ static void m_store(struct model *m, int id, int value)       /* vt+0x2C: kept o
     if (id == ID_LFO_KT && (value == 0 || value == 1))
         lfo_kt = value;
 #ifdef ARM_CUSTOM_XMOD
+#ifdef ARM_CUSTOM_XMOD_WORD
+    if (id == ID_SYNC)
+        xmod = xmod_of(value, 0);
+#else
     if (id == ID_SYNC)
         xmod = value == 1 ? 1 : xmod == 1 ? 0 : xmod;
     if (id == ID_RING)
         xmod = value == 1 ? 2 : xmod == 2 ? 0 : xmod;
+#endif
 #endif
 #ifdef ARM_CUSTOM_LPF_TYPE
     if (id == ID_LPF_TYPE && (value == 0 || value == 1))
@@ -1868,10 +1967,11 @@ static void m_refresh(struct model *m, int all)               /* vt+0x24 */
         m_param(m, ID_VOLUME, 1, v);                          /* applied: set_volume */
     for (unsigned i = 0; i < sizeof ids / sizeof ids[0]; i++)
         m_store(m, ids[i], p_get(G_PANEL, ids[i]));
+    coarse_copy();
 }
 
 static const void *const model_vt[13] = {
-    (const void *)m_nop, (const void *)m_nop, (const void *)m_load, (const void *)m_nop, (const void *)m_nop,
+    (const void *)m_nop, (const void *)m_deinit, (const void *)m_load, (const void *)m_nop, (const void *)m_nop,
     (const void *)m_nop, (const void *)m_nop, (const void *)m_nop, (const void *)m_nop, (const void *)m_refresh,
     (const void *)m_nop, (const void *)m_store, (const void *)m_param,
 };
@@ -1905,6 +2005,15 @@ static void *get_model(void) { return &model; }
 __attribute__((section(".syninfo"), used))
 const struct syninfo1 syninfo = SYNINFO1(S1_NAME, S1_MODEL_ID, 0x0001, create, destroy, get_assigner, get_model);
 
-/* the patch memory the OS copies at install: NPATCH patches of 128 words, all zero (our engine reads none) */
+/* the patch memory the OS copies into the slot at install (a firmware-only install keeps what is here): NPATCH
+   patches of 128 words. PATCH_BANK=file (build_multi.sh): the PLUG-OUT's presets from a bank file, in Roland's layout
+   (tools/s1_bank.py --patch-memory, checked against Roland's SH-101 image); else all zero (empty patches) */
+#ifdef S1_PATCH_MEMORY
+#include "patch_memory.h"
+_Static_assert(S1_PATCH_MEMORY_N == NPATCH, "patch_memory.h: NPATCH patches");
+__attribute__((section(".patches"), used))
+const uint32_t patches[NPATCH][128] = S1_PATCH_MEMORY_INIT;
+#else
 __attribute__((section(".patches"), used))
 const uint32_t patches[NPATCH][128] = { { 0 } };
+#endif

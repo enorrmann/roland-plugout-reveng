@@ -20,6 +20,7 @@ programs of the kernel of that position and replays the panel to it.
             engine k0 stays active (mains, ARM side, notes). README.md §12
   VOICES=n  the voices of every kernel (default: the fewest of their VOICES=auto)
   NAME=...  plug-out name (default S1CC-MULTI), MODEL_ID=0x.. (default 0x0011), PARAMLOG=1
+  PATCH_BANK=file  presets in region 0's patch memory (model.c patches): a firmware-only install keeps them
   The other make_s1cc.py variables (BUDGET_*, LFO_PITCH, ARM_ENV, ...) apply to every kernel; each kernel's own
   S1_BUILD options stay its own.
 
@@ -186,7 +187,16 @@ for o in $objs; do
 done
 arm-none-eabi-gcc $CFLAGS -I"$B" -c "$HERE/multi.c" -o "$B/multi.o"
 arm-none-eabi-ld -T "$HERE/link.ld" --defsym BASE=0x60200000 --defsym CODE=0x1000 "$B/multi.o" $objs -o "$B/region1.elf"
-arm-none-eabi-gcc $CFLAGS $acust_0 -I"$B/k0" -c "$HERE/model.c" -o "$B/region0.o"
+# PATCH_BANK=file (a PLUG-OUT bank, KoaBankFile): its presets in region 0's patch memory, which the OS copies into
+# the slot at install (model.c patches; tools/s1_bank.py --patch-memory, Roland's layout): a firmware-only install
+# then restores them instead of emptying the patches. The bank's Script.xml: <its folder>/../Script/Script.xml
+pm=""
+if [ -n "$PATCH_BANK" ]; then
+    pscript=$(cd "$(dirname "$PATCH_BANK")/.." && pwd)/Script/Script.xml
+    python3 "$ROOT/tools/s1_bank.py" --patch-memory "$PATCH_BANK" "$pscript" "$B/patch_memory.h" || exit 1
+    pm="-DS1_PATCH_MEMORY -I$B"
+fi
+arm-none-eabi-gcc $CFLAGS $acust_0 $pm -I"$B/k0" -c "$HERE/model.c" -o "$B/region0.o"
 arm-none-eabi-ld -T "$HERE/link.ld" --defsym BASE=0x60800000 --defsym CODE=0x9000 "$B/region0.o" -o "$B/region0.elf"
 for r in 0 1; do
     arm-none-eabi-objcopy -O binary "$B/region$r.elf" "$B/region$r.bin"

@@ -3022,7 +3022,33 @@ def promote_addresses(by):
     print(f'{PROVEN_ADDR}: {len(add)} ranges added by {by}')
 
 
+# ---- reserved patch words ----------------------------------------------------------------------------------------
+# EXTEND30 (0x1D5) is reserved for SYSTEM-S1CC itself: model.c coarse_copy writes word 0x173 there whole at every load
+# and patch change (README.md §1.6b; sdk/s1cc/include/s1panel.h S1_COARSE_WHOLE). A kernel may read it (that is how
+# it gets 0x173 whole) but nothing may store anything else there: an ARM_CUSTOM CC table entry (arm_custom_cc, a CC
+# written into a patch word) on it stops the build.
+RESERVED_WORDS = {0x1D5: 'EXTEND30: word 0x173 whole (model.c coarse_copy)'}
+
+
+def check_reserved_words():
+    path = opt('ARM_CUSTOM', '')
+    if not path:
+        return
+    if not os.path.isabs(path):
+        path = os.path.join(ROOT, path)
+    src = open(path).read()
+    m = re.search(r'arm_custom_cc\s*\[\s*\]\s*=\s*\{(.*?)\n\};', src, re.S)
+    if not m:
+        return
+    for cc, wid in re.findall(r'\{\s*(\d+)\s*,\s*(0x[0-9A-Fa-f]+|\d+)', m.group(1)):
+        w = int(wid, 0)
+        if w in RESERVED_WORDS:
+            raise SystemExit(f'make_s1cc.py: {path}: arm_custom_cc CC {cc} writes patch word {w:#x}, reserved '
+                             f'({RESERVED_WORDS[w]})')
+
+
 def main():
+    check_reserved_words()
     if '--promote-addresses' in sys.argv:
         promote_addresses(sys.argv[sys.argv.index('--promote-addresses') + 1])
         return

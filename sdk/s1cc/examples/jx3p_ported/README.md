@@ -117,35 +117,43 @@ kernel say what those words hold on the device (`S1_REF_INPUTS`, `s1dsp.h`: `s1_
 as DCO1, and every pair cheaper (worst 233 → 224 units). An exponential on the DSP instead (`dt2 = dt1 2^x`) cost
 22 units per voice (measured): the worst pair would not fit 8 voices.
 
-### 3.2 Panel
+### 3.2 The patch words: Roland's layout, no conversion [code] (2026-11-17)
 
-| SYSTEM-1 control | JX-3P parameter (row) |
-|---|---|
-| FILTER CUTOFF `0x17D` | VCF CUTOFF FREQ (`C120`) |
-| RESONANCE `0x17F` | VCF RESONANCE (`C121`; ARM `rterm` + kernel table `reso`) |
-| FILTER ENV AMOUNT `0x181` (bipolar) | VCF ENV1 MOD (`C127`, polarity `A066`), the same row |
-| KEY TRACK `0x186` (unipolar) | VCF PITCH FOLLOW (`C128`, upper half) |
-| LFO TO FILTER `0x164` (bipolar) | VCF LFO MOD (`C126`) |
-| LFO TO PITCH `0x163` (bipolar) | DCO LFO MOD (`C026`) |
-| AMP TONE `0x18B` (bipolar, 128 = 0) | BRILLIANCE (`C12D`, the same row; user choice 2026-11-17: in Roland's S1 PLUG-OUTs AMP TONE is an effect of the master, `bus_interconnect.md` §16.6) |
-| PLUGOUT_EXTEND01…08 `0x1B8…0x1BF` | VCA MODE, VCA LEVEL, BEND RANGE, BEND GAIN, BEND SENS DCO, BEND SENS VCF, MOD SENS DCO, MOD SENS VCF (§3.7): value − default, patch only |
-| PITCH ENV AMOUNT `0x17A` (bipolar) | DCO ENV1 MOD (`C027`, polarity `A02D`) |
-| OSC1 / OSC2 RANGE `0x16A` / `0x16F` | DCO1 / DCO2 RANGE (positions 0…5 = −3…+2 octaves) |
-| OSC2 FINE `0x170` | DCO2 FINE TUNE (`C021`, ±0.0417 octave) |
-| OSC2 COARSE `0x173` (semitones) | DCO2 TUNE (`C020`, 0…1 octave; s → s/12, limited to 0…12, on the line of Roland's rows k/127) |
-| OSC1 / OSC2 COLOR MOD `0x169` / `0x16E` | DCO1 / DCO2 FREQ MOD: MANUAL = LFO + ENV, LFO = LFO, PITCH ENV / FILTER ENV / AMP ENV = ENV, SUB OSC = off |
-| OSC1 / OSC2 MIX `0x174` / `0x175` | DCO1 / DCO2 LEVEL (`C034` / `C035`, kernel tables `lvl1` / `lvl2`) |
-| OSC1 / OSC2 WAVE `0x167` / `0x16C` | DCO1 / DCO2 WAVEFORM: the wave pair (§4.2) |
-| FILTER A D S R, AMP A D S R | ENV1, ENV2: the JX-3P's envelopes on the ARM (§3.4) |
-| LFO SHAPE, RATE, FADE, KEY TRIG | the JX-3P's LFO on the ARM (§3.5) |
+Every PLUG-OUT, on the SYSTEM-1 and the SYSTEM-8, has the same patch struct (`Script.xml` struct `patch`, 640
+bytes: LFO, OSC1, OSC2, MIX, PIT, FLT, AMP, EFX, CTRL, EXTEND, name; `tools/plugout_tool.py` sends only this one to a
+SYSTEM-1): word `0x160 + k` is the same panel control on both synths, the 48 words after them (`0x1B0…0x1DF`) the
+EXTEND block. Roland's SH-101 has one bank for both synths for this reason, and Roland's JX-3P bank already holds
+its values in it (VCF CUTOFF FREQ in the FILTER CUTOFF word, BRILLIANCE in AMP TONE's, VCA MODE in EXTEND18 …).
+JX-3P-S1 reads each word with the JX-3P's meaning and values, as Roland's engine does, so Roland's banks
+(`plugins/JX-3P/Patch/*.bin`, copied to `plugins/JX-3P-S1/Patch/`) install as they are; the converter
+(`tools/jx3p_bank.py`, which mapped onto the SYSTEM-1's own meanings and invented EXTEND positions) is removed.
 
-Polarity (2026-11-17): Roland's rows of the JX-3P are bipolar (0 at 128) for VCF / DCO LFO MOD, VCF / DCO ENV1 MOD,
-PITCH FOLLOW and BRILLIANCE. The SYSTEM-1 knobs LFO TO PITCH, LFO TO FILTER, FILTER ENV AMOUNT and PITCH ENV AMOUNT
-are bipolar too (128 = 0: `examples/system_1_synth/README.md` §11, `docs/vol1_system_architecture/
-bus_interconnect.md` §16.6), so those rows are used as they are. KEY TRACK is unipolar on the SYSTEM-1: knob k →
-row 128 + k/2 (Roland's negative key follow is not reachable). The ARM's knob defaults (`ARM_CUSTOM_INIT`) are the
-JX-3P defaults of `jx_arm.json`; the panel's real values arrive at selection (`model.c` `resend_panel`).
-The OSC COLOR MOD mapping and the semitone mapping of COARSE are panel choices, not values of Roland's.
+| word | JX-3P parameter (Roland's values, rows of `jx_arm.json`) | where |
+|---|---|---|
+| `0x160` | LFO WAVEFORM: 0 SINE, 1 SQUARE, ≥ 2 RANDOM (rows `0x6cd`) | ARM LFO (§3.5) |
+| `0x161`, `0x162` | LFO DELAY TIME, LFO RATE | ARM LFO |
+| `0x163`, `0x164` | DCO LFO MOD (`C026`), VCF LFO MOD (`C126`), bipolar | ARM |
+| `0x166` | LFO KEY TRIG | model / ARM |
+| `0x167` | DCO1 WAVEFORM: 0 SAW, 1 SQUARE, ≥ 2 PULSE (rows `0x6d4`) | the wave pair (§4.2) |
+| `0x169`, `0x16E` | DCO1 / DCO2 FREQ MOD: 0 off, 1 LFO, 2 ENV, ≥ 3 both (`C028` / `C02A`) | ARM |
+| `0x16A`, `0x16F` | DCO1 / DCO2 RANGE (`A026` / `A027`) | ARM |
+| `0x16C` | DCO2 WAVEFORM: 0 SAW, 1 SQUARE, 2 PULSE, ≥ 3 NOISE (rows `0x6d9`) | the wave pair |
+| `0x170`, `0x173` | DCO2 FINE TUNE (`C021`), DCO2 TUNE (`C020`, 0…1 octave). The patch holds `0x173` as the bank's value − 11 and the OS cuts it to −11…11: SYSTEM-S1CC widens it and copies it whole into EXTEND30 `0x1D5` (README of SYSTEM-S1CC-BOUTIQUE §1.6b); the ARM reads it there + 11. Measured: String 1 DCO2 an octave + 14 cents (Roland + 13) | ARM |
+| `0x172` | DCO2 CROSS MOD: 0 off, 1 SYNC, 2 METAL (rows `0x6df`; `0x171` unused, lit for METAL) | kernel `xsync` / `xmetal`, model buttons (§4.3) |
+| `0x174`, `0x175` | DCO1 / DCO2 LEVEL | kernel tables |
+| `0x17A` | DCO ENV1 MOD (`C027`, `A02D`) | ARM |
+| `0x17D`, `0x17F`, `0x180`, `0x181` | VCF CUTOFF FREQ, RESONANCE, HPF CUTOFF, VCF ENV1 MOD | ARM / kernel |
+| `0x182…0x185`, `0x187…0x18A` | ENV1, ENV2 A D S R | ARM (§3.4) |
+| `0x186` | VCF PITCH FOLLOW (`C128`, bipolar) | ARM |
+| `0x18B` | BRILLIANCE (`C12D`) | ARM |
+| `0x193`, `0x19C` | BEND RANGE, VCA LEVEL | ARM (§3.7) |
+| `0x1C9` (EXTEND18) | VCA MODE: 0 ENV-1, 1 ENV-2, 2 GATE | ARM |
+| `0x1CB…0x1CF` (EXTEND20…24) | BEND GAIN, BEND SENS DCO, BEND SENS VCF, MOD SENS DCO, MOD SENS VCF | ARM (§3.7) |
+| not read yet | EFFECT LEVEL `0x18C`, REVERB / DELAY `0x18D…0x18F`, PORTAMENTO `0x190`, LEGATO, ASSIGN MODE, PORTA TYPE, TEMPO SYNC, CIRCUIT MOD (EXTEND32), EFFECT TYPE / TONE (EXTEND36 / 37) … | §7, §8 |
+
+A value above a selector's range acts as Roland's last (Roland's rows repeat it). The panel's controls write the same
+words; what the SYSTEM-1's selectors write is the OS's matter, as for Roland's PLUG-OUTs. CC test map: CC 109 → VCA
+MODE (`0x1C9`), CC 110 → VCA LEVEL (`0x19C`), Roland's values (`model.c` `arm_custom_cc`, def 0).
 
 ### 3.4 Envelopes (`ARM_CUSTOM_ENV`) [2026-11-17]
 
@@ -239,9 +247,9 @@ cutoff's sum + `C122 C123` + `A0A6 C124 C125` (916, 920). `A0A6` is MAIN0's LFO 
 (`work/jx3p/lfo_ref.npz`: `A0A6` = `A0A5` / 2 at DELAY 0 and full from the first sample at any DELAY).
 
 Ours (`jx3p_arm.h` `jx_bend`, `jx_mod`, `jl_raw`): bend = `cust_bend` (id `0x130`), mod = `cust_mod` (id `0x131`,
-`model.c` CC 1, 0…127) / 127; the six JX-3P values in PLUGOUT_EXTEND03…08 (value − default, as EXTEND01 / 02):
-BEND RANGE (2), BEND GAIN (0), BEND SENS DCO (255), BEND SENS VCF (255), MOD SENS DCO (128), MOD SENS VCF (128). With
-the defaults a full bend is 3 semitones (before: a fixed 2). `tools/arm_check.c`: 40 of its 61 cases with random
+`model.c` CC 1, 0…127) / 127; the six values in Roland's words (§3.2): BEND RANGE `0x193` (default 2), BEND GAIN
+EXTEND20 (0), BEND SENS DCO / VCF EXTEND21 / 22 (255), MOD SENS DCO / VCF EXTEND23 / 24 (128). With the defaults a
+full bend is 3 semitones (before: a fixed 2). `tools/arm_check.c`: 40 of its 61 cases with random
 bend, mod and the six values against the lift with Roland's words: g within 2.9e-5, DCO1 0.12 cents, DCO2 0.004
 cents (the same as without). Installed 2026-11-17 with the 64-patch bank, not heard; `0x131` reaching the
   slave's engine is not measured.
@@ -306,8 +314,33 @@ The JX-3P's DCO2 CROSS MOD (off / SYNC / METAL) on the SYSTEM-1's two buttons, o
 `model.c` (`ARM_CUSTOM_XMOD`) keeps the state: a press of the lit button turns it off, a press of the other moves the
 choice there; it writes both words (`send_xmod`), so one LED at most. The words reach the kernel as `S1_PARAM`
 `xsync` / `xmetal` (`jx3p.c`); DCO2 reads DCO1's wrap mark of the sample before, as MAIN2 hands it (`jx_mark`,
-checked by `tools/xmod_check.c` against Roland's DCO2 saw program). A patch keeps the two words; at a patch change
-the engine's refresh applies them and the model's (`m_refresh` / `m_store`) takes its copy back from them.
+checked by `tools/xmod_check.c` against Roland's DCO2 saw program). A patch keeps the word; at a patch change the
+engine's refresh applies it and the model's (`m_refresh` / `m_store`) takes its copy back from it.
+
+SQUARE differs (2026-11-17, user: SYNC patches with DCO2 SQUARE sounded wrong, Organ 2 1-3): Roland's square program
+(`jx3p_dco2_sqr.h` 27…34) takes its second phase as `a × A029` (METAL only), the saw program as `a × A028` restarted
+at the mark; so in SYNC the square's phase only starts again at the mark and runs free (traced: p jumps to −1 at the
+mark, wraps on its own), while the saw's runs half a cycle and then follows `a`. Ours used the saw's for all;
+`jx_square_xl` now takes the SYNC case apart. `tools/xmod_check.c -DXWAVE=0|1|2` (saw / square / pulse against
+Roland's saw, square, saw-with-`A0D4` programs), SNR after alignment:
+
+| | SAW | SQUARE before → now | PULSE |
+|---|---|---|---|
+| SYNC 4.75 / 5.30 | 26.7 | 12.2 → 20.5 | 19.8 |
+| SYNC 4.75 / 6.10 | 26.2 | 13.7 → 23.2 | 23.0 |
+| SYNC 3.75 / 4.45 | 32.5 | 6.0 → 24.7 | 21.2 |
+| OFF | 28.8 | 27.3 | 20.7 |
+
+METAL is not periodic (SNR meaningless): in third-octave bands ours is within 0.1…2.4 dB of Roland's above ~250 Hz
+for the three waves, 4…10 dB less below the fundamental (open).
+
+METAL still sounded wrong on the device (capture of Chime 2-5 against `tools/preset_ref.py`'s render: Roland's lines
+at 524 / 650 Hz missing, low junk 20…140 Hz). Cause: s1cc's W909 folded the two wraps of `jx_phase_xl` (`a1 >= 1`,
+`mx < 0`) into constants, because its profiling runs with CROSS MOD off; `s1cc check … xsync=2`: SNR −10 dB, peak 5×
+the C's. Now `jx3p.c` builds with `--no-fold-branches` (peaks equal, bands within 1…4.5 dB; the SNR stays low because
+s1cc starts DCO1's phase at half a cycle on the DSP, 0 in the C, which moves the marks). The square's SYNC is now the
+lean phase with `cl = mt` (a's wrap clears the offset only in METAL), not a second phase computed apart: cheaper,
+the same or better (21.6 / 23.2 / 24.7 dB). DSP A per pair 128…238 units, 8 voices. Installed 2026-11-18, not heard.
 
 ## 5. Build, check, install
 
@@ -316,8 +349,12 @@ python3 sdk/s1cc/examples/jx3p_ported/tools/make_arm.py              # jx3p_tabl
 sdk/s1cc/s1cc build sdk/s1cc/examples/jx3p_ported/jx3p.c -o sdk/s1cc/build/jx3p      # one pair (SAW, SAW)
 KERNEL=sdk/s1cc/build/jx3p sh examples/system_s1cc_boutique/build.sh                 # -> plugins/JX-3P-S1
 KERNEL=sdk/s1cc/build/jx3p python3 examples/system_s1cc_boutique/make_s1cc.py --sim --pack-check
-sh sdk/s1cc/examples/jx3p_ported/tools/make_waves.sh                 # all 12 pairs -> plugins/JX-3P-S1 (~3 min)
-python3 tools/plugout_tool.py install plugins/JX-3P-S1 --slot 1 --force --no-patches -y
+sh sdk/s1cc/examples/jx3p_ported/tools/make_waves.sh                 # all 12 pairs -> plugins/JX-3P-S1 (~5 min)
+REUSE=1 sh sdk/s1cc/examples/jx3p_ported/tools/make_waves.sh         # only model.c / engine.c / multi.c changed (~2 min)
+cp plugins/JX-3P/Patch/*.bin plugins/JX-3P-S1/Patch/                 # Roland's banks as they are (§3.2)
+# make_waves.sh puts 1 Preset.bin also into region 0's patch memory (PATCH_BANK; build_multi.sh, model.c patches):
+# the OS copies it into the slot at install, so a --no-patches install leaves Roland's presets, not empty patches
+python3 tools/plugout_tool.py install plugins/JX-3P-S1 --slot 1 --force -y   # + 1 Preset.bin (--no-patches: firmware only)
 ```
 
 `s1cc check sdk/s1cc/build/jx3p --note 60`: SNR 28 dB over 100 ms. The difference is the start only: the slew
@@ -430,6 +467,7 @@ The ARM side costs no DSP instructions; the host's envelopes and LFO run on the 
   Then (user request) all 64 patches of Roland's `plugins/JX-3P/Patch/1 Preset.bin` converted
   (`tools/jx3p_bank.py "1 Preset.bin" --bank work/jx3p/bank/jx3p_preset1.bin`) and sent alone to 1-1…8-8: 1…32 the
   JX-3P's factory programs, 33…64 Roland's PLUG-OUT additions. `2 Preset.bin` (64 more) does not fit.
+  Later the same night the converter was removed (§3.2): Roland's banks install as they are.
 
 * The build's address check warns of ranges no installed build used: bank 5
   `A048…A04F` (`s1_rdt` words), `A1A0…A1D7` (the fused kernel's exchange words), bank 0 `060E…06D3` of slave DSP B
@@ -438,6 +476,35 @@ The ARM side costs no DSP instructions; the host's envelopes and LFO run on the 
   OSC2 COARSE on the device (no test CC).
 * NOISE level: ours is ±1; Roland's noise (the master's word) has an unknown level. 8 NOISE voices peak at 1.8 in
   the simulation.
+* **DCO2 TUNE (`0x173`) does not reach the engine** [measured 2026-11-18, PARAMLOG `model.c` PATCH_PROBE]. Word
+  `0x173` is the SYSTEM-1's OSC2 COARSE; the SYSTEM-1 has no control for it (OSC2 has RANGE and FINE only). Region 0's
+  patch memory holds Roland's value − 11, as Roland's SH-101 image (`tools/s1_bank.py`): String 1 (TUNE 128) 117,
+  BR Baby's Brass (TUNE 0) −11. What the OS hands the engine and the model (`get(3, 0x173)`, `param`): −11 for
+  Baby's Brass, **0** for String 1 (out of its range: dropped to 0), from the embedded presets and from the bank sent
+  over SysEx alike. Capture of String 1 (note 60, 10 s, against `tools/preset_ref.py`): DCO2 13 cents above DCO1
+  (Roland: 1213 cents, an octave + 13); an ARM + 11 (removed) made it 117 cents. Saving a patch stores the value
+  handed out (0); region 0's memory is not written by a save (it is the install image only). So every preset with
+  DCO2 TUNE above the OS's range plays DCO2 at TUNE 0. Open: whether the OS's own patch store keeps the received
+  value (then `model.c` could read it at a patch change and pass it to the engine in a free EXTEND word, e.g.
+  EXTEND30 `0x1D5`, unused by the JX-3P, which saves with the patch); else the conversion has to happen before the
+  bank is sent. Left as is for now (user, 2026-11-18).
+  Where it is cut [code, OS 1.30]: the OS's range table of the patch words, 16-byte entries (type, min, max,
+  default), word w at `0x60058ba8 + 16 w` in `app_master.bin` (word 0 LFO WAVE type `0xF0200` 0…5; then types
+  `0x100300…0x190300` by section, up to word 63 at `0x60058f98`); word 19 (`0x173`) at `0x60058cd8`: `0x120300`,
+  −11…11, default 0. The slave holds the same entry at `0x60059628` (`app_slave.bin`). Against both of Roland's banks
+  (128 presets) word 19 is the only panel word whose values fall outside its range (122 presets); the int8x4 block
+  (`0x1B0…`) has another table, not checked. Both copies are in RAM (the image runs there; `model.c` already patched
+  an OS word in RAM, `0x60097404`): widening max to 244 at the PLUG-OUT's init (master in `model.c`, slave in
+  `engine.c`), restored at its deinit, with the ARM's + 11 back, would carry DCO2 TUNE 0…255.
+  Done 2026-11-18 for every SYSTEM-S1CC PLUG-OUT (`coarse_wide`: master in `m_load` / `m_deinit`, slave in `e_load` /
+  `e_deinit`, written only if the entry holds OS 1.30's `0x120300, −11, 11, 0`), the ARM's + 11 back (`make_arm.py`).
+  Heard + PARAMLOG 2026-11-18: the master's entry widened (`0x120300, −11, 244, 0`) and its `get(3, 0x173)` = 117
+  for String 1, but the capture still had DCO2 at TUNE 0 (279.9 Hz): the slave cut it still (its widening has no
+  effect or another cut; the slave cannot be logged). Now `model.c` `coarse_copy` (`ARM_CUSTOM_COARSE_TO 0x1D5` in the
+  ARM_CUSTOM header) copies the master's whole value into EXTEND30 (`0x1D5`, unused by the JX-3P; the int8x4 block's
+  range entries from `0x1B8` are type `0x1a0301`, 0…−1: no range) at `m_load` and every `m_refresh`, and the ARM
+  reads DCO2 TUNE there (+ 11). Heard and captured 2026-11-18: String 1's DCO2 at 527.4 Hz against DCO1 261.6 (an
+  octave + 14 cents; Roland an octave + 13): right. Then made unconditional for every SYSTEM-S1CC PLUG-OUT (user).
 * PORTAMENTO (S8 `0x6FD`, PORTA TYPE `0x701`): MAIN0's glide (instructions 41…66: `C022` / `C023` of DSP0 =
   Roland's curves `porta_a` / `porta_b`, `A023` on, `A024` type; reciprocal, conditions and one undecoded `raw`)
   needs a reference in the emulator as §3.4; the SYSTEM-1's PORTAMENTO knob is its control then.

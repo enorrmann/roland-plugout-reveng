@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """s1_bank.py: the SYSTEM-1's patch values and its patch files, for any PLUG-OUT's patch converter
-(sdk/s1cc/examples/boutique_ported/tools/jp08_prm.py, sdk/s1cc/examples/jx3p_ported/tools/jx3p_bank.py).
+(sdk/s1cc/examples/boutique_ported/tools/jp08_prm.py). JX-3P-S1 needs none: it reads Roland's patch words as Roland's
+JX-3P does (sdk/s1cc/examples/jx3p_ported README.md §3.2), Roland's banks install as they are.
 
     S1_NAMES, S1_DEF   the 112 values in file order (64 panel / patch values, ids 0x160..0x19F, then PLUGOUT_EXTEND01..40)
                        and their defaults
@@ -59,3 +60,79 @@ def write_bank(path, pats, tag, empty):
     recs = [bank_record(s1, name) for s1, name in pats[:64]]
     recs += [bank_record(empty, '-' * 16)] * (64 - len(recs))
     open(path, 'wb').write(b'KoaBankFile00002' + tag + b''.join(recs))
+
+
+# ---- region 0's patch memory (the PLUG-OUT's own presets) -------------------------------------------------------
+# The SYSTEM-1 copies NPATCH x 0x200 bytes from region 0 + 0x1000 into the slot's patch memory when the PLUG-OUT is
+# installed: a firmware-only install leaves the patches as they are there (zeros: empty patches). Roland's SH-101
+# (work/unpack/SH-101_S1_Code1/region0.bin) holds its 64 presets there, 128 little-endian words each [code, checked by
+# --check-sh101 against its own bank]:
+#   words 0..63    the patch words 0x160..0x19F as the bank holds them, but word 19 (0x173, OSC2 COARSE) = bank - 11
+#                  (signed: the device's internal value; the .PRM writes the same, boutique_ported README.md §13.5)
+#   words 64..79   the name: 16 characters, 4 per word, the first in the high byte; zero-filled
+#   words 80..127  the 48 values of the int8x4 block (0x1B0..0x1DF) as they are
+# --check-sh101: words 0..102 equal in all 64; 103..127 differ only because the SH-101's bank is a KoaBankFile00002
+# (0 there) and Roland's image holds Script.xml's defaults (LFO CV GAIN 128, CONDITION 128, BEND / MOD SENS 255, ...);
+# a KoaBankFile00003 (JUNO-60, JX-3P) holds those values itself
+def patch_memory_words(values, name):
+    """one patch: values = the 112 values in file order (jupiter8_bank.j8_values), name = the bank's name"""
+    w = [v & 0xFFFFFFFF for v in values[:64]]
+    w[19] = (values[19] - 11) & 0xFFFFFFFF
+    nm = name.encode('latin-1')[:16].ljust(16)
+    w += [int.from_bytes(nm[i:i + 4], 'big') for i in range(0, 16, 4)] + [0] * 12
+    w += [v & 0xFFFFFFFF for v in values[64:112]]
+    assert len(w) == 128
+    return w
+
+
+def bank_patch_memory(bank, script, count=64):
+    """[(name, 128 words)] of a PLUG-OUT bank file (KoaBankFile, any PLUG-OUT: the patch struct is the same)"""
+    import os
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, os.path.join(here, '..', 'sdk', 's1cc', 'examples', 'boutique_ported', 'tools'))
+    from jupiter8_bank import j8_values
+    out = []
+    for name, v in j8_values(bank, script)[:count]:
+        bank_name = name if len(name) <= 16 else name[:16]
+        out.append((bank_name, patch_memory_words(list(v.values()), bank_name)))
+    return out
+
+
+def write_patch_memory_h(path, pats, npatch=64):
+    rows = [w for _, w in pats] + [[0] * 128] * (npatch - len(pats))
+    s = ['/* region 0 patch memory (tools/s1_bank.py --patch-memory; do not edit): %d presets */' % len(pats),
+         '#define S1_PATCH_MEMORY_N %d' % npatch,
+         '#define S1_PATCH_MEMORY_INIT { \\']
+    for i, w in enumerate(rows):
+        s.append('    { /* %d: %s */ \\' % (i + 1, (pats[i][0] if i < len(pats) else '(empty)').replace('*/', '* /')))
+        s += ['        ' + ', '.join('0x%x' % x for x in w[j:j + 12]) + ', \\' for j in range(0, 128, 12)]
+        s.append('    }, \\')
+    s.append('}')
+    open(path, 'w').write('\n'.join(s) + '\n')
+
+
+if __name__ == '__main__':
+    import os
+    import struct
+    import sys
+    a = sys.argv[1:]
+    if a[:1] == ['--patch-memory'] and len(a) == 4:          # --patch-memory BANK SCRIPT OUT.h
+        pats = bank_patch_memory(a[1], a[2])
+        write_patch_memory_h(a[3], pats)
+        print('%s: %d presets from %s' % (a[3], len(pats), a[1]))
+    elif a[:1] == ['--check-sh101']:                            # the layout against Roland's SH-101 image
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+        pats = bank_patch_memory(os.path.join(root, 'plugins', 'SH-101', 'Patch', '1 Preset.bin'),
+                                 os.path.join(root, 'plugins', 'SH-101', 'Script', 'Script.xml'))
+        img = open(os.path.join(root, 'work', 'unpack', 'SH-101_S1_Code1', 'region0.bin'), 'rb').read()
+        bad = {}
+        for i, (name, w) in enumerate(pats):
+            r = struct.unpack_from('<128I', img, 0x1000 + 0x200 * i)
+            for j in range(128):
+                if w[j] != r[j]:
+                    bad.setdefault(j, 0)
+                    bad[j] += 1
+        print('SH-101: %d presets; words that differ (word: presets): %s' % (len(pats), bad or 'none'))
+    else:
+        raise SystemExit('s1_bank.py --patch-memory BANK SCRIPT OUT.h | --check-sh101')

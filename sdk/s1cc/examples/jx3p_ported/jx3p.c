@@ -61,10 +61,11 @@ static inline __attribute__((always_inline)) float jx_in(int a)
     }
 }
 
-/* DCO2 CROSS MOD (README.md §4.3): the SYSTEM-1's OSC2 SYNC / OSC2 RING buttons (their words 0x172 / 0x171, toggled by
-   model.c ARM_CUSTOM_XMOD) = the JX-3P's SYNC / METAL: A028 = SYNC or METAL, A029 = METAL */
-S1_PARAM(xsync, S1_OSC2_SYNC_WORD, 1) { out[0] = knob ? 1.0f : 0.0f; }
-S1_PARAM(xmetal, S1_OSC2_RING_WORD, 1) { out[0] = knob ? 1.0f : 0.0f; }
+/* DCO2 CROSS MOD (README.md §4.3): Roland's patch word 0x172 (0 off, 1 SYNC, 2 METAL; Roland's rows 0x6df: A028 = SYNC
+   or METAL, A029 = METAL; 3 writes nothing there: here as off), set by the OSC2 SYNC / RING buttons (model.c
+   ARM_CUSTOM_XMOD_WORD) */
+S1_PARAM(xsync, S1_OSC2_SYNC_WORD, 1) { out[0] = (knob == 1 || knob == 2) ? 1.0f : 0.0f; }
+S1_PARAM(xmetal, S1_OSC2_SYNC_WORD, 1) { out[0] = knob == 2 ? 1.0f : 0.0f; }
 /* HPF CUTOFF (C148, MAIN4 instructions 1308..1311, on the pair's sum: here per voice, the same, it is linear):
    lp += C148 (x - lp), out = x - lp (Roland: x 11, in the level calibration, README.md §5.1) */
 S1_PARAM(hpf, S1_HPF_CUTOFF, 1) { out[0] = jx_hpf[knob]; }
@@ -126,4 +127,8 @@ float s1_ref_arm(int i, float pitch) { (void)pitch; return i == 0 ? exp2f(-8.3e-
 S1_DSP_B { return x; }
 
 S1_BUILD("NAME=JX-3P-S1 MIX=0 LFO_PITCH=0 ARM_CUSTOM=sdk/s1cc/examples/jx3p_ported/jx3p_arm.h PANEL=sdk/s1cc/examples/jx3p_ported/jx3p.panel");
-S1_COMPILE("--regs 0,1,2,3,4,5,6,7");
+/* --no-fold-branches: s1cc folds a compare that gave one answer in every profiling scenario (W909); its profiling
+   runs with CROSS MOD off, where the wraps of DCO2's cross mod phase never happen (jx3p_osc.h jx_phase_xl): folded,
+   SYNC / METAL ran wrong on the DSP (2026-11-17: METAL on the device; s1cc check xsync=2: SNR -10 dB against the C,
+   bands +70 dB; kept: the bands within 1 dB) */
+S1_COMPILE("--regs 0,1,2,3,4,5,6,7 --no-fold-branches");

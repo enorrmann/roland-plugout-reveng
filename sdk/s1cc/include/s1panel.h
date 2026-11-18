@@ -67,6 +67,10 @@
 #define S1_AMP_RELEASE        0x18A
 
 #define S1_AMP_TONE           0x18B   /* AMP TONE knob, CC 69, bipolar 128 = centre (examples/system_1_synth/README.md §8, measured 2026-11-17) */
+/* EXTEND30, reserved: SYSTEM-S1CC model.c coarse_copy puts word 0x173 (OSC2 COARSE, which the OS cuts to -11..11) there
+   whole at every load and patch change (examples/system_s1cc_boutique README.md §1.6b): read it, never store into it
+   (make_s1cc.py check_reserved_words stops a CC table that writes it) */
+#define S1_COARSE_WHOLE       0x1D5
 
 /* effects */
 #define S1_REVERB_AMOUNT      0x18D

@@ -1,7 +1,7 @@
 /* xmod_check.c: DCO2 CROSS MOD of our oscillators (jx3p_osc.h jx_mark / jx_saw_x) against Roland's DCO2 saw program
  * lifted to C (jx3p_dco2_saw.h), natively (README.md §4.3):
  *
- *   cc -O2 -Isdk/s1cc/tools -Isdk/s1cc/examples/jx3p_ported -o /tmp/xmod_check \
+ *   cc -O2 [-DXWAVE=1|2] -Isdk/s1cc/tools -Isdk/s1cc/examples/jx3p_ported -o /tmp/xmod_check \
  *       sdk/s1cc/examples/jx3p_ported/tools/xmod_check.c -lm && /tmp/xmod_check
  *
  * DCO1 is Roland's phase at four sub-samples (span 2, step 2^(pitch1 - 4.75) x 0.0022916666), whose wrap mark (the
@@ -20,7 +20,19 @@ static float in[8], rout;
 #define KOUT(a, v) do { if ((a) == 0x2221) rout = (v); } while (0)
 #define KE(a) 0.0f
 #include "dsplift_k.h"
+/* XWAVE (default 0): 0 SAW (Roland's saw program, A0D4 = 0; ours XSAW), 1 SQUARE (Roland's sqr program; ours
+   jx_square_xl), 2 PULSE (Roland's saw program with A0D4 = 1, as DCO2 WAVEFORM 2; ours jx_pulse_xl):
+   cc ... -DXWAVE=1 ... (2026-11-17: SYNC on SQUARE sounded wrong on the device) */
+#ifndef XWAVE
+#define XWAVE 0
+#endif
+#if XWAVE == 1
+#include "jx3p_dco2_sqr.h"
+#define ROLAND() jx3p_dco2_sqr()
+#else
 #include "jx3p_dco2_saw.h"
+#define ROLAND() jx3p_dco2_saw()
+#endif
 #define JX_SAW_GAIN 0.5f
 #define JX_PULSE_GAIN (-0.9f)
 #define JX_SQ_GAIN 0.33f
@@ -28,7 +40,13 @@ static float in[8], rout;
 #include "jx3p_osc.h"
 
 #ifndef XSAW
+#if XWAVE == 1
+#define XSAW jx_square_xl
+#elif XWAVE == 2
+#define XSAW jx_pulse_xl
+#else
 #define XSAW jx_saw_xl
+#endif
 #endif
 #define N 96000
 static float r[N], u[N];
@@ -54,7 +72,7 @@ int main(void)
         float xm = mode >= 1, mt = mode == 2;
         /* Roland: DCO1 at four sub-samples */
         float inc1 = fminf(exp2f(p1 - 4.75f) * 0.0022916666f, 0.249f), ph1 = 0, mark = 0;
-        in[0] = p2; in[1] = xm; in[2] = mt; in[4] = 0;
+        in[0] = p2; in[1] = xm; in[2] = mt; in[4] = XWAVE == 2;
         jx_osc_t o1 = { 0 }, o2 = { 0 };
         float dt1 = (float)(440.0 * exp2(p1 - 4.75) / 96000.0), rd1 = 1.0f / dt1;
         float dt2 = (float)(440.0 * exp2(p2 - 4.75) / 96000.0), rd2 = 1.0f / dt2;
@@ -67,7 +85,7 @@ int main(void)
                 if (q >= 1.0f) { q -= 2.0f; mark = 0.25f * j; }
                 ph1 = q;
             }
-            jx3p_dco2_saw();
+            ROLAND();
             r[i] = rout;
             /* ours */
             u[i] = XSAW(&o2, dt2, rd2, xm * k, xm, mt);
