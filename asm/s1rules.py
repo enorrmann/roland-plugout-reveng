@@ -18,7 +18,7 @@ Breaking one of them hung the device (examples/system_1_jx/README.md §5, measur
     R8  ops sharing an instruction: only the groups proven on the device (asm/proven_forms.txt)
     R9  never a group asm/bad_forms.txt forbids (signatures and patterns: `family:minmax + family:minmax`, `mac_*:*`)
 and, as a warning: an instruction shape (accesses per bank, number of ops) that is not part of a shape of a program
-that ran on the device (PROVEN_PROGRAMS: C-S1V8, C-S1SY13).
+that ran on the device (PROVEN_PROGRAMS: C-S1V8, C-S1SY13, JX-3P-S1-FX's master B).
 
     import s1rules
     s1rules.check('s1m0', lines)              -> list of warnings; SystemExit on a broken rule
@@ -34,7 +34,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 # programs in git that ran on the device (C-S1V8, C-S1SY13): not the generated files of examples whose build options
 # change (MUTABLE-SYSTEM's s1m*.s are whatever its last build made)
-PROVEN_PROGRAMS = ['examples/system_1/s1m*.s', 'examples/system_1_synth/s1m*.s']
+PROVEN_PROGRAMS = ['examples/system_1/s1m*.s', 'examples/system_1_synth/s1m*.s',
+                   # master B: JX-3P-S1-FX's s1mm1 (frozen copy; ran 2026-11-18): bank-2 loads (request results) and
+                   # stores (line writes), one transfer per instruction
+                   'sdk/s1cc/examples/jx3p_fx/proven/s1mm1.s']
 _ADDR = re.compile(r'\[([0-9a-fA-F]{4})\]')
 
 

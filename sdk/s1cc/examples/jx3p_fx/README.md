@@ -31,6 +31,7 @@ does not compile: no `kmap2`).
 | `jx3p_fx_waves.panel` | `jx3p_ported/jx3p_waves.panel` with CRUSHER lit |
 | `make_fx.sh` | the build (§1), the build parameters (§3) |
 | `fx_sim.py` | the master program on the emulator against the native C (§6) |
+| `proven/s1mm1.s` | frozen master-B program that ran: `asm/s1rules.py` proven shapes (§4.1) |
 | `fx_changes.patch`, `files/` | the saved copy of 2026-11-18 (§8) |
 
 ## 2. The knob and the mix
@@ -94,8 +95,11 @@ Cost: 179 s1cc units; master B (`s1mm1`) **204 instructions** with Roland's valu
 | constants | master parameters `{K:value}` (s1cc), written by region 0 | non-round immediates run wrong on master B |
 | profile | `S1_COMPILE("--no-range-fold")` | the profile's notes are shorter than an LFO period: it never sees a wrap nor a negative phase and would fold the LFO's signs to constants |
 
-`ld2` / `st2` (two transfers, no op, in one instruction): the build warns that no program that ran has this shape.
-MP-PLSTRC has the same shapes and plays, but whether that proves them is doubtful: **not promoted**.
+`ld2` / `st2` in the build's warnings = a load / store of **bank 2** (`ld`/`st` + bank: the request results
+`4080..`, the line writes `4040..`), one transfer per instruction, not a double load. The rule list
+(`asm/s1rules.py` `PROVEN_PROGRAMS`) had only slave programs, which never touch bank 2. **Promoted 2026-11-18**:
+`proven/s1mm1.s` (frozen copy of JX-3P-S1-FX's master B, WET 1.5 / DEPTH 1.5, ran on the device without a hang) is
+in `PROVEN_PROGRAMS`; the build no longer warns.
 
 ## 5. What the effect needed outside this folder
 
@@ -160,6 +164,5 @@ folder's `make_fx.sh` / panel / `fx_sim.py`.
 
 * A capture of the S8's own JX-3P CHORUS to compare with (level, hiss, the output stage).
 * The output stage's undecoded instruction; the hiss's filter order and noise level.
-* `ld2` / `st2` shapes on master B (§4.1).
 * Docs outside: `jx3p_ported/README.md` §8.4 (where it runs: decided here), s1cc internals §3.5 (`s1_out_r`,
   `s1_fx_noise`, fraction tap), SYSTEM-S1CC-BOUTIQUE README (`FX_KERNEL`), `docs/TOOLS.md` (`fx_sim.py`).
