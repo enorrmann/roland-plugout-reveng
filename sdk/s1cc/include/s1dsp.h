@@ -90,6 +90,15 @@
  *   s1_vparam(name, i)    value i of the voice's S1_VOICE_PARAM row
  *   s1_gate() and s1_param(...) also work in S1_MASTER (a master parameter per voice / per table, region 0 writes
  *   them); the other inputs do not reach the master.
+ *   A master EFFECT (SYSTEM-S1CC FX_KERNEL=dir, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.5.1): a
+ *   kernel whose S1_MASTER runs ONCE per sample on the slave's mix (x = the mix, the voices untouched), after the
+ *   voices and before the OS delay / reverb; its return value is the LEFT output and
+ *   s1_out_r(y)           S1_MASTER only: the RIGHT output (without it right = left)
+ *   s1_fx_noise()         S1_MASTER only: white noise -1 .. 1 (the host's noise source on slave B, sent on 6008: master
+ *                         B has no proven op for a noise of its own)
+ *   s1_line_tap(line, d, 2)  the request's own fraction of d (the hardware's, 1/64, truncated): x0 + f (x1 - x0) is a
+ *                         delay of d + 1 + f without a floor on the master (Roland's chorus reads its BBD so)
+ *   Its S1_DSP_A is only the test signal s1cc profiles the effect with (the host never runs it)
  *
  * Native ops: one call = the DSP's own op (docs/vol2_dsp_core_isa/core_architecture.md §5, measured exact on the SYSTEM-8 master with
  * re/dspnative.py; docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §7.6 has the table, costs and limits). s1cc also uses them on its own where they are
@@ -162,6 +171,8 @@ S1_EXTERN S1_IN float s1_lfo_filter(void);
 S1_EXTERN S1_IN float s1_lfo_amp(void);
 S1_EXTERN S1_IN float s1_line_tap(int line, float d, int k);
 S1_EXTERN void s1_line_write(int line, float w);
+S1_EXTERN void s1_out_r(float y);              /* S1_MASTER of a master effect (MASTER_FX): the right output */
+S1_EXTERN S1_IN float s1_fx_noise(void);       /* S1_MASTER of a master effect: the host's noise, -1 .. 1 */
 S1_EXTERN S1_IN float s1_host_mix(void);      /* only s1cc fuse calls it: the host's SUB / NOISE between A and B */
 
 #define s1_param(name, i) s1_param_get(&s1_param_desc_##name, (i))

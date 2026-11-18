@@ -105,6 +105,7 @@ struct Dsp {
     Node *ret = nullptr;
     std::map<int, Node *> exports;
     std::map<int, Node *> lineWrites;   // M: s1_line_write(line, w): the value written into line `line` this sample
+    Node *outR = nullptr;        // M: s1_out_r(y): the right output of a master effect (MASTER_FX); ret = the left
     std::vector<int> states;     // indices of the state words this DSP writes
     std::vector<Island> islands; // candidates (several roots per bad node)
 };

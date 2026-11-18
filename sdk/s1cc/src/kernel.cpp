@@ -334,7 +334,13 @@ KVal *Kernel::exp2split(KVal *t, double shift) {
 
 KVal *Kernel::floor(KVal *x) { return op("floor {d}, {0}", {KOperand::of(x)}); }
 KVal *Kernel::ceil(KVal *x) { return op("ceil {d}, {0}", {KOperand::of(x)}); }
-KVal *Kernel::sign(KVal *x) { return op("sign {d}, {0}", {KOperand::of(x)}); }
+KVal *Kernel::sign(KVal *x) {
+    if (master) {   // master DSP B: only `sign rX, rX` ran (asm/master_b_forms.txt: `sign r3, r6` gave 0 for negative r6)
+        KVal *c = op("mov {d}, {0}", {KOperand::of(x)});
+        return op("sign {d}, {0}", {KOperand::of(c)}, c);
+    }
+    return op("sign {d}, {0}", {KOperand::of(x)});
+}
 
 KVal *Kernel::shift(KVal *x, int k) {
     // shl / shr: 2^k with |k| <= 15; shrn: 2^-(16 + j), j <= 15
@@ -385,7 +391,14 @@ KVal *Kernel::sum3(KVal *a, KVal *b, KVal *c) {
 
 KVal *Kernel::twoMinus(KVal *x) { return op("subxy {d}, {0}, #2.0", {KOperand::of(x)}); }
 
-KVal *Kernel::wrap(KVal *x) { return op("ph_wrap {d}, r3, {0}", {KOperand::of(x)}); }
+KVal *Kernel::wrap(KVal *x) {
+    if (master) {   // master DSP B: the form that ran there, `ph_wrap rX, r3, rX` (Roland's, the OS's reverb); D != X
+                    // forms of sign / mul ran wrong on master B (asm/master_b_forms.txt)
+        KVal *c = op("mov {d}, {0}", {KOperand::of(x)});
+        return op("ph_wrap {d}, r3, {0}", {KOperand::of(c)}, c);
+    }
+    return op("ph_wrap {d}, r3, {0}", {KOperand::of(x)});
+}
 KVal *Kernel::tri(KVal *x) { return op("ph_tri {d}, r3, -{0}", {KOperand::of(x)}); }
 KVal *Kernel::clamp(KVal *x) { return op("ph_clamp {d}, r3, -{0}", {KOperand::of(x)}); }
 

@@ -46,6 +46,10 @@ mov r0, #0.0
 .if HOST_LFO
     .include noise dsp="B", G=lfo_block("B")
 .endif
+.if MFX_NOISE
+    ;; FX_KERNEL: the noise (r2, just made) to master B's effect (s1_fx_noise)
+    st r2, [{FX_NOISE:04x}]
+.endif
 
 
 .fragment host_env v i e lvl

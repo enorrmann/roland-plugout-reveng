@@ -116,6 +116,10 @@ EDM_FB=${EDM_FB:-0.975}
 [ "$EDM_LINES" = 0 ] && EDM_LINES=
 # a kernel with S1_MASTER (.dsp M) always: region 0 maps its lines and writes its master parameters (STR_KM)
 grep -q '^\.dsp M' "$KERNEL/voice.s1k" && EDM_LINES=1
+# FX_KERNEL=dir (make_s1cc.py option): a master effect (README.md §1.9): region 0 maps its lines and writes its master
+# parameters as for an S1_MASTER (model.c STR_KM, MASTER_FX); only region 0 is compiled with EDM_LINES for it (the
+# variable EDM_LINES stays as it is: make_s1cc.py's EDM_LINES is the per-voice frame)
+[ -n "${FX_KERNEL+x}" ] || FX_KERNEL=$(kopt FX_KERNEL)
 # EDM_GLIDE=1 (with EDM_KS): region 0 patches the effect's delay-time smoothing in the OS's copy of its master-B set
 [ -n "${EDM_GLIDE+x}" ] || EDM_GLIDE=$(kopt EDM_GLIDE)
 [ "$EDM_GLIDE" = 0 ] && EDM_GLIDE=
@@ -167,7 +171,7 @@ with open(out, 'w') as f:
 PY
 fi
 CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
- -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${ARM_CUSTOM:+-DARM_CUSTOM=\"$ARM_CUSTOM\"} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_LINES:+-DEDM_LINES} ${EDM_WT:+-DEDM_WT} ${SL_LOAD:+-DSL_LOAD} ${WTL_WITNESS_TEST:+-DWTL_WITNESS_TEST} ${LED_PROBE_TEST:+-DLED_PROBE_TEST} ${CTL_PROBE_TEST:+-DCTL_PROBE_TEST} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
+ -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${ARM_CUSTOM:+-DARM_CUSTOM=\"$ARM_CUSTOM\"} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_LINES:+-DEDM_LINES} $([ -n "$FX_KERNEL" ] && [ -z "$EDM_LINES" ] && echo -DEDM_LINES || true) ${EDM_WT:+-DEDM_WT} ${SL_LOAD:+-DSL_LOAD} ${WTL_WITNESS_TEST:+-DWTL_WITNESS_TEST} ${LED_PROBE_TEST:+-DLED_PROBE_TEST} ${CTL_PROBE_TEST:+-DCTL_PROBE_TEST} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
 for r in 0 1; do
     if [ $r = 0 ]; then SRC=model.c; BASE=0x60800000; CODE=0x9000; else SRC=engine.c; BASE=0x60200000; CODE=0x1000; fi
     arm-none-eabi-gcc $CFLAGS -c "$HERE/$SRC" -o "$B/region$r.o"

@@ -1,0 +1,42 @@
+# panel map of the JX-3P wave-pair build (tools/make_waves.sh): jx3p.panel with OSC1 / OSC2 WAVE on
+# LIGHT on|off (panel order); unlisted = off
+
+LFO_SHAPE          on   # host LFO
+LFO_TO_PITCH       on   # ARM_CUSTOM: DCO LFO MOD
+LFO_FADE           on   # host LFO
+LFO_TO_FILTER      on   # ARM_CUSTOM: VCF LFO MOD
+LFO_RATE           on   # host LFO
+LFO_TO_AMP         off
+OSC1_WAVE          on   # DCO1 WAVEFORM: the wave pair (tools/make_waves.sh)
+OSC1_RANGE         on   # ARM_CUSTOM: DCO1 RANGE
+OSC1_COLOR         off
+OSC1_COLOR_MOD     on   # ARM_CUSTOM: DCO1 FREQ MOD
+OSC1_CROSS_MOD     off
+OSC2_WAVE          on   # DCO2 WAVEFORM: the wave pair (tools/make_waves.sh)
+OSC2_RANGE         on   # ARM_CUSTOM: DCO2 RANGE
+OSC2_COLOR         off
+OSC2_FINE          on   # ARM_CUSTOM: DCO2 FINE TUNE
+OSC2_COLOR_MOD     on   # ARM_CUSTOM: DCO2 FREQ MOD
+OSC1_MIX           on   # S1_PARAM lvl1: DCO1 LEVEL
+OSC2_MIX           on   # S1_PARAM lvl2: DCO2 LEVEL
+SUB_MIX            off
+NOISE_MIX          off
+PITCH_ENV_AMOUNT   on   # ARM_CUSTOM: DCO ENV1 MOD
+PITCH_ENV_ATTACK   off
+PITCH_ENV_DECAY    off
+FILTER_CUTOFF      on   # ARM_CUSTOM: VCF CUTOFF FREQ
+HPF_CUTOFF         on   # S1_PARAM hpf: HPF CUTOFF (C148)
+FILTER_RESONANCE   on   # ARM_CUSTOM + S1_PARAM reso: VCF RESONANCE
+FILTER_ENV_AMOUNT  on   # ARM_CUSTOM: VCF ENV1 MOD
+FILTER_KEY_TRACK   on   # ARM_CUSTOM: VCF PITCH FOLLOW
+FILTER_ATTACK      on   # host ENV1
+FILTER_DECAY       on   # host ENV1
+FILTER_SUSTAIN     on   # host ENV1
+FILTER_RELEASE     on   # host ENV1
+AMP_TONE           on   # ARM_CUSTOM: BRILLIANCE (README.md §3.2)
+CRUSHER            on   # FX_KERNEL jx3p_fx.c: JX-3P CHORUS level (EFFECT LEVEL 0x18C)
+AMP_ATTACK         on   # host ENV2
+AMP_DECAY          on   # host ENV2
+AMP_SUSTAIN        on   # host ENV2
+AMP_RELEASE        on   # host ENV2
+PORTAMENTO         off

@@ -1,0 +1,768 @@
+diff --git a/examples/system_s1cc_boutique/build.sh b/examples/system_s1cc_boutique/build.sh
+index 802ba60..7c67c68 100644
+--- a/examples/system_s1cc_boutique/build.sh
++++ b/examples/system_s1cc_boutique/build.sh
+@@ -116,6 +116,10 @@ EDM_FB=${EDM_FB:-0.975}
+ [ "$EDM_LINES" = 0 ] && EDM_LINES=
+ # a kernel with S1_MASTER (.dsp M) always: region 0 maps its lines and writes its master parameters (STR_KM)
+ grep -q '^\.dsp M' "$KERNEL/voice.s1k" && EDM_LINES=1
++# FX_KERNEL=dir (make_s1cc.py option): a master effect (README.md §1.9): region 0 maps its lines and writes its master
++# parameters as for an S1_MASTER (model.c STR_KM, MASTER_FX); only region 0 is compiled with EDM_LINES for it (the
++# variable EDM_LINES stays as it is: make_s1cc.py's EDM_LINES is the per-voice frame)
++[ -n "${FX_KERNEL+x}" ] || FX_KERNEL=$(kopt FX_KERNEL)
+ # EDM_GLIDE=1 (with EDM_KS): region 0 patches the effect's delay-time smoothing in the OS's copy of its master-B set
+ [ -n "${EDM_GLIDE+x}" ] || EDM_GLIDE=$(kopt EDM_GLIDE)
+ [ "$EDM_GLIDE" = 0 ] && EDM_GLIDE=
+@@ -167,7 +171,7 @@ with open(out, 'w') as f:
+ PY
+ fi
+ CFLAGS="-mcpu=cortex-m3 -mthumb -mfloat-abi=soft -Os -ffreestanding -fno-builtin -nostdlib \
+- -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${ARM_CUSTOM:+-DARM_CUSTOM=\"$ARM_CUSTOM\"} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_LINES:+-DEDM_LINES} ${EDM_WT:+-DEDM_WT} ${SL_LOAD:+-DSL_LOAD} ${WTL_WITNESS_TEST:+-DWTL_WITNESS_TEST} ${LED_PROBE_TEST:+-DLED_PROBE_TEST} ${CTL_PROBE_TEST:+-DCTL_PROBE_TEST} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
++ -fno-zero-initialized-in-bss -fno-common -Wall -Wextra -I$HERE -I$B -DS1_NAME=\"$NAME\" -DS1_MODEL_ID=$MODEL_ID ${PARAMLOG:+-DPARAMLOG} ${ARM_CUSTOM:+-DARM_CUSTOM=\"$ARM_CUSTOM\"} ${EDM_KS:+-DEDM_KS} ${EDM_TAP:+-DEDM_TAP} ${EDM_GLIDE:+-DEDM_GLIDE} ${EDM_CALL:+-DEDM_CALL} ${EDM_ECF:+-DEDM_ECF} ${EDM_LINES:+-DEDM_LINES} $([ -n "$FX_KERNEL" ] && [ -z "$EDM_LINES" ] && echo -DEDM_LINES || true) ${EDM_WT:+-DEDM_WT} ${SL_LOAD:+-DSL_LOAD} ${WTL_WITNESS_TEST:+-DWTL_WITNESS_TEST} ${LED_PROBE_TEST:+-DLED_PROBE_TEST} ${CTL_PROBE_TEST:+-DCTL_PROBE_TEST} ${EDM_STR_DIRECT:+-DEDM_STR_DIRECT} $([ "$EDM_CALL" = write ] && [ "${EDM_OSOFF:-1}" = 1 ] && echo -DEDM_CALL_W || true) ${EDM_GLIDE_NEW:+-DEDM_GLIDE_NEW=$EDM_GLIDE_NEW} ${EDM_PORT:+-DEDM_PORT} $([ "$EDM_PORT" = w ] && echo -DEDM_PORT_WRITE || true) $([ "$EDM_PORT" = d ] && echo -DEDM_PORT_DIAG || true) $([ "$EDM_PORT" = p ] && echo -DEDM_PORT_P || true) ${EDM_PORT_W0:+-DEDM_PORT_W0=$EDM_PORT_W0}"
+ for r in 0 1; do
+     if [ $r = 0 ]; then SRC=model.c; BASE=0x60800000; CODE=0x9000; else SRC=engine.c; BASE=0x60200000; CODE=0x1000; fi
+     arm-none-eabi-gcc $CFLAGS -c "$HERE/$SRC" -o "$B/region$r.o"
+diff --git a/examples/system_s1cc_boutique/build_multi.sh b/examples/system_s1cc_boutique/build_multi.sh
+index 0d98a14..4be9dd0 100644
+--- a/examples/system_s1cc_boutique/build_multi.sh
++++ b/examples/system_s1cc_boutique/build_multi.sh
+@@ -196,7 +196,11 @@ if [ -n "$PATCH_BANK" ]; then
+     python3 "$ROOT/tools/s1_bank.py" --patch-memory "$PATCH_BANK" "$pscript" "$B/patch_memory.h" || exit 1
+     pm="-DS1_PATCH_MEMORY -I$B"
+ fi
+-arm-none-eabi-gcc $CFLAGS $acust_0 $pm -I"$B/k0" -c "$HERE/model.c" -o "$B/region0.o"
++# FX_KERNEL (make_s1cc.py option, every kernel the same: one master program): region 0 maps the effect's lines and
++# writes its parameters (model.c EDM_LINES + MASTER_FX from k0's s1_programs.h)
++fx=""
++grep -q '^#define MASTER_FX 1' "$B/k0/s1_programs.h" && fx="-DEDM_LINES"
++arm-none-eabi-gcc $CFLAGS $acust_0 $pm $fx -I"$B/k0" -c "$HERE/model.c" -o "$B/region0.o"
+ arm-none-eabi-ld -T "$HERE/link.ld" --defsym BASE=0x60800000 --defsym CODE=0x9000 "$B/region0.o" -o "$B/region0.elf"
+ for r in 0 1; do
+     arm-none-eabi-objcopy -O binary "$B/region$r.elf" "$B/region$r.bin"
+diff --git a/examples/system_s1cc_boutique/make_s1cc.py b/examples/system_s1cc_boutique/make_s1cc.py
+index 3711ecc..c021836 100644
+--- a/examples/system_s1cc_boutique/make_s1cc.py
++++ b/examples/system_s1cc_boutique/make_s1cc.py
+@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
+ # an environment variable wins (examples/system_s1cc_boutique/README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
+ OPTIONS = ('NAME', 'MODEL_ID', 'SECT_N', 'PARAMLOG', 'ARM_CUSTOM', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
+            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_WORDS', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
+-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV', 'MONO_LEGATO', 'GATE_ACCENT', 'PANEL', 'VOICE_SECT_TEST', 'KV_WORDS')
++           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV', 'MONO_LEGATO', 'GATE_ACCENT', 'PANEL', 'VOICE_SECT_TEST', 'KV_WORDS', 'FX_KERNEL')
+ _bad = sorted(set(KDEF.options) - set(OPTIONS))
+ if _bad:
+     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
+@@ -1192,6 +1192,37 @@ if EDM_ECF:
+ # the ages the kernel stores), the kernel once per voice on master B (master_km), its tables written by region 0
+ # (model.c STR_KM). Implies EDM_LINES=1 EDM_STR_ONE=1; lines per voice = the kernel's, voices = 6 // lines
+ KM = 'M' in KDEF.dsps
++# FX_KERNEL=dir: a master EFFECT (README.md §1.9): an s1cc build whose S1_MASTER runs ONCE per sample on master B, on
++# the slave's mix (6006; L = R), after the voices and before the OS delay / reverb: its return value -> the left send,
++# s1_out_r -> the right one, s1_fx_noise = slave B's noise word (head_b puts it on 6008). Its lines, requests and
++# parameters are the KM frame's with one line voice (lines = the effect's, <= 6 requests per sample), so the voice
++# kernel and its voices stay as they are (the slaves still mix). Its S1_PARAM knobs (the CRUSHER knob for the
++# effects of the boutique ports) are master parameters, written by region 0 (model.c STR_KM, MASTER_FX)
++FX_KERNEL = opt('FX_KERNEL', '')
++MFX = bool(FX_KERNEL)
++if MFX:
++    if KM:
++        raise SystemExit('make_s1cc.py: FX_KERNEL with a voice kernel that has its own S1_MASTER: one master program')
++    if not os.path.isabs(FX_KERNEL):
++        FX_KERNEL = os.path.join(ROOT, FX_KERNEL) if not os.path.exists(FX_KERNEL) else os.path.abspath(FX_KERNEL)
++    if not os.path.exists(os.path.join(FX_KERNEL, 'voice.s1k')):
++        raise SystemExit(f'make_s1cc.py: FX_KERNEL={FX_KERNEL}: no voice.s1k (an s1cc build directory)')
++    FXDEF = s1kernel.Kernel.read(os.path.join(FX_KERNEL, 'voice.s1k'))
++    if 'M' not in FXDEF.dsps:
++        raise SystemExit(f'make_s1cc.py: FX_KERNEL={FX_KERNEL} has no S1_MASTER')
++    if FXDEF.vparams:
++        raise SystemExit('make_s1cc.py: FX_KERNEL: no S1_VOICE_PARAM in an effect (it runs once, not per voice)')
++    if 'IN:gate' in FXDEF.placeholders('M'):
++        raise SystemExit('make_s1cc.py: FX_KERNEL: no s1_gate in an effect (it runs once, not per voice)')
++    FXTAB = s1kernel.read_tables(os.path.join(FX_KERNEL, 'tables.txt'))
++MK, MTAB = (FXDEF, FXTAB) if MFX else (KDEF, KTAB)   # the master kernel: the voice's S1_MASTER, or the effect's
++FX_NOISE = 0x6008                               # MFX: slave B's noise word to the master (s1_fx_noise)
++MFX_NOISE = MFX and 'IN:noise' in FXDEF.placeholders('M')
++if MFX_NOISE:
++    if not HOST_LFO:
++        raise SystemExit('make_s1cc.py: FX_KERNEL reads s1_fx_noise: slave B\'s noise source runs only with the host LFO '
++                         '(HOST_LFO; ARM_CUSTOM or an LFO input of the voice)')
++    OUT_ZERO = [x for x in OUT_ZERO if x != FX_NOISE]   # head_b sends the noise there instead of 0
+ # EDM_LINES=1: the frame of the master's own lines, whatever program runs on them
+ EDM_LINES = opt('EDM_LINES', '0') == '1' or KM
+ STR_W = 0x4040                                # bank-2 words 4040..407F (the OS uses 4001..402D, EDM_RES 402E..)
+@@ -1234,6 +1265,12 @@ if KM:
+         raise SystemExit('make_s1cc.py: a kernel with S1_MASTER is its own line program: no EDM_STR_COMB / _PL / _BLOWN / _BOWED')
+     STR_ONE = True
+     STR_LPV = max(1, KDEF.lines)
++if MFX:
++    if STR_COMB or STR_PL or STR_BLOWN or STR_BOWED or opt('EDM_LINES', '0') == '1':
++        raise SystemExit('make_s1cc.py: FX_KERNEL goes alone (no EDM_LINES / EDM_STR_*)')
++    STR_ONE = True
++    STR_LPV = max(1, FXDEF.lines)
++    STR_NV_OPT = 1                            # one line voice: the effect
+ if STR_BOWED:
+     STR_ONE = True
+ BOW_SEED = (1.56749685, -0.65660134, 0.07958208)   # 1 / y on [0.75, 4.75]: c0 + c1 y + c2 y^2 (16 %), 2 Newton: 7e-4
+@@ -1255,7 +1292,7 @@ if STR_ONE:
+     STR_TAP = True
+     if not STR_NV_OPT:
+         STR_NV_OPT = 6 // STR_LPV
+-if EDM_LINES and STR_TAP and STR_NV_OPT and STR_NV_OPT * (STR_LPV if STR_ONE else 2) > 6:
++if (EDM_LINES or MFX) and STR_TAP and STR_NV_OPT and STR_NV_OPT * (STR_LPV if STR_ONE else 2) > 6:
+     raise SystemExit('make_s1cc.py: EDM_LINES: more than 6 of our tapreq per sample (8 hung the device, 6 ran, '
+                      '2026-11-04, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): fewer EDM_STR_NV or EDM_STR_ONE=1')
+ STR1_S = 0x0300                               # master B bank 0: the one-pole states (the OS effect uses 0000..0033)
+@@ -1604,14 +1641,17 @@ def km_ids():
+     """{'gate': id, 'vcol': {(table, i): base id}, 'single': {key: id}}: key = ('P', name, i) / ('K', text)"""
+     vcol, single, warn = {}, {}, []
+     cols = KM_VCOLS + KM_VCOLS_NEW
+-    for t in KDEF.vparams:
++    for t in MK.vparams:
+         for i in range(t['count']):
+             if len(vcol) >= len(cols):
+                 raise SystemExit(f'make_s1cc.py: S1_MASTER: more than {len(cols)} S1_VOICE_PARAM columns')
+             vcol[(t['name'], i)] = cols[len(vcol)]
+-    keys = [('P', p['name'], i) for p in KDEF.mparams for i in range(p['count'])]
+-    keys += [('K', m[2:]) for m in KDEF.placeholders('M') if m.startswith('K:')]
++    keys = [('P', p['name'], i) for p in MK.mparams for i in range(p['count'])]
++    keys += [('K', m[2:]) for m in MK.placeholders('M') if m.startswith('K:')]
+     ids = KM_SINGLES + KM_SINGLES_NEW
++    if MFX:                                   # no voice columns, no gates: their ids (MP-PLSTRING wrote C020 / C028 /
++        ids = KM_SINGLES + [b + v for b in (0x20, 0x30, 0x40, 0x48, 0x28) for v in range(6)] + KM_SINGLES_NEW
++        # C030 / C040 / C048 + v, v = 0..5, and ran: proven master B parameter words) are free singles first
+     if len(keys) > len(ids):
+         raise SystemExit(f'make_s1cc.py: S1_MASTER: {len(keys)} parameters and constants, room for {len(ids)}')
+     for k, i in zip(keys, ids):
+@@ -1622,12 +1662,12 @@ def km_ids():
+ def km_words():
+     """bank-0 words of one voice's block: {key: offset} (states 2 words: stored at S, read at S + 1; the request
+     ages 2: stored at both; scratch and OUT 1: written and read in the sample), and the block's size"""
+-    st = KDEF.dsps['M']
++    st = MK.dsps['M']
+     off, k = {}, 0
+-    for x in KDEF.mstates:
++    for x in MK.mstates:
+         off[f'S{x["index"]}'] = k
+         k += 2
+-    for j in range(KDEF.lines):
++    for j in range(MK.lines):
+         off[f'LD:{j}'] = k
+         k += 2
+     if st.get('initflag'):
+@@ -1637,6 +1677,9 @@ def km_words():
+         off[f'T{j}'] = k
+         k += 1
+     off['OUT'] = k
++    if MFX:                                   # the effect's right output (s1_out_r)
++        off['OUTR'] = k + 1
++        return off, k + 2
+     return off, k + 1
+ 
+ 
+@@ -1655,11 +1698,11 @@ def km_addr(v):
+         raise SystemExit('make_s1cc.py: S1_MASTER: the voices\' blocks pass the end of bank 0')
+     ids = km_ids()
+     addr = {key: base + o for key, o in off.items()}
+-    addr.update({'XIN': 0x6006 + v, 'IN:gate': 0xC000 + ids['gate'] + v})
++    addr.update({'XIN': 0x6006 + v, 'IN:gate': 0xC000 + ids['gate'] + v, 'IN:noise': FX_NOISE})
+     for j in range(STR_LPV):
+         line = v * STR_LPV + j
+         addr[f'LW:{j}'] = STR_W + 8 * line
+-        for k in (0, 1):
++        for k in (0, 1, 2):                    # x0, x1, the request's fraction (1/64: edm_wt.s reads it so)
+             addr[f'LT:{j}:{k}'] = STR_RES + 8 * line + k
+     for (name, i), b in ids['vcol'].items():
+         addr[f'V:{name}:{i}'] = 0xC000 + b + v
+@@ -1744,19 +1787,28 @@ def master_km():
+     off, size = km_words()
+     L = []
+     for v in range(str_nv()):
+-        body = KDEF.place('M', km_addr(v))
++        body = MK.place('M', km_addr(v))
+         L += [f';; S1_MASTER voice {v}'] + km_schedule(body, KM_ALUGAP)
+     return L + frag('master_km_sum', outs=[KM_S + size * v + off['OUT'] for v in range(str_nv())])
+ 
+ 
++def master_fx():
++    """MFX: master B's main: the effect once on the slave's mix (6006), its left (OUT) / right (OUTR) x VOLUME to the
++    OS effect's sends (microcode/edm_str.s master_fx_sum)"""
++    off, size = km_words()
++    body = MK.place('M', km_addr(0))
++    return [';; FX_KERNEL: the master effect'] + km_schedule(body, KM_ALUGAP) + \
++        frag('master_fx_sum', outl=KM_S + off['OUT'], outr=KM_S + off['OUTR'])
++
++
+ def km_header():
+     """KM: model.c's tables: per voice-parameter column its id, panels and rows; per single its id, and either its
+     knob table (S1_PARAM) or its value (an immediate)"""
+     ids = km_ids()
+     out = [f'#define STR_KM 1\n#define KM_GATE 0x{ids["gate"]:02x}\n#define KM_STEPS {s1kernel.VSTEPS}']
+     vb, vrows = [], []
+-    for t in KDEF.vparams:
+-        (pa, pb), cnt, vals = KTAB[t['name']]
++    for t in MK.vparams:
++        (pa, pb), cnt, vals = MTAB[t['name']]
+         for i in range(cnt):
+             vrows.append((ids['vcol'][(t['name'], i)], pa, pb, len(vb)))
+             vb += [vals[r * cnt + i] / t['scales'][i] for r in range(len(vals) // cnt)]
+@@ -1770,8 +1822,8 @@ def km_header():
+     pb, prows, krows = [], [], []
+     for key, i in ids['single'].items():
+         if key[0] == 'P':
+-            p = next(q for q in KDEF.mparams if q['name'] == key[1])
+-            panel, cnt, vals = KTAB[key[1]]
++            p = next(q for q in MK.mparams if q['name'] == key[1])
++            panel, cnt, vals = MTAB[key[1]]
+             prows.append((i, panel, len(pb)))
+             pb += [vals[k * cnt + key[2]] / p['scale'] for k in range(256)]
+         else:
+@@ -1790,7 +1842,7 @@ def km_header():
+         print('warning: S1_MASTER: master B parameters ' + ', '.join(f'C{0xC000 + i:04x}'[1:] for i in news)
+               + ' never ran (make_s1cc.py KM_VCOLS / KM_SINGLES)')
+     return '\n'.join(out)
+-if EDM_LINES:
++if EDM_LINES or MFX:
+     EDM_TAP = True                            # the main as written, one line per instruction (section())
+     if EDM_ECF or EDM_CALL or opt('EDM_KS', '0') == '1':
+         raise SystemExit('make_s1cc.py: EDM_LINES goes alone (not with EDM_ECF / EDM_CALL / EDM_KS)')
+@@ -1822,7 +1874,7 @@ def edm_call_header(path):
+                                              EDM_RBASE=int(opt('EDM_RBASE', '256'))))
+              if EDM_CALL_MODE == 'write' else
+              ('edm_call_block_idx', dict(EDM_RES=EDM_RES, EDM_AGE=EDM_ARGS['EDM_AGE'], EDM_HB=0x440000 // 16384))
+-             if EDM_CALL_MODE == 'idx' else ('edm_wt_block', {}) if EDM_WT else ('edm_km_block', {}) if KM else ('edm_str_block1', {}) if STR_ONE else ('edm_str_block', {}) if STR_TAP else
++             if EDM_CALL_MODE == 'idx' else ('edm_wt_block', {}) if EDM_WT else ('edm_km_block', {}) if KM or MFX else ('edm_str_block1', {}) if STR_ONE else ('edm_str_block', {}) if STR_TAP else
+              ('edm_call_block', dict(EDM_RES=EDM_RES, EDM_AGE=EDM_ARGS['EDM_AGE'])))
+     for name, kw in (block, ('edm_call_site', {})):
+         r = asm.assemble('\n'.join(frag(name, **kw)) + '\n', _ISA[0] if _ISA else None)
+@@ -1844,6 +1896,8 @@ def prog_master():
+         return frag('master_wt_s' if WT_SLAVE else 'master_wt')
+     if KM:
+         return master_km()
++    if MFX:
++        return master_fx()
+     if EDM_LINES:
+         return frag('master_bowed' if STR_BOWED else 'master_blown' if STR_BLOWN else 'master_pstr' if STR_PL else 'master_str1' if STR_ONE else 'master_str')
+     if EDM_ECF and EDM_CALL_MODE == 'idx':
+@@ -2202,7 +2256,7 @@ def str1_tables():
+                                                             for v in range(256)])]
+     if STR_PL:
+         comb = [pl_tables()]
+-    if KM:
++    if KM or MFX:
+         comb = [km_header()]
+     if STR_BLOWN:
+         comb = [blown_tables()]
+@@ -2300,8 +2354,10 @@ def header(progs):
+                f'#define F_ONE 0x{float_bits(1.0):08x}u\n#define F_ZERO 0x00000000u\n'
+                f'#define B5_PITCH {idx(PITCH[0])}\n#define B5_GATE {idx(GATE[0])}\n#define B5_TRIG {idx(TRIG[0])}\n'
+                f'#define B5_DT {idx(DT[0])}\n#define B5_RDT {idx(RDT[0])}')
+-    if EDM_LINES:
++    if EDM_LINES or MFX:
+         out.append(str_header())
++    if MFX:
++        out.append('#define MASTER_FX 1   /* FX_KERNEL: one line voice (the effect); the assigner keeps all NV voices */')
+     if EDM_WT:
+         out.append(wt_header())
+     out.append(f'#define SL_WT {int(SL_WT in ("b5", "b0"))}\n#define IDX_PROBE {int(IDX_PROBE)}')
+@@ -3097,7 +3153,7 @@ def main():
+     open(os.path.join(OUTDIR, 's1_programs.h'), 'w').write(header(progs))
+     if SL_WT in ('b5', 'b0'):
+         sl_header(os.path.join(OUTDIR, 'sl_wt.h'))
+-    if EDM_CALL or (EDM_LINES and STR_TAP) or EDM_WT:
++    if EDM_CALL or ((EDM_LINES or MFX) and STR_TAP) or EDM_WT:
+         edm_call_header(os.path.join(OUTDIR, 'edm_call.h'))
+     tried = os.path.join(OUTDIR, 'try_forms.txt')
+     if TRIED:                                      # what this build tests on the device (tools/proven_forms.py promote)
+diff --git a/examples/system_s1cc_boutique/microcode/edm_str.s b/examples/system_s1cc_boutique/microcode/edm_str.s
+index 231f4c6..1e8c2b5 100644
+--- a/examples/system_s1cc_boutique/microcode/edm_str.s
++++ b/examples/system_s1cc_boutique/microcode/edm_str.s
+@@ -448,3 +448,27 @@ mov r2, #0.0
+ .for x in M_ZERO
+     st r2, [{x:04x}]
+ .endfor
++
++
++;; FX_KERNEL (make_s1cc.py master_fx): after the master effect (its left output in bank-0 word outl, its right in
++;; outr), both x VOLUME -> the OS effect's sends (the stock master's path: 6006 / 6007 x VOLUME), the effect's return
++;; -> the master out
++.fragment master_fx_sum outl outr
++ld r6, [{outl:04x}]
++ld r5, [{outr:04x}]
++ld r7, [c{M_VOLUME:03x}]
++mov r3, r3
++mul r6, r6, r7
++mul r5, r5, r7
++mov r3, r3
++st r6, [{FX_SEND[0]:04x}]
++st r5, [{FX_SEND[1]:04x}]
++ld r2, [{FX_RET[0]:04x}]
++ld r3, [{FX_RET[1]:04x}]
++mov r4, r4
++st r2, [{M_OUT[0]:04x}]
++st r3, [{M_OUT[1]:04x}]
++mov r2, #0.0
++.for x in M_ZERO
++    st r2, [{x:04x}]
++.endfor
+diff --git a/examples/system_s1cc_boutique/microcode/host_b.s b/examples/system_s1cc_boutique/microcode/host_b.s
+index 231c157..ae11fcf 100644
+--- a/examples/system_s1cc_boutique/microcode/host_b.s
++++ b/examples/system_s1cc_boutique/microcode/host_b.s
+@@ -46,6 +46,10 @@ mov r0, #0.0
+ .if HOST_LFO
+     .include noise dsp="B", G=lfo_block("B")
+ .endif
++.if MFX_NOISE
++    ;; FX_KERNEL: the noise (r2, just made) to master B's effect (s1_fx_noise)
++    st r2, [{FX_NOISE:04x}]
++.endif
+ 
+ 
+ .fragment host_env v i e lvl
+diff --git a/examples/system_s1cc_boutique/model.c b/examples/system_s1cc_boutique/model.c
+index 1b65e10..2229995 100644
+--- a/examples/system_s1cc_boutique/model.c
++++ b/examples/system_s1cc_boutique/model.c
+@@ -20,7 +20,7 @@
+ #define ARM_CUSTOM_CC_TABLE                    /* only the kernel's CC table (arm_custom_cc), not its ARM code */
+ #include ARM_CUSTOM
+ #endif
+-#if defined(EDM_LINES) && defined(STR_NV) && STR_NV < NV
++#if defined(EDM_LINES) && defined(STR_NV) && STR_NV < NV && !defined(MASTER_FX)
+ #undef NV
+ #define NV STR_NV                                             /* EDM_STR_NV: the assigner plays only the strings */
+ #endif
+@@ -355,6 +355,17 @@ static void edm_call(void)
+             edm_call_state = 3;
+             return;
+         }
++        /* this build's call and block already there (a patch change calls load again, the DSP running it): nothing
++           to write. Rewriting it live (site back, block, site again: three words each, not atomic for the DSP) hung
++           the device at patch changes now and then (JX-3P-S1 + jx3p_fx, 2026-11-18) */
++        int same = prog_hw(EDM_SITE + 4) == edm_call_site[2] && prog_hw(EDM_SITE + 6) == edm_call_site[3]
++                   && prog_hw(EDM_SITE + 8) == edm_call_site[4];
++        for (unsigned i = 0; same && i < sizeof edm_call_block / 2; i++)
++            same = prog_hw(EDM_BLOCK + 2 * (5 + i)) == edm_call_block[i];
++        if (same) {
++            edm_call_state = 2;
++            return;
++        }
+         /* another build's call already there (power on since): the OS's words back at the site first, so that
+            nothing calls the block while it is rewritten (2026-11-04: MP-EDMIDX then MP-EDMSTRT without power off) */
+         for (unsigned i = 0; i < 5; i++)
+@@ -439,6 +450,13 @@ static void edm_ecf(void)
+ }
+ #endif
+ #ifdef EDM_LINES
++#ifdef MASTER_FX
++/* FX_KERNEL (make_s1cc.py MFX, README.md §1.9): the frame below with ONE line voice, the master effect on the mix;
++   the key assigner keeps its NV voices, this part counts the line voices (STR_NV = 1) */
++#pragma push_macro("NV")
++#undef NV
++#define NV STR_NV
++#endif
+ /* EDM_LINES (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): a Karplus-Strong string per voice on master B (microcode/edm_str.s), each
+    in its own delay-memory line mapped the way EDM_ECF maps its two (above): voice v's write entry [STR_W + 8v] ->
+    STR_A0 + v STR_DA and four read entries [STR_W + 8v + 1, 3, 5, 7] <- that address + d .. d + 3, table entries
+@@ -466,6 +484,8 @@ static void str_reads(int v, int note)                        /* voice v's read
+ #ifdef STR_COMB
+ static uint8_t comb_knob[2] = { 128, 192 };                   /* OSC1 COLOR, OSC2 COLOR */
+ static void str_fb(int v) { str_prm(STR_PFB + v, str_res_bits[comb_knob[1]]); }
++#elif defined(MASTER_FX)
++static void str_fb(int v) { (void)v; }                       /* an effect has no gate (its ids are its singles) */
+ #elif defined(STR_KM)
+ static void str_fb(int v) { str_prm(KM_GATE + v, str_gate[v] ? F_ONE : F_ZERO); }   /* s1_gate() of S1_MASTER */
+ #else
+@@ -525,6 +545,15 @@ static void km_param(int id, int value)                       /* a knob: its mas
+     km_val[i] = (uint8_t)value;
+     if (edm_str_state != 1)
+         return;
++#ifdef MASTER_FX
++    /* FX_KERNEL: every parameter and constant of the effect again, not only this knob's: the ones load wrote are
++       lost when the master program lands after load (2026-11-18, JX-3P-S1: the chorus and its hiss only came after a
++       note of voice 0, which writes them again). The OS sends the panel after load (resend_panel) and at every patch
++       change, so the effect's knob arrives after the program */
++    str_bright();
++    (void)old;
++    return;
++#endif
+     for (int k = 0; k < KM_NP; k++)
+         if (km_p_panel[k] == id)
+             str_prm(km_p_id[k], km_pbits[km_p_off[k] + (unsigned)value]);
+@@ -769,6 +798,9 @@ static void edm_str_param(int id, int value)                  /* m_param: the th
+         for (int v = 0; v < NV; v++)
+             str_fb(v);
+ }
++#ifdef MASTER_FX
++#pragma pop_macro("NV")
++#endif
+ #endif
+ #if defined(PARAMLOG) && defined(EDM_LINES)
+ static void param_log(int id, int flag, int value);
+@@ -1857,8 +1889,14 @@ static void coarse_copy(void)
+     }
+ }
+ 
++#ifdef MASTER_FX
++static int fx_loaded;                                         /* m_load: edm_str done since the selection */
++#endif
+ static int m_deinit(struct model *m)                          /* vt+0x04: the PLUG-OUT is left */
+ {
++#ifdef MASTER_FX
++    fx_loaded = 0;
++#endif
+     (void)m;
+     coarse_wide(0);
+     return 0;
+@@ -1890,8 +1928,18 @@ static void m_load(struct model *m)                           /* vt+0x08 */
+     edm_ecf();
+ #endif
+ #ifdef EDM_LINES
++#ifdef MASTER_FX
++    /* FX_KERNEL: a patch change calls load again with the DSPs running: the lines' map (FC3C) and the zeroed
++       parameters only at the first load after the PLUG-OUT was selected, afterwards only the effect's parameters */
++    if (fx_loaded)
++        str_bright();
++    else
++        edm_str();
++    fx_loaded = 1;
++#else
+     edm_str();
+ #endif
++#endif
+ #ifdef EDM_WT
+     wt_load();                                                /* (the request block: edm_call above, EDM_CALL) */
+ #endif
+diff --git a/sdk/s1cc/examples/jx3p_ported/jx3p.panel b/sdk/s1cc/examples/jx3p_ported/jx3p.panel
+index 768aea3..8b90a25 100644
+--- a/sdk/s1cc/examples/jx3p_ported/jx3p.panel
++++ b/sdk/s1cc/examples/jx3p_ported/jx3p.panel
+@@ -34,7 +34,7 @@ FILTER_DECAY       on   # host ENV1
+ FILTER_SUSTAIN     on   # host ENV1
+ FILTER_RELEASE     on   # host ENV1
+ AMP_TONE           on   # ARM_CUSTOM: BRILLIANCE (README.md §3.2)
+-CRUSHER            off
++CRUSHER            on   # FX_KERNEL jx3p_fx.c: JX-3P CHORUS level (EFFECT LEVEL 0x18C)
+ AMP_ATTACK         on   # host ENV2
+ AMP_DECAY          on   # host ENV2
+ AMP_SUSTAIN        on   # host ENV2
+diff --git a/sdk/s1cc/examples/jx3p_ported/jx3p_waves.panel b/sdk/s1cc/examples/jx3p_ported/jx3p_waves.panel
+index 41720b2..bb0e04c 100644
+--- a/sdk/s1cc/examples/jx3p_ported/jx3p_waves.panel
++++ b/sdk/s1cc/examples/jx3p_ported/jx3p_waves.panel
+@@ -34,7 +34,7 @@ FILTER_DECAY       on   # host ENV1
+ FILTER_SUSTAIN     on   # host ENV1
+ FILTER_RELEASE     on   # host ENV1
+ AMP_TONE           on   # ARM_CUSTOM: BRILLIANCE (README.md §3.2)
+-CRUSHER            off
++CRUSHER            on   # FX_KERNEL jx3p_fx.c: JX-3P CHORUS level (EFFECT LEVEL 0x18C)
+ AMP_ATTACK         on   # host ENV2
+ AMP_DECAY          on   # host ENV2
+ AMP_SUSTAIN        on   # host ENV2
+diff --git a/sdk/s1cc/examples/jx3p_ported/tools/make_waves.sh b/sdk/s1cc/examples/jx3p_ported/tools/make_waves.sh
+index 5de5b52..daf2bde 100644
+--- a/sdk/s1cc/examples/jx3p_ported/tools/make_waves.sh
++++ b/sdk/s1cc/examples/jx3p_ported/tools/make_waves.sh
+@@ -34,4 +34,4 @@ done; done
+ # PATCH_BANK: Roland's JX-3P presets (1 Preset.bin, as they are: README.md §3.2) in region 0's patch memory, so a
+ # firmware-only install leaves them instead of empty patches
+ PATCH_BANK="${PATCH_BANK:-$ROOT/plugins/JX-3P/Patch/1 Preset.bin}" \
+-SECT_N=2 ARM_WORDS=1 PANEL=sdk/s1cc/examples/jx3p_ported/jx3p_waves.panel KV_WORDS=${KV_WORDS:-} SECT_SWITCH=1 KERNELS="$K" NAME=$NAME sh examples/system_s1cc_boutique/build_multi.sh
++FX_KERNEL=${FX_KERNEL-sdk/s1cc/build/jx3p_fx} SECT_N=2 ARM_WORDS=1 PANEL=sdk/s1cc/examples/jx3p_ported/jx3p_waves.panel KV_WORDS=${KV_WORDS:-} SECT_SWITCH=1 KERNELS="$K" NAME=$NAME sh examples/system_s1cc_boutique/build_multi.sh
+diff --git a/sdk/s1cc/include/s1dsp.h b/sdk/s1cc/include/s1dsp.h
+index 5ce6388..2dcce03 100644
+--- a/sdk/s1cc/include/s1dsp.h
++++ b/sdk/s1cc/include/s1dsp.h
+@@ -90,6 +90,15 @@
+  *   s1_vparam(name, i)    value i of the voice's S1_VOICE_PARAM row
+  *   s1_gate() and s1_param(...) also work in S1_MASTER (a master parameter per voice / per table, region 0 writes
+  *   them); the other inputs do not reach the master.
++ *   A master EFFECT (SYSTEM-S1CC FX_KERNEL=dir, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.5.1): a
++ *   kernel whose S1_MASTER runs ONCE per sample on the slave's mix (x = the mix, the voices untouched), after the
++ *   voices and before the OS delay / reverb; its return value is the LEFT output and
++ *   s1_out_r(y)           S1_MASTER only: the RIGHT output (without it right = left)
++ *   s1_fx_noise()         S1_MASTER only: white noise -1 .. 1 (the host's noise source on slave B, sent on 6008: master
++ *                         B has no proven op for a noise of its own)
++ *   s1_line_tap(line, d, 2)  the request's own fraction of d (the hardware's, 1/64, truncated): x0 + f (x1 - x0) is a
++ *                         delay of d + 1 + f without a floor on the master (Roland's chorus reads its BBD so)
++ *   Its S1_DSP_A is only the test signal s1cc profiles the effect with (the host never runs it)
+  *
+  * Native ops: one call = the DSP's own op (docs/vol2_dsp_core_isa/core_architecture.md §5, measured exact on the SYSTEM-8 master with
+  * re/dspnative.py; docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §7.6 has the table, costs and limits). s1cc also uses them on its own where they are
+@@ -162,6 +171,8 @@ S1_EXTERN S1_IN float s1_lfo_filter(void);
+ S1_EXTERN S1_IN float s1_lfo_amp(void);
+ S1_EXTERN S1_IN float s1_line_tap(int line, float d, int k);
+ S1_EXTERN void s1_line_write(int line, float w);
++S1_EXTERN void s1_out_r(float y);              /* S1_MASTER of a master effect (MASTER_FX): the right output */
++S1_EXTERN S1_IN float s1_fx_noise(void);       /* S1_MASTER of a master effect: the host's noise, -1 .. 1 */
+ S1_EXTERN S1_IN float s1_host_mix(void);      /* only s1cc fuse calls it: the host's SUB / NOISE between A and B */
+ 
+ #define s1_param(name, i) s1_param_get(&s1_param_desc_##name, (i))
+diff --git a/sdk/s1cc/include/s1panel.h b/sdk/s1cc/include/s1panel.h
+index 94a8d52..1230c79 100644
+--- a/sdk/s1cc/include/s1panel.h
++++ b/sdk/s1cc/include/s1panel.h
+@@ -67,6 +67,9 @@
+ #define S1_AMP_RELEASE        0x18A
+ 
+ #define S1_AMP_TONE           0x18B   /* AMP TONE knob, CC 69, bipolar 128 = centre (examples/system_1_synth/README.md §8, measured 2026-11-17) */
++#define S1_CRUSHER            0x18C   /* CRUSHER knob 0..255 (examples/system_1_synth/README.md §8, C-S1SY 2026-10-23); the patch word
++                                         Roland's PLUG-OUT layout calls EFFECT LEVEL. SYSTEM-S1CC: the knob of the master effect
++                                         (FX_KERNEL, s1_out_r) */
+ /* EXTEND30, reserved: SYSTEM-S1CC model.c coarse_copy puts word 0x173 (OSC2 COARSE, which the OS cuts to -11..11) there
+    whole at every load and patch change (examples/system_s1cc_boutique README.md §1.6b): read it, never store into it
+    (make_s1cc.py check_reserved_words stops a CC table that writes it) */
+diff --git a/sdk/s1cc/runtime/s1rt.c b/sdk/s1cc/runtime/s1rt.c
+index b20308f..b6378ef 100644
+--- a/sdk/s1cc/runtime/s1rt.c
++++ b/sdk/s1cc/runtime/s1rt.c
+@@ -13,6 +13,7 @@
+  * (note - 12) / 12; s1_wrap = ((x + 1) mod 2) - 1, s1_tri = 1 - 2 |wrap(-x - 1.5)|.
+  */
+ #include <math.h>
++#include <stdint.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -116,9 +117,18 @@ float s1_line_tap(int line, float d, int k) {
+     line = line < 0 ? 0 : line >= LINES ? LINES - 1 : line;
+     float dd = g_ldset[line] ? g_ldprev[line] : d;
+     g_ld[line] = d;
++    if (k == 2)                       /* the request's fraction: the hardware's, 1/64 truncated (MI-WT, docs Vol. VI
++                                         ch. 7 §3.3.3) */
++        return floorf((dd - floorf(dd)) * 64.0f) / 64.0f;
+     long i = g_n - (long)floorf(dd) - 1 - (k & 1);
+     return i < 0 ? 0.0f : g_line[line][i & (LINE_N - 1)];
+ }
++/* MASTER_FX: the host's noise word (slave B's noise source, sent on 6008): here a uniform -1 .. 1 */
++static uint32_t g_fxn = 22222u;
++float s1_fx_noise(void) {
++    g_fxn = g_fxn * 1664525u + 1013904223u;
++    return (float)(int32_t)g_fxn * (1.0f / 2147483648.0f);
++}
+ void s1_line_write(int line, float w) {
+     if (line >= 0 && line < LINES)
+         g_line[line][g_n & (LINE_N - 1)] = w;
+@@ -185,6 +195,9 @@ float s1_param_get(const s1_param_desc *d, int i) {
+     return 0;
+ }
+ void s1_export(int i, float v) { g_export[i & 127] = v; }
++static float g_outr;                    /* S1_MASTER's s1_out_r (MASTER_FX: the right output) */
++static int g_outr_set;
++void s1_out_r(float y) { g_outr = y; g_outr_set = 1; }
+ float s1_import(int i) { return g_export[i & 127]; }
+ /* s1_ldb5(i): the wavetable frame in bank 5 (A080..). Here (native reference / profiling / check) a band-limited saw
+  * stands in for whatever the host / USB loader wrote; on the device the DSP reads the loaded frame. 127 points +
+@@ -323,6 +336,7 @@ static void state_track(void) {
+ 
+ /* one note: gate on with a note start at 0, off at `off`; returns the B output of the last sample */
+ static FILE *outm;                      /* ref: S1_MASTER's output */
++static FILE *outr;                      /* ref: S1_MASTER's right output (s1_out_r; without it = the output) */
+ static void run(double note, long n, long off, FILE *out) {
+     g_pitch = note_pitch(note);
+     g_note = (int)note;
+@@ -345,10 +359,14 @@ static void run(double note, long n, long off, FILE *out) {
+             fwrite(ab, sizeof ab, 1, out);
+         }
+         if (s1_master) {
++            g_outr_set = 0;
+             float m = s1_master(b);
++            float r = g_outr_set ? g_outr : m;
+             lines_step();
+             if (outm)
+                 fwrite(&m, sizeof m, 1, outm);
++            if (outr)
++                fwrite(&r, sizeof r, 1, outr);
+         }
+     }
+ }
+@@ -471,6 +489,8 @@ int main(int argc, char **argv) {
+             char mpath[4096];
+             snprintf(mpath, sizeof mpath, "%s.m", argv[2]);
+             outm = fopen(mpath, "wb");
++            snprintf(mpath, sizeof mpath, "%s.r", argv[2]);
++            outr = fopen(mpath, "wb");
+         }
+         reset();
+         if (__s1p_dspstart)          /* ref built by `s1cc init`: start from the DSP's state (ring words = 0) */
+@@ -479,6 +499,8 @@ int main(int argc, char **argv) {
+         fclose(f);
+         if (outm)
+             fclose(outm);
++        if (outr)
++            fclose(outr);
+         return 0;
+     }
+     if (!strcmp(argv[1], "dump")) {          /* PROG dump OUT NOTE N [name=knob ...]: every value, every sample */
+diff --git a/sdk/s1cc/src/graph.cpp b/sdk/s1cc/src/graph.cpp
+index d1e6a4c..59a31e3 100644
+--- a/sdk/s1cc/src/graph.cpp
++++ b/sdk/s1cc/src/graph.cpp
+@@ -274,7 +274,7 @@ const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_in
+                                         "s1_color", "s1_lfo_filter", "s1_lfo_amp", "s1_host_mix",
+                                         "s1_range", "s1_floor", "s1_ceil", "s1_sign", "s1_abs", "s1_recip", "s1_exp",
+                                         "s1_log2", "s1_ldexp", "s1_sum3", "s1_mac2", "s1_sqrt", "s1_rsqrt",
+-                                        "s1_line_tap", "s1_line_write", "s1_vparam_get"};
++                                        "s1_line_tap", "s1_line_write", "s1_vparam_get", "s1_out_r", "s1_fx_noise"};
+ 
+ std::string intrinsicBase(const std::string &fn) { return fn.substr(5, fn.find('.', 5) - 5); }   // llvm.<base>.<type>
+ 
+@@ -954,8 +954,9 @@ struct Builder {
+             if (S.name != "M")
+                 fail("E124", "s1_line_tap in S1_DSP_" + S.name + " " + where(CI) + ": the delay memory is the master's (S1_MASTER)");
+             long line = constArg(0), k = constArg(2);
+-            if (line < 0 || line > 5 || k < 0 || k > 1)
+-                fail("E125", "s1_line_tap(" + std::to_string(line) + ", d, " + std::to_string(k) + "): line 0..5, k 0 or 1 " + where(CI));
++            if (line < 0 || line > 5 || k < 0 || k > 2)
++                fail("E125", "s1_line_tap(" + std::to_string(line) + ", d, " + std::to_string(k) + "): line 0..5, k 0, 1 "
++                             "or 2 (the request's fraction) " + where(CI));
+             Node *d = arg(1);
+             Node *&first = lineDelay[line];
+             if (first && first != d)
+@@ -964,7 +965,7 @@ struct Builder {
+             first = d;
+             Node *n = mk(NK::Op, fn, {d}, CI);
+             n->name = "L" + std::to_string(line) + ":" + std::to_string(k);
+-            n->c = (double)(line * 2 + k);
++            n->c = (double)(line * 4 + k);
+             vmap[CI] = n;
+             return;
+         }
+@@ -979,6 +980,26 @@ struct Builder {
+             S.lineWrites[line] = pred ? sel(pred, v, it != S.lineWrites.end() ? it->second : cst(0), v) : v;
+             return;
+         }
++        if (fn == "s1_fx_noise") {                        // MASTER_FX: the host's noise word from the slave (6008)
++            if (S.name != "M")
++                fail("E128", "s1_fx_noise in S1_DSP_" + S.name + " " + where(CI) + ": the noise of a master effect "
++                             "(S1_MASTER only)");
++            Node *&n = inputs[fn];
++            if (!n) {
++                n = mk(NK::Input, fn, {}, CI);
++                n->name = "noise";
++            }
++            vmap[CI] = n;
++            return;
++        }
++        if (fn == "s1_out_r") {                           // MASTER_FX: the effect's right output (ret = left)
++            if (S.name != "M")
++                fail("E128", "s1_out_r in S1_DSP_" + S.name + " " + where(CI) + ": the right output of a master effect "
++                             "(S1_MASTER only)");
++            Node *v = arg(0);
++            S.outR = pred ? sel(pred, v, S.outR ? S.outR : cst(0), v) : v;
++            return;
++        }
+         if (fn == "s1_param_get") {
+             long i = constArg(1);
+             // `c ? s1_param(a, i) : s1_param(b, i)`: clang merges the two calls into one on a select of the two
+@@ -1600,6 +1621,8 @@ void markLive(Program &P, Dsp &S) {
+         stack.push_back(kv.second);
+     for (auto &kv : S.lineWrites)
+         stack.push_back(kv.second);
++    if (S.outR)
++        stack.push_back(S.outR);
+     std::set<int> rooted;
+     for (bool more = true; more;) {
+         while (!stack.empty()) {
+@@ -1834,7 +1857,7 @@ void islands(Program &P, Dsp &S) {
+                 continue;
+             // outputs: members used outside the island (or DSP outputs)
+             for (Node *x : members) {
+-                bool outside = x == S.ret;
++                bool outside = x == S.ret || x == S.outR;
+                 for (auto &kv : S.exports)
+                     outside |= kv.second == x;
+                 for (Node *u : x->users)
+@@ -1965,6 +1988,8 @@ void deriveKnobColumns(Program &P) {
+             roots.insert(kv.second);
+         for (auto &kv : S->lineWrites)
+             roots.insert(kv.second);
++        if (S->outR)
++            roots.insert(S->outR);
+         for (int s : S->states)
+             if (P.states[s].final)
+                 roots.insert(P.states[s].final);
+diff --git a/sdk/s1cc/src/kernel.cpp b/sdk/s1cc/src/kernel.cpp
+index ac81b62..5c29027 100644
+--- a/sdk/s1cc/src/kernel.cpp
++++ b/sdk/s1cc/src/kernel.cpp
+@@ -334,7 +334,13 @@ KVal *Kernel::exp2split(KVal *t, double shift) {
+ 
+ KVal *Kernel::floor(KVal *x) { return op("floor {d}, {0}", {KOperand::of(x)}); }
+ KVal *Kernel::ceil(KVal *x) { return op("ceil {d}, {0}", {KOperand::of(x)}); }
+-KVal *Kernel::sign(KVal *x) { return op("sign {d}, {0}", {KOperand::of(x)}); }
++KVal *Kernel::sign(KVal *x) {
++    if (master) {   // master DSP B: only `sign rX, rX` ran (asm/master_b_forms.txt: `sign r3, r6` gave 0 for negative r6)
++        KVal *c = op("mov {d}, {0}", {KOperand::of(x)});
++        return op("sign {d}, {0}", {KOperand::of(c)}, c);
++    }
++    return op("sign {d}, {0}", {KOperand::of(x)});
++}
+ 
+ KVal *Kernel::shift(KVal *x, int k) {
+     // shl / shr: 2^k with |k| <= 15; shrn: 2^-(16 + j), j <= 15
+diff --git a/sdk/s1cc/src/lower.cpp b/sdk/s1cc/src/lower.cpp
+index 892749c..79159a1 100644
+--- a/sdk/s1cc/src/lower.cpp
++++ b/sdk/s1cc/src/lower.cpp
+@@ -1405,6 +1405,8 @@ struct Lowerer {
+                 x.V = Range{0, 1};
+             if (n->name == "host_mix")                // fused: the host's SUB x sub + NOISE x noise, -2 .. 2
+                 x.V = Range{-2, 2};
++            if (n->name == "noise")                   // MASTER_FX: the host's noise word, -1 .. 1
++                x.V = Range{-1, 1};
+             return x;
+         }
+         case NK::Increment: {
+@@ -1479,7 +1481,7 @@ struct Lowerer {
+         if (op == "recip")                      // no island chose it: recipseed and Newton
+             return recip(in(0), n->in[0]);
+         if (op == "s1_line_tap") {              // the line's request result (host: tapreq from the OS effect)
+-            int line = (int)n->c / 2, k = (int)n->c % 2;
++            int line = (int)n->c / 4, k = (int)n->c % 4;
+             if (!lineAgeStored.count(line)) {     // the request's age d / 16384, read by the host's request next sample
+                 lineAgeStored.insert(line);
+                 // stored at X and X + 1, as edm_wt.s stores its ages (the request block reads X + 1: either order
+@@ -1490,8 +1492,10 @@ struct Lowerer {
+                 K->store(age, "{LD:" + std::to_string(line) + "+1}");
+             }
+             LV r;
+-            r.r = K->load("{LT:" + std::to_string(line) + ":" + std::to_string(k) + "}", "tap");
++            r.r = K->load("{LT:" + std::to_string(line) + ":" + std::to_string(k) + "}", k == 2 ? "frac" : "tap");
+             r.V = rec;
++            if (k == 2)                           // the request's fraction: 0 .. 63/64 (the hardware's, 1/64)
++                r.V = Range{0, 1};
+             if (!r.V.seen())
+                 r.V = Range{-1, 1};
+             return r;
+@@ -2039,6 +2043,8 @@ struct Lowerer {
+                     k.store(materialize(val[n], 1, 0), "{LW:" + std::to_string(kv.first) + "}");
+             if (S.ret == n)
+                 k.store(materialize(val[n], 1, 0), "{OUT}");
++            if (S.outR == n)
++                k.store(materialize(val[n], 1, 0), "{OUTR}");
+         }
+         if (S.name == "A")
+             for (const std::string &in : inputsB) {          // inputs DSP B needs, passed through A
+@@ -2178,7 +2184,7 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
+             lines = std::max(lines, kv.first + 1);
+         for (auto &np : P.MB.nodes)
+             if (np->live && np->op == "s1_line_tap")
+-                lines = std::max(lines, (int)np->c / 2 + 1);
++                lines = std::max(lines, (int)np->c / 4 + 1);
+         if (P.MB.fn)
+             o << ".lines " << lines << "\n";
+     }
+diff --git a/sdk/s1cc/src/s1cc.h b/sdk/s1cc/src/s1cc.h
+index d4b8efd..1475372 100644
+--- a/sdk/s1cc/src/s1cc.h
++++ b/sdk/s1cc/src/s1cc.h
+@@ -105,6 +105,7 @@ struct Dsp {
+     Node *ret = nullptr;
+     std::map<int, Node *> exports;
+     std::map<int, Node *> lineWrites;   // M: s1_line_write(line, w): the value written into line `line` this sample
++    Node *outR = nullptr;        // M: s1_out_r(y): the right output of a master effect (MASTER_FX); ret = the left
+     std::vector<int> states;     // indices of the state words this DSP writes
+     std::vector<Island> islands; // candidates (several roots per bad node)
+ };

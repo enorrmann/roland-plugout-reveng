@@ -196,7 +196,11 @@ if [ -n "$PATCH_BANK" ]; then
     python3 "$ROOT/tools/s1_bank.py" --patch-memory "$PATCH_BANK" "$pscript" "$B/patch_memory.h" || exit 1
     pm="-DS1_PATCH_MEMORY -I$B"
 fi
-arm-none-eabi-gcc $CFLAGS $acust_0 $pm -I"$B/k0" -c "$HERE/model.c" -o "$B/region0.o"
+# FX_KERNEL (make_s1cc.py option, every kernel the same: one master program): region 0 maps the effect's lines and
+# writes its parameters (model.c EDM_LINES + MASTER_FX from k0's s1_programs.h)
+fx=""
+grep -q '^#define MASTER_FX 1' "$B/k0/s1_programs.h" && fx="-DEDM_LINES"
+arm-none-eabi-gcc $CFLAGS $acust_0 $pm $fx -I"$B/k0" -c "$HERE/model.c" -o "$B/region0.o"
 arm-none-eabi-ld -T "$HERE/link.ld" --defsym BASE=0x60800000 --defsym CODE=0x9000 "$B/region0.o" -o "$B/region0.elf"
 for r in 0 1; do
     arm-none-eabi-objcopy -O binary "$B/region$r.elf" "$B/region$r.bin"

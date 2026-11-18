@@ -1405,6 +1405,8 @@ struct Lowerer {
                 x.V = Range{0, 1};
             if (n->name == "host_mix")                // fused: the host's SUB x sub + NOISE x noise, -2 .. 2
                 x.V = Range{-2, 2};
+            if (n->name == "noise")                   // MASTER_FX: the host's noise word, -1 .. 1
+                x.V = Range{-1, 1};
             return x;
         }
         case NK::Increment: {
@@ -1479,7 +1481,7 @@ struct Lowerer {
         if (op == "recip")                      // no island chose it: recipseed and Newton
             return recip(in(0), n->in[0]);
         if (op == "s1_line_tap") {              // the line's request result (host: tapreq from the OS effect)
-            int line = (int)n->c / 2, k = (int)n->c % 2;
+            int line = (int)n->c / 4, k = (int)n->c % 4;
             if (!lineAgeStored.count(line)) {     // the request's age d / 16384, read by the host's request next sample
                 lineAgeStored.insert(line);
                 // stored at X and X + 1, as edm_wt.s stores its ages (the request block reads X + 1: either order
@@ -1490,8 +1492,10 @@ struct Lowerer {
                 K->store(age, "{LD:" + std::to_string(line) + "+1}");
             }
             LV r;
-            r.r = K->load("{LT:" + std::to_string(line) + ":" + std::to_string(k) + "}", "tap");
+            r.r = K->load("{LT:" + std::to_string(line) + ":" + std::to_string(k) + "}", k == 2 ? "frac" : "tap");
             r.V = rec;
+            if (k == 2)                           // the request's fraction: 0 .. 63/64 (the hardware's, 1/64)
+                r.V = Range{0, 1};
             if (!r.V.seen())
                 r.V = Range{-1, 1};
             return r;
@@ -2039,6 +2043,8 @@ struct Lowerer {
                     k.store(materialize(val[n], 1, 0), "{LW:" + std::to_string(kv.first) + "}");
             if (S.ret == n)
                 k.store(materialize(val[n], 1, 0), "{OUT}");
+            if (S.outR == n)
+                k.store(materialize(val[n], 1, 0), "{OUTR}");
         }
         if (S.name == "A")
             for (const std::string &in : inputsB) {          // inputs DSP B needs, passed through A
@@ -2178,7 +2184,7 @@ std::string lower(Program &P, const Profile &prof, const std::map<std::string, s
             lines = std::max(lines, kv.first + 1);
         for (auto &np : P.MB.nodes)
             if (np->live && np->op == "s1_line_tap")
-                lines = std::max(lines, (int)np->c / 2 + 1);
+                lines = std::max(lines, (int)np->c / 4 + 1);
         if (P.MB.fn)
             o << ".lines " << lines << "\n";
     }

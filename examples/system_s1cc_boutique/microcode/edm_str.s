@@ -448,3 +448,27 @@ mov r2, #0.0
 .for x in M_ZERO
     st r2, [{x:04x}]
 .endfor
+
+
+;; FX_KERNEL (make_s1cc.py master_fx): after the master effect (its left output in bank-0 word outl, its right in
+;; outr), both x VOLUME -> the OS effect's sends (the stock master's path: 6006 / 6007 x VOLUME), the effect's return
+;; -> the master out
+.fragment master_fx_sum outl outr
+ld r6, [{outl:04x}]
+ld r5, [{outr:04x}]
+ld r7, [c{M_VOLUME:03x}]
+mov r3, r3
+mul r6, r6, r7
+mul r5, r5, r7
+mov r3, r3
+st r6, [{FX_SEND[0]:04x}]
+st r5, [{FX_SEND[1]:04x}]
+ld r2, [{FX_RET[0]:04x}]
+ld r3, [{FX_RET[1]:04x}]
+mov r4, r4
+st r2, [{M_OUT[0]:04x}]
+st r3, [{M_OUT[1]:04x}]
+mov r2, #0.0
+.for x in M_ZERO
+    st r2, [{x:04x}]
+.endfor

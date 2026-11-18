@@ -274,7 +274,7 @@ const std::set<std::string> kS1Calls = {"s1_pitch", "s1_gate", "s1_trig", "s1_in
                                         "s1_color", "s1_lfo_filter", "s1_lfo_amp", "s1_host_mix",
                                         "s1_range", "s1_floor", "s1_ceil", "s1_sign", "s1_abs", "s1_recip", "s1_exp",
                                         "s1_log2", "s1_ldexp", "s1_sum3", "s1_mac2", "s1_sqrt", "s1_rsqrt",
-                                        "s1_line_tap", "s1_line_write", "s1_vparam_get"};
+                                        "s1_line_tap", "s1_line_write", "s1_vparam_get", "s1_out_r", "s1_fx_noise"};
 
 std::string intrinsicBase(const std::string &fn) { return fn.substr(5, fn.find('.', 5) - 5); }   // llvm.<base>.<type>
 
@@ -954,8 +954,9 @@ struct Builder {
             if (S.name != "M")
                 fail("E124", "s1_line_tap in S1_DSP_" + S.name + " " + where(CI) + ": the delay memory is the master's (S1_MASTER)");
             long line = constArg(0), k = constArg(2);
-            if (line < 0 || line > 5 || k < 0 || k > 1)
-                fail("E125", "s1_line_tap(" + std::to_string(line) + ", d, " + std::to_string(k) + "): line 0..5, k 0 or 1 " + where(CI));
+            if (line < 0 || line > 5 || k < 0 || k > 2)
+                fail("E125", "s1_line_tap(" + std::to_string(line) + ", d, " + std::to_string(k) + "): line 0..5, k 0, 1 "
+                             "or 2 (the request's fraction) " + where(CI));
             Node *d = arg(1);
             Node *&first = lineDelay[line];
             if (first && first != d)
@@ -964,7 +965,7 @@ struct Builder {
             first = d;
             Node *n = mk(NK::Op, fn, {d}, CI);
             n->name = "L" + std::to_string(line) + ":" + std::to_string(k);
-            n->c = (double)(line * 2 + k);
+            n->c = (double)(line * 4 + k);
             vmap[CI] = n;
             return;
         }
@@ -977,6 +978,26 @@ struct Builder {
             Node *v = arg(1);
             auto it = S.lineWrites.find(line);
             S.lineWrites[line] = pred ? sel(pred, v, it != S.lineWrites.end() ? it->second : cst(0), v) : v;
+            return;
+        }
+        if (fn == "s1_fx_noise") {                        // MASTER_FX: the host's noise word from the slave (6008)
+            if (S.name != "M")
+                fail("E128", "s1_fx_noise in S1_DSP_" + S.name + " " + where(CI) + ": the noise of a master effect "
+                             "(S1_MASTER only)");
+            Node *&n = inputs[fn];
+            if (!n) {
+                n = mk(NK::Input, fn, {}, CI);
+                n->name = "noise";
+            }
+            vmap[CI] = n;
+            return;
+        }
+        if (fn == "s1_out_r") {                           // MASTER_FX: the effect's right output (ret = left)
+            if (S.name != "M")
+                fail("E128", "s1_out_r in S1_DSP_" + S.name + " " + where(CI) + ": the right output of a master effect "
+                             "(S1_MASTER only)");
+            Node *v = arg(0);
+            S.outR = pred ? sel(pred, v, S.outR ? S.outR : cst(0), v) : v;
             return;
         }
         if (fn == "s1_param_get") {
@@ -1600,6 +1621,8 @@ void markLive(Program &P, Dsp &S) {
         stack.push_back(kv.second);
     for (auto &kv : S.lineWrites)
         stack.push_back(kv.second);
+    if (S.outR)
+        stack.push_back(S.outR);
     std::set<int> rooted;
     for (bool more = true; more;) {
         while (!stack.empty()) {
@@ -1834,7 +1857,7 @@ void islands(Program &P, Dsp &S) {
                 continue;
             // outputs: members used outside the island (or DSP outputs)
             for (Node *x : members) {
-                bool outside = x == S.ret;
+                bool outside = x == S.ret || x == S.outR;
                 for (auto &kv : S.exports)
                     outside |= kv.second == x;
                 for (Node *u : x->users)
@@ -1965,6 +1988,8 @@ void deriveKnobColumns(Program &P) {
             roots.insert(kv.second);
         for (auto &kv : S->lineWrites)
             roots.insert(kv.second);
+        if (S->outR)
+            roots.insert(S->outR);
         for (int s : S->states)
             if (P.states[s].final)
                 roots.insert(P.states[s].final);

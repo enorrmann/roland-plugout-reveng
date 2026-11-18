@@ -13,6 +13,7 @@
  * (note - 12) / 12; s1_wrap = ((x + 1) mod 2) - 1, s1_tri = 1 - 2 |wrap(-x - 1.5)|.
  */
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -116,8 +117,17 @@ float s1_line_tap(int line, float d, int k) {
     line = line < 0 ? 0 : line >= LINES ? LINES - 1 : line;
     float dd = g_ldset[line] ? g_ldprev[line] : d;
     g_ld[line] = d;
+    if (k == 2)                       /* the request's fraction: the hardware's, 1/64 truncated (MI-WT, docs Vol. VI
+                                         ch. 7 §3.3.3) */
+        return floorf((dd - floorf(dd)) * 64.0f) / 64.0f;
     long i = g_n - (long)floorf(dd) - 1 - (k & 1);
     return i < 0 ? 0.0f : g_line[line][i & (LINE_N - 1)];
+}
+/* MASTER_FX: the host's noise word (slave B's noise source, sent on 6008): here a uniform -1 .. 1 */
+static uint32_t g_fxn = 22222u;
+float s1_fx_noise(void) {
+    g_fxn = g_fxn * 1664525u + 1013904223u;
+    return (float)(int32_t)g_fxn * (1.0f / 2147483648.0f);
 }
 void s1_line_write(int line, float w) {
     if (line >= 0 && line < LINES)
@@ -185,6 +195,9 @@ float s1_param_get(const s1_param_desc *d, int i) {
     return 0;
 }
 void s1_export(int i, float v) { g_export[i & 127] = v; }
+static float g_outr;                    /* S1_MASTER's s1_out_r (MASTER_FX: the right output) */
+static int g_outr_set;
+void s1_out_r(float y) { g_outr = y; g_outr_set = 1; }
 float s1_import(int i) { return g_export[i & 127]; }
 /* s1_ldb5(i): the wavetable frame in bank 5 (A080..). Here (native reference / profiling / check) a band-limited saw
  * stands in for whatever the host / USB loader wrote; on the device the DSP reads the loaded frame. 127 points +
@@ -323,6 +336,7 @@ static void state_track(void) {
 
 /* one note: gate on with a note start at 0, off at `off`; returns the B output of the last sample */
 static FILE *outm;                      /* ref: S1_MASTER's output */
+static FILE *outr;                      /* ref: S1_MASTER's right output (s1_out_r; without it = the output) */
 static void run(double note, long n, long off, FILE *out) {
     g_pitch = note_pitch(note);
     g_note = (int)note;
@@ -345,10 +359,14 @@ static void run(double note, long n, long off, FILE *out) {
             fwrite(ab, sizeof ab, 1, out);
         }
         if (s1_master) {
+            g_outr_set = 0;
             float m = s1_master(b);
+            float r = g_outr_set ? g_outr : m;
             lines_step();
             if (outm)
                 fwrite(&m, sizeof m, 1, outm);
+            if (outr)
+                fwrite(&r, sizeof r, 1, outr);
         }
     }
 }
@@ -471,6 +489,8 @@ int main(int argc, char **argv) {
             char mpath[4096];
             snprintf(mpath, sizeof mpath, "%s.m", argv[2]);
             outm = fopen(mpath, "wb");
+            snprintf(mpath, sizeof mpath, "%s.r", argv[2]);
+            outr = fopen(mpath, "wb");
         }
         reset();
         if (__s1p_dspstart)          /* ref built by `s1cc init`: start from the DSP's state (ring words = 0) */
@@ -479,6 +499,8 @@ int main(int argc, char **argv) {
         fclose(f);
         if (outm)
             fclose(outm);
+        if (outr)
+            fclose(outr);
         return 0;
     }
     if (!strcmp(argv[1], "dump")) {          /* PROG dump OUT NOTE N [name=knob ...]: every value, every sample */

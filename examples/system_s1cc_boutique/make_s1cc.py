@@ -59,7 +59,7 @@ KDEF = s1kernel.Kernel.read(os.path.join(KERNEL, 'voice.s1k'))
 # an environment variable wins (examples/system_s1cc_boutique/README.md §1). NAME / MODEL_ID / PARAMLOG are build.sh's
 OPTIONS = ('NAME', 'MODEL_ID', 'SECT_N', 'PARAMLOG', 'ARM_CUSTOM', 'BUDGET', 'BUDGET_A', 'BUDGET_B', 'MAIN_BYTES', 'LFO_PITCH', 'MIX',
            'ENV_TMIN', 'ENV_TMAX', 'LFO_LUT', 'ENV_CURVE', 'ARM_ENV', 'ARM_LFO', 'ARM_WORDS', 'ARM_RAMP', 'ARM_FADE', 'ARM_DIAG', 'ARM_PROBE', 'ARM_P0', 'ARM_RAMPTEST',
-           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV', 'MONO_LEGATO', 'GATE_ACCENT', 'PANEL', 'VOICE_SECT_TEST', 'KV_WORDS')
+           'ARM_TICK', 'EDM_KS', 'EDM_TAP', 'EDM_GLIDE', 'EDM_CALL', 'EDM_ECF', 'EDM_LINES', 'EDM_STR_TAP', 'EDM_STR_NV', 'EDM_STR_PAD', 'EDM_STR_ONE', 'EDM_STR_COMB', 'EDM_STR_PL', 'EDM_STR_BLOWN', 'EDM_STR_BOWED', 'BOW_DIAG', 'EDM_WT', 'WT_SLAVE', 'WT_AGEFIX', 'WT_DIAGA', 'WT_MAXF', 'WT_CMOD', 'WT_CQ', 'WT_VTAG', 'WT_S2MROT', 'WT_WAV', 'WT_DIAG', 'WT_RDIST', 'WT_LINES', 'WT_LSUB', 'WT_FLATCH', 'WT_FLK', 'WT_FILLIDX', 'WT_SCALE2', 'SL_WT', 'SL_LOAD', 'WTL_WITNESS_TEST', 'SL_H67', 'SL_REV', 'SL_P', 'SL_VTAG', 'SL_L', 'SL_S', 'SL_MORPH', 'SL_C', 'SL_KOUT', 'SL_TBYTES', 'SL_ALIAS', 'M2S_PROBE', 'MA_MAIN', 'A_BLOCK0', 'B_OUT0', 'IDX_PROBE', 'EDM_BASE', 'EDM_RBASE', 'EDM_ENTRY', 'EDM_STEP', 'EDM_MAIN', 'MOD_DSP', 'CMOD_IDX', 'TRY_FORMS', 'PAIRS', 'SPLIT', 'KM_ALUGAP', 'WT_IAGE_TEST', 'WT_FILLCOV', 'MONO_LEGATO', 'GATE_ACCENT', 'PANEL', 'VOICE_SECT_TEST', 'KV_WORDS', 'FX_KERNEL')
 _bad = sorted(set(KDEF.options) - set(OPTIONS))
 if _bad:
     raise SystemExit(f'make_s1cc.py: S1_BUILD option(s) {", ".join(_bad)} unknown here (known: {" ".join(OPTIONS)})')
@@ -1192,6 +1192,37 @@ if EDM_ECF:
 # the ages the kernel stores), the kernel once per voice on master B (master_km), its tables written by region 0
 # (model.c STR_KM). Implies EDM_LINES=1 EDM_STR_ONE=1; lines per voice = the kernel's, voices = 6 // lines
 KM = 'M' in KDEF.dsps
+# FX_KERNEL=dir: a master EFFECT (README.md §1.9): an s1cc build whose S1_MASTER runs ONCE per sample on master B, on
+# the slave's mix (6006; L = R), after the voices and before the OS delay / reverb: its return value -> the left send,
+# s1_out_r -> the right one, s1_fx_noise = slave B's noise word (head_b puts it on 6008). Its lines, requests and
+# parameters are the KM frame's with one line voice (lines = the effect's, <= 6 requests per sample), so the voice
+# kernel and its voices stay as they are (the slaves still mix). Its S1_PARAM knobs (the CRUSHER knob for the
+# effects of the boutique ports) are master parameters, written by region 0 (model.c STR_KM, MASTER_FX)
+FX_KERNEL = opt('FX_KERNEL', '')
+MFX = bool(FX_KERNEL)
+if MFX:
+    if KM:
+        raise SystemExit('make_s1cc.py: FX_KERNEL with a voice kernel that has its own S1_MASTER: one master program')
+    if not os.path.isabs(FX_KERNEL):
+        FX_KERNEL = os.path.join(ROOT, FX_KERNEL) if not os.path.exists(FX_KERNEL) else os.path.abspath(FX_KERNEL)
+    if not os.path.exists(os.path.join(FX_KERNEL, 'voice.s1k')):
+        raise SystemExit(f'make_s1cc.py: FX_KERNEL={FX_KERNEL}: no voice.s1k (an s1cc build directory)')
+    FXDEF = s1kernel.Kernel.read(os.path.join(FX_KERNEL, 'voice.s1k'))
+    if 'M' not in FXDEF.dsps:
+        raise SystemExit(f'make_s1cc.py: FX_KERNEL={FX_KERNEL} has no S1_MASTER')
+    if FXDEF.vparams:
+        raise SystemExit('make_s1cc.py: FX_KERNEL: no S1_VOICE_PARAM in an effect (it runs once, not per voice)')
+    if 'IN:gate' in FXDEF.placeholders('M'):
+        raise SystemExit('make_s1cc.py: FX_KERNEL: no s1_gate in an effect (it runs once, not per voice)')
+    FXTAB = s1kernel.read_tables(os.path.join(FX_KERNEL, 'tables.txt'))
+MK, MTAB = (FXDEF, FXTAB) if MFX else (KDEF, KTAB)   # the master kernel: the voice's S1_MASTER, or the effect's
+FX_NOISE = 0x6008                               # MFX: slave B's noise word to the master (s1_fx_noise)
+MFX_NOISE = MFX and 'IN:noise' in FXDEF.placeholders('M')
+if MFX_NOISE:
+    if not HOST_LFO:
+        raise SystemExit('make_s1cc.py: FX_KERNEL reads s1_fx_noise: slave B\'s noise source runs only with the host LFO '
+                         '(HOST_LFO; ARM_CUSTOM or an LFO input of the voice)')
+    OUT_ZERO = [x for x in OUT_ZERO if x != FX_NOISE]   # head_b sends the noise there instead of 0
 # EDM_LINES=1: the frame of the master's own lines, whatever program runs on them
 EDM_LINES = opt('EDM_LINES', '0') == '1' or KM
 STR_W = 0x4040                                # bank-2 words 4040..407F (the OS uses 4001..402D, EDM_RES 402E..)
@@ -1234,6 +1265,12 @@ if KM:
         raise SystemExit('make_s1cc.py: a kernel with S1_MASTER is its own line program: no EDM_STR_COMB / _PL / _BLOWN / _BOWED')
     STR_ONE = True
     STR_LPV = max(1, KDEF.lines)
+if MFX:
+    if STR_COMB or STR_PL or STR_BLOWN or STR_BOWED or opt('EDM_LINES', '0') == '1':
+        raise SystemExit('make_s1cc.py: FX_KERNEL goes alone (no EDM_LINES / EDM_STR_*)')
+    STR_ONE = True
+    STR_LPV = max(1, FXDEF.lines)
+    STR_NV_OPT = 1                            # one line voice: the effect
 if STR_BOWED:
     STR_ONE = True
 BOW_SEED = (1.56749685, -0.65660134, 0.07958208)   # 1 / y on [0.75, 4.75]: c0 + c1 y + c2 y^2 (16 %), 2 Newton: 7e-4
@@ -1255,7 +1292,7 @@ if STR_ONE:
     STR_TAP = True
     if not STR_NV_OPT:
         STR_NV_OPT = 6 // STR_LPV
-if EDM_LINES and STR_TAP and STR_NV_OPT and STR_NV_OPT * (STR_LPV if STR_ONE else 2) > 6:
+if (EDM_LINES or MFX) and STR_TAP and STR_NV_OPT and STR_NV_OPT * (STR_LPV if STR_ONE else 2) > 6:
     raise SystemExit('make_s1cc.py: EDM_LINES: more than 6 of our tapreq per sample (8 hung the device, 6 ran, '
                      '2026-11-04, docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): fewer EDM_STR_NV or EDM_STR_ONE=1')
 STR1_S = 0x0300                               # master B bank 0: the one-pole states (the OS effect uses 0000..0033)
@@ -1604,14 +1641,17 @@ def km_ids():
     """{'gate': id, 'vcol': {(table, i): base id}, 'single': {key: id}}: key = ('P', name, i) / ('K', text)"""
     vcol, single, warn = {}, {}, []
     cols = KM_VCOLS + KM_VCOLS_NEW
-    for t in KDEF.vparams:
+    for t in MK.vparams:
         for i in range(t['count']):
             if len(vcol) >= len(cols):
                 raise SystemExit(f'make_s1cc.py: S1_MASTER: more than {len(cols)} S1_VOICE_PARAM columns')
             vcol[(t['name'], i)] = cols[len(vcol)]
-    keys = [('P', p['name'], i) for p in KDEF.mparams for i in range(p['count'])]
-    keys += [('K', m[2:]) for m in KDEF.placeholders('M') if m.startswith('K:')]
+    keys = [('P', p['name'], i) for p in MK.mparams for i in range(p['count'])]
+    keys += [('K', m[2:]) for m in MK.placeholders('M') if m.startswith('K:')]
     ids = KM_SINGLES + KM_SINGLES_NEW
+    if MFX:                                   # no voice columns, no gates: their ids (MP-PLSTRING wrote C020 / C028 /
+        ids = KM_SINGLES + [b + v for b in (0x20, 0x30, 0x40, 0x48, 0x28) for v in range(6)] + KM_SINGLES_NEW
+        # C030 / C040 / C048 + v, v = 0..5, and ran: proven master B parameter words) are free singles first
     if len(keys) > len(ids):
         raise SystemExit(f'make_s1cc.py: S1_MASTER: {len(keys)} parameters and constants, room for {len(ids)}')
     for k, i in zip(keys, ids):
@@ -1622,12 +1662,12 @@ def km_ids():
 def km_words():
     """bank-0 words of one voice's block: {key: offset} (states 2 words: stored at S, read at S + 1; the request
     ages 2: stored at both; scratch and OUT 1: written and read in the sample), and the block's size"""
-    st = KDEF.dsps['M']
+    st = MK.dsps['M']
     off, k = {}, 0
-    for x in KDEF.mstates:
+    for x in MK.mstates:
         off[f'S{x["index"]}'] = k
         k += 2
-    for j in range(KDEF.lines):
+    for j in range(MK.lines):
         off[f'LD:{j}'] = k
         k += 2
     if st.get('initflag'):
@@ -1637,6 +1677,9 @@ def km_words():
         off[f'T{j}'] = k
         k += 1
     off['OUT'] = k
+    if MFX:                                   # the effect's right output (s1_out_r)
+        off['OUTR'] = k + 1
+        return off, k + 2
     return off, k + 1
 
 
@@ -1655,11 +1698,11 @@ def km_addr(v):
         raise SystemExit('make_s1cc.py: S1_MASTER: the voices\' blocks pass the end of bank 0')
     ids = km_ids()
     addr = {key: base + o for key, o in off.items()}
-    addr.update({'XIN': 0x6006 + v, 'IN:gate': 0xC000 + ids['gate'] + v})
+    addr.update({'XIN': 0x6006 + v, 'IN:gate': 0xC000 + ids['gate'] + v, 'IN:noise': FX_NOISE})
     for j in range(STR_LPV):
         line = v * STR_LPV + j
         addr[f'LW:{j}'] = STR_W + 8 * line
-        for k in (0, 1):
+        for k in (0, 1, 2):                    # x0, x1, the request's fraction (1/64: edm_wt.s reads it so)
             addr[f'LT:{j}:{k}'] = STR_RES + 8 * line + k
     for (name, i), b in ids['vcol'].items():
         addr[f'V:{name}:{i}'] = 0xC000 + b + v
@@ -1744,9 +1787,18 @@ def master_km():
     off, size = km_words()
     L = []
     for v in range(str_nv()):
-        body = KDEF.place('M', km_addr(v))
+        body = MK.place('M', km_addr(v))
         L += [f';; S1_MASTER voice {v}'] + km_schedule(body, KM_ALUGAP)
     return L + frag('master_km_sum', outs=[KM_S + size * v + off['OUT'] for v in range(str_nv())])
+
+
+def master_fx():
+    """MFX: master B's main: the effect once on the slave's mix (6006), its left (OUT) / right (OUTR) x VOLUME to the
+    OS effect's sends (microcode/edm_str.s master_fx_sum)"""
+    off, size = km_words()
+    body = MK.place('M', km_addr(0))
+    return [';; FX_KERNEL: the master effect'] + km_schedule(body, KM_ALUGAP) + \
+        frag('master_fx_sum', outl=KM_S + off['OUT'], outr=KM_S + off['OUTR'])
 
 
 def km_header():
@@ -1755,8 +1807,8 @@ def km_header():
     ids = km_ids()
     out = [f'#define STR_KM 1\n#define KM_GATE 0x{ids["gate"]:02x}\n#define KM_STEPS {s1kernel.VSTEPS}']
     vb, vrows = [], []
-    for t in KDEF.vparams:
-        (pa, pb), cnt, vals = KTAB[t['name']]
+    for t in MK.vparams:
+        (pa, pb), cnt, vals = MTAB[t['name']]
         for i in range(cnt):
             vrows.append((ids['vcol'][(t['name'], i)], pa, pb, len(vb)))
             vb += [vals[r * cnt + i] / t['scales'][i] for r in range(len(vals) // cnt)]
@@ -1770,8 +1822,8 @@ def km_header():
     pb, prows, krows = [], [], []
     for key, i in ids['single'].items():
         if key[0] == 'P':
-            p = next(q for q in KDEF.mparams if q['name'] == key[1])
-            panel, cnt, vals = KTAB[key[1]]
+            p = next(q for q in MK.mparams if q['name'] == key[1])
+            panel, cnt, vals = MTAB[key[1]]
             prows.append((i, panel, len(pb)))
             pb += [vals[k * cnt + key[2]] / p['scale'] for k in range(256)]
         else:
@@ -1790,7 +1842,7 @@ def km_header():
         print('warning: S1_MASTER: master B parameters ' + ', '.join(f'C{0xC000 + i:04x}'[1:] for i in news)
               + ' never ran (make_s1cc.py KM_VCOLS / KM_SINGLES)')
     return '\n'.join(out)
-if EDM_LINES:
+if EDM_LINES or MFX:
     EDM_TAP = True                            # the main as written, one line per instruction (section())
     if EDM_ECF or EDM_CALL or opt('EDM_KS', '0') == '1':
         raise SystemExit('make_s1cc.py: EDM_LINES goes alone (not with EDM_ECF / EDM_CALL / EDM_KS)')
@@ -1822,7 +1874,7 @@ def edm_call_header(path):
                                              EDM_RBASE=int(opt('EDM_RBASE', '256'))))
              if EDM_CALL_MODE == 'write' else
              ('edm_call_block_idx', dict(EDM_RES=EDM_RES, EDM_AGE=EDM_ARGS['EDM_AGE'], EDM_HB=0x440000 // 16384))
-             if EDM_CALL_MODE == 'idx' else ('edm_wt_block', {}) if EDM_WT else ('edm_km_block', {}) if KM else ('edm_str_block1', {}) if STR_ONE else ('edm_str_block', {}) if STR_TAP else
+             if EDM_CALL_MODE == 'idx' else ('edm_wt_block', {}) if EDM_WT else ('edm_km_block', {}) if KM or MFX else ('edm_str_block1', {}) if STR_ONE else ('edm_str_block', {}) if STR_TAP else
              ('edm_call_block', dict(EDM_RES=EDM_RES, EDM_AGE=EDM_ARGS['EDM_AGE'])))
     for name, kw in (block, ('edm_call_site', {})):
         r = asm.assemble('\n'.join(frag(name, **kw)) + '\n', _ISA[0] if _ISA else None)
@@ -1844,6 +1896,8 @@ def prog_master():
         return frag('master_wt_s' if WT_SLAVE else 'master_wt')
     if KM:
         return master_km()
+    if MFX:
+        return master_fx()
     if EDM_LINES:
         return frag('master_bowed' if STR_BOWED else 'master_blown' if STR_BLOWN else 'master_pstr' if STR_PL else 'master_str1' if STR_ONE else 'master_str')
     if EDM_ECF and EDM_CALL_MODE == 'idx':
@@ -2202,7 +2256,7 @@ def str1_tables():
                                                             for v in range(256)])]
     if STR_PL:
         comb = [pl_tables()]
-    if KM:
+    if KM or MFX:
         comb = [km_header()]
     if STR_BLOWN:
         comb = [blown_tables()]
@@ -2300,8 +2354,10 @@ def header(progs):
                f'#define F_ONE 0x{float_bits(1.0):08x}u\n#define F_ZERO 0x00000000u\n'
                f'#define B5_PITCH {idx(PITCH[0])}\n#define B5_GATE {idx(GATE[0])}\n#define B5_TRIG {idx(TRIG[0])}\n'
                f'#define B5_DT {idx(DT[0])}\n#define B5_RDT {idx(RDT[0])}')
-    if EDM_LINES:
+    if EDM_LINES or MFX:
         out.append(str_header())
+    if MFX:
+        out.append('#define MASTER_FX 1   /* FX_KERNEL: one line voice (the effect); the assigner keeps all NV voices */')
     if EDM_WT:
         out.append(wt_header())
     out.append(f'#define SL_WT {int(SL_WT in ("b5", "b0"))}\n#define IDX_PROBE {int(IDX_PROBE)}')
@@ -3097,7 +3153,7 @@ def main():
     open(os.path.join(OUTDIR, 's1_programs.h'), 'w').write(header(progs))
     if SL_WT in ('b5', 'b0'):
         sl_header(os.path.join(OUTDIR, 'sl_wt.h'))
-    if EDM_CALL or (EDM_LINES and STR_TAP) or EDM_WT:
+    if EDM_CALL or ((EDM_LINES or MFX) and STR_TAP) or EDM_WT:
         edm_call_header(os.path.join(OUTDIR, 'edm_call.h'))
     tried = os.path.join(OUTDIR, 'try_forms.txt')
     if TRIED:                                      # what this build tests on the device (tools/proven_forms.py promote)

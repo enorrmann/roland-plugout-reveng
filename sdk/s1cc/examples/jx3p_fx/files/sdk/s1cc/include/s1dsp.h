@@ -1,0 +1,225 @@
+/* s1dsp.h: the C / C++ SDK of s1cc, the compiler from C / C++ to the microcode of the Roland BMC DSPs
+ * (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md). One source, compiled once by clang to LLVM IR, is used three ways:
+ *   - translated to microcode by s1cc (the s1_* functions below are intrinsics there);
+ *   - compiled natively with sdk/s1cc/runtime/s1rt.c: the reference the microcode is checked against, and the
+ *     knob tables (S1_PARAM functions run on the PC, for knob = 0..255);
+ *   - compiled natively with profiling calls inserted by s1cc: value ranges, overflows, tabulated functions.
+ *
+ * Program model. Each slave voice runs through two DSPs in series, A then B; the code of S1_DSP_A / S1_DSP_B is the
+ * program of ONE voice, copied 8 times (8 voices, each with its own copy of the state). When each part runs:
+ * docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.1.
+ *   S1_DSP_A { ... return y; }    slave DSP A, every sample, every voice (playing or not): the voice signal
+ *                                   (about -1..1), in place of the host's DCO1 + DCO2. All the oscillators go here
+ *   S1_DSP_B { ... return y; }    optional, slave DSP B, every sample, every voice; x = the host's voice signal
+ *                                   (what S1_DSP_A returned, after the host's OSC1 MIX / tremolo). B is the second
+ *                                   DSP, not a second oscillator: a filter / shaper of x; then the host's VCA, filter
+ *   file-scope variables (int or float, not const) = state of the voice (one ring word each; constant-index
+ *                                   arrays are fine: clang splits them)
+ *   file-scope const arrays = tables: a constant index is folded; a computed one becomes part of a function that
+ *                                   s1cc fits (polynomial, exp2 of a polynomial, with saturation)
+ *   S1_PARAM(name, panel_id, count) { out[0..count-1] = f(knob); }   a knob table: runs on the PC at build time,
+ *                                   for knob = 0..255. On the synth the ARM writes the knob's row into DSP
+ *                                   parameters: row 128 at load, then whenever the control moves.
+ *                                   panel_id: a SYSTEM-1 control, S1_OSC1_COLOR ... (s1panel.h, included here)
+ *   S1_INIT    { obj.Init(); ... }  optional: runs on the PC only, before the reference and every profiling
+ *                                   scenario; never on the DSP. The values it leaves in the state are the voice's
+ *                                   initial state on the DSP too (a first-sample correction, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §11.1).
+ *                                   Not a note-on: for that, s1_trig() in the voice
+ *
+ * Intrinsics:
+ *   s1_pitch()            pitch of the voice in octaves (4.75 = A 440; LFO and range applied by the host)
+ *   s1_increment()        phase step of that pitch for a phase -1..1: 2 f / 96000 (exp2 of the pitch on the DSP)
+ *   s1_dt(), s1_rdt()     f / 96000 (phase step for a phase 0..1) and its inverse, from per-note tables the host
+ *                         writes with the pitch (SYSTEM-S1CC: two loads, no exp2, no division)
+ *   s1_gate(), s1_trig()  gate 0 / 1; trigger: toggles 0 / 1 at every note start
+ *   s1_param(name, i)     value i of the knob table `name` (a DSP parameter C0xx the ARM writes)
+ *   s1_ldb5(i)            S1_DSP_A only: word i (0..126) of the wavetable frame in bank 5 (A080..), the frame the
+ *                         host / USB loader (docs/vol6_reference_designs_applications/mutable_memory.md §4.5) writes. One hset + ldb5 (an indexed bank-5
+ *                         load): the only way to read a run-time table by a computed index (a const array with a
+ *                         computed index is fitted as a function instead, §4.3). Build the oscillator in C: phase by
+ *                         s1_dt() (pitch mod already in it), two s1_ldb5 and interpolate. The native reference / check
+ *                         read a band-limited saw stand-in frame (the device reads the loaded frame)
+ *   s1_export(i, v), s1_import(i)   a value from S1_DSP_A to S1_DSP_B, same sample
+ *   s1_wrap(x)            x wrapped into [-1, 1)         
+ *   s1_clamp(x)           x limited to [-1, 1]
+ *   s1_tri(x)             1 - 2 |wrap(-x - 1.5)|         
+ *   s1_exp2(x)            2^x
+ *   s1_env(i)             S1_DSP_B only: envelope i of the host, 0..1 (SYSTEM-S1CC builds them in assembly on DSP B
+ *                         when a kernel uses them: 0 = AMP ATTACK / DECAY / SUSTAIN / RELEASE, 1 = FILTER A / D / S / R;
+ *                         examples/system_s1cc/README.md §3). The native reference and `check` give the gate
+ *   s1_arm(i)             S1_DSP_B only (or a fused kernel): word i (0..3) of the voice that the PLUG-OUT's ARM side
+ *                         writes (SYSTEM-S1CC-BOUTIQUE ARM_CUSTOM: ramp(P_ARM0 + 8 i + v, q), every 1 ms tick; the
+ *                         host copies DSP B parameter C(P_ARM0 + 8 i + v) to the voice each sample, as for s1_env).
+ *                         For per-voice values a kernel's ARM computation makes (e.g. a modulation source). The
+ *                         native reference and `check` give 0
+ *   S1_REF_INPUTS         optional, in the kernel: float s1_ref_pitch(float pitch) and / or
+ *                         float s1_ref_arm(int i, float pitch): what s1_pitch() / s1_arm(i) hold on the device for a
+ *                         note of pitch `pitch` (octaves), when the PLUG-OUT's ARM side writes them with another
+ *                         meaning (sdk/s1cc/examples/jx3p_ported: DCO2's step, a BLEP width). The native reference,
+ *                         the profile (s1cc's ranges come from it) and `check` use them; the DSP code never calls them
+ *   s1_color(i)           S1_DSP_A only: OSC1 (i = 0) / OSC2 (1) COLOR, 0..1, with its COLOR MOD source: MANUAL = the
+ *                         knob; LFO, PITCH ENV, FILTER ENV, AMP ENV, SUB OSC = knob x source (0..1). SYSTEM-S1CC makes
+ *                         the sources in assembly when a kernel uses s1_color (examples/system_s1cc/README.md §3.2).
+ *                         The native reference and `check` give the knob: color0=K / color1=K (default 128)
+ *   s1_lfo_filter()       the host's LFO -> FILTER (LFO TO FILTER x fade x lfo), octaves -4 .. +4: add it to the cutoff
+ *   s1_lfo_amp()          the host's LFO -> AMP (LFO TO AMP), a gain 0 .. 1: multiply the voice by it. Both on DSP A
+ *                         and DSP B; the native reference and `check` give 0 and 1. The host's LFO -> PITCH needs no
+ *                         call: s1_pitch, s1_increment, s1_dt and s1_rdt already carry it
+ *                         (examples/system_s1cc/README.md §3.3)
+ *   s1_range(x, lo, hi)   x, declaring its range: lo and hi go to s1cc as constants, and the profile must reach
+ *                         the call (a branch that always takes the same way leaves it unseen: docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2)
+ *
+ * Master DSP B and the delay memory (docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.5; SYSTEM-S1CC builds it with its frame EDM_LINES):
+ *   S1_MASTER { ... return y; }   optional: master DSP B, every sample, once per LINE VOICE (6 of them, as many as
+ *                                   the delay memory serves: 6 own requests per sample, docs/vol6_reference_designs_
+ *                                   applications/mutable_memory.md §3.3.5). x = what the voice's slave program
+ *                                   returned (S1_DSP_A / S1_DSP_B, sent to the master instead of the mix); y = the
+ *                                   voice's output, summed over the voices (x VOLUME) by the host. Its state words are
+ *                                   its own (one copy per voice, bank 0 of the master), not shared with A / B
+ *   s1_line_write(line, w)  S1_MASTER only: write w into the voice's delay line `line` (a constant, 0 .. 5; lines
+ *                         per voice x voices <= 6) this sample. Each line holds 16 384 samples
+ *   s1_line_tap(line, d, k) S1_MASTER only: w[n - d - 1 - k] of that line, k = 0 or 1 (two neighbours, for an
+ *                         interpolation: x0 + g (x1 - x0) is a delay of d + 1 + g). d: whole samples, 0 .. 16 380, the
+ *                         same d for both k of a line (ONE delay-memory request per line and sample). The request
+ *                         takes d of the previous sample (the host's tapreq reads the age the main stored then)
+ *   S1_VOICE_PARAM(name, count, panel_a, panel_b) { out[0..count-1] = f(note, ka, kb); }   a per-voice table: runs
+ *                         on the PC at build time for note = 0..127 and 8 steps of each knob (ka, kb = 0, 36, 73, ..,
+ *                         255; a panel_id of 0: no knob, always 128). On the synth region 0 writes the voice's row into
+ *                         master parameters at every note and when a knob changes step. What the DSP cannot compute
+ *                         (a tuning by bisection, atan2, a table per note) goes here. S1_MASTER only
+ *   s1_vparam(name, i)    value i of the voice's S1_VOICE_PARAM row
+ *   s1_gate() and s1_param(...) also work in S1_MASTER (a master parameter per voice / per table, region 0 writes
+ *   them); the other inputs do not reach the master.
+ *   A master EFFECT (SYSTEM-S1CC FX_KERNEL=dir, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.5.1): a
+ *   kernel whose S1_MASTER runs ONCE per sample on the slave's mix (x = the mix, the voices untouched), after the
+ *   voices and before the OS delay / reverb; its return value is the LEFT output and
+ *   s1_out_r(y)           S1_MASTER only: the RIGHT output (without it right = left)
+ *   s1_fx_noise()         S1_MASTER only: white noise -1 .. 1 (the host's noise source on slave B, sent on 6008: master
+ *                         B has no proven op for a noise of its own)
+ *   s1_line_tap(line, d, 2)  the request's own fraction of d (the hardware's, 1/64, truncated): x0 + f (x1 - x0) is a
+ *                         delay of d + 1 + f without a floor on the master (Roland's chorus reads its BBD so)
+ *   Its S1_DSP_A is only the test signal s1cc profiles the effect with (the host never runs it)
+ *
+ * Native ops: one call = the DSP's own op (docs/vol2_dsp_core_isa/core_architecture.md §5, measured exact on the SYSTEM-8 master with
+ * re/dspnative.py; docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §7.6 has the table, costs and limits). s1cc also uses them on its own where they are
+ * shorter (exp2, exp, divisions, floor, multiplies by big powers of two); these calls ask for them explicitly:
+ *   s1_floor(x), s1_ceil(x)   SFU floor / ceil, 1 op (|x| < 511)
+ *   s1_sign(x)            SFU sign: -1, 0, +1, 1 op
+ *   s1_abs(x)             |x|, 1 op (unit B)
+ *   s1_recip(x)           1/x: recipseed + 3 newton, 4 ops, 1e-8 (also what `a / x` compiles to)
+ *   s1_exp(x), s1_exp2(x) e^x, 2^x: up to +-8 octaves Taylor + 4 squarings; wider, expsplit + degree 6; 10 ops, 6e-8
+ *   s1_log2(x)            log2 x, x > 0: log2split + degree 6, 9 ops, 5e-6
+ *   s1_ldexp(x, k)        x 2^k, k a constant: free (a scale), or one shl / shr when materialized
+ *   s1_sum3(a, b, c)      a + b + c: sum8, 1 op
+ *   s1_mac2(a, b, c, d, e)  a b + c d + e (e may be 0): one MAC op (two products); a constant factor becomes the
+ *                         MAC's immediate coefficient (one register less)
+ *   s1_sqrt(x), s1_rsqrt(x)  sqrt x, 1/sqrt x, x > 0: sqrtsplit + 2 Newton steps, 11 / 13 ops, 2e-7
+ */
+#ifndef S1DSP_H_
+#define S1DSP_H_
+
+#ifdef __cplusplus
+#define S1_EXTERN extern "C"
+#else
+#define S1_EXTERN
+#endif
+
+#include "s1panel.h"
+
+typedef struct s1_param_desc {
+    const char *name;
+    int panel_id;
+    int count;
+    void (*fn)(int knob, float *out);
+} s1_param_desc;
+
+/* S1_IN: reads the voice's inputs, writes no memory (a store before the call reaches a load after it: wrappers that
+ * set a mode right before rendering fold, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.2). S1_FN: a function of its arguments only. */
+#define S1_IN __attribute__((pure, nothrow))
+#define S1_FN __attribute__((const, nothrow))
+S1_EXTERN S1_IN float s1_pitch(void);
+S1_EXTERN S1_IN float s1_increment(void);
+S1_EXTERN S1_IN float s1_dt(void);
+S1_EXTERN S1_IN float s1_rdt(void);
+S1_EXTERN S1_IN float s1_gate(void);
+S1_EXTERN S1_IN float s1_trig(void);
+S1_EXTERN S1_IN float s1_param_get(const s1_param_desc *param, int i);
+S1_EXTERN void s1_export(int i, float v);
+S1_EXTERN S1_IN float s1_import(int i);
+S1_EXTERN S1_IN float s1_ldb5(int i);
+S1_EXTERN S1_FN float s1_wrap(float x);
+S1_EXTERN S1_FN float s1_clamp(float x);
+S1_EXTERN S1_FN float s1_tri(float x);
+S1_EXTERN S1_FN float s1_exp2(float x);
+S1_EXTERN S1_FN float s1_range(float x, float lo, float hi);
+S1_EXTERN S1_FN float s1_floor(float x);
+S1_EXTERN S1_FN float s1_ceil(float x);
+S1_EXTERN S1_FN float s1_sign(float x);
+S1_EXTERN S1_FN float s1_abs(float x);
+S1_EXTERN S1_FN float s1_recip(float x);
+S1_EXTERN S1_FN float s1_exp(float x);
+S1_EXTERN S1_FN float s1_log2(float x);
+S1_EXTERN S1_FN float s1_ldexp(float x, int k);
+S1_EXTERN S1_FN float s1_sum3(float a, float b, float c);
+S1_EXTERN S1_FN float s1_mac2(float a, float b, float c, float d, float e);
+S1_EXTERN S1_FN float s1_sqrt(float x);
+S1_EXTERN S1_FN float s1_rsqrt(float x);
+S1_EXTERN S1_IN float s1_env(int i);
+S1_EXTERN S1_IN float s1_arm(int i);
+S1_EXTERN S1_IN float s1_color(int i);
+S1_EXTERN S1_IN float s1_lfo_filter(void);
+S1_EXTERN S1_IN float s1_lfo_amp(void);
+S1_EXTERN S1_IN float s1_line_tap(int line, float d, int k);
+S1_EXTERN void s1_line_write(int line, float w);
+S1_EXTERN void s1_out_r(float y);              /* S1_MASTER of a master effect (MASTER_FX): the right output */
+S1_EXTERN S1_IN float s1_fx_noise(void);       /* S1_MASTER of a master effect: the host's noise, -1 .. 1 */
+S1_EXTERN S1_IN float s1_host_mix(void);      /* only s1cc fuse calls it: the host's SUB / NOISE between A and B */
+
+#define s1_param(name, i) s1_param_get(&s1_param_desc_##name, (i))
+
+#define S1_PARAM(name, panel_id, count)                                                                      \
+    static void s1_param_fn_##name(int knob, float *out);                                                    \
+    __attribute__((used, section("s1_params"))) const s1_param_desc s1_param_desc_##name =                   \
+        { #name, panel_id, count, s1_param_fn_##name };                                                      \
+    static void s1_param_fn_##name(int knob, float *out)
+
+typedef struct s1_vparam_desc {
+    const char *name;
+    int panel_a, count;            /* the same places as s1_param_desc's panel_id, count (s1cc reads both alike) */
+    int panel_b;
+    void (*fn)(int note, int ka, int kb, float *out);
+} s1_vparam_desc;
+S1_EXTERN S1_IN float s1_vparam_get(const s1_vparam_desc *param, int i);
+#define s1_vparam(name, i) s1_vparam_get(&s1_vparam_desc_##name, (i))
+#define S1_VOICE_PARAM(name, count, panel_a, panel_b)                                                         \
+    static void s1_vparam_fn_##name(int note, int ka, int kb, float *out);                                   \
+    __attribute__((used, section("s1_vparams"))) const s1_vparam_desc s1_vparam_desc_##name =                \
+        { #name, panel_a, count, panel_b, s1_vparam_fn_##name };                                             \
+    static void s1_vparam_fn_##name(int note, int ka, int kb, float *out)
+#define S1_VOICE_STEPS 8           /* steps of each knob of an S1_VOICE_PARAM (knob >> 5) */
+
+/* S1_NOTE_RANGE(lo, hi): the MIDI notes the voice is played at (default 0..127). The profiling runs only those
+ * notes, so what only happens beyond them (Braids' CSAW: both edges in one sample above ~note 115) is not compiled */
+#define S1_NOTE_RANGE(lo, hi) \
+    S1_EXTERN __attribute__((used)) const int s1_note_range[2] = { (lo), (hi) }
+
+/* S1_BUILD("KEY=VALUE ..."): the host's build options, written to the kernel (.option KEY VALUE, docs/vol5_toolchain_compiler_sdk/s1cc_compiler_internals.md §3.3);
+ * SYSTEM-S1CC takes them as defaults of its variables (an environment variable wins). VALUE may be "quoted".
+ * S1_COMPILE("--regs 0,1,2,3 ..."): s1cc lower options, applied before the command line's. One of each per voice */
+#define S1_BUILD(opts) \
+    S1_EXTERN __attribute__((used)) const char s1_build_opts[] = opts
+#define S1_COMPILE(opts) \
+    S1_EXTERN __attribute__((used)) const char s1_compile_opts[] = opts
+
+/* S1_FIXED_STATES: every file-scope variable of the voice gets its state words in declaration order, with all its
+ * fields, also the ones this build does not use (otherwise: in order of first use). Voices built from one source with
+ * other code paths (SYSTEM-S1CC-BOUTIQUE wave pairs, one program each, swapped while the note plays) keep every state
+ * at the same word. Costs bank-0 words, no instructions. S1_DSP_A only (a fused voice) */
+#define S1_FIXED_STATES S1_EXTERN __attribute__((used)) const int s1_fixed_states = 1
+
+#define S1_DSP_A S1_EXTERN float s1_dsp_a(void)
+#define S1_INIT S1_EXTERN void s1_init(void)
+#define S1_DSP_B S1_EXTERN float s1_dsp_b(float x)
+#define S1_MASTER S1_EXTERN float s1_master(float x)
+
+#endif

@@ -20,7 +20,7 @@
 #define ARM_CUSTOM_CC_TABLE                    /* only the kernel's CC table (arm_custom_cc), not its ARM code */
 #include ARM_CUSTOM
 #endif
-#if defined(EDM_LINES) && defined(STR_NV) && STR_NV < NV
+#if defined(EDM_LINES) && defined(STR_NV) && STR_NV < NV && !defined(MASTER_FX)
 #undef NV
 #define NV STR_NV                                             /* EDM_STR_NV: the assigner plays only the strings */
 #endif
@@ -355,6 +355,17 @@ static void edm_call(void)
             edm_call_state = 3;
             return;
         }
+        /* this build's call and block already there (a patch change calls load again, the DSP running it): nothing
+           to write. Rewriting it live (site back, block, site again: three words each, not atomic for the DSP) hung
+           the device at patch changes now and then (JX-3P-S1 + jx3p_fx, 2026-11-18) */
+        int same = prog_hw(EDM_SITE + 4) == edm_call_site[2] && prog_hw(EDM_SITE + 6) == edm_call_site[3]
+                   && prog_hw(EDM_SITE + 8) == edm_call_site[4];
+        for (unsigned i = 0; same && i < sizeof edm_call_block / 2; i++)
+            same = prog_hw(EDM_BLOCK + 2 * (5 + i)) == edm_call_block[i];
+        if (same) {
+            edm_call_state = 2;
+            return;
+        }
         /* another build's call already there (power on since): the OS's words back at the site first, so that
            nothing calls the block while it is rewritten (2026-11-04: MP-EDMIDX then MP-EDMSTRT without power off) */
         for (unsigned i = 0; i < 5; i++)
@@ -439,6 +450,13 @@ static void edm_ecf(void)
 }
 #endif
 #ifdef EDM_LINES
+#ifdef MASTER_FX
+/* FX_KERNEL (make_s1cc.py MFX, README.md §1.9): the frame below with ONE line voice, the master effect on the mix;
+   the key assigner keeps its NV voices, this part counts the line voices (STR_NV = 1) */
+#pragma push_macro("NV")
+#undef NV
+#define NV STR_NV
+#endif
 /* EDM_LINES (docs/vol6_reference_designs_applications/mutable_memory.md §3.3.5): a Karplus-Strong string per voice on master B (microcode/edm_str.s), each
    in its own delay-memory line mapped the way EDM_ECF maps its two (above): voice v's write entry [STR_W + 8v] ->
    STR_A0 + v STR_DA and four read entries [STR_W + 8v + 1, 3, 5, 7] <- that address + d .. d + 3, table entries
@@ -466,6 +484,8 @@ static void str_reads(int v, int note)                        /* voice v's read 
 #ifdef STR_COMB
 static uint8_t comb_knob[2] = { 128, 192 };                   /* OSC1 COLOR, OSC2 COLOR */
 static void str_fb(int v) { str_prm(STR_PFB + v, str_res_bits[comb_knob[1]]); }
+#elif defined(MASTER_FX)
+static void str_fb(int v) { (void)v; }                       /* an effect has no gate (its ids are its singles) */
 #elif defined(STR_KM)
 static void str_fb(int v) { str_prm(KM_GATE + v, str_gate[v] ? F_ONE : F_ZERO); }   /* s1_gate() of S1_MASTER */
 #else
@@ -525,6 +545,15 @@ static void km_param(int id, int value)                       /* a knob: its mas
     km_val[i] = (uint8_t)value;
     if (edm_str_state != 1)
         return;
+#ifdef MASTER_FX
+    /* FX_KERNEL: every parameter and constant of the effect again, not only this knob's: the ones load wrote are
+       lost when the master program lands after load (2026-11-18, JX-3P-S1: the chorus and its hiss only came after a
+       note of voice 0, which writes them again). The OS sends the panel after load (resend_panel) and at every patch
+       change, so the effect's knob arrives after the program */
+    str_bright();
+    (void)old;
+    return;
+#endif
     for (int k = 0; k < KM_NP; k++)
         if (km_p_panel[k] == id)
             str_prm(km_p_id[k], km_pbits[km_p_off[k] + (unsigned)value]);
@@ -769,6 +798,9 @@ static void edm_str_param(int id, int value)                  /* m_param: the th
         for (int v = 0; v < NV; v++)
             str_fb(v);
 }
+#ifdef MASTER_FX
+#pragma pop_macro("NV")
+#endif
 #endif
 #if defined(PARAMLOG) && defined(EDM_LINES)
 static void param_log(int id, int flag, int value);
@@ -1857,8 +1889,14 @@ static void coarse_copy(void)
     }
 }
 
+#ifdef MASTER_FX
+static int fx_loaded;                                         /* m_load: edm_str done since the selection */
+#endif
 static int m_deinit(struct model *m)                          /* vt+0x04: the PLUG-OUT is left */
 {
+#ifdef MASTER_FX
+    fx_loaded = 0;
+#endif
     (void)m;
     coarse_wide(0);
     return 0;
@@ -1890,7 +1928,17 @@ static void m_load(struct model *m)                           /* vt+0x08 */
     edm_ecf();
 #endif
 #ifdef EDM_LINES
+#ifdef MASTER_FX
+    /* FX_KERNEL: a patch change calls load again with the DSPs running: the lines' map (FC3C) and the zeroed
+       parameters only at the first load after the PLUG-OUT was selected, afterwards only the effect's parameters */
+    if (fx_loaded)
+        str_bright();
+    else
+        edm_str();
+    fx_loaded = 1;
+#else
     edm_str();
+#endif
 #endif
 #ifdef EDM_WT
     wt_load();                                                /* (the request block: edm_call above, EDM_CALL) */
